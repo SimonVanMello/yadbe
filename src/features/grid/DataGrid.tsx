@@ -85,6 +85,8 @@ export interface DataGridProps {
   /** Shown in the rows area when there is no row. */
   emptyText?: string;
   copyExtras?: CopyExtras;
+  /** The selection's size (the block a copy produces) after it changes; `null`: no selection. */
+  onSelectionSize?: (size: { rows: number; cols: number } | null) => void;
 }
 
 type Hit =
@@ -122,6 +124,7 @@ export function DataGrid({
   footer,
   emptyText,
   copyExtras,
+  onSelectionSize,
 }: DataGridProps) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
@@ -618,6 +621,10 @@ export function DataGrid({
   const rowsSelected = countRows(selectedRowIntervals(selection, rowCount));
   const colsSelected = selectedColumns(selection, colCount).length;
   const number = new Intl.NumberFormat(locale);
+  const hasSelection = rowsSelected * colsSelected > 0;
+  useEffect(() => {
+    onSelectionSize?.(hasSelection ? { rows: rowsSelected, cols: colsSelected } : null);
+  }, [onSelectionSize, hasSelection, rowsSelected, colsSelected]);
   const focusCell =
     selection && rowCount > 0
       ? { row: selection.focus.row, col: order[selection.focus.col] ?? selection.focus.col }

@@ -5,6 +5,7 @@ import { Icon } from '../../ui/Icon';
 import { useConnection, useSession, stateOf } from '../connections/connectionStore';
 import { StateDot } from '../connections/StateDot';
 import { failedCount, isFailed, useStatementLog } from '../statement-log/statementLogStore';
+import { RunStatus } from './RunStatus';
 import styles from './StatusBar.module.css';
 
 /** Bottom bar (SPEC §4): state of the active tab's connection, the statement log toggle. */
@@ -22,6 +23,7 @@ export function StatusBar() {
   return (
     <footer className={styles.statusbar}>
       <div className={styles.left}>
+        <RunStatus />
         {connection ? (
           <>
             <StateDot state={state} decorative />

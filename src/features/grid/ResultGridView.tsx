@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 
 import { showError } from '../../app/errors/presentError';
 import { useI18nStore } from '../../i18n/i18n';
@@ -10,6 +10,7 @@ import { DataGrid } from './DataGrid';
 import { formatCount } from './formatCount';
 import type { ResultGridProps } from './ResultGrid';
 import { createResultRowSource } from './resultRowSource';
+import { useResultSelectionStore, type SelectionSize } from './resultSelectionStore';
 import styles from './ResultGrid.module.css';
 
 /** `ResultGrid` for one result id (remounted when the id changes). */
@@ -24,6 +25,21 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
   useLayoutEffect(() => {
     source.setRowCount(summary.rowCount);
   }, [source, summary.rowCount]);
+
+  useEffect(() => {
+    source.revive();
+    return () => {
+      source.dispose();
+      useResultSelectionStore.getState().clear(resultId);
+    };
+  }, [source, resultId]);
+
+  const onSelectionSize = useCallback(
+    (size: SelectionSize | null) => {
+      useResultSelectionStore.getState().report(resultId, size);
+    },
+    [resultId],
+  );
 
   const resume = (mode: ResumeMode) => {
     setResuming(true);
@@ -91,6 +107,7 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
       label={label ?? t('grid.label', { number: summary.statementIndex + 1 })}
       footer={footer}
       emptyText={status === 'streaming' ? undefined : t('grid.noRows')}
+      onSelectionSize={onSelectionSize}
     />
   );
 }
