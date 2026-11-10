@@ -1,0 +1,15 @@
+.list {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-3) var(--space-6);
+  width: 100%;
+  margin: 0;
+}
+
+.list dt {
+  color: var(--fg-secondary);
+}
+
+.list dd {
+  margin: 0;
+}

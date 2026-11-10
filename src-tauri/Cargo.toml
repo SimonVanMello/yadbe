@@ -1,0 +1,33 @@
+[package]
+name = "yadbe"
+version = "0.1.0"
+description = "yadbe, a fast cross-platform SQL database explorer"
+edition = "2024"
+license = "GPL-3.0-or-later"
+# specta 2.0.0-rc.25 needs 1.93 (debug_closure_helpers), Tauri 2.12 needs 1.90.
+rust-version = "1.93"
+default-run = "yadbe"
+publish = false
+
+[lib]
+name = "yadbe_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# An example, not a `[[bin]]`: the bundler ships every binary target of the package.
+[[example]]
+name = "export-bindings"
+path = "examples/export_bindings.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+specta = { version = "=2.0.0-rc.25" }
+specta-typescript = "0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

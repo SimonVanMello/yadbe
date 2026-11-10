@@ -1,0 +1,38 @@
+.content {
+  z-index: var(--z-tooltip);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: var(--tooltip-max-width);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-popover);
+  animation: fade-in var(--duration-normal) var(--easing-standard);
+}
+
+/* A flex item never shrinks below its longest unbreakable string (a path, a hash, a URL):
+   without this, such a string overflows the box instead of wrapping at max-width. */
+.body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.content > :not(.body) {
+  flex-shrink: 0;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Never over a drag (tab reorder, panel resize). */
+:global(body[data-dragging]) .content,
+:global(body[data-resizing]) .content {
+  display: none;
+}

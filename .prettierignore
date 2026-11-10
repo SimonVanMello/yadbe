@@ -1,0 +1,11 @@
+pnpm-lock.yaml
+src/ipc/bindings.ts
+src-tauri/target
+src-tauri/gen
+src-tauri/icons
+dist
+test-results
+playwright-report
+docs
+CLAUDE.md
+.claude

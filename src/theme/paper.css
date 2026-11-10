@@ -1,0 +1,66 @@
+/* B · Paper: default light theme. */
+[data-theme='paper'] {
+  color-scheme: light;
+
+  /* Surfaces */
+  --bg-app: #f6f5f2;
+  --bg-panel: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-hover: #f2f1ed;
+  --bg-active: #e9e7e1;
+  --bg-selected: #e7eefc;
+  --bg-input: #ffffff;
+  --bg-titlebar: #ecebe6;
+  --bg-scrim: rgb(30 35 45 / 0.18);
+
+  /* Text */
+  --fg-primary: #1f2328;
+  --fg-secondary: #57606a;
+  --fg-muted: #666d74;
+
+  /* Borders */
+  --border-subtle: #e6e4de;
+  --border-strong: #d6d3cb;
+
+  /* Disabled controls: flat and clearly inert, never a dimmed accent. */
+  --bg-disabled: #eceae5;
+  --fg-disabled: #9aa1a9;
+
+  /* Accent and semantic colors */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-fg: #ffffff;
+  --accent-soft: rgb(37 99 235 / 0.1);
+  --success: #11813a;
+  --warning: #a95d05;
+  --danger: #d52424;
+  --danger-soft: rgb(220 38 38 / 0.08);
+  --info: #2563eb;
+  --on-warning: #ffffff;
+
+  /* Connection environments (F-007): tag colors, readable as text and as a stripe. */
+  --env-dev: #11813a;
+  --env-staging: #a95d05;
+  --env-prod: #d52424;
+  --env-dev-soft: rgb(17 129 58 / 0.1);
+  --env-staging-soft: rgb(169 93 5 / 0.1);
+  --env-prod-soft: rgb(213 36 36 / 0.1);
+
+  /* Data grid cell states (SPEC §7): text/marker color and a background tint of each. */
+  --cell-modified: #a95d05;
+  --cell-inserted: #11813a;
+  --cell-deleted: #d52424;
+  --cell-null: #666d74;
+  --cell-modified-bg: rgb(169 93 5 / 0.1);
+  --cell-inserted-bg: rgb(17 129 58 / 0.1);
+  --cell-deleted-bg: rgb(213 36 36 / 0.1);
+
+  /* Syntax */
+  --syn-keyword: #7c3aed;
+  --syn-string: #15803d;
+  --syn-tag: #0e7490;
+  --syn-function: #b45309;
+
+  /* Elevation */
+  --shadow-popover: 0 12px 32px rgb(15 23 42 / 0.14);
+}

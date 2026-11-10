@@ -1,0 +1,8 @@
+# Toolchain for `mise install`. Tauri's system libraries (WebKitGTK, etc. on
+# Linux) are not managed here: see https://v2.tauri.app/start/prerequisites/
+[tools]
+node = "22"
+# Keep in sync with `packageManager` in package.json.
+pnpm = "10.28.0"
+# Cargo.toml requires rust-version >= 1.93.
+rust = { version = "stable", components = "clippy,rustfmt" }

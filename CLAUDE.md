@@ -59,10 +59,11 @@ docs/
 Created by task M0-1; keep this list up to date when scripts change.
 
 ```bash
-pnpm dev            # Frontend alone in the browser, mocked backend
-pnpm tauri dev      # Full app
+pnpm dev            # Frontend alone in the browser, mocked backend (VITE_MOCK=1), port 1430; primitives page at /#primitives
+pnpm tauri dev      # Full app (Vite on port 1420)
+pnpm build          # Typecheck + production build of the frontend
 pnpm check          # file name casing + ESLint + Prettier + typecheck + Vitest — must pass before any commit
-pnpm test:ui        # Playwright on `pnpm dev` (mocked backend), captures in test-results/
+pnpm test:ui        # Playwright on `pnpm dev` (mocked backend), captures in test-results/ (set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to reuse a preinstalled Chromium)
 pnpm bindings       # Regenerates src/ipc/bindings.ts from Rust
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 docker compose -f dev/compose.yml up -d   # PostgreSQL, SQL Server, MySQL for integration tests (YADBE_TEST_*_URL)

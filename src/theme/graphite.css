@@ -1,0 +1,66 @@
+/* A · Graphite: default dark theme. */
+[data-theme='graphite'] {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg-app: #0f1115;
+  --bg-panel: #14161b;
+  --bg-elevated: #1c1f26;
+  --bg-hover: #1d2027;
+  --bg-active: #23262f;
+  --bg-selected: #262a35;
+  --bg-input: #0f1115;
+  --bg-titlebar: #0b0c10;
+  --bg-scrim: rgb(0 0 0 / 0.35);
+
+  /* Text */
+  --fg-primary: #e6e8ee;
+  --fg-secondary: #a3a9b6;
+  --fg-muted: #8c919c;
+
+  /* Borders */
+  --border-subtle: #23262e;
+  --border-strong: #2f333d;
+
+  /* Disabled controls: flat and clearly inert, never a dimmed accent. */
+  --bg-disabled: #1b1e24;
+  --fg-disabled: #5c626e;
+
+  /* Accent and semantic colors */
+  --accent: #8b7cf6;
+  --accent-hover: #9d90f8;
+  --accent-fg: #0f1115;
+  --accent-soft: rgb(139 124 246 / 0.16);
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --danger-soft: rgb(248 113 113 / 0.14);
+  --info: #60a5fa;
+  --on-warning: #000000;
+
+  /* Connection environments (F-007): tag colors, readable as text and as a stripe. */
+  --env-dev: #34d399;
+  --env-staging: #fbbf24;
+  --env-prod: #f87171;
+  --env-dev-soft: rgb(52 211 153 / 0.14);
+  --env-staging-soft: rgb(251 191 36 / 0.14);
+  --env-prod-soft: rgb(248 113 113 / 0.14);
+
+  /* Data grid cell states (SPEC §7): text/marker color and a background tint of each. */
+  --cell-modified: #fbbf24;
+  --cell-inserted: #34d399;
+  --cell-deleted: #f87171;
+  --cell-null: #8c919c;
+  --cell-modified-bg: rgb(251 191 36 / 0.14);
+  --cell-inserted-bg: rgb(52 211 153 / 0.14);
+  --cell-deleted-bg: rgb(248 113 113 / 0.14);
+
+  /* Syntax */
+  --syn-keyword: #c4b5fd;
+  --syn-string: #86efac;
+  --syn-tag: #67e8f9;
+  --syn-function: #fcd34d;
+
+  /* Elevation */
+  --shadow-popover: 0 12px 40px rgb(0 0 0 / 0.5);
+}

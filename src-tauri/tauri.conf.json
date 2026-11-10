@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "yadbe",
+  "version": "0.1.0",
+  "identifier": "dev.tropico.yadbe",
+  "build": {
+    "beforeDevCommand": "pnpm dev:tauri",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "yadbe",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 560,
+        "backgroundColor": "#0f1115"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "yadbe contributors",
+    "copyright": "Copyright © 2026 the yadbe contributors",
+    "license": "GPL-3.0-or-later",
+    "homepage": "https://github.com/SimonVanMello/yadbe",
+    "category": "DeveloperTool",
+    "shortDescription": "Fast, cross-platform SQL database explorer",
+    "longDescription": "yadbe is a local SQL database explorer focused on ergonomics, safety and performance: connections, schema browser, SQL editor and data grid for PostgreSQL, SQL Server, MySQL and SQLite.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

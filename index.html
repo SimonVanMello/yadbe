@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>yadbe</title>
+    <!--
+      First-paint background, before the app CSS is loaded (it is injected by JS in dev).
+      Must match --bg-app in src/theme/graphite.css and paper.css.
+    -->
+    <style>
+      :root[data-theme='graphite'] {
+        background: #0f1115;
+        color-scheme: dark;
+      }
+      :root[data-theme='paper'] {
+        background: #f6f5f2;
+        color-scheme: light;
+      }
+    </style>
+    <!-- Classic blocking script (allowed by the CSP as 'self'): sets data-theme before first paint. -->
+    <script src="%BASE_URL%boot-theme.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
