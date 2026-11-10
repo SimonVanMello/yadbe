@@ -52,11 +52,26 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::store::save_tabs,
             commands::store::get_statement_log,
             commands::store::clear_statement_log,
+            commands::query::split_statements,
+            commands::query::statement_at,
+            commands::query::execute_query,
+            commands::query::cancel_query,
+            commands::query::resume_result,
+            commands::query::fetch_result_window,
+            commands::query::fetch_result_cell,
+            commands::query::get_query_tab,
+            commands::query::set_transaction_mode,
+            commands::query::commit_transaction,
+            commands::query::rollback_transaction,
+            commands::query::close_query_tab,
         ])
         .events(collect_events![
             events::AppReady,
             events::ConnectionStateChanged,
             events::StatementLogged,
+            events::QueryProgress,
+            events::QueryFinished,
+            events::TransactionStateChanged,
         ])
 }
 

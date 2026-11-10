@@ -23,6 +23,7 @@ import {
   MOCK_SERVER_VERSIONS,
 } from './mockData';
 import { mockErrors } from './mockErrors';
+import { createMockQuery } from './mockQuery';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
 const MOCK_APP_INFO: AppInfo = { appVersion: '0.1.0', os: 'linux', arch: 'x86_64' };
@@ -253,6 +254,15 @@ function createMockBackend() {
     if (sessions.get(connectionId)?.state !== 'reconnecting') return;
     setSession({ ...current, state: 'connected', error: null, reconnectAttempt: null });
   }
+
+  const query = createMockQuery({
+    events,
+    connection: findConnection,
+    session: (id) => sessions.get(id),
+    logStatement: (connectionId, connectionName, sql) => {
+      logStatement(connectionId, connectionName, sql);
+    },
+  });
 
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
@@ -565,6 +575,8 @@ function createMockBackend() {
       log = [];
       return ok(null);
     },
+
+    ...query.commands,
   };
 
   function reset(): void {
@@ -581,6 +593,7 @@ function createMockBackend() {
     nextId = 1;
     pending.clear();
     sessions.clear();
+    query.reset();
     clearReloadState();
     seed();
   }
@@ -642,6 +655,10 @@ function createMockBackend() {
     },
     /** Simulates a dropped link on an open connection, then the automatic reconnection. */
     dropConnection,
+    /** Time between two streamed batches of a query result, in ms (0 in unit tests). */
+    setQueryTick(ms: number): void {
+      query.setTick(ms);
+    },
     reset,
   };
 }

@@ -4,6 +4,7 @@
 mod connection;
 mod manager;
 mod model;
+pub mod query_model;
 pub mod statement_log;
 
 pub use connection::{ConnectionSession, SessionConfig};

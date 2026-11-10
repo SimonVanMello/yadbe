@@ -141,7 +141,7 @@ impl Fixture {
             .into_iter()
             .filter_map(|e| match e {
                 BackendEvent::ConnectionStateChanged(e) => Some(e.session),
-                BackendEvent::StatementLogged(_) => None,
+                _ => None,
             })
             .collect()
     }

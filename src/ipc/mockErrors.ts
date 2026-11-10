@@ -117,4 +117,53 @@ export const mockErrors = {
       "Cette chaîne de connexion n'est ni une URL, ni une chaîne ADO.NET, ni une URL JDBC.",
     ),
   cancelled: () => error('cancelled', 'Cancelled.', 'Annulé.'),
+  notConnected: () =>
+    error(
+      'notConnected',
+      'The connection is not open.',
+      "La connexion n'est pas ouverte.",
+      'reconnect',
+    ),
+  queryFailed: (detail: string) =>
+    error(
+      'queryFailed',
+      'The server rejected the statement.',
+      "Le serveur a refusé l'instruction.",
+      null,
+      detail,
+    ),
+  executionRunning: () =>
+    error(
+      'executionRunning',
+      'A query is already running in this tab. Wait for it or cancel it.',
+      'Une requête est déjà en cours dans cet onglet. Attendez-la ou annulez-la.',
+    ),
+  transactionOpen: () =>
+    error(
+      'transactionOpen',
+      'A transaction is open in this tab. Commit or roll it back first.',
+      "Une transaction est ouverte dans cet onglet. Validez-la ou annulez-la d'abord.",
+    ),
+  readOnlyViolation: (statement: string) =>
+    statement
+      ? error(
+          'readOnlyViolation',
+          `This connection is read-only: ${statement} may change data or the schema. Nothing was run.`,
+          `Cette connexion est en lecture seule : ${statement} peut modifier des données ou le schéma. Rien n'a été exécuté.`,
+          'editConnection',
+        )
+      : error(
+          'readOnlyViolation',
+          'This connection is read-only and yadbe cannot prove this statement only reads. Nothing was run.',
+          "Cette connexion est en lecture seule et yadbe ne peut pas garantir que cette instruction ne fait que lire. Rien n'a été exécuté.",
+          'editConnection',
+        ),
+  resultNotFound: (resultId: number) =>
+    error(
+      'resultNotFound',
+      'This result is no longer available. Run the query again.',
+      "Ce résultat n'est plus disponible. Relancez la requête.",
+      null,
+      `result id ${resultId}`,
+    ),
 };

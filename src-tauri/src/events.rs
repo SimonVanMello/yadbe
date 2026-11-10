@@ -8,6 +8,7 @@ use specta::Type;
 use tauri_specta::Event;
 
 use crate::session::SessionInfo;
+use crate::session::query_model::{ExecutionDelta, TransactionState};
 use crate::session::statement_log::StatementLogEntry;
 
 /// Emitted once the backend is ready; proves the event channel end to end.
@@ -31,11 +32,43 @@ pub struct StatementLogged {
     pub entry: StatementLogEntry,
 }
 
+/// An execution progressed: rows streamed, a result set or a message appeared, a statement
+/// started. Throttled (at most about ten per second per execution); apply `delta` in order.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryProgress {
+    pub tab_id: String,
+    pub execution_id: u32,
+    pub delta: ExecutionDelta,
+}
+
+/// An execution ended (`delta.status`: succeeded, failed or cancelled). Always the last
+/// event of an execution; carries what changed since the last `query-progress`.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryFinished {
+    pub tab_id: String,
+    pub execution_id: u32,
+    pub delta: ExecutionDelta,
+}
+
+/// A tab's transaction mode or status changed (statement run, commit, rollback, mode switch,
+/// connection lost).
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct TransactionStateChanged {
+    pub tab_id: String,
+    pub transaction: TransactionState,
+}
+
 /// Every event the services emit, so they can be tested without Tauri.
 #[derive(Debug, Clone)]
 pub enum BackendEvent {
     ConnectionStateChanged(ConnectionStateChanged),
     StatementLogged(StatementLogged),
+    QueryProgress(QueryProgress),
+    QueryFinished(QueryFinished),
+    TransactionStateChanged(TransactionStateChanged),
 }
 
 pub trait EventSink: Send + Sync {
@@ -83,6 +116,9 @@ impl EventSink for TauriSink {
         let result = match event {
             BackendEvent::ConnectionStateChanged(e) => e.emit(app),
             BackendEvent::StatementLogged(e) => e.emit(app),
+            BackendEvent::QueryProgress(e) => e.emit(app),
+            BackendEvent::QueryFinished(e) => e.emit(app),
+            BackendEvent::TransactionStateChanged(e) => e.emit(app),
         };
         if let Err(err) = result {
             tracing::warn!(error = %err, "failed to emit event");
