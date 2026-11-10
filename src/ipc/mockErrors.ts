@@ -1,4 +1,10 @@
-import type { ErrorAction, ErrorCode, YadbeError } from './bindings';
+import type {
+  ConstraintKind,
+  ConstraintViolation,
+  ErrorAction,
+  ErrorCode,
+  YadbeError,
+} from './bindings';
 
 function error(
   code: ErrorCode,
@@ -165,5 +171,46 @@ export const mockErrors = {
       "Ce résultat n'est plus disponible. Relancez la requête.",
       null,
       `result id ${resultId}`,
+    ),
+  tableNotEditable: (en: string, fr: string) => error('tableNotEditable', en, fr),
+  rowNotFound: (row: string) =>
+    error(
+      'rowNotFound',
+      `The row ${row} was changed or deleted by someone else since it was read. Nothing was applied: refresh the rows and try again.`,
+      `La ligne ${row} a été modifiée ou supprimée par quelqu'un d'autre depuis sa lecture. Rien n'a été appliqué : actualisez les lignes et réessayez.`,
+      'retry',
+    ),
+  rowNotUnique: (row: string, count: number) =>
+    error(
+      'rowNotUnique',
+      `The change of the row ${row} would affect ${count} rows: its identity is not unique. Nothing was applied.`,
+      `La modification de la ligne ${row} toucherait ${count} lignes : son identité n'est pas unique. Rien n'a été appliqué.`,
+    ),
+  constraintViolation: (violation: ConstraintViolation) => {
+    const kinds: Record<ConstraintKind, [string, string]> = {
+      unique: ['unique constraint', "la contrainte d'unicité"],
+      foreignKey: ['foreign key', 'la clé étrangère'],
+      check: ['check constraint', 'la contrainte de vérification'],
+      notNull: ['NOT NULL constraint', 'la contrainte NOT NULL'],
+      exclusion: ['exclusion constraint', "la contrainte d'exclusion"],
+    };
+    const [en, fr] = kinds[violation.kind];
+    const name = violation.name ? ` "${violation.name}"` : '';
+    const nameFr = violation.name ? ` « ${violation.name} »` : '';
+    const column = violation.column ? ` (column "${violation.column}")` : '';
+    const columnFr = violation.column ? ` (colonne « ${violation.column} »)` : '';
+    return error(
+      'constraintViolation',
+      `The change breaks the ${en}${name}${column}.`,
+      `La modification enfreint ${fr}${nameFr}${columnFr}.`,
+    );
+  },
+  invalidValue: (detail: string) =>
+    error(
+      'invalidValue',
+      'The database could not store a value in its column (format, range or length).',
+      "La base de données n'a pas pu enregistrer une valeur dans sa colonne (format, plage ou longueur).",
+      null,
+      detail,
     ),
 };

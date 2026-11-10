@@ -100,7 +100,8 @@ const PROGRESS_MS = 100;
 /** Default time between two streamed batches. */
 const DEFAULT_TICK_MS = 40;
 
-type Cell = readonly [ValueKind, string] | null;
+/** A cell as stored: its kind and lossless text, `null` for SQL `NULL`. */
+export type Cell = readonly [ValueKind, string] | null;
 
 interface MockColumn {
   meta: ColumnMeta;
@@ -1134,6 +1135,31 @@ export function createMockQuery(host: MockQueryHost) {
         total: result.total,
         value: (row, column) => cellValue(result.columns[column]?.cell(row) ?? null),
       };
+    },
+    /**
+     * Stores finished rows (table pages, M2-1) where `fetchResultWindow` / `fetchResultCell`
+     * read them, like the backend's shared result store; returns the result id.
+     */
+    storeRows(columns: readonly ColumnMeta[], rows: readonly (readonly Cell[])[]): number {
+      const data = rows.map((row) => [...row]);
+      const result: MockResult = {
+        id: nextResult++,
+        statementIndex: 0,
+        columns: columns.map((meta, c) => ({ meta, cell: (row) => data[row]?.[c] ?? null })),
+        total: data.length,
+        rowCount: data.length,
+        limitRows: DEFAULT_MAX_ROWS,
+        limitBytes: DEFAULT_MAX_BYTES,
+        rowBytes: 32 + columns.length * 14,
+        status: 'complete',
+        pausedBy: null,
+        resume: null,
+      };
+      results.set(result.id, result);
+      return result.id;
+    },
+    freeResults(ids: readonly number[]): void {
+      for (const id of ids) results.delete(id);
     },
     /** Time between two streamed batches, in ms (0 in unit tests). */
     setTick(ms: number): void {

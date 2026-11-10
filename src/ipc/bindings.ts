@@ -229,6 +229,50 @@ export const commands = {
 	cancelExport: (exportId: number) => typedError<null, YadbeError>(__TAURI_INVOKE("cancel_export", { exportId })),
 	/**  The first `limit` rows (at most 100) as the file will contain them, for the dialog's preview. */
 	previewExport: (source: ExportSourceSpec, format: ExportFormat, limit: number) => typedError<string, YadbeError>(__TAURI_INVOKE("preview_export", { source, format, limit })),
+	/**
+	 *  Opens `table` (a table, view or materialized view) in the table tab `tabId`: its columns,
+	 *  row identity and why it or its columns cannot be edited. Reads the cached metadata
+	 *  (`objectNotFound` when it no longer exists). Opening another table in the same tab
+	 *  replaces the previous one.
+	 */
+	openTableData: (tabId: string, connectionId: string, table: ObjectRef) => typedError<TableDataInfo, YadbeError>(__TAURI_INVOKE("open_table_data", { tabId, connectionId, table })),
+	/**
+	 *  Reads one page: `SELECT … WHERE <filter> ORDER BY <sort> <paging>` built by the dialect,
+	 *  values bound. Frees the tab's previous page. Fails with `invalidArgument` for an unknown
+	 *  column, a wrong number of filter values, a page size outside 1 to 50 000 or a raw
+	 *  `WHERE` holding several statements, `queryFailed` when the engine rejects it.
+	 */
+	fetchTablePage: (tabId: string, request: TablePageRequest) => typedError<TablePage, YadbeError>(__TAURI_INVOKE("fetch_table_page", { tabId, request })),
+	/**
+	 *  Counts the rows matching `filter`: an estimate from the engine's statistics, or an exact
+	 *  `COUNT(*)` (cancellable).
+	 */
+	countTableRows: (tabId: string, filter: TableFilter, mode: CountMode) => typedError<TableRowCount, YadbeError>(__TAURI_INVOKE("count_table_rows", { tabId, filter, mode })),
+	/**
+	 *  Reads rows again by their identity (after an apply, or to show changes made elsewhere).
+	 *  Fails with `tableNotEditable` when the table has no row identity.
+	 */
+	refreshTableRows: (tabId: string, keys: Value[][]) => typedError<RefreshedRows, YadbeError>(__TAURI_INVOKE("refresh_table_rows", { tabId, keys })),
+	/**
+	 *  Cancels the tab's running statement (page, count, refresh or apply) with the engine's
+	 *  native mechanism. Does nothing when nothing runs.
+	 */
+	cancelTableData: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("cancel_table_data", { tabId })),
+	/**  The table tab closed: cancels what runs, closes its connection and frees its rows. */
+	closeTableData: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("close_table_data", { tabId })),
+	/**
+	 *  The statements Apply would run for `changes`, as readable SQL (values written as
+	 *  literals). Runs nothing. Fails with `invalidArgument` for an unknown or read-only column,
+	 *  a key of the wrong length or an empty change set.
+	 */
+	previewTableChanges: (tabId: string, changes: ChangeSet) => typedError<EditPreview, YadbeError>(__TAURI_INVOKE("preview_table_changes", { tabId, changes })),
+	/**
+	 *  Applies `changes` in one transaction. A failing statement rolls everything back and is
+	 *  reported as `rolledBack` (not as an error); errors are for what prevents starting (not
+	 *  editable, read-only, not connected, invalid change set). On success, emits
+	 *  `table-data-changed` and returns the inserted rows as stored.
+	 */
+	applyTableChanges: (tabId: string, changes: ChangeSet) => typedError<ApplyOutcome, YadbeError>(__TAURI_INVOKE("apply_table_changes", { tabId, changes })),
 };
 
 /** Events */
@@ -242,6 +286,7 @@ export const events = {
 	queryFinished: makeEvent<QueryFinished>("query-finished"),
 	queryProgress: makeEvent<QueryProgress>("query-progress"),
 	statementLogged: makeEvent<StatementLogged>("statement-logged"),
+	tableDataChanged: makeEvent<TableDataChanged>("table-data-changed"),
 	transactionStateChanged: makeEvent<TransactionStateChanged>("transaction-state-changed"),
 };
 
@@ -259,6 +304,21 @@ export type AppInfo = {
 export type AppReady = {
 	appVersion: string,
 };
+
+/**  A statement that ran. */
+export type AppliedStatement = {
+	change: PlannedChange,
+	/**  Rows changed (always 1 for an update or a delete). */
+	rowsAffected: number | null,
+	durationMs: number | null,
+};
+
+/**  How an apply ended. */
+export type ApplyOutcome = 
+/**  Every statement ran and the transaction was committed. */
+{ status: "applied"; statements: AppliedStatement[]; inserted: InsertedRows; durationMs: number | null } | 
+/**  A statement failed: the transaction was rolled back, nothing changed. */
+{ status: "rolledBack"; failure: StatementFailure };
 
 /**  How the user authenticates. */
 export type AuthMethod = 
@@ -326,10 +386,45 @@ export type CatalogSchema = {
 	system: boolean,
 };
 
+/**  A new value for one cell of an existing row. */
+export type CellUpdate = {
+	/**  The row, by its identity as last read. */
+	key: Value[],
+	column: string,
+	value: Value,
+};
+
+/**
+ *  Everything the grid buffered for one table (F-084). Cell updates of the same row are
+ *  merged into one `UPDATE` (the last value of a cell wins); updates of a deleted row are
+ *  dropped. Statements run deletes first, then updates, then inserts, so a deleted key or
+ *  unique value can be reused.
+ */
+export type ChangeSet = {
+	updates: CellUpdate[],
+	inserts: RowInsert[],
+	deletes: Value[][],
+};
+
 export type CheckConstraint = {
 	name: string | null,
 	/**  The condition, without the `CHECK` keyword. */
 	expression: string,
+};
+
+/**
+ *  One condition on one column. Values are bound as parameters, never written into the SQL;
+ *  the engine converts them to the column's type (a `text` value for a `uuid` column is
+ *  fine).
+ */
+export type ColumnFilter = {
+	column: string,
+	op: FilterOp,
+	/**
+	 *  None for `isNull` / `isNotNull`, two for `between`, at least one for `in`, one
+	 *  otherwise.
+	 */
+	values: Value[],
 };
 
 export type ColumnInfo = {
@@ -363,9 +458,34 @@ export type ColumnMeta = {
 	kind: ValueKind,
 };
 
+/**  Why a column cannot be written (updated, or given a value in an inserted row). */
+export type ColumnReadOnlyReason = 
+/**  The table is read-only (see the table's reasons). */
+"table" | 
+/**  Identity the server always generates (`GENERATED ALWAYS`, SQL Server `IDENTITY`). */
+"identity" | 
+/**  Computed column (`GENERATED ALWAYS AS (…)`, SQL Server computed column). */
+"generated" | 
+/**  Row version maintained by the server (SQL Server `rowversion` / `timestamp`). */
+"rowVersion" | 
+/**
+ *  A type yadbe shows as text but cannot write back exactly (SQL Server `sql_variant`,
+ *  CLR types such as `geography` or `hierarchyid`).
+ */
+"unsupportedType";
+
 export type ColumnRef = {
 	table: ObjectRef,
 	column: string,
+};
+
+/**
+ *  A column and the value to write in it (`{ kind: "null" }` for `NULL`). The value's kind
+ *  may differ from the column's: the engine converts it (text typed for a `uuid` column).
+ */
+export type ColumnValue = {
+	column: string,
+	value: Value,
 };
 
 /**
@@ -468,6 +588,31 @@ export type ConnectionStateChanged = {
 
 export type ConnectionStringFormat = "url" | "adoNet" | "jdbc";
 
+/**  Kinds of constraints a change can break. */
+export type ConstraintKind = 
+/**  Primary key, unique constraint or unique index. */
+"unique" | "foreignKey" | "check" | "notNull" | 
+/**  PostgreSQL exclusion constraint. */
+"exclusion";
+
+/**  A constraint a statement broke, as far as the engine names it. */
+export type ConstraintViolation = {
+	kind: ConstraintKind,
+	/**  The constraint or index name, when the engine gives it. */
+	name: string | null,
+	/**  The column, when the engine gives it (always for `notNull`). */
+	column: string | null,
+};
+
+export type CountMode = 
+/**
+ *  From the engine's statistics (fast, approximate): PostgreSQL plans the filtered
+ *  query, SQL Server reads its partition counts (without the filter), SQLite has none.
+ */
+"estimate" | 
+/**  `COUNT(*)` with the filter: exact, can take a while, cancellable. */
+"exact";
+
 export type CsvDelimiter = "comma" | "semicolon" | "tab";
 
 export type CsvOptions = {
@@ -511,6 +656,14 @@ export type DatabaseInfo = {
 };
 
 export type Density = "comfortable" | "compact";
+
+/**  The SQL Apply would run (F-085). */
+export type EditPreview = {
+	/**  In the order they run. */
+	statements: PlannedStatement[],
+	/**  The whole transaction as one script: the engine's `BEGIN`, the statements, `COMMIT`. */
+	script: string,
+};
 
 /**  Database engines yadbe knows. Every engine has a dialect; drivers arrive one by one. */
 export type Engine = "postgres" | "mssql" | "mysql" | "sqlite";
@@ -621,7 +774,29 @@ export type ErrorCode =
 /**  The disk has no room left for the file being written (exports). */
 "diskFull" | 
 /**  The operating system refused to write the file. */
-"permissionDenied";
+"permissionDenied" | 
+/**
+ *  The table cannot be edited (view, no row identity, read-only column…): see the
+ *  table's read-only reasons.
+ */
+"tableNotEditable" | 
+/**
+ *  An `UPDATE` / `DELETE` of one row found no row: it was changed or deleted by someone
+ *  else since it was read. Nothing was applied.
+ */
+"rowNotFound" | 
+/**
+ *  An `UPDATE` / `DELETE` of one row matched several: the row identity is not unique.
+ *  Nothing was applied.
+ */
+"rowNotUnique" | 
+/**  The change breaks a constraint (unique, foreign key, check, not null). */
+"constraintViolation" | 
+/**
+ *  The engine could not convert a value for its column (bad format, out of range, too
+ *  long).
+ */
+"invalidValue";
 
 export type ExecuteRequest = {
 	/**  The editor tab: it owns a dedicated server connection, opened on its first run. */
@@ -748,6 +923,24 @@ export type ExportStarted = {
 
 export type ExportStatus = "done" | "failed" | "cancelled";
 
+/**  Comparison of a column filter (F-081). */
+export type FilterOp = 
+/**  `=`, one value. */
+"eq" | 
+/**  `<>`, one value. Rows where the column is `NULL` do not match (SQL semantics). */
+"ne" | "lt" | "le" | "gt" | "ge" | 
+/**
+ *  The column's text contains the value, case-insensitively (`LIKE` / `ILIKE` with the
+ *  wildcards of the value escaped). Any column type: it is compared as text.
+ */
+"contains" | "startsWith" | "endsWith" | 
+/**  One of the values (at least one). */
+"in" | 
+/**  No value. */
+"isNull" | "isNotNull" | 
+/**  Two values, both bounds included. */
+"between";
+
 export type ForeignKey = {
 	name: string | null,
 	columns: string[],
@@ -863,6 +1056,21 @@ export type IndexInfo = {
 	predicate: string | null,
 	/**  The `CREATE INDEX` statement, when the engine keeps or rebuilds it. */
 	definition: string | null,
+};
+
+/**
+ *  The rows the inserts created, as stored (defaults, identities and computed values
+ *  filled in), columns as in a page.
+ */
+export type InsertedRows = {
+	/**  Kept in the backend until the tab reads another page or closes. */
+	window: ResultWindow,
+	/**
+	 *  For each `ChangeSet.inserts` entry, its row in `window`; `null` when the engine
+	 *  could not return it (SQL Server table with triggers and no key value to read it
+	 *  back): refresh the page.
+	 */
+	positions: (number | null)[],
 };
 
 export type JsonLayout = 
@@ -1028,6 +1236,25 @@ export type ParsedConnectionString = {
 
 export type PauseReason = "rowLimit" | "memoryLimit";
 
+/**  What a planned statement does, pointing back into the change set. */
+export type PlannedChange = { kind: "update"; key: Value[]; 
+/**  Indices into `ChangeSet.updates` merged into this statement. */
+updates: number[] } | { kind: "insert"; 
+/**  Index into `ChangeSet.inserts`. */
+insert: number } | { kind: "delete"; key: Value[]; 
+/**  Index into `ChangeSet.deletes`. */
+delete: number };
+
+/**
+ *  One statement of a plan, as readable SQL: values are written as literals for reading only
+ *  (the statement that runs binds them as parameters). The statement log shows the same
+ *  text.
+ */
+export type PlannedStatement = {
+	change: PlannedChange,
+	sql: string,
+};
+
 /**  App preferences (F-125). More fields arrive with the preferences screen (M2-8). */
 export type Preferences = {
 	theme: ThemePreference,
@@ -1080,6 +1307,17 @@ export type QueryTabInfo = {
 	database: string | null,
 	/**  The running or last execution. */
 	execution: ExecutionSnapshot | null,
+};
+
+/**  Rows read again by their identity (after an apply). */
+export type RefreshedRows = {
+	/**
+	 *  The rows found, columns as in a page; kept in the backend until the tab reads another
+	 *  page or closes (long cells: `fetch_result_cell` on `window.resultId`).
+	 */
+	window: ResultWindow,
+	/**  For each requested key, its row in `window`, `null` when it no longer exists. */
+	positions: (number | null)[],
 };
 
 export type RelationSummary = {
@@ -1149,6 +1387,11 @@ export type RoutineSignature = {
 	returnType: string | null,
 	language: string | null,
 	aggregate: boolean,
+};
+
+/**  A new row. Columns left out take their default (or identity, or computed value). */
+export type RowInsert = {
+	values: ColumnValue[],
 };
 
 /**  A connection as saved in the app database. Never contains a secret. */
@@ -1260,6 +1503,13 @@ export type SessionInfo = {
 	reconnectAttempt: number | null,
 };
 
+export type SortDirection = "asc" | "desc";
+
+export type SortKey = {
+	column: string,
+	direction: SortDirection,
+};
+
 export type StatementCompleted = {
 	durationMs: number | null,
 	/**  Rows changed by a DML statement, when the engine says. */
@@ -1279,6 +1529,30 @@ export type StatementError = {
 	server: ServerMessage | null,
 	/**  Where the server located the error, in the editor text (F-061). */
 	position: TextPosition | null,
+};
+
+/**  Why a statement failed; the whole change set was rolled back. */
+export type StatementFailure = {
+	/**
+	 *  Index into the preview's statements; `null` when the `COMMIT` failed (a deferred
+	 *  constraint).
+	 */
+	statementIndex: number | null,
+	change: PlannedChange | null,
+	/**  The statement, as in the preview (or `COMMIT`). */
+	sql: string,
+	/**
+	 *  `rowNotFound` (0 rows: changed or deleted by someone else), `rowNotUnique` (several
+	 *  rows), `constraintViolation`, `invalidValue`, `queryFailed`, `cancelled`,
+	 *  `connectionLost`…
+	 */
+	error: YadbeError,
+	/**  The server's own message, when the server raised the error. */
+	server: ServerMessage | null,
+	/**  The constraint broken, for `constraintViolation`. */
+	violation: ConstraintViolation | null,
+	/**  Rows the statement matched, for `rowNotFound` / `rowNotUnique`. */
+	rowsAffected: number | null,
 };
 
 export type StatementLogEntry = {
@@ -1310,6 +1584,66 @@ export type TabKind =
 /**  Data of one table. */
 "table";
 
+/**  A column of a table tab, in the order of the table (and of the page windows). */
+export type TableColumn = {
+	name: string,
+	/**  Type as the engine prints it (`character varying(100)`, `decimal(10,2)`). */
+	typeName: string,
+	/**  The value kind cells of this column have, and the kind an edited value should have. */
+	kind: ValueKind,
+	nullable: boolean,
+	/**  Default expression, as written in the catalog. */
+	default: string | null,
+	/**
+	 *  An inserted row that leaves this column out gets a value from the server (default,
+	 *  identity, computed, `NULL` for a nullable column…): `false` means the user must give
+	 *  one.
+	 */
+	optionalOnInsert: boolean,
+	primaryKey: boolean,
+	/**  `null`: the column can be updated and given a value on insert. */
+	readOnlyReason: ColumnReadOnlyReason | null,
+	/**  Labels of an enum column, in their sort order (PostgreSQL); `null` otherwise. */
+	enumValues: string[] | null,
+};
+
+/**
+ *  Changes were applied to a table (M2-2): table tabs showing it, in this tab or another,
+ *  should read their rows again.
+ */
+export type TableDataChanged = {
+	connectionId: string,
+	table: ObjectRef,
+	/**  The table tab that applied them. */
+	tabId: string,
+	/**  Rows updated, inserted and deleted. */
+	updated: number,
+	inserted: number,
+	deleted: number,
+};
+
+/**  A table or view opened in a table tab. */
+export type TableDataInfo = {
+	table: ObjectRef,
+	kind: ObjectKind,
+	columns: TableColumn[],
+	/**
+	 *  The columns whose values identify a row (primary key, else a unique key on non-null
+	 *  columns): `RowKey`s list their values in this order. `null`: rows cannot be told
+	 *  apart.
+	 */
+	rowIdentity: string[] | null,
+	/**  Empty: the table can be edited. */
+	readOnlyReasons: TableReadOnlyReason[],
+	/**
+	 *  The order of a page requested without sort: the row identity, ascending. Empty when
+	 *  there is none (the engine's order, not guaranteed stable between pages).
+	 */
+	defaultOrder: SortKey[],
+	/**  The planner's estimate from the cached metadata, when the engine has one. */
+	rowEstimate: number | null,
+};
+
 /**
  *  Everything the explorer shows below a table, view or materialized view (F-021), and
  *  what script generation and editing need.
@@ -1330,9 +1664,77 @@ export type TableDetails = {
 	triggers: TriggerInfo[],
 };
 
+/**  What rows a page, a count or a refresh reads. */
+export type TableFilter = {
+	/**  Combined with `AND`. */
+	conditions: ColumnFilter[],
+	/**
+	 *  A `WHERE` condition typed by the user, sent as written inside parentheses and
+	 *  `AND`-ed with the conditions; only the engine validates it. Blank: none. Refused
+	 *  (`invalidArgument`) when it holds more than one statement.
+	 */
+	rawWhere: string | null,
+};
+
+/**
+ *  The rows of a page, kept in the backend as a result: read beyond `window` with
+ *  `fetch_result_window` / `fetch_result_cell`. Valid until the tab reads another page or
+ *  closes.
+ */
+export type TablePage = {
+	resultId: number,
+	/**  Same order as `TableDataInfo.columns`. */
+	columns: ColumnMeta[],
+	/**  The request's offset. */
+	offset: number,
+	rowCount: number,
+	/**  Rows exist after this page. */
+	hasMore: boolean,
+	/**  The page's first rows (up to 500), in the result window format. */
+	window: ResultWindow,
+	/**  The order applied, tie-breakers included. */
+	order: SortKey[],
+	durationMs: number | null,
+};
+
+/**  One page of rows. */
+export type TablePageRequest = {
+	filter: TableFilter,
+	/**
+	 *  Empty: `defaultOrder`. A sort that does not cover the row identity gets it appended,
+	 *  so pages stay stable.
+	 */
+	sort: SortKey[],
+	/**  Rows to skip. */
+	offset: number,
+	/**  Page size, 1 to 50 000. */
+	limit: number,
+};
+
+/**  Why a table or a view cannot be edited. Several can apply. */
+export type TableReadOnlyReason = 
+/**  A view or a materialized view. */
+"view" | 
+/**
+ *  Neither a primary key nor a unique key on non-null columns: a row cannot be told
+ *  apart from another one.
+ */
+"noRowIdentity" | 
+/**  The connection is read-only. */
+"readOnlyConnection";
+
 export type TableRef = {
 	schema: string | null,
 	name: string,
+};
+
+export type TableRowCount = {
+	mode: CountMode,
+	/**  `null`: no estimate available (SQLite, statistics never gathered). */
+	count: number | null,
+	/**  The count accounts for the filter (`false` for an estimate the engine cannot filter). */
+	filtered: boolean,
+	durationMs: number | null,
 };
 
 export type TabsState = {

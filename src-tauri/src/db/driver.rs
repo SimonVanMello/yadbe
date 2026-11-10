@@ -22,7 +22,7 @@ use tokio::sync::watch;
 
 use crate::db::config::ConnectTarget;
 use crate::db::dialect::Engine;
-use crate::db::errors::YadbeError;
+use crate::db::errors::{ConstraintViolation, YadbeError};
 use crate::db::value::{ColumnMeta, QueryResult, Value};
 use crate::secrets::Secret;
 pub use crate::session::query_model::ServerMessage;
@@ -96,6 +96,54 @@ pub fn recorded_sync<T>(
     result
 }
 
+fn rows_of(result: &QueryResult) -> Option<u64> {
+    result
+        .rows_affected
+        .or_else(|| u64::try_from(result.rows.len()).ok())
+}
+
+/// Runs a bound statement and records its display form with its duration and outcome.
+pub async fn recorded_bound(
+    recorder: &dyn StatementRecorder,
+    statement: &BoundStatement,
+    work: impl Future<Output = Result<QueryResult, BoundFailure>>,
+) -> Result<QueryResult, BoundFailure> {
+    let started_at = SystemTime::now();
+    let start = Instant::now();
+    let result = work.await;
+    recorder.record(RecordedStatement {
+        sql: statement.display.clone(),
+        started_at,
+        duration: start.elapsed(),
+        outcome: match &result {
+            Ok(value) => Ok(rows_of(value)),
+            Err(err) => Err(err.error.clone()),
+        },
+    });
+    result
+}
+
+/// Blocking twin of [`recorded_bound`].
+pub fn recorded_bound_sync(
+    recorder: &dyn StatementRecorder,
+    statement: &BoundStatement,
+    work: impl FnOnce() -> Result<QueryResult, BoundFailure>,
+) -> Result<QueryResult, BoundFailure> {
+    let started_at = SystemTime::now();
+    let start = Instant::now();
+    let result = work();
+    recorder.record(RecordedStatement {
+        sql: statement.display.clone(),
+        started_at,
+        duration: start.elapsed(),
+        outcome: match &result {
+            Ok(value) => Ok(rows_of(value)),
+            Err(err) => Err(err.error.clone()),
+        },
+    });
+    result
+}
+
 /// Everything a driver needs to open a connection.
 pub struct ConnectRequest<'a> {
     pub target: &'a ConnectTarget,
@@ -159,6 +207,19 @@ pub trait Connection: Send + Sync {
         Box::pin(async { Err(ExecError::from(YadbeError::not_implemented())) })
     }
 
+    /// Runs one statement yadbe authored with its values bound as parameters (table
+    /// browsing, edits) and buffers at most `max_rows` rows. Recorded in the statement log as
+    /// `statement.display`. Server errors keep the server's message and, for broken
+    /// constraints, which one.
+    fn query_bound<'a>(
+        &'a self,
+        statement: &'a BoundStatement,
+        max_rows: usize,
+    ) -> BoxFuture<'a, Result<QueryResult, BoundFailure>> {
+        let _ = (statement, max_rows);
+        Box::pin(async { Err(BoundFailure::from(YadbeError::not_implemented())) })
+    }
+
     /// Whether a transaction is open, when the engine tells exactly (SQLite); `None` lets
     /// the caller track it from the statements it runs.
     fn in_transaction(&self) -> Option<bool> {
@@ -211,6 +272,38 @@ impl From<YadbeError> for ExecError {
             error,
             server: None,
             location: None,
+        }
+    }
+}
+
+/// A statement yadbe authored, with its values bound: `sql` holds the dialect's
+/// placeholders and `params` their values, in order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoundStatement {
+    pub sql: String,
+    pub params: Vec<Value>,
+    /// The same statement with the values written as literals, for reading only (SQL
+    /// preview, statement log). Never run.
+    pub display: String,
+    /// The statement returns rows (`SELECT`, `RETURNING`, `OUTPUT`); otherwise the driver
+    /// reports the rows it affected.
+    pub returns_rows: bool,
+}
+
+/// A failed bound statement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundFailure {
+    pub error: YadbeError,
+    pub server: Option<Box<ServerMessage>>,
+    pub violation: Option<Box<ConstraintViolation>>,
+}
+
+impl From<YadbeError> for BoundFailure {
+    fn from(error: YadbeError) -> Self {
+        Self {
+            error,
+            server: None,
+            violation: None,
         }
     }
 }

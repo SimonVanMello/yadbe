@@ -446,6 +446,11 @@ impl QueryRunner {
         &self.store
     }
 
+    /// The result store, for services whose rows the same windows commands read.
+    pub fn shared_store(&self) -> Arc<ResultStore> {
+        Arc::clone(&self.store)
+    }
+
     fn tab(&self, tab_id: &str) -> Arc<Tab> {
         Arc::clone(
             lock(&self.tabs)

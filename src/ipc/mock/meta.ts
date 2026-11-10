@@ -424,6 +424,36 @@ export function createMockMeta(deps: MetaDeps) {
         deps.emitRefreshed({ connectionId, node: { level: 'connection' }, reason: 'reconnected' });
       }
     },
+    /**
+     * The details of a table, view or materialized view and the enum types of its database,
+     * straight from the catalog (no latency, no cache, nothing logged): the table data mock
+     * reads them. `null` when the session is closed or the object unknown.
+     */
+    relation(
+      connectionId: string,
+      table: ObjectRef,
+    ): { details: TableDetails; enums: Map<string, string[]> } | null {
+      const session = deps.session(connectionId);
+      if (!session) return null;
+      const db = server(connectionId, session.engine, session.database).find(
+        (d) => d.info.name === table.database,
+      );
+      const details = db?.schemas
+        .find((s) => (s.info?.name ?? null) === table.schema)
+        ?.tables.get(table.name);
+      if (!db || !details) return null;
+      const enums = new Map<string, string[]>();
+      for (const schema of db.schemas) {
+        for (const object of schema.objects) {
+          if (object.detail.type === 'type' && object.detail.category === 'enum') {
+            const values = object.detail.enumValues;
+            enums.set(object.name, values);
+            if (schema.info) enums.set(`${schema.info.name}.${object.name}`, values);
+          }
+        }
+      }
+      return { details: clone(details), enums };
+    },
     /** The session closed: its cache goes with it. */
     forget(connectionId: string): void {
       loaded.delete(connectionId);

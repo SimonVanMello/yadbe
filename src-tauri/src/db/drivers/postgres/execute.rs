@@ -58,7 +58,7 @@ impl Drop for RouteGuard<'_> {
     }
 }
 
-fn server_message(db: &DbError) -> ServerMessage {
+pub(super) fn server_message(db: &DbError) -> ServerMessage {
     ServerMessage {
         severity: db.severity().to_owned(),
         code: Some(db.code().code().to_owned()),

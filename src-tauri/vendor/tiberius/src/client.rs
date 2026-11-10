@@ -314,6 +314,28 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Client<S> {
         Ok(BatchStream::new(tokens))
     }
 
+    /// Runs `sql` with bound `params` through `sp_executesql` and returns everything the
+    /// server sends back in order, like [`Client::batch`] (yadbe patch): row counts of each
+    /// statement, messages, errors, and a TDS Attention when `attention` is raised.
+    pub async fn rpc_batch<'a, 'b>(
+        &'a mut self,
+        sql: impl Into<Cow<'b, str>>,
+        params: &'b [&'b dyn ToSql],
+        attention: Option<Arc<AttentionSignal>>,
+    ) -> crate::Result<BatchStream<'a>>
+    where
+        'a: 'b,
+    {
+        self.connection.flush_stream().await?;
+        self.connection.arm_attention(attention);
+        let rpc_params = Self::rpc_params(sql);
+        let params = params.iter().map(|p| p.to_sql());
+        self.rpc_perform_query(RpcProcId::ExecuteSQL, rpc_params, params)
+            .await?;
+        let tokens = TokenStream::batch(&mut self.connection).try_unfold();
+        Ok(BatchStream::new(tokens))
+    }
+
     /// Whether a transaction is open on the connection, as the server last reported it
     /// with its transaction environment changes (yadbe patch).
     pub fn in_transaction(&self) -> bool {

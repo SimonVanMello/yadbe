@@ -25,6 +25,7 @@ that was ruled out.
 | 4 | Exact `money` / `smallmoney` | `tds/codec/column_data/money.rs`, `var_len.rs` (test) | Only opt-in: changes `FromSql` for money |
 | 5 | rustls with `ring` instead of `aws-lc-rs` | `Cargo.toml`, `client/tls_stream/rustls_tls_stream.rs` | Yes, as a feature flag |
 | 6 | Manifest without tests, examples and dev-dependencies | `Cargo.toml` | No (vendoring only) |
+| 7 | Parameterized batch stream | `client.rs` | Yes, additive API |
 
 1. **Batch stream.** `Client::batch(sql, attention)` sends `sql` as one SQL batch and returns a
    `BatchStream` of `BatchItem`s in the order the server sends them: `Metadata` (names and
@@ -72,13 +73,24 @@ that was ruled out.
 6. **Manifest.** The `[[test]]` / `[[example]]` targets and the dev-dependencies are dropped:
    their files are not vendored and Cargo refuses explicit targets whose files are missing.
    The crate's own unit tests therefore do not run here; the patches are covered by
-   `src-tauri/tests/query_mssql.rs` and `src-tauri/tests/introspection.rs`.
+   `src-tauri/tests/query_mssql.rs`, `src-tauri/tests/introspection.rs` and
+   `src-tauri/tests/table_data.rs`.
+
+7. **Parameterized batch stream.** `Client::rpc_batch(sql, params, attention)` sends `sql`
+   with its bound parameters through `sp_executesql` (as `Client::query` does) and returns
+   the same `BatchStream` as patch 1, armed with the same Attention as patch 2. Table browsing
+   and edits (M2) bind every value and need both the row count of each `UPDATE` / `DELETE`
+   (the one-row check) and a native cancel.
+   *Without it:* `Client::query` drops the row counts and cannot be cancelled while it
+   streams; `Client::execute` keeps the counts but no rows (`INSERT … OUTPUT`) and cannot be
+   cancelled either. Inlining the values as escaped literals into a plain batch was ruled out:
+   yadbe never writes a value into SQL (architecture rule 2).
 
 ## Maintenance
 
-A new file of about 280 lines (`batch.rs`) and about 100 changed lines in nine upstream files;
+A new file of about 280 lines (`batch.rs`) and about 120 changed lines in nine upstream files;
 `token.rs` and `connection.rs` are where an upgrade may conflict. To upgrade: copy the new
 release over `src/` and `Cargo.toml` in a commit of its own, re-apply these patches, then run
-`cargo test --test query_mssql --test introspection` against a SQL Server (see `CLAUDE.md`).
-Patches 1, 2, 3 and 5 could be proposed upstream (prisma/tiberius); once released there, the
+`cargo test --test query_mssql --test introspection --test table_data` against a SQL Server (see `CLAUDE.md`).
+Patches 1, 2, 3, 5 and 7 could be proposed upstream (prisma/tiberius); once released there, the
 fork shrinks to patch 4 or disappears.

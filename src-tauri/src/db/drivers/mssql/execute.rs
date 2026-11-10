@@ -41,7 +41,7 @@ fn severity(message: &TdsMessage) -> &'static str {
     }
 }
 
-fn server_message(message: &TdsMessage) -> ServerMessage {
+pub(super) fn server_message(message: &TdsMessage) -> ServerMessage {
     ServerMessage {
         severity: severity(message).to_owned(),
         code: Some(message.number.to_string()),

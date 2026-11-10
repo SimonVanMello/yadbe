@@ -1,5 +1,6 @@
 //! PostgreSQL driver: `tokio-postgres` over rustls.
 
+mod bound;
 mod decode;
 mod execute;
 mod introspect;
@@ -22,8 +23,8 @@ use self::tls::RustlsConnect;
 use crate::db::config::{ConnectTarget, TlsMode};
 use crate::db::dialect::Engine;
 use crate::db::driver::{
-    BoxFuture, CancelHandle, ConnectRequest, Connection, Driver, ExecError, ExecSender,
-    ExecSummary, LinkWatch, StatementRecorder, recorded,
+    BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Connection, Driver,
+    ExecError, ExecSender, ExecSummary, LinkWatch, StatementRecorder, recorded, recorded_bound,
 };
 use crate::db::errors::{YadbeError, from_connect_sqlstate};
 use crate::db::value::{QueryResult, Value};
@@ -265,15 +266,46 @@ impl Connection for PgConnection {
     fn introspector(&self) -> Option<&dyn crate::db::introspect::Introspector> {
         Some(self)
     }
+
+    fn query_bound<'a>(
+        &'a self,
+        statement: &'a BoundStatement,
+        max_rows: usize,
+    ) -> BoxFuture<'a, Result<QueryResult, BoundFailure>> {
+        Box::pin(async move {
+            let params: Vec<bound::TextParam> =
+                statement.params.iter().map(bound::TextParam::of).collect();
+            recorded_bound(&*self.recorder, statement, async {
+                self.run_with(&statement.sql, &params, max_rows)
+                    .await
+                    .map_err(|failure| match failure {
+                        bound::PgFailure::Server(err) => bound::failure(&err),
+                        bound::PgFailure::Decode(err) => err.into(),
+                    })
+            })
+            .await
+        })
+    }
 }
 
 impl PgConnection {
     async fn run(&self, sql: &str, max_rows: usize) -> Result<QueryResult, YadbeError> {
-        let statement = self
-            .client
-            .prepare(sql)
+        self.run_with(sql, &[], max_rows)
             .await
-            .map_err(|e| classify_query(&e))?;
+            .map_err(|failure| match failure {
+                bound::PgFailure::Server(err) => classify_query(&err),
+                bound::PgFailure::Decode(err) => err,
+            })
+    }
+
+    /// Prepares `sql`, binds `params` and buffers at most `max_rows` rows.
+    async fn run_with(
+        &self,
+        sql: &str,
+        params: &[bound::TextParam],
+        max_rows: usize,
+    ) -> Result<QueryResult, bound::PgFailure> {
+        let statement = self.client.prepare(sql).await?;
         let columns: Vec<_> = statement
             .columns()
             .iter()
@@ -281,14 +313,13 @@ impl PgConnection {
             .collect();
         let stream = self
             .client
-            .query_raw(&statement, std::iter::empty::<&(dyn ToSql + Sync)>())
-            .await
-            .map_err(|e| classify_query(&e))?;
+            .query_raw(&statement, params.iter().map(|p| p as &(dyn ToSql + Sync)))
+            .await?;
         pin_mut!(stream);
         let mut rows = Vec::new();
         let mut truncated = false;
         while let Some(row) = stream.next().await {
-            let row = row.map_err(|e| classify_query(&e))?;
+            let row = row?;
             if rows.len() == max_rows {
                 truncated = true;
                 break;
@@ -297,14 +328,14 @@ impl PgConnection {
             for (index, column) in statement.columns().iter().enumerate() {
                 let raw: Option<Raw<'_>> = row
                     .try_get(index)
-                    .map_err(|e| YadbeError::internal(e.to_string()))?;
+                    .map_err(|e| bound::PgFailure::Decode(YadbeError::internal(e.to_string())))?;
                 values.push(match raw {
                     None => Value::Null,
                     Some(Raw(bytes)) => decode(column.type_(), bytes).map_err(|e| {
-                        YadbeError::internal(format!(
+                        bound::PgFailure::Decode(YadbeError::internal(format!(
                             "cannot decode a {} value: {e}",
                             column.type_().name()
-                        ))
+                        )))
                     })?,
                 });
             }

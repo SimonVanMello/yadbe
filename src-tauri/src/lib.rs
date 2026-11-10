@@ -84,6 +84,14 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::export::start_export,
             commands::export::cancel_export,
             commands::export::preview_export,
+            commands::table_data::open_table_data,
+            commands::table_data::fetch_table_page,
+            commands::table_data::count_table_rows,
+            commands::table_data::refresh_table_rows,
+            commands::table_data::cancel_table_data,
+            commands::table_data::close_table_data,
+            commands::edit::preview_table_changes,
+            commands::edit::apply_table_changes,
         ])
         .events(collect_events![
             events::AppReady,
@@ -96,6 +104,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             events::HistoryChanged,
             export::model::ExportProgress,
             export::model::ExportFinished,
+            events::TableDataChanged,
         ])
 }
 

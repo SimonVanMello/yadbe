@@ -7,6 +7,7 @@
 //! `BEGIN TRANSACTION` must not run inside `sp_executesql`); metadata queries bind their
 //! names as RPC parameters.
 
+mod bound;
 mod decode;
 mod execute;
 mod introspect;
@@ -24,8 +25,9 @@ use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 use crate::db::config::{ConnectTarget, TlsMode};
 use crate::db::dialect::Engine;
 use crate::db::driver::{
-    BoxFuture, CancelHandle, ConnectRequest, Connection, Driver, ExecError, ExecSender,
-    ExecSummary, LinkSignal, LinkWatch, StatementRecorder, recorded,
+    BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Connection, Driver,
+    ExecError, ExecSender, ExecSummary, LinkSignal, LinkWatch, StatementRecorder, recorded,
+    recorded_bound,
 };
 use crate::db::errors::{YadbeError, from_mssql_login_error};
 use crate::db::value::{QueryResult, Value};
@@ -424,6 +426,21 @@ impl Connection for MssqlConnection {
 
     fn in_transaction(&self) -> Option<bool> {
         Some(self.in_transaction.load(Ordering::SeqCst))
+    }
+
+    fn query_bound<'a>(
+        &'a self,
+        statement: &'a BoundStatement,
+        max_rows: usize,
+    ) -> BoxFuture<'a, Result<QueryResult, BoundFailure>> {
+        Box::pin(async move {
+            recorded_bound(
+                &*self.recorder,
+                statement,
+                self.run_bound(statement, max_rows),
+            )
+            .await
+        })
     }
 
     fn introspector(&self) -> Option<&dyn crate::db::introspect::Introspector> {
