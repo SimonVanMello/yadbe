@@ -187,7 +187,8 @@ pub struct ConnectionDefinition {
     pub group_id: Option<String>,
     pub environment: Environment,
     pub favorite: bool,
-    /// Stored now, enforced by the backend from M2 (F-008).
+    /// Enforced by the backend (F-008): the engine's read-only session where it has one,
+    /// and a statement classifier that refuses anything not provably read-only.
     pub read_only: bool,
     /// The password goes to the OS keychain; otherwise it is asked at connect time and kept
     /// in memory for the session.
@@ -291,6 +292,7 @@ impl ConnectionDefinition {
                     .unwrap_or(DEFAULT_CONNECT_TIMEOUT_SECS),
             )),
             options: self.options.clone(),
+            read_only: self.read_only,
         }
     }
 }
@@ -341,6 +343,8 @@ pub struct ConnectTarget {
     pub ca_cert_path: Option<PathBuf>,
     pub connect_timeout: Duration,
     pub options: Vec<ConnectionOption>,
+    /// The session must refuse writes (F-008): drivers set the engine's read-only mode.
+    pub read_only: bool,
 }
 
 #[cfg(test)]

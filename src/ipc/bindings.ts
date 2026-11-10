@@ -229,7 +229,10 @@ export type ConnectionDefinition = {
 	groupId: string | null,
 	environment: Environment,
 	favorite: boolean,
-	/**  Stored now, enforced by the backend from M2 (F-008). */
+	/**
+	 *  Enforced by the backend (F-008): the engine's read-only session where it has one,
+	 *  and a statement classifier that refuses anything not provably read-only.
+	 */
 	readOnly: boolean,
 	/**
 	 *  The password goes to the OS keychain; otherwise it is asked at connect time and kept

@@ -1,14 +1,14 @@
 //! The traits every engine driver implements. Services only see these; driver crates stay
 //! under `drivers/<engine>/`.
 //!
-//! Shape of what comes next, so the traits stay stable:
-//! - **Streaming (M1-3)**: `Connection` gains `execute(sql, sink, …)` pushing result-set
-//!   starts, row batches, notices and completion into a sink owned by the `QueryRunner`;
-//!   `query` stays the small buffered path for yadbe's own statements.
+//! - **Streaming (M1-3)**: [`Connection::execute`] pushes result-set columns, row batches and
+//!   notices into a bounded channel owned by the `QueryRunner` (backpressure: a full channel
+//!   stops the driver reading the server); `query` stays the small buffered path for
+//!   yadbe's own statements.
 //! - **Cancellation (M1-3)**: [`Connection::cancel_handle`] is detached from the connection
 //!   (Postgres cancel request, `sqlite3_interrupt`), so it can fire while a statement runs.
 //! - **Dedicated connections (M1-3)**: each editor tab calls [`Driver::connect`] again with
-//!   the session's target and password; the session keeps both.
+//!   the session's target and password (`ConnectionSession::open_dedicated`).
 //! - **Introspection (M1-1)**: an `introspect` family of methods (or an `Introspector`
 //!   obtained from the connection) returns the metadata model; queries it runs go through
 //!   the [`StatementRecorder`] like every statement yadbe authors.
@@ -23,8 +23,9 @@ use tokio::sync::watch;
 use crate::db::config::ConnectTarget;
 use crate::db::dialect::Engine;
 use crate::db::errors::YadbeError;
-use crate::db::value::QueryResult;
+use crate::db::value::{ColumnMeta, QueryResult, Value};
 use crate::secrets::Secret;
+pub use crate::session::query_model::ServerMessage;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -138,6 +139,75 @@ pub trait Connection: Send + Sync {
 
     /// Closes the connection politely when the engine supports it.
     fn close(&self) -> BoxFuture<'_, ()>;
+
+    /// Runs one user statement exactly as written, pushing what it produces into `events`
+    /// (columns, row batches, notices). Never recorded in the statement log: the caller
+    /// records user statements in the history. The channel is bounded: while the receiver
+    /// stops reading, the driver stops reading from the server (backpressure). Fails with
+    /// `cancelled` when the receiver is gone.
+    fn execute<'a>(
+        &'a self,
+        sql: &'a str,
+        events: ExecSender,
+    ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
+        let _ = (sql, events);
+        Box::pin(async { Err(ExecError::from(YadbeError::not_implemented())) })
+    }
+
+    /// Whether a transaction is open, when the engine tells exactly (SQLite); `None` lets
+    /// the caller track it from the statements it runs.
+    fn in_transaction(&self) -> Option<bool> {
+        None
+    }
+}
+
+/// What a running user statement produces, in order.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExecEvent {
+    /// The statement returns rows with these columns (once, before any row).
+    Columns(Vec<ColumnMeta>),
+    /// The next rows (at most a few hundred per batch).
+    Rows(Vec<Vec<Value>>),
+    /// A notice, warning or info message from the server.
+    Notice(ServerMessage),
+}
+
+pub type ExecSender = tokio::sync::mpsc::Sender<ExecEvent>;
+
+/// How a user statement ended.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExecSummary {
+    /// Rows changed by a statement without result set, when the engine says.
+    pub rows_affected: Option<u64>,
+}
+
+/// Where the server located an error, relative to the statement text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorLocation {
+    /// 0-based character (PostgreSQL positions).
+    Char(usize),
+    /// 0-based byte (SQLite offsets).
+    Byte(usize),
+    /// 1-based line (SQL Server, MySQL).
+    Line(u32),
+}
+
+/// A user statement failure, with what the server said and where.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecError {
+    pub error: YadbeError,
+    pub server: Option<Box<ServerMessage>>,
+    pub location: Option<ErrorLocation>,
+}
+
+impl From<YadbeError> for ExecError {
+    fn from(error: YadbeError) -> Self {
+        Self {
+            error,
+            server: None,
+            location: None,
+        }
+    }
 }
 
 pub trait CancelHandle: Send + Sync {

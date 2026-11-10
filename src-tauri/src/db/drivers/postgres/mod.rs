@@ -1,6 +1,7 @@
 //! PostgreSQL driver: `tokio-postgres` over rustls.
 
 mod decode;
+mod execute;
 mod tls;
 
 use std::error::Error as _;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 
 use futures_util::{StreamExt, pin_mut};
 use tokio::task::JoinHandle;
+use tokio_postgres::AsyncMessage;
 use tokio_postgres::config::SslMode;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::{CancelToken, Client, SimpleQueryMessage};
@@ -19,8 +21,8 @@ use self::tls::RustlsConnect;
 use crate::db::config::{ConnectTarget, TlsMode};
 use crate::db::dialect::Engine;
 use crate::db::driver::{
-    BoxFuture, CancelHandle, ConnectRequest, Connection, Driver, LinkWatch, StatementRecorder,
-    recorded,
+    BoxFuture, CancelHandle, ConnectRequest, Connection, Driver, ExecError, ExecSender,
+    ExecSummary, LinkWatch, StatementRecorder, recorded,
 };
 use crate::db::errors::{YadbeError, from_connect_sqlstate};
 use crate::db::value::{QueryResult, Value};
@@ -109,6 +111,11 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
             other => tracing::warn!(key = other, "ignored PostgreSQL option"),
         }
     }
+    if target.read_only {
+        // A startup parameter, not a `SET`: `RESET` and `DISCARD ALL` come back to it.
+        let options = config.get_options().unwrap_or_default();
+        config.options(format!("{options} -c default_transaction_read_only=on").trim());
+    }
 
     let unix_socket = cfg!(unix) && target.host.starts_with('/');
     if unix_socket {
@@ -137,9 +144,20 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
         .await
         .map_err(|err| classify_connect(&err, target, &user))?;
     let (signal, link) = LinkWatch::new();
+    let notices = execute::SharedRoute::default();
+    let route = Arc::clone(&notices);
     let task = tokio::spawn(async move {
-        if let Err(err) = connection.await {
-            tracing::debug!(error = %err, "PostgreSQL connection ended");
+        let mut connection = connection;
+        let mut messages = futures_util::stream::poll_fn(move |cx| connection.poll_message(cx));
+        while let Some(message) = messages.next().await {
+            match message {
+                Ok(AsyncMessage::Notice(notice)) => route.deliver(&notice),
+                Ok(_) => {}
+                Err(err) => {
+                    tracing::debug!(error = %err, "PostgreSQL connection ended");
+                    break;
+                }
+            }
         }
         signal.lost();
     });
@@ -174,6 +192,7 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
         link,
         tls,
         task,
+        notices,
     }))
 }
 
@@ -185,6 +204,7 @@ struct PgConnection {
     cancel: CancelToken,
     tls: RustlsConnect,
     task: JoinHandle<()>,
+    notices: execute::SharedRoute,
 }
 
 impl Connection for PgConnection {
@@ -231,6 +251,14 @@ impl Connection for PgConnection {
     fn close(&self) -> BoxFuture<'_, ()> {
         // Dropping the client sends Terminate; this ends the link for clones still alive.
         Box::pin(async move { self.task.abort() })
+    }
+
+    fn execute<'a>(
+        &'a self,
+        sql: &'a str,
+        events: ExecSender,
+    ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
+        Box::pin(self.execute_streaming(sql, events))
     }
 }
 
