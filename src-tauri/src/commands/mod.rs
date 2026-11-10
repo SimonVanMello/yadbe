@@ -2,6 +2,7 @@
 
 pub mod app;
 pub mod connections;
+pub mod edit;
 pub mod files;
 pub mod history;
 pub mod meta;
@@ -9,6 +10,7 @@ pub mod query;
 pub mod secrets;
 pub mod sessions;
 pub mod store;
+pub mod table_data;
 pub mod value_file;
 
 use crate::db::errors::YadbeError;

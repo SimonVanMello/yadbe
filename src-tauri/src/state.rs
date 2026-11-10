@@ -8,6 +8,7 @@ use crate::secrets::{KeychainBackend, SecretStore};
 use crate::session::history_writer::StoreHistory;
 use crate::session::meta_cache::{MetaService, ObservingSink};
 use crate::session::statement_log::StatementLog;
+use crate::session::table_data::TableDataService;
 use crate::session::{ConnectionManager, QueryRunner};
 use crate::store::{DB_FILE, HistoryRetention, Store};
 
@@ -22,6 +23,7 @@ pub struct AppState {
     pub meta: Arc<MetaService>,
     pub queries: Arc<QueryRunner>,
     pub history: Arc<StoreHistory>,
+    pub tables: Arc<TableDataService>,
 }
 
 impl AppState {
@@ -48,8 +50,14 @@ impl AppState {
         );
         let queries = Arc::new(QueryRunner::new(
             Arc::clone(&connections),
-            sink,
+            Arc::clone(&sink),
             history.clone(),
+        ));
+        // Table pages live in the query results' store: `fetch_result_window` reads both.
+        let tables = Arc::new(TableDataService::new(
+            Arc::clone(&connections),
+            queries.shared_store(),
+            sink,
         ));
         Self {
             store,
@@ -59,6 +67,7 @@ impl AppState {
             meta,
             queries,
             history,
+            tables,
         }
     }
 }

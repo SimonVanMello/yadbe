@@ -11,6 +11,8 @@ pub mod query_model;
 pub mod query_runner;
 pub mod result_store;
 pub mod statement_log;
+pub mod table_data;
+pub mod table_model;
 
 pub use connection::{ConnectionSession, SessionConfig};
 pub use manager::ConnectionManager;

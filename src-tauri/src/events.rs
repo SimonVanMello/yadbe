@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri_specta::Event;
 
-use crate::db::meta::MetaNode;
+use crate::db::meta::{MetaNode, ObjectRef};
 use crate::session::SessionInfo;
 use crate::session::query_model::{ExecutionDelta, TransactionState};
 use crate::session::statement_log::StatementLogEntry;
@@ -88,6 +88,21 @@ pub struct TransactionStateChanged {
 #[serde(rename_all = "camelCase")]
 pub struct HistoryChanged {}
 
+/// Changes were applied to a table (M2-2): table tabs showing it, in this tab or another,
+/// should read their rows again.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct TableDataChanged {
+    pub connection_id: String,
+    pub table: ObjectRef,
+    /// The table tab that applied them.
+    pub tab_id: String,
+    /// Rows updated, inserted and deleted.
+    pub updated: u32,
+    pub inserted: u32,
+    pub deleted: u32,
+}
+
 /// Every event the services emit, so they can be tested without Tauri.
 #[derive(Debug, Clone)]
 pub enum BackendEvent {
@@ -98,6 +113,7 @@ pub enum BackendEvent {
     QueryFinished(QueryFinished),
     TransactionStateChanged(TransactionStateChanged),
     HistoryChanged(HistoryChanged),
+    TableDataChanged(TableDataChanged),
 }
 
 pub trait EventSink: Send + Sync {
@@ -150,6 +166,7 @@ impl EventSink for TauriSink {
             BackendEvent::QueryFinished(e) => e.emit(app),
             BackendEvent::TransactionStateChanged(e) => e.emit(app),
             BackendEvent::HistoryChanged(e) => e.emit(app),
+            BackendEvent::TableDataChanged(e) => e.emit(app),
         };
         if let Err(err) = result {
             tracing::warn!(error = %err, "failed to emit event");

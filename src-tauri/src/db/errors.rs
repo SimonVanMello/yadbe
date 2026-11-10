@@ -72,6 +72,20 @@ pub enum ErrorCode {
     ReadOnlyViolation,
     /// The result was freed (the tab ran again or closed).
     ResultNotFound,
+    /// The table cannot be edited (view, no row identity, read-only column…): see the
+    /// table's read-only reasons.
+    TableNotEditable,
+    /// An `UPDATE` / `DELETE` of one row found no row: it was changed or deleted by someone
+    /// else since it was read. Nothing was applied.
+    RowNotFound,
+    /// An `UPDATE` / `DELETE` of one row matched several: the row identity is not unique.
+    /// Nothing was applied.
+    RowNotUnique,
+    /// The change breaks a constraint (unique, foreign key, check, not null).
+    ConstraintViolation,
+    /// The engine could not convert a value for its column (bad format, out of range, too
+    /// long).
+    InvalidValue,
 }
 
 /// A message in every supported UI language.
@@ -418,6 +432,77 @@ impl YadbeError {
         .with_detail(format!("result id {result_id}"))
     }
 
+    /// `what`: why, from the table's read-only reasons, in plain words (never translated
+    /// names inside).
+    pub fn table_not_editable(en: impl Into<String>, fr: impl Into<String>) -> Self {
+        Self::new(ErrorCode::TableNotEditable, en, fr)
+    }
+
+    /// `row`: the row as the user knows it (`id = 42`), never translated.
+    pub fn row_not_found(row: &str) -> Self {
+        Self::new(
+            ErrorCode::RowNotFound,
+            format!(
+                "The row {row} was changed or deleted by someone else since it was read. Nothing was applied: refresh the rows and try again."
+            ),
+            format!(
+                "La ligne {row} a été modifiée ou supprimée par quelqu'un d'autre depuis sa lecture. Rien n'a été appliqué : actualisez les lignes et réessayez."
+            ),
+        )
+        .with_action(ErrorAction::Retry)
+    }
+
+    /// `row`: the row as the user knows it; `count`: rows the statement matched.
+    pub fn row_not_unique(row: &str, count: u64) -> Self {
+        Self::new(
+            ErrorCode::RowNotUnique,
+            format!(
+                "The change of the row {row} would affect {count} rows: its identity is not unique. Nothing was applied."
+            ),
+            format!(
+                "La modification de la ligne {row} toucherait {count} lignes : son identité n'est pas unique. Rien n'a été appliqué."
+            ),
+        )
+    }
+
+    pub fn constraint_violation(violation: &ConstraintViolation) -> Self {
+        let (kind_en, kind_fr) = match violation.kind {
+            ConstraintKind::Unique => ("unique constraint", "la contrainte d'unicité"),
+            ConstraintKind::ForeignKey => ("foreign key", "la clé étrangère"),
+            ConstraintKind::Check => ("check constraint", "la contrainte de vérification"),
+            ConstraintKind::NotNull => ("NOT NULL constraint", "la contrainte NOT NULL"),
+            ConstraintKind::Exclusion => ("exclusion constraint", "la contrainte d'exclusion"),
+        };
+        let name = violation
+            .name
+            .as_deref()
+            .map(|n| format!(" \"{n}\""))
+            .unwrap_or_default();
+        let name_fr = violation
+            .name
+            .as_deref()
+            .map(|n| format!(" « {n} »"))
+            .unwrap_or_default();
+        let (column_en, column_fr) = violation.column.as_deref().map_or_else(
+            || (String::new(), String::new()),
+            |c| (format!(" (column \"{c}\")"), format!(" (colonne « {c} »)")),
+        );
+        Self::new(
+            ErrorCode::ConstraintViolation,
+            format!("The change breaks the {kind_en}{name}{column_en}."),
+            format!("La modification enfreint {kind_fr}{name_fr}{column_fr}."),
+        )
+    }
+
+    pub fn invalid_value(detail: impl AsRef<str>) -> Self {
+        Self::new(
+            ErrorCode::InvalidValue,
+            "The database could not store a value in its column (format, range or length).",
+            "La base de données n'a pas pu enregistrer une valeur dans sa colonne (format, plage ou longueur).",
+        )
+        .with_detail(detail)
+    }
+
     /// Whether the failure is worth retrying automatically when reconnecting: network and
     /// server-side transient failures, not wrong settings or credentials.
     pub fn is_transient(&self) -> bool {
@@ -431,6 +516,30 @@ impl YadbeError {
                 | ErrorCode::Internal
         )
     }
+}
+
+/// Kinds of constraints a change can break.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ConstraintKind {
+    /// Primary key, unique constraint or unique index.
+    Unique,
+    ForeignKey,
+    Check,
+    NotNull,
+    /// PostgreSQL exclusion constraint.
+    Exclusion,
+}
+
+/// A constraint a statement broke, as far as the engine names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ConstraintViolation {
+    pub kind: ConstraintKind,
+    /// The constraint or index name, when the engine gives it.
+    pub name: Option<String>,
+    /// The column, when the engine gives it (always for `notNull`).
+    pub column: Option<String>,
 }
 
 /// Classification of a standard SQLSTATE returned while connecting, shared by every engine
@@ -588,6 +697,15 @@ mod tests {
             YadbeError::read_only_violation("UPDATE"),
             YadbeError::read_only_violation(""),
             YadbeError::result_not_found(1),
+            YadbeError::table_not_editable("A view.", "Une vue."),
+            YadbeError::row_not_found("id = 1"),
+            YadbeError::row_not_unique("id = 1", 2),
+            YadbeError::constraint_violation(&ConstraintViolation {
+                kind: ConstraintKind::Unique,
+                name: Some("users_email_key".into()),
+                column: Some("email".into()),
+            }),
+            YadbeError::invalid_value("invalid input syntax for type uuid"),
         ];
         for error in all {
             assert!(!error.message.en.is_empty() && !error.message.fr.is_empty());

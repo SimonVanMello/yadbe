@@ -2,6 +2,7 @@ import type {
   AppInfo,
   ConnectionDefinition,
   ConnectionGroup,
+  ObjectRef,
   Preferences,
   SavedConnection,
   SecretInput,
@@ -10,6 +11,7 @@ import type {
   SessionInfo,
   StatementLogEntry,
   TabsState,
+  Value,
   YadbeError,
 } from './bindings';
 import type { YadbeClient, YadbeEventMap, YadbeEventName } from './client';
@@ -28,6 +30,7 @@ import { createMockHistory } from './mock/history';
 import { createMockMeta } from './mock/meta';
 import type { LargeCatalogOptions } from './mock/metaCatalog';
 import { createMockQuery } from './mockQuery';
+import { createMockTableData } from './mock/tableData';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
 const MOCK_APP_INFO: AppInfo = { appVersion: '0.1.0', os: 'linux', arch: 'x86_64' };
@@ -288,6 +291,23 @@ function createMockBackend() {
   });
 
   const files = createMockFiles();
+
+  const tableData = createMockTableData({
+    events,
+    relation: (connectionId, table) => meta.relation(connectionId, table),
+    session: (connectionId) => {
+      const conn = findConnection(connectionId);
+      if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
+      return { engine: conn.definition.engine, readOnly: conn.definition.readOnly };
+    },
+    logStatement: (connectionId, sql, error = null) => {
+      logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
+    },
+    storeRows: (columns, rows) => query.storeRows(columns, rows),
+    freeResults: (ids) => {
+      query.freeResults(ids);
+    },
+  });
 
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
@@ -604,6 +624,7 @@ function createMockBackend() {
     ...meta.commands,
     ...query.commands,
     ...history.commands,
+    ...tableData.commands,
 
     ...files.commands,
   };
@@ -625,6 +646,7 @@ function createMockBackend() {
     meta.reset();
     query.reset();
     history.reset();
+    tableData.reset();
     files.reset();
     clearReloadState();
     seed();
@@ -715,6 +737,16 @@ function createMockBackend() {
       files.set(path, text);
     },
     getFile: (path: string): string | undefined => files.get(path),
+    /** Time a table data statement takes, in ms (0 in unit tests). */
+    setTableDataLatency(ms: number): void {
+      tableData.setLatency(ms);
+    },
+    /**
+     * Deletes a row of a table open in a table tab as another session would: the next update
+     * or delete of it fails the one-row check (`rowNotFound`).
+     */
+    deleteRowElsewhere: (connectionId: string, table: ObjectRef, key: Value[]): boolean =>
+      tableData.deleteRowElsewhere(connectionId, table, key),
     reset,
   };
 }

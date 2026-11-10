@@ -81,6 +81,14 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::files::read_text_file,
             commands::files::write_text_file,
             commands::value_file::write_value_file,
+            commands::table_data::open_table_data,
+            commands::table_data::fetch_table_page,
+            commands::table_data::count_table_rows,
+            commands::table_data::refresh_table_rows,
+            commands::table_data::cancel_table_data,
+            commands::table_data::close_table_data,
+            commands::edit::preview_table_changes,
+            commands::edit::apply_table_changes,
         ])
         .events(collect_events![
             events::AppReady,
@@ -91,6 +99,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             events::QueryFinished,
             events::TransactionStateChanged,
             events::HistoryChanged,
+            events::TableDataChanged,
         ])
 }
 
