@@ -67,7 +67,29 @@ Order: wave 1 = M2-1 + M2-2 (one backend session, contracts first) ∥ M2-5 ∥ 
 
 ## M3 — Comfort (= V1)
 
-To be broken down at the end of M2. Candidates, roughly in value order: MySQL / MariaDB driver (F-003) · foreign key navigation (F-088) · saved queries and snippets (F-050, F-103) · editable query results (F-087) · optimistic concurrency and change journal with revert (F-089, F-090) · SSH tunnels (F-010) · Entra ID auth (F-011) · import of connections (F-012) · alias-aware autocomplete and join suggestions (F-043) · explain plans (F-053) · DDL view and object properties (F-024, F-025) · CSV / JSON import (F-091) · activity monitor (F-140) · EF Core awareness (F-143) · query parameters and formatter (F-048, F-049) · rebindable shortcuts · packaging, signing, auto-update and website with user docs.
+Exit: MySQL / MariaDB is supported, data can be navigated through its relations and edited without overwriting someone else's work, queries are kept in a library, remote databases behind SSH are reachable, and the daily rough edges found at the end of M2 are gone.
+
+| ID | Task | Depends on | Requirements | Session |
+|---|---|---|---|---|
+| M3-1 🟦 | **MySQL / MariaDB driver** (`mysql_async`): connect (password, TLS modes), lossless types, streaming execution with multi-statement scripts and `DELIMITER`, native cancel (`KILL QUERY`), read-only session, introspection, edit dialect checked on a real server, conformance suites, CI job | M2 | F-003 | opus · high |
+| M3-2 🟦 | **Foreign key navigation**: jump from a FK cell to the referenced row, list the rows referencing the current row, FK cell editor with lookup of the referenced table; backend lookups through the table-data builders | M2 | F-088 | opus · high |
+| M3-3 🟦 | **Saved queries and snippets**: library in the store (folders, global or per connection, full-text search), sidebar view, save from the editor and from the history (star), snippets with placeholders expanded in the editor, palette source | M2 | F-050, F-103, F-120 | sonnet · high |
+| M3-4 🟦 | **SSH tunnels** (`russh`): password, private key (passphrase in the keychain), agent, jump host; host key verification with a known-hosts store and an explicit first-use prompt; tunnel lifecycle tied to the session and its reconnects; typed errors; connection dialog section | M2 | F-010 | opus · high |
+| M3-5 🟦 | **MVP follow-ups**: explorer and autocomplete refresh after DDL run in a query tab, Run available on a tab whose result is paused at its cap, new-row cells of NOT NULL columns without default marked as required before Apply, keyset paging (or a snapshot) for table exports, setting hints wording, P-07 at CPU ×4 (lazy mount of inactive tabs), README screenshots | M2 | — | sonnet · medium |
+| M3-6 ⬜ | **Optimistic concurrency and change journal**: updates carry the original values of the edited columns so a row changed elsewhere is reported instead of overwritten; every applied change set recorded with its inverse statements; "Revert this change set" with preview | M3-2 | F-089, F-090 | opus · high |
+| M3-7 ⬜ | **Editable query results**: a `SELECT` on a single table that includes its key is editable with the table-tab mechanism | M3-6 | F-087 | opus · high |
+| M3-8 ⬜ | **Objects**: DDL view of any object, table properties (row estimate, size), drop / truncate / rename from the tree with confirmation (object name typed on prod), pinned objects | M3-1 | F-024 to F-027 | sonnet · high |
+| M3-9 ⬜ | **Query tools**: `:name` / `@name` / `$1` parameters prompted and remembered, SQL formatter, hover on object names and go to definition, explain plans as a tree | M3-1 | F-048, F-049, F-052, F-053 | opus · high |
+| M3-10 ⬜ | **Import**: CSV / JSON into a table (mapping, type preview, dry run); connections from Azure Data Studio / SSMS, DBeaver, `pgpass`, `pg_service.conf`; export / import of yadbe connections without secrets | M3-1 | F-012, F-091 | sonnet · high |
+| M3-11 ⬜ | **Activity monitor and EF Core awareness**: sessions / running queries / locks with kill, `__EFMigrationsHistory` timeline, copy as ADO.NET / EF Core connection string | M3-1 | F-140, F-143 | sonnet · high |
+| M3-12 ⬜ | **Shell comfort**: rebindable shortcuts, per-tab history, result client-side sort / filter and selection aggregates, row detail view, remaining export formats (SQL inserts, Markdown, Excel), TLS client certificates, keep-alive and timeouts per connection, CLI arguments | M3-5 | F-009, F-014, F-065, F-066, F-068, F-102, F-121, F-126 | sonnet · high |
+| M3-13 ⬜ | **Entra ID authentication** for Azure SQL (needs an Azure tenant to test) | M3-4 | F-011 | opus · high |
+| M3-14 ⬜ | **Distribution**: packaging per OS, signing, auto-update, release workflow, website with user docs (needs signing certificates) | all of M3 | — | opus · medium |
+| M3-15 ⬜ | **Integration and validation**: real-app scenarios on the four engines, measurements, `docs/validation/M3.md` | all of M3 | — | opus · medium |
+
+Order: wave 1 = M3-1 ∥ M3-2 ∥ M3-3 ∥ M3-4 ∥ M3-5; wave 2 = M3-6 ∥ M3-8 ∥ M3-9 ∥ M3-10; wave 3 = M3-7 ∥ M3-11 ∥ M3-12; then M3-13 and M3-14 (blocked on external means), then M3-15.
+
+Open performance points carried from M2: P-09 (idle RAM ≈ 486 MB on WebKitGTK against 300 MB, to measure on WKWebView / WebView2) and one horizontal frame over 32 ms per run in the WebKitGTK grid scroll.
 
 ## V2
 
