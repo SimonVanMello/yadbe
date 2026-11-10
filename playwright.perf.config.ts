@@ -5,7 +5,7 @@ import { defineConfig, devices } from '@playwright/test';
  * backend, so React runs without its development checks, like in the app.
  */
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
-const PORT = 1431;
+const PORT = Number(process.env.YADBE_PERF_PORT ?? 1431);
 
 export default defineConfig({
   testDir: './e2e',
