@@ -286,5 +286,15 @@ describe('mock table data', () => {
     await unwrap(commands.connect(PROD, null));
     await unwrap(commands.openTableData(TAB, PROD, ref('shop', 'orders', 'shop')));
     expect(await errorCode(commands.applyTableChanges(TAB, change))).toBe('readOnlyViolation');
+    expect(
+      await errorCode(
+        commands.fetchTablePage(TAB, {
+          filter: { conditions: [], rawWhere: '1 = 1) DELETE FROM orders WHERE (1 = 1' },
+          sort: [],
+          offset: 0,
+          limit: 10,
+        }),
+      ),
+    ).toBe('readOnlyViolation');
   });
 });

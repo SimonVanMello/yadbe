@@ -468,10 +468,12 @@ const SQL_OPS: Record<FilterOp, string> = {
  * `col IS [NOT] NULL`, joined with `AND`. Anything else fails like an engine would.
  */
 function rawTest(engine: Engine, raw: string, columns: TableColumn[]): RowTest | YadbeError {
-  if (mockSplit(engine, raw).length > 1) {
+  // A `;` outside strings also counts: T-SQL needs none between statements of a batch.
+  const unquoted = raw.replace(/'(?:[^']|'')*'/g, "''");
+  if (mockSplit(engine, raw).length > 1 || unquoted.includes(';')) {
     return mockErrors.invalidArgument(
       'The WHERE condition holds more than one statement.',
-      'La condition WHERE contient plus d’une instruction.',
+      "La condition WHERE contient plus d'une instruction.",
     );
   }
   const tests: RowTest[] = [];
@@ -667,6 +669,11 @@ export function createMockTableData(deps: TableDataDeps) {
     }
     const raw = filter.rawWhere?.trim();
     if (raw) {
+      // Like the backend's classifier: on a read-only connection, a write keyword is refused.
+      const write = /\b(insert|update|delete|merge|drop|alter|create|truncate|grant|exec)\b/i.exec(
+        raw.replace(/'(?:[^']|'')*'/g, "''"),
+      );
+      if (tab.readOnly && write) return mockErrors.readOnlyViolation(write[1]?.toUpperCase() ?? '');
       const test = rawTest(tab.engine, raw, tab.info.columns);
       if (isError(test)) return test;
       tests.push(test);
