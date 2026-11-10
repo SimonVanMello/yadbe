@@ -66,6 +66,10 @@
   --cell-inserted-bg: rgb(52 211 153 / 0.14);
   --cell-deleted-bg: rgb(248 113 113 / 0.14);
 
+  /* Data grid selection (F-063): opaque, so every text color keeps its contrast on it. */
+  --grid-selection-bg: #25243d;
+  --grid-selection-header-bg: #2d2a4f;
+
   /* Syntax */
   --syn-keyword: #c4b5fd;
   --syn-string: #86efac;

@@ -80,6 +80,19 @@
   --progress-height: 4px;
   --progress-width: 96px;
 
+  /* Data grid (F-060). Row and header heights are read by the grid's layout code. */
+  --grid-row-height: 24px;
+  --grid-header-height: 30px;
+  --grid-cell-padding-x: 8px;
+  --grid-gutter-min-width: 44px;
+  --grid-col-min-width: 48px;
+  --grid-resize-handle-width: 7px;
+  --grid-truncated-marker-size: 6px;
+  --grid-viewer-width: 400px;
+  --grid-viewer-min-width: 260px;
+  --grid-footer-height: 28px;
+  --grid-shimmer-duration: 1.4s;
+
   /* Motion: transitions only signal a state change, ≤ 150 ms (spec §6.7). */
   --duration-fast: 100ms;
   --duration-normal: 150ms;
@@ -95,6 +108,8 @@
 
 :root[data-density='compact'] {
   --row-height: 22px;
+  --grid-row-height: 20px;
+  --grid-header-height: 26px;
 }
 
 @media (prefers-reduced-motion: reduce) {
