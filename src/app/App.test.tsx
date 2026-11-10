@@ -66,9 +66,9 @@ describe('App', () => {
     await screen.findByRole('tree', { name: 'Connections' });
     await user.click(screen.getAllByRole('button', { name: 'New connection' })[0] as HTMLElement);
     const dialog = await screen.findByRole('dialog', { name: 'New connection' });
-    await user.click(await within(dialog).findByRole('radio', { name: 'SQL Server' }));
-    expect(within(dialog).getByRole('note')).toHaveTextContent(/SQL Server is not available/);
-    expect(within(dialog).getByRole('textbox', { name: 'Port' })).toHaveValue('1433');
+    await user.click(await within(dialog).findByRole('radio', { name: 'MySQL / MariaDB' }));
+    expect(within(dialog).getByRole('note')).toHaveTextContent(/MySQL \/ MariaDB is not available/);
+    expect(within(dialog).getByRole('textbox', { name: 'Port' })).toHaveValue('3306');
   });
 
   it('shows the primitives page on #primitives', async () => {

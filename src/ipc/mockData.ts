@@ -38,7 +38,7 @@ export const MOCK_ENGINES: EngineInfo[] = [
       readOnlySession: false,
     },
     defaultUsername: 'sa',
-    available: false,
+    available: true,
   },
   {
     engine: 'mysql',
@@ -192,7 +192,7 @@ export const MOCK_REMEMBERED_PASSWORDS = ['conn-shop-prod', 'conn-shop-staging',
 
 export const MOCK_SERVER_VERSIONS: Record<Engine, string> = {
   postgres: 'PostgreSQL 16.4',
-  mssql: 'Microsoft SQL Server 2022',
+  mssql: 'SQL Server 16.0.4135.4',
   mysql: 'MySQL 8.4.2',
   sqlite: 'SQLite 3.46.0',
 };

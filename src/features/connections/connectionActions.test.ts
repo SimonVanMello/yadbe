@@ -95,7 +95,7 @@ describe('connectTo', () => {
   });
 
   it('shows the typed error of an engine the build cannot open', async () => {
-    expect(await connectTo(connection('conn-reporting'))).toBe(false);
-    expect(useSessions.getState().errors['conn-reporting']?.code).toBe('engineNotSupported');
+    expect(await connectTo(connection('conn-wordpress'))).toBe(false);
+    expect(useSessions.getState().errors['conn-wordpress']?.code).toBe('engineNotSupported');
   });
 });

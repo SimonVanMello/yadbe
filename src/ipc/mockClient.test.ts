@@ -111,7 +111,7 @@ describe('mock sessions', () => {
     expect(
       await errorCode(unwrap(commands.connect('conn-fail-auth', { kind: 'value', value: 'x' }))),
     ).toBe('authFailed');
-    expect(await errorCode(unwrap(commands.connect('conn-reporting', null)))).toBe(
+    expect(await errorCode(unwrap(commands.connect('conn-wordpress', null)))).toBe(
       'engineNotSupported',
     );
     const test = (host: string) =>

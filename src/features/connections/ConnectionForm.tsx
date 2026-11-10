@@ -174,7 +174,11 @@ export function ConnectionForm({
           patch({ readOnly });
         }}
         label={t('connection.readOnly')}
-        hint={t('connection.readOnly.hint')}
+        hint={
+          info && !info.capabilities.readOnlySession
+            ? t('connection.readOnly.hintClassifierOnly', { engine: info.label })
+            : t('connection.readOnly.hint')
+        }
       />
     </div>
   );

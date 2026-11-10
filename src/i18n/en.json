@@ -131,6 +131,7 @@
   "connection.new": "New connection",
   "connection.readOnly": "Read-only",
   "connection.readOnly.hint": "yadbe refuses any statement that could change data or the schema on this connection, and the session itself is read-only where the engine allows it (PostgreSQL, SQLite).",
+  "connection.readOnly.hintClassifierOnly": "yadbe refuses any statement that could change data or the schema on this connection. {engine} has no read-only session: a query calling code with side effects (a sequence's NEXT VALUE FOR, for example) cannot be detected. Connect with a read-only login for full protection.",
   "connection.menu.connect": "Connect",
   "connection.menu.disconnect": "Disconnect",
   "connection.menu.newQuery": "New query tab",

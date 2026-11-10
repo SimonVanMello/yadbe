@@ -131,6 +131,7 @@
   "connection.new": "Nouvelle connexion",
   "connection.readOnly": "Lecture seule",
   "connection.readOnly.hint": "yadbe refuse sur cette connexion toute instruction qui pourrait modifier des données ou le schéma, et la session elle-même est en lecture seule quand le moteur le permet (PostgreSQL, SQLite).",
+  "connection.readOnly.hintClassifierOnly": "yadbe refuse sur cette connexion toute instruction qui pourrait modifier des données ou le schéma. {engine} n'a pas de session en lecture seule : une requête qui appelle du code avec des effets de bord (le NEXT VALUE FOR d'une séquence, par exemple) ne peut pas être détectée. Connectez-vous avec un compte en lecture seule pour une protection complète.",
   "connection.menu.connect": "Se connecter",
   "connection.menu.disconnect": "Se déconnecter",
   "connection.menu.newQuery": "Nouvel onglet de requête",

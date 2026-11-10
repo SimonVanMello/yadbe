@@ -81,6 +81,19 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'dialog-postgres');
     });
 
+    test('connection dialog: SQL Server, read-only without an engine guard', async ({ page }) => {
+      await newConnection(page);
+      const dialog = page.getByRole('dialog', { name: 'New connection' });
+      await dialog.getByRole('radio', { name: 'SQL Server' }).click();
+      await expect(dialog.getByRole('note')).toHaveCount(0);
+      await expect(dialog.getByLabel('Port')).toHaveValue('1433');
+      await expect(dialog.getByLabel('User')).toHaveValue('sa');
+      await dialog.getByLabel('Host').fill('sql.example.com');
+      await dialog.getByRole('switch', { name: 'Read-only' }).click();
+      await expect(dialog.getByText('SQL Server has no read-only session')).toBeVisible();
+      await capture(page, name, 'dialog-mssql-read-only');
+    });
+
     test('connection dialog: SQLite', async ({ page }) => {
       await newConnection(page);
       const dialog = page.getByRole('dialog', { name: 'New connection' });
@@ -95,10 +108,10 @@ for (const { name, colorScheme } of THEMES) {
     }) => {
       await newConnection(page);
       const dialog = page.getByRole('dialog', { name: 'New connection' });
-      await dialog.getByRole('radio', { name: 'SQL Server' }).click();
-      await expect(dialog.getByRole('note')).toContainText('SQL Server is not available');
-      await expect(dialog.getByLabel('Port')).toHaveValue('1433');
-      await expect(dialog.getByLabel('User')).toHaveValue('sa');
+      await dialog.getByRole('radio', { name: 'MySQL / MariaDB' }).click();
+      await expect(dialog.getByRole('note')).toContainText('MySQL / MariaDB is not available');
+      await expect(dialog.getByLabel('Port')).toHaveValue('3306');
+      await expect(dialog.getByLabel('User')).toHaveValue('root');
       await dialog.getByRole('radio', { name: 'Custom' }).click();
       await dialog.getByLabel('Environment name').fill('QA');
       await dialog.getByRole('radio', { name: 'Purple' }).click();
@@ -239,9 +252,9 @@ for (const { name, colorScheme } of THEMES) {
     test('a connection the build cannot open shows the typed error in its tab', async ({
       page,
     }) => {
-      await openFromSidebar(page, 'reporting');
+      await openFromSidebar(page, 'wordpress');
       const panel = page.getByRole('tabpanel').getByRole('alert');
-      await expect(panel).toContainText('Could not connect to reporting');
+      await expect(panel).toContainText('Could not connect to wordpress');
       await expect(panel).toContainText('not supported');
       await capture(page, name, 'tab-connect-error');
     });
