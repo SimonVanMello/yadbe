@@ -83,7 +83,7 @@ Architecture rules:
 
 - **One value model.** Drivers decode into a common `Value` enum (null, bool, integers, decimal as string, float, text, bytes, date/time types, uuid, json, array, unknown-as-text). The frontend never sees a driver type. Lossless: decimals, 64-bit integers and timestamps cross the IPC as strings.
 - **Rows stay in the backend.** A result set lives in the `ResultStore`; the grid asks for windows. A result is capped (default 100 000 rows / 256 MB, configurable); past the cap the fetch pauses and the user chooses to continue.
-- **Sessions.** Each editor tab owns a dedicated server connection (its own transaction state, `search_path`, temp tables). Metadata and table browsing share one pooled connection per `ConnectionSession`.
+- **Sessions.** Each editor tab owns a dedicated server connection (its own transaction state, `search_path`, temp tables). Metadata reads share one connection per `ConnectionSession`; each table tab also owns a dedicated connection, so a native cancel or an apply transaction never touches metadata reads.
 - **Cancellation is native**: Postgres cancel request, TDS attention, `KILL QUERY` on MySQL, `sqlite3_interrupt`.
 - **Values are always bound.** Generated DML binds values as parameters and quotes identifiers through the dialect. No value is ever concatenated into SQL.
 

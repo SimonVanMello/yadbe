@@ -94,6 +94,9 @@ pnpm perf:startup   # P-01 on the release binary (`pnpm tauri build --no-bundle`
 pnpm perf:tabs      # P-07 on a production build of the front (mock), CPU ×1 and ×4
 pnpm perf:grid      # P-04 on Chromium: scrolling 100k × 50 on the mock (production build), CPU ×1 and ×4
 YADBE_TEST_PG_URL=… pnpm perf:grid:webkit [--binary …]   # P-04 in the real app through tauri-driver (start it with WEBKIT_DISABLE_COMPOSITING_MODE=1 under Xvfb)
+pnpm perf:palette   # P-06: palette search over 10 000 objects on the mock (production build), CPU ×1 and ×4
+pnpm perf:completion  # P-05: autocomplete source over a 10 000-object catalog on the mock, CPU ×1 and ×4
+cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… cargo test --test table_data --test export   # table browsing / edit plans on the three engines, exports
 pnpm perf:explorer  # Explorer tree on the mock: first level with 500 tables, scroll, filter (at once and a key at a time) on 10k objects (YADBE_PERF_PORT / YADBE_MOCK_PORT when the default port is taken)
 cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test query_postgres p03 -- --ignored --nocapture   # P-03: query sent → first 500-row window readable, 1M rows
 ```
