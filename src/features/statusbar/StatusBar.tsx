@@ -2,7 +2,8 @@ import { useLayoutStore } from '../../app/layout/layoutStore';
 import { selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { useT } from '../../i18n/useT';
 import { Icon } from '../../ui/Icon';
-import { useConnection, useSession, stateOf } from '../connections/connectionStore';
+import { Tooltip } from '../../ui/Tooltip';
+import { useConnection, useEngineInfo, useSession, stateOf } from '../connections/connectionStore';
 import { StateDot } from '../connections/StateDot';
 import { failedCount, isFailed, useStatementLog } from '../statement-log/statementLogStore';
 import { CursorPosition } from './CursorPosition';
@@ -16,6 +17,7 @@ export function StatusBar() {
   const activeConnectionId = useTabsStore((state) => selectActiveTab(state).connectionId);
   const connection = useConnection(activeConnectionId);
   const session = useSession(activeConnectionId);
+  const engine = useEngineInfo(connection?.engine ?? null);
   const state = stateOf(session);
   const entries = useStatementLog((store) => store.entries);
   const logOpen = useLayoutStore((store) => !store.panels.bottom.collapsed);
@@ -37,7 +39,17 @@ export function StatusBar() {
               <span className={styles.muted}>{session.serverVersion}</span>
             )}
             {connection.readOnly && (
-              <span className={styles.badge}>{t('connection.readOnly')}</span>
+              <Tooltip
+                content={
+                  engine && !engine.capabilities.readOnlySession
+                    ? t('connection.readOnly.hintClassifierOnly', { engine: engine.label })
+                    : t('connection.readOnly.hint')
+                }
+              >
+                <span className={styles.badge} tabIndex={0} data-testid="read-only-badge">
+                  {t('connection.readOnly')}
+                </span>
+              </Tooltip>
             )}
           </>
         ) : (

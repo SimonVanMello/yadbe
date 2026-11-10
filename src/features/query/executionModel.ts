@@ -26,8 +26,10 @@ export interface TabExecution {
    * remount (the backend does not hand the text back).
    */
   sourceText: string | null;
-  /** Milliseconds since the start, as last reported by the backend. */
+  /** Active milliseconds since the start (pauses at a result cap left out), as last reported. */
   elapsedMs: number;
+  /** Milliseconds the run spent paused at a result cap, waiting for the user. */
+  pausedMs: number;
   /** `performance.now()` when `elapsedMs` was reported, to tick it live between events. */
   elapsedAt: number;
   /** The statement running (or paused), `null` otherwise. */
@@ -46,6 +48,7 @@ export const IDLE_EXECUTION: TabExecution = {
   statements: [],
   sourceText: null,
   elapsedMs: 0,
+  pausedMs: 0,
   elapsedAt: 0,
   currentStatement: null,
   results: [],
@@ -104,6 +107,7 @@ export function fromSnapshot(snapshot: ExecutionSnapshot, now: number): TabExecu
     statements: snapshot.statements,
     sourceText: null,
     elapsedMs: snapshot.elapsedMs,
+    pausedMs: snapshot.pausedMs,
     elapsedAt: now,
     currentStatement: snapshot.currentStatement,
     results: snapshot.results,
@@ -143,6 +147,7 @@ export function applyDelta(
     ...execution,
     status: delta.status,
     elapsedMs: delta.elapsedMs,
+    pausedMs: delta.pausedMs,
     elapsedAt: now,
     currentStatement: delta.currentStatement,
     results: mergeResults(execution.results, delta.results),

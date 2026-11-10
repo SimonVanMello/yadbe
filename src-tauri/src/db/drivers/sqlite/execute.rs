@@ -42,7 +42,9 @@ fn exec_error(err: &rusqlite::Error, path: &Path) -> ExecError {
             let message = msg.clone().unwrap_or_else(|| failure.to_string());
             let error = match failure.code {
                 ErrorCode::OperationInterrupted => YadbeError::cancelled(),
-                ErrorCode::ReadOnly => YadbeError::read_only_violation("").with_detail(&message),
+                ErrorCode::ReadOnly => {
+                    YadbeError::read_only_refused_by_engine().with_detail(&message)
+                }
                 _ => super::classify(err, path),
             };
             ExecError {

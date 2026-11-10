@@ -300,7 +300,10 @@ export type DiscardReason = 'page' | 'filter' | 'sort' | 'refresh' | 'close' | '
 export function confirmDiscard(tabIds: readonly string[], reason: DiscardReason): Promise<boolean> {
   const count = tabIds.reduce((sum, id) => sum + getTableSession(id).pendingCount, 0);
   if (count === 0) return Promise.resolve(true);
+  const tab = tabIds.length === 1 ? tableTabOf(tabIds[0] ?? '') : null;
+  const connection = findConnection(tab?.connectionId ?? null);
   return confirm({
+    ...(connection ? { connection } : {}),
     title: t('tableData.discard.title', { count }),
     description: t(`tableData.discard.${reason}`),
     confirmLabel: t('tableData.discard.confirm'),

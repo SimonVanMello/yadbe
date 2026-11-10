@@ -11,6 +11,8 @@ import { Select } from '../../ui/Select';
 import { Switch } from '../../ui/Switch';
 import { TextInput } from '../../ui/TextInput';
 import { useDebouncedValue } from '../../ui/useDebouncedValue';
+import { ConnectionBanner } from '../connections/ConnectionBanner';
+import { useConnection } from '../connections/connectionStore';
 import {
   BINARY_ENCODINGS,
   CSV_DELIMITERS,
@@ -40,6 +42,7 @@ export function ExportDialog() {
 function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClose: () => void }) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
+  const connection = useConnection(request.connectionId ?? null);
   const id = useId();
   const prefs = useExportStore((state) => state.prefs);
   const setPrefs = useExportStore((state) => state.setPrefs);
@@ -120,6 +123,7 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
         </>
       }
     >
+      {connection && <ConnectionBanner connection={connection} />}
       <div className={styles.form}>
         <div>
           <SegmentedControl<ExportFormatKind>

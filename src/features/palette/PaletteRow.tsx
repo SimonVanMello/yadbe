@@ -6,7 +6,10 @@ import { useT } from '../../i18n/useT';
 import { Icon } from '../../ui/Icon';
 import { Kbd } from '../../ui/Kbd';
 import { useNow } from '../../ui/useNow';
+import { useConnection } from '../connections/connectionStore';
+import { EnvTag } from '../connections/EnvTag';
 import { Highlight } from '../connections/Highlight';
+import { tintOf } from '../connections/model';
 import { kindLabel } from '../explorer/explorerLabels';
 import { rowStyle } from '../sidebar/rowStyle';
 import styles from './CommandPalette.module.css';
@@ -44,6 +47,19 @@ function QualifiedName({ item, indices }: { item: PaletteItem; indices: readonly
   );
 }
 
+/** Environment of the connection a row belongs to (SPEC §6: always visible). */
+function RowEnvironment({ connectionId }: { connectionId: string | null }) {
+  const connection = useConnection(connectionId);
+  if (!connection?.environment) return null;
+  return (
+    <EnvTag
+      environment={connection.environment}
+      label={connection.environmentLabel}
+      tint={tintOf(connection)}
+    />
+  );
+}
+
 function Content({ item, indices }: { item: PaletteItem; indices: readonly number[] }) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
@@ -70,6 +86,7 @@ function Content({ item, indices }: { item: PaletteItem; indices: readonly numbe
             <Highlight text={item.text} indices={indices} />
           </span>
           <span className={styles.detail}>{item.connection.target}</span>
+          <RowEnvironment connectionId={item.connection.id} />
           <span className={styles.aside}>{t(`connection.state.${item.state}`)}</span>
         </>
       );
@@ -93,6 +110,7 @@ function Content({ item, indices }: { item: PaletteItem; indices: readonly numbe
           <span className={styles.detail}>
             {item.connectionName} · {item.database}
           </span>
+          <RowEnvironment connectionId={item.connectionId} />
           <span className={styles.aside}>{kindLabel(t, item.objectKind)}</span>
         </>
       );
@@ -104,6 +122,7 @@ function Content({ item, indices }: { item: PaletteItem; indices: readonly numbe
             {item.entry.connectionName}
             {item.entry.database ? ` · ${item.entry.database}` : ''}
           </span>
+          <RowEnvironment connectionId={item.entry.connectionId} />
           <span className={styles.aside}>
             {formatRelativeTime(item.entry.startedAt / 1000, now, locale)}
           </span>

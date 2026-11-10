@@ -15,6 +15,8 @@ export interface ExportDialogRequest {
   /** Used for the default file name and the dialog's accessible context. */
   label: string;
   rowCount: number;
+  /** Connection the result comes from: its environment is shown in the dialog. */
+  connectionId?: string | null;
   status: ResultStatus;
   pausedBy: PauseReason | null;
 }

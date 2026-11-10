@@ -1,0 +1,45 @@
+.banner {
+  --banner-color: var(--border-strong);
+
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--border-subtle);
+  border-left: var(--space-1) solid var(--banner-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  font-size: var(--text-sm);
+}
+
+.banner[data-environment='prod'] {
+  border-color: color-mix(in srgb, var(--banner-color) 55%, transparent);
+  border-left-color: var(--banner-color);
+  background: color-mix(in srgb, var(--banner-color) 12%, var(--bg-panel));
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.database {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-secondary);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+}

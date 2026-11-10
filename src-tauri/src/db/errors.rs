@@ -427,6 +427,17 @@ impl YadbeError {
         Self::new(ErrorCode::ReadOnlyViolation, en, fr).with_action(ErrorAction::EditConnection)
     }
 
+    /// The engine itself refused a write on a read-only session or database, past what the
+    /// classifier could tell (a function with side effects, for instance).
+    pub fn read_only_refused_by_engine() -> Self {
+        Self::new(
+            ErrorCode::ReadOnlyViolation,
+            "This connection is read-only: the database refused this statement because it changes data. Nothing was changed.",
+            "Cette connexion est en lecture seule : la base de données a refusé cette instruction car elle modifie des données. Rien n'a été modifié.",
+        )
+        .with_action(ErrorAction::EditConnection)
+    }
+
     pub fn result_not_found(result_id: u32) -> Self {
         Self::new(
             ErrorCode::ResultNotFound,
@@ -596,6 +607,25 @@ pub fn from_connect_sqlstate(
     Some(error.with_detail(message))
 }
 
+/// Classification of a standard SQLSTATE returned by a statement: the ones that mean the
+/// session refused a write because it is read-only.
+pub fn from_query_sqlstate(sqlstate: &str, message: &str) -> Option<YadbeError> {
+    match sqlstate {
+        // read_only_sql_transaction
+        "25006" => Some(YadbeError::read_only_refused_by_engine().with_detail(message)),
+        _ => None,
+    }
+}
+
+/// Classification of a SQL Server error number returned by a statement.
+pub fn from_mssql_query_error(number: u32, message: &str) -> Option<YadbeError> {
+    match number {
+        // Failed to update the database because it is read-only.
+        3906 => Some(YadbeError::read_only_refused_by_engine().with_detail(message)),
+        _ => None,
+    }
+}
+
 /// Classification of a SQL Server error number returned while logging in.
 pub fn from_mssql_login_error(
     number: u32,
@@ -730,6 +760,7 @@ mod tests {
             YadbeError::transaction_open(),
             YadbeError::read_only_violation("UPDATE"),
             YadbeError::read_only_violation(""),
+            YadbeError::read_only_refused_by_engine(),
             YadbeError::result_not_found(1),
             YadbeError::table_not_editable("A view.", "Une vue."),
             YadbeError::row_not_found("id = 1"),
@@ -754,6 +785,22 @@ mod tests {
         let db = from_connect_sqlstate("3D000", "app", "shop", "database \"shop\" does not exist");
         assert_eq!(db.map(|e| e.code), Some(ErrorCode::UnknownDatabase));
         assert!(from_connect_sqlstate("42601", "app", "shop", "syntax error").is_none());
+    }
+
+    #[test]
+    fn maps_engine_read_only_refusals() {
+        let pg = from_query_sqlstate("25006", "cannot execute INSERT in a read-only transaction");
+        let pg = pg.expect("25006 is mapped");
+        assert_eq!(pg.code, ErrorCode::ReadOnlyViolation);
+        assert_eq!(pg.action, Some(ErrorAction::EditConnection));
+        assert!(pg.message.en.contains("read-only"));
+        assert!(from_query_sqlstate("23505", "duplicate key").is_none());
+        let ms = from_mssql_query_error(
+            3906,
+            "Failed to update database \"x\" because the database is read-only.",
+        );
+        assert_eq!(ms.map(|e| e.code), Some(ErrorCode::ReadOnlyViolation));
+        assert!(from_mssql_query_error(208, "Invalid object name").is_none());
     }
 
     #[test]

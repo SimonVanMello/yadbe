@@ -838,8 +838,13 @@ export type ExecuteScope =
 /**  What changed in an execution since its previous event. */
 export type ExecutionDelta = {
 	status: ExecutionStatus,
-	/**  Milliseconds since the execution started (until it finished). */
+	/**
+	 *  Active milliseconds since the execution started (until it finished): pauses at a result
+	 *  cap, which wait for the user, are not counted.
+	 */
 	elapsedMs: number,
+	/**  Milliseconds spent paused so far. */
+	pausedMs: number,
 	/**  The statement running (or paused), `null` once finished. */
 	currentStatement: number | null,
 	/**  Results created or changed since the previous event: replace them by `resultId`. */
@@ -858,6 +863,7 @@ export type ExecutionSnapshot = {
 	startedAt: number | null,
 	status: ExecutionStatus,
 	elapsedMs: number,
+	pausedMs: number,
 	currentStatement: number | null,
 	results: ResultSummary[],
 	messages: QueryMessage[],
@@ -1528,7 +1534,10 @@ export type SortKey = {
 };
 
 export type StatementCompleted = {
+	/**  Time the statement ran, without the time it waited paused at a result cap. */
 	durationMs: number | null,
+	/**  Time it waited paused at a result cap, for the user to resume. */
+	pausedMs: number,
 	/**  Rows changed by a DML statement, when the engine says. */
 	rowsAffected: number | null,
 	/**  Rows read, for a statement that returned a result set. */

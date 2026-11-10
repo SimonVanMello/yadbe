@@ -50,3 +50,20 @@
 .itemNote[data-danger='true'] {
   color: var(--danger);
 }
+
+/* A statement is shown whole, its note under it. */
+.item[data-code] {
+  flex-wrap: wrap;
+  padding-block: var(--space-2);
+}
+
+.item[data-code] .itemLabel {
+  flex: 1 1 100%;
+  overflow: visible;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.item[data-code] .itemNote {
+  flex: 1 1 100%;
+}

@@ -194,6 +194,46 @@ async fn pauses_at_the_row_limit_then_loads_more_and_all() {
 }
 
 #[tokio::test]
+async fn the_run_time_leaves_out_the_pause() {
+    let (_dir, _path, b) = sqlite(false).await;
+    let limits = ResultLimits {
+        max_rows: 100_000,
+        max_bytes: 1 << 30,
+    };
+    let id = b.run_limited("tab", SERIES, limits).await;
+    let run = b
+        .wait_for(id, |r| r.status == ExecutionStatus::Paused)
+        .await;
+    let at_pause = run.elapsed_ms;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    b.runner
+        .resume(run.results[0].result_id, ResumeMode::All)
+        .expect("all");
+    let done = b.wait(id).await;
+    assert_eq!(done.status, ExecutionStatus::Succeeded);
+    assert!(done.paused_ms >= 600, "{}", done.paused_ms);
+    assert!(
+        done.elapsed_ms < at_pause + done.paused_ms,
+        "run time {} must not include the {} ms pause",
+        done.elapsed_ms,
+        done.paused_ms
+    );
+    let completed = done
+        .messages
+        .iter()
+        .find_map(|m| match &m.body {
+            yadbe_lib::session::query_model::MessageBody::StatementCompleted(c) => Some(c),
+            _ => None,
+        })
+        .expect("completed message");
+    assert!(completed.paused_ms >= 600);
+    assert!(
+        completed.duration_ms < f64::from(at_pause) + 500.0,
+        "{completed:?}"
+    );
+}
+
+#[tokio::test]
 async fn a_memory_limit_pauses_too_and_rerun_frees_results() {
     let (_dir, _path, b) = sqlite(false).await;
     let limits = ResultLimits {

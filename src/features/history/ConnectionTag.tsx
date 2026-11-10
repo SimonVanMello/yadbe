@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 
 import { useT } from '../../i18n/useT';
+import { EnvTag } from '../connections/EnvTag';
 import { tintOf, type ConnectionSummary } from '../connections/model';
 import styles from './ConnectionTag.module.css';
 
@@ -17,14 +18,23 @@ export function ConnectionTag({ connection, name }: ConnectionTagProps) {
   const tint = connection ? tintOf(connection) : null;
   const label = connection ? connection.name : t('history.connectionDeleted', { name });
   return (
-    <span
-      className={styles.tag}
-      data-environment={connection?.environment ?? undefined}
-      data-deleted={connection === undefined || undefined}
-      style={tint ? ({ '--tag-color': tint } as CSSProperties) : undefined}
-      title={label}
-    >
-      {label}
-    </span>
+    <>
+      <span
+        className={styles.tag}
+        data-environment={connection?.environment ?? undefined}
+        data-deleted={connection === undefined || undefined}
+        style={tint ? ({ '--tag-color': tint } as CSSProperties) : undefined}
+        title={label}
+      >
+        {label}
+      </span>
+      {connection?.environment && (
+        <EnvTag
+          environment={connection.environment}
+          label={connection.environmentLabel}
+          tint={tint}
+        />
+      )}
+    </>
   );
 }

@@ -7,8 +7,7 @@ import { Icon } from '../../ui/Icon';
 import { Kbd } from '../../ui/Kbd';
 import { Spinner } from '../../ui/Spinner';
 import { Switch } from '../../ui/Switch';
-import { ConnectionChip } from '../connections/ConnectionChip';
-import { useConnectionState } from '../connections/connectionStore';
+import { ConnectionBanner } from '../connections/ConnectionBanner';
 import type { ConnectionSummary } from '../connections/model';
 import styles from './PreviewDialog.module.css';
 import { SqlView } from './SqlView';
@@ -28,8 +27,7 @@ export function PreviewDialog({
   connection: ConnectionSummary;
 }) {
   const t = useT();
-  const { preview, applying } = useTableSession(tabId);
-  const state = useConnectionState(connection.id);
+  const { preview, applying, info } = useTableSession(tabId);
   const previewFirst = usePreference('previewBeforeApply');
   const prod = connection.environment === 'prod';
   if (!preview) return null;
@@ -92,10 +90,9 @@ export function PreviewDialog({
       }
     >
       <div className={styles.body}>
-        <div className={styles.target}>
-          <span className={styles.targetLabel}>{t('tableData.preview.on')}</span>
-          <ConnectionChip connection={connection} state={state} />
-        </div>
+        <ConnectionBanner
+          connection={{ ...connection, database: info?.table.database ?? connection.database }}
+        />
         {preview.status === 'loading' && (
           <div className={styles.loading}>
             <Spinner />

@@ -271,11 +271,15 @@ function createMockBackend() {
     return secrets.get(secretKey(connectionId, 'password'))?.value ?? null;
   }
 
-  /** Simulates a dropped link followed by an automatic reconnection. */
-  async function dropConnection(connectionId: string): Promise<void> {
+  /**
+   * Simulates a dropped link followed by an automatic reconnection (`stayLost`: the link stays
+   * lost, for a screen that shows it).
+   */
+  async function dropConnection(connectionId: string, stayLost = false): Promise<void> {
     const current = sessions.get(connectionId);
     if (current?.state !== 'connected') return;
     setSession({ ...current, state: 'lost', error: mockErrors.connectionLost() });
+    if (stayLost) return;
     setSession({ ...current, state: 'reconnecting', error: null, reconnectAttempt: 1 });
     await sleep(latency);
     if (sessions.get(connectionId)?.state !== 'reconnecting') return;
