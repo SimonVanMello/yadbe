@@ -6,6 +6,7 @@ import { Dialog } from '../../ui/Dialog';
 import { Field } from '../../ui/Field';
 import { Switch } from '../../ui/Switch';
 import { TextInput } from '../../ui/TextInput';
+import { ConnectionBanner } from './ConnectionBanner';
 import { useKeychainAvailable } from './connectionStore';
 import type { ConnectionSummary } from './model';
 import { usePasswordPrompt } from './passwordPromptStore';
@@ -49,6 +50,7 @@ function PromptForm({ connection }: { connection: ConnectionSummary }) {
         </>
       }
     >
+      <ConnectionBanner connection={connection} />
       <form id="password-form" className={styles.form} onSubmit={submit}>
         <Field label={t('connection.password')} htmlFor="prompt-password">
           <TextInput

@@ -17,7 +17,7 @@ import { toast } from '../../ui/toastStore';
 import { connectTo } from '../connections/connectionActions';
 import type { ConnectionSummary } from '../connections/model';
 import { findConnection } from './connectionLookup';
-import { dangerKindKey, guardApplies, oneLine } from './dangerGuard';
+import { dangerKindKey, guardApplies, guardLines } from './dangerGuard';
 import { findDangerousStatements, type DangerousStatement } from './dangerousStatements';
 import { getEditor } from './editorRegistry';
 import { isActive } from './executionModel';
@@ -75,24 +75,40 @@ function environmentName(connection: ConnectionSummary): string | null {
 /** Shows the statements about to run that can do harm, with where they run (F-051). */
 async function confirmDangerous(
   connection: ConnectionSummary,
+  text: string,
+  ranges: readonly TextRange[],
   dangers: readonly DangerousStatement[],
 ): Promise<boolean> {
+  const lines = guardLines(text, ranges, dangers);
   const environment = environmentName(connection);
+  const hidden = ranges.length - lines.length;
   return confirm({
-    title: t('query.guard.title', { count: dangers.length }),
+    title: t(dangers.length === 1 ? 'query.guard.title.one' : 'query.guard.title', {
+      count: dangers.length,
+    }),
     description: t('query.guard.description', {
       connection: connection.name,
       environment: environment === null ? t('query.guard.noEnvironment') : environment,
     }),
     confirmLabel: t('query.guard.confirm'),
     danger: true,
-    items: dangers.map((danger) => ({
-      label: oneLine(danger.sql),
-      note: t(dangerKindKey(danger.kind)),
-      danger: true,
-    })),
-    // The statements exactly as they will be sent, whole: the list above is only a summary.
-    statement: dangers.map((danger) => danger.sql).join('\n\n'),
+    connection,
+    // Each statement once, whole: what is listed is what will be sent.
+    items: [
+      ...lines.map((line) => ({
+        label: line.sql,
+        code: true,
+        note:
+          (ranges.length > 1
+            ? `${t('query.guard.statementNumber', { number: line.number })} · `
+            : '') +
+          (line.kind === null ? t('query.guard.notFlagged') : t(dangerKindKey(line.kind))),
+        danger: line.kind !== null,
+      })),
+      ...(hidden > 0
+        ? [{ label: t('query.guard.others', { count: hidden }), note: t('query.guard.notFlagged') }]
+        : []),
+    ],
   });
 }
 
@@ -133,13 +149,15 @@ async function startRun(tabId: string, mode: RunMode): Promise<void> {
   if (!(await connectTo(connection))) return;
 
   if (guardApplies(connection, useQueryUiStore.getState().confirmDangerous)) {
+    let ranges: TextRange[] = [];
     let dangers: DangerousStatement[] = [];
     try {
-      dangers = findDangerousStatements(text, await statementsOf(connection.engine, text, scope));
+      ranges = await statementsOf(connection.engine, text, scope);
+      dangers = findDangerousStatements(text, ranges);
     } catch {
       // Without the split the backend cannot run the text either: it reports why.
     }
-    if (dangers.length > 0 && !(await confirmDangerous(connection, dangers))) return;
+    if (dangers.length > 0 && !(await confirmDangerous(connection, text, ranges, dangers))) return;
   }
 
   const { database } = editor;
@@ -251,6 +269,7 @@ export async function confirmAbandonTransaction(
             : 'query.transaction.openNote',
         ),
         danger: true,
+        connection,
       };
     }),
   });

@@ -1,7 +1,8 @@
 import type { TextRange } from '../../ipc';
 
 /** What makes a statement worth a confirmation (F-051). */
-export type DangerKind = 'updateWithoutWhere' | 'deleteWithoutWhere' | 'truncate' | 'drop';
+export type DangerKind =
+  'updateWithoutWhere' | 'deleteWithoutWhere' | 'truncate' | 'drop' | 'alterDrop' | 'mergeDelete';
 
 export interface DangerousStatement {
   /** Index in the list of statements about to run. */
@@ -119,17 +120,41 @@ function lacksWhere(words: readonly Word[], group: number): boolean {
   return !words.some((w) => w.group === group && w.word === 'where');
 }
 
+/** Verbs a T-SQL `IF … <statement>` guards: the statement to judge starts at the first of them. */
+const GUARDED_VERBS = new Set(['drop', 'truncate', 'delete', 'update', 'alter', 'merge']);
+
+/** `ALTER … DROP DEFAULT` and friends keep the data: only the rule goes away. */
+const HARMLESS_DROPS = new Set(['default', 'not', 'identity', 'expression']);
+
+function dropsData(words: readonly Word[]): boolean {
+  return words.some(
+    (w, i) => w.group === 0 && w.word === 'drop' && !HARMLESS_DROPS.has(words[i + 1]?.word ?? ''),
+  );
+}
+
 /**
- * Whether a statement needs a confirmation: `UPDATE` / `DELETE` without a top-level `WHERE`,
- * `TRUNCATE` or `DROP` (F-051). A data-modifying CTE (`WITH d AS (DELETE FROM t …)`) counts too.
+ * Whether a statement needs a confirmation: `UPDATE` / `DELETE` without a top-level `WHERE`
+ * (`DELETE … USING` and `UPDATE … FROM` included), `TRUNCATE`, `DROP`, `ALTER … DROP`, a `MERGE`
+ * that deletes (F-051). A data-modifying CTE (`WITH d AS (DELETE FROM t …)`) counts too, and so
+ * does a statement behind a T-SQL `IF EXISTS (…)`.
  */
 export function classifyStatement(sql: string): DangerKind | null {
-  const words = scanWords(sql);
+  let words = scanWords(sql);
+  if (words[0]?.word === 'if') {
+    const start = words.findIndex((w) => w.group === 0 && GUARDED_VERBS.has(w.word));
+    if (start > 0) words = words.slice(start);
+  }
   switch (topLevelVerb(words)) {
     case 'truncate':
       return 'truncate';
     case 'drop':
       return 'drop';
+    case 'alter':
+      if (dropsData(words)) return 'alterDrop';
+      break;
+    case 'merge':
+      if (words.some((w) => w.group === 0 && w.word === 'delete')) return 'mergeDelete';
+      break;
     case 'update':
       if (lacksWhere(words, 0)) return 'updateWithoutWhere';
       break;

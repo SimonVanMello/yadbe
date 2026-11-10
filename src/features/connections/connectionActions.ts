@@ -104,6 +104,7 @@ export async function deleteConnection(
     description: t('connection.delete.description'),
     confirmLabel: t('connection.delete.confirm'),
     danger: true,
+    connection,
     items: [
       { label: connection.name, note: t('connection.delete.removed'), danger: true },
       ...(tabCount > 0
