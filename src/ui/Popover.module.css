@@ -1,0 +1,21 @@
+.content {
+  z-index: var(--z-dropdown);
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-popover);
+  animation: fade-in var(--duration-normal) var(--easing-standard);
+}
+
+.content:focus {
+  outline: none;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}

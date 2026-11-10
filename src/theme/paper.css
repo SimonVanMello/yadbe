@@ -46,6 +46,17 @@
   --env-staging-soft: rgb(169 93 5 / 0.1);
   --env-prod-soft: rgb(213 36 36 / 0.1);
 
+  /* Connection colors (F-007): user-picked tags for a connection, distinct from environments. */
+  --tag-1: #2563eb;
+  --tag-2: #0e7490;
+  --tag-3: #11813a;
+  --tag-4: #4d7c0f;
+  --tag-5: #a95d05;
+  --tag-6: #c2410c;
+  --tag-7: #d52424;
+  --tag-8: #be185d;
+  --tag-9: #7c3aed;
+
   /* Data grid cell states (SPEC §7): text/marker color and a background tint of each. */
   --cell-modified: #a95d05;
   --cell-inserted: #11813a;

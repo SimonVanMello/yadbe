@@ -11,6 +11,8 @@ interface DialogProps {
   children?: ReactNode;
   /** Action buttons, rendered right-aligned. */
   footer?: ReactNode;
+  /** Outcome of what the dialog does, between the content and the buttons: never scrolled away. */
+  notice?: ReactNode;
   /** Wider dialog with its own scrolling, for settings screens. */
   wide?: boolean;
   /** Call `preventDefault()` to keep the dialog open on `Esc` (a field that uses the key). */
@@ -25,6 +27,7 @@ export function Dialog({
   description,
   children,
   footer,
+  notice,
   wide,
   onEscapeKeyDown,
 }: DialogProps) {
@@ -46,7 +49,8 @@ export function Dialog({
               </RadixDialog.Description>
             )}
           </div>
-          {children}
+          {children && <div className={styles.body}>{children}</div>}
+          {notice && <div className={styles.notice}>{notice}</div>}
           {footer && <div className={styles.footer}>{footer}</div>}
         </RadixDialog.Content>
       </RadixDialog.Portal>

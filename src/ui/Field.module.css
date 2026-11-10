@@ -16,3 +16,7 @@
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
 }
+
+.error {
+  color: var(--danger);
+}

@@ -7,18 +7,26 @@ interface FieldProps {
   /** `id` of the control, so the label is clickable. */
   htmlFor?: string;
   hint?: ReactNode;
+  /** What is wrong with the value; replaces the hint, in the danger color. */
+  error?: ReactNode;
   children: ReactNode;
 }
 
-/** A labelled form control with an optional hint under it. */
-export function Field({ label, htmlFor, hint, children }: FieldProps) {
+/** A labelled form control with an optional hint (or error) under it. */
+export function Field({ label, htmlFor, hint, error, children }: FieldProps) {
   return (
     <div className={styles.field}>
       <label className={styles.label} htmlFor={htmlFor}>
         {label}
       </label>
       {children}
-      {hint && <div className={styles.hint}>{hint}</div>}
+      {error ? (
+        <div className={`${styles.hint} ${styles.error}`} role="alert">
+          {error}
+        </div>
+      ) : (
+        hint && <div className={styles.hint}>{hint}</div>
+      )}
     </div>
   );
 }

@@ -57,6 +57,7 @@
   --toast-width: 360px;
   --card-min-width: 360px;
   --tooltip-max-width: 280px;
+  --welcome-width: 680px;
 
   /* Shell layout (SPEC §4) */
   --titlebar-height: 38px;
@@ -65,6 +66,9 @@
   --tab-max-width: 200px;
   /* Pinned tabs: color dot and a short name only. */
   --tab-pinned-max-width: 112px;
+  --traffic-lights-width: 78px;
+  --window-button-width: 46px;
+  --env-stripe-height: 2px;
   --toolbar-height: 44px;
   --toolbar-button-min-width: 52px;
   --toolbar-button-height: 38px;

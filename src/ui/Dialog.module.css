@@ -15,6 +15,7 @@
   flex-direction: column;
   gap: var(--space-4);
   width: min(var(--dialog-width), calc(100vw - var(--space-7)));
+  max-height: calc(100vh - 18vh - var(--space-5));
   padding: var(--space-5);
   border: var(--border-width) solid var(--border-strong);
   border-radius: var(--radius-xl);
@@ -26,10 +27,22 @@
 }
 
 .wide {
-  top: 6vh;
+  top: 5vh;
   width: min(var(--dialog-width-wide), calc(100vw - var(--space-7)));
-  max-height: 88vh;
+  max-height: 90vh;
+}
+
+/* Only the body scrolls: the title and the actions stay in view. */
+.body {
+  min-height: 0;
+  /* Room for the focus rings of the fields, which the scroll area would clip. */
+  margin: calc(var(--space-1) * -1);
+  padding: var(--space-1);
   overflow-y: auto;
+}
+
+.notice {
+  flex: none;
 }
 
 .content:focus {
@@ -38,6 +51,7 @@
 
 .header {
   display: flex;
+  flex: none;
   flex-direction: column;
   gap: var(--space-2);
 }
@@ -57,6 +71,7 @@
 
 .footer {
   display: flex;
+  flex: none;
   justify-content: flex-end;
   gap: var(--space-3);
 }
