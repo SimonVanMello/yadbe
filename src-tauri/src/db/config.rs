@@ -285,6 +285,12 @@ impl ConnectionDefinition {
 
     /// The parameters a driver needs, without the organization fields.
     pub fn target(&self) -> ConnectTarget {
+        self.target_with_timeout(DEFAULT_CONNECT_TIMEOUT_SECS)
+    }
+
+    /// Like [`Self::target`], with the app-wide connect timeout (preferences) standing in for
+    /// the one this definition does not set.
+    pub fn target_with_timeout(&self, default_timeout_secs: u32) -> ConnectTarget {
         let caps = self.engine.dialect().capabilities();
         ConnectTarget {
             engine: self.engine,
@@ -296,8 +302,7 @@ impl ConnectionDefinition {
             tls_mode: self.tls_mode,
             ca_cert_path: self.ca_cert_path.as_ref().map(PathBuf::from),
             connect_timeout: Duration::from_secs(u64::from(
-                self.connect_timeout_secs
-                    .unwrap_or(DEFAULT_CONNECT_TIMEOUT_SECS),
+                self.connect_timeout_secs.unwrap_or(default_timeout_secs),
             )),
             options: self.options.clone(),
             read_only: self.read_only,
@@ -438,6 +443,20 @@ mod tests {
         let def = sample_definition(Engine::Postgres);
         assert_eq!(def.target().port, 5432);
         assert_eq!(def.target().connect_timeout, Duration::from_secs(15));
+    }
+
+    #[test]
+    fn the_app_wide_timeout_stands_in_for_a_missing_one() {
+        let mut def = sample_definition(Engine::Postgres);
+        assert_eq!(
+            def.target_with_timeout(40).connect_timeout,
+            Duration::from_secs(40)
+        );
+        def.connect_timeout_secs = Some(5);
+        assert_eq!(
+            def.target_with_timeout(40).connect_timeout,
+            Duration::from_secs(5)
+        );
     }
 
     #[test]

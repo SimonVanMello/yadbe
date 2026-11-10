@@ -25,7 +25,10 @@ pub async fn set_preferences(
     preferences: Preferences,
 ) -> Result<Preferences, YadbeError> {
     let store = Arc::clone(&state.store);
-    blocking(move || store.set_preferences(&preferences)).await
+    let saved = blocking(move || store.set_preferences(&preferences)).await?;
+    // A lower retention applies now, not at the next hourly prune.
+    state.history.prune_now();
+    Ok(saved)
 }
 
 /// Tabs saved by the last `save_tabs`, for restoration at startup.

@@ -53,7 +53,12 @@ pub enum Density {
     Compact,
 }
 
-/// App preferences (F-125). More fields arrive with the preferences screen (M2-8).
+/// Bounds of the preferences the backend itself applies (F-125).
+pub const HISTORY_ENTRIES_RANGE: (u32, u32) = (100, 1_000_000);
+pub const HISTORY_AGE_DAYS_RANGE: (u32, u32) = (1, 3650);
+pub const CONNECT_TIMEOUT_RANGE: (u32, u32) = (1, 600);
+
+/// App preferences (F-125). The settings only the frontend reads live in `ui_state`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Preferences {
@@ -63,6 +68,14 @@ pub struct Preferences {
     pub density: Density,
     /// Opaque JSON owned by the frontend (panel sizes, collapsed sections…), at most 64 KiB.
     pub ui_state: Option<String>,
+    /// Record the statements that are run in the history; a connection can still opt out.
+    pub history_enabled: bool,
+    /// History bound: most entries kept.
+    pub history_max_entries: u32,
+    /// History bound: oldest entry kept, in days.
+    pub history_max_age_days: u32,
+    /// Connect timeout of the connections that do not set their own, in seconds.
+    pub connect_timeout_secs: u32,
 }
 
 impl Default for Preferences {
@@ -72,6 +85,10 @@ impl Default for Preferences {
             locale: None,
             density: Density::Comfortable,
             ui_state: None,
+            history_enabled: true,
+            history_max_entries: 50_000,
+            history_max_age_days: 365,
+            connect_timeout_secs: 15,
         }
     }
 }

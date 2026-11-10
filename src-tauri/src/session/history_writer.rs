@@ -24,6 +24,8 @@ enum Msg {
     Entry(Box<HistoryEntry>),
     /// Something else changed the history (delete, clear): tell the panel.
     Changed,
+    /// The retention preferences changed: apply them now.
+    Prune,
     /// Answers once everything queued before it is written.
     Flush(SyncSender<()>),
     Shutdown,
@@ -35,15 +37,11 @@ pub struct StoreHistory {
 }
 
 impl StoreHistory {
-    pub fn new(
-        store: Arc<Store>,
-        sink: Arc<dyn EventSink>,
-        retention: HistoryRetention,
-    ) -> Arc<Self> {
+    pub fn new(store: Arc<Store>, sink: Arc<dyn EventSink>) -> Arc<Self> {
         let (tx, rx) = mpsc::channel();
         let thread = std::thread::Builder::new()
             .name("history-writer".into())
-            .spawn(move || Writer::new(store, sink, retention).run(&rx))
+            .spawn(move || Writer::new(store, sink).run(&rx))
             .map_err(|err| tracing::error!(error = %err, "cannot start the history writer"))
             .ok();
         Arc::new(Self {
@@ -55,6 +53,11 @@ impl StoreHistory {
     /// Announces a change made outside the writer (an entry deleted, the history cleared).
     pub fn notify_changed(&self) {
         let _ = self.tx.send(Msg::Changed);
+    }
+
+    /// Applies the retention of the preferences now (they were just changed).
+    pub fn prune_now(&self) {
+        let _ = self.tx.send(Msg::Prune);
     }
 
     /// Blocks until every statement recorded so far is in the store (tests, shutdown).
@@ -94,7 +97,6 @@ fn unix_ms(time: SystemTime) -> i64 {
 struct Writer {
     store: Arc<Store>,
     sink: Arc<dyn EventSink>,
-    retention: HistoryRetention,
     last_emit: Option<Instant>,
     emit_at: Option<Instant>,
     last_prune: Instant,
@@ -102,11 +104,10 @@ struct Writer {
 }
 
 impl Writer {
-    fn new(store: Arc<Store>, sink: Arc<dyn EventSink>, retention: HistoryRetention) -> Self {
+    fn new(store: Arc<Store>, sink: Arc<dyn EventSink>) -> Self {
         Self {
             store,
             sink,
-            retention,
             last_emit: None,
             emit_at: None,
             last_prune: Instant::now(),
@@ -131,12 +132,14 @@ impl Writer {
             let mut entries = Vec::new();
             let mut acks = Vec::new();
             let mut changed = false;
+            let mut prune = false;
             let mut shutdown = false;
             let mut next = Some(first);
             while let Some(msg) = next.take() {
                 match msg {
                     Msg::Entry(entry) => entries.push(*entry),
                     Msg::Changed => changed = true,
+                    Msg::Prune => prune = true,
                     Msg::Flush(ack) => acks.push(ack),
                     Msg::Shutdown => shutdown = true,
                 }
@@ -146,6 +149,9 @@ impl Writer {
             }
             if self.write(&entries) || changed {
                 self.schedule_emit();
+            }
+            if prune {
+                self.prune();
             }
             self.tick();
             for ack in acks {
@@ -159,6 +165,10 @@ impl Writer {
 
     /// Writes a batch; `true` when something was stored.
     fn write(&mut self, entries: &[HistoryEntry]) -> bool {
+        // Read once per batch: the preference can change while the app runs.
+        if entries.is_empty() || !self.store.preferences().is_ok_and(|p| p.history_enabled) {
+            return false;
+        }
         let mut definitions: HashMap<&str, Option<ConnectionDefinition>> = HashMap::new();
         let mut rows = Vec::with_capacity(entries.len());
         for entry in entries {
@@ -236,9 +246,17 @@ impl Writer {
     fn prune(&mut self) {
         self.last_prune = Instant::now();
         self.writes_since_prune = 0;
+        let retention = self
+            .store
+            .preferences()
+            .map(|p| HistoryRetention {
+                max_entries: p.history_max_entries,
+                max_age_days: p.history_max_age_days,
+            })
+            .unwrap_or_default();
         match self
             .store
-            .prune_history(self.retention, unix_ms(SystemTime::now()))
+            .prune_history(retention, unix_ms(SystemTime::now()))
         {
             Ok(0) => {}
             Ok(removed) => {
@@ -268,7 +286,7 @@ mod tests {
     use super::*;
     use crate::db::dialect::Engine;
     use crate::events::RecordingSink;
-    use crate::store::HistoryQuery;
+    use crate::store::{HistoryQuery, Preferences};
 
     fn entry(sql: &str, started_at_ms: i64) -> NewHistoryEntry {
         NewHistoryEntry {
@@ -295,28 +313,40 @@ mod tests {
             .insert_history(&[
                 entry("too old", now - 40 * day),
                 entry("old", now - 3 * day),
-                entry("newer", now - 2 * day),
-                entry("newest", now - day),
+                entry("recent", now - day / 2),
             ])
             .expect("insert");
+        store
+            .set_preferences(&Preferences {
+                history_max_entries: 100,
+                history_max_age_days: 30,
+                ..Preferences::default()
+            })
+            .expect("preferences");
         let sink = Arc::new(RecordingSink::default());
-        let history = StoreHistory::new(
-            Arc::clone(&store),
-            sink.clone(),
-            HistoryRetention {
-                max_entries: 2,
-                max_age_days: 30,
-            },
-        );
+        let history = StoreHistory::new(Arc::clone(&store), sink.clone());
         history.flush();
-        let kept: Vec<String> = store
-            .search_history(&HistoryQuery::default())
-            .expect("search")
-            .rows
-            .into_iter()
-            .map(|row| row.sql)
-            .collect();
-        assert_eq!(kept, ["newest", "newer"]);
+        let search = || -> Vec<String> {
+            store
+                .search_history(&HistoryQuery::default())
+                .expect("search")
+                .rows
+                .into_iter()
+                .map(|row| row.sql)
+                .collect()
+        };
+        assert_eq!(search(), ["recent", "old"]);
+        // Lowering the bound applies at once.
+        store
+            .set_preferences(&Preferences {
+                history_max_entries: 100,
+                history_max_age_days: 1,
+                ..Preferences::default()
+            })
+            .expect("preferences");
+        history.prune_now();
+        history.flush();
+        assert_eq!(search(), ["recent"]);
         drop(history);
         assert!(
             sink.events()

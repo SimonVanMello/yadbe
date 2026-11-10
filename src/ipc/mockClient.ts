@@ -41,6 +41,10 @@ const DEFAULT_PREFERENCES: Preferences = {
   locale: null,
   density: 'comfortable',
   uiState: null,
+  historyEnabled: true,
+  historyMaxEntries: 50_000,
+  historyMaxAgeDays: 365,
+  connectTimeoutSecs: 15,
 };
 
 /** Time a connection attempt takes in the mock, in ms. */

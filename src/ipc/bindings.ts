@@ -1264,7 +1264,7 @@ export type PlannedStatement = {
 	sql: string,
 };
 
-/**  App preferences (F-125). More fields arrive with the preferences screen (M2-8). */
+/**  App preferences (F-125). The settings only the frontend reads live in `ui_state`. */
 export type Preferences = {
 	theme: ThemePreference,
 	/**  `null`: follow the OS language. */
@@ -1272,6 +1272,14 @@ export type Preferences = {
 	density: Density,
 	/**  Opaque JSON owned by the frontend (panel sizes, collapsed sections…), at most 64 KiB. */
 	uiState: string | null,
+	/**  Record the statements that are run in the history; a connection can still opt out. */
+	historyEnabled: boolean,
+	/**  History bound: most entries kept. */
+	historyMaxEntries: number,
+	/**  History bound: oldest entry kept, in days. */
+	historyMaxAgeDays: number,
+	/**  Connect timeout of the connections that do not set their own, in seconds. */
+	connectTimeoutSecs: number,
 };
 
 /**
