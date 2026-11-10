@@ -127,8 +127,8 @@ export const mockErrors = {
   queryFailed: (detail: string) =>
     error(
       'queryFailed',
-      'The server rejected the statement.',
-      "Le serveur a refusé l'instruction.",
+      'The database rejected the statement.',
+      "La base de données a refusé l'instruction.",
       null,
       detail,
     ),

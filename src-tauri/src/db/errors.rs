@@ -350,8 +350,8 @@ impl YadbeError {
     pub fn query_failed(message: impl AsRef<str>) -> Self {
         Self::new(
             ErrorCode::QueryFailed,
-            "The server rejected the statement.",
-            "Le serveur a refusé l'instruction.",
+            "The database rejected the statement.",
+            "La base de données a refusé l'instruction.",
         )
         .with_detail(message)
     }

@@ -6,7 +6,7 @@ import { errorMarks, errorRange, jumpTarget } from './errorMarks';
 
 const error: YadbeError = {
   code: 'queryFailed',
-  message: { en: 'The server rejected the statement.', fr: 'Le serveur a refusé.' },
+  message: { en: 'The database rejected the statement.', fr: 'Le serveur a refusé.' },
   action: null,
   detail: null,
 };
