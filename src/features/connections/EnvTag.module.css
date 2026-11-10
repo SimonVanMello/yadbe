@@ -1,0 +1,38 @@
+.tag {
+  --env-color: var(--fg-secondary);
+
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  max-width: 100%;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  border: var(--border-width) solid color-mix(in srgb, var(--env-color) 45%, transparent);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--env-color) 14%, transparent);
+  color: var(--env-color);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  line-height: var(--badge-size);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tag[data-environment='dev'] {
+  --env-color: var(--env-dev);
+}
+
+.tag[data-environment='staging'] {
+  --env-color: var(--env-staging);
+}
+
+.tag[data-environment='prod'] {
+  --env-color: var(--env-prod);
+}
+
+/* A user-picked color may be too light or too dark for the theme: lean on the text color. */
+.tag[data-environment='custom'] {
+  color: color-mix(in srgb, var(--env-color) 55%, var(--fg-primary));
+}

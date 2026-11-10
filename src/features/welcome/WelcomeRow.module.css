@@ -1,0 +1,103 @@
+.row {
+  --row-tint: transparent;
+
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: calc(var(--row-height) + var(--space-5));
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  /* Transparent at rest so the hover border does not shift the layout. */
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.row::before {
+  position: absolute;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  left: 0;
+  width: var(--space-0);
+  border-radius: var(--radius-full);
+  background: var(--row-tint);
+  content: '';
+}
+
+.row[data-active] {
+  border-color: var(--border-subtle);
+  background: var(--bg-selected);
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--accent);
+}
+
+.text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-0);
+  min-width: 0;
+}
+
+.name {
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.target {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lock {
+  flex: none;
+  color: var(--fg-muted);
+}
+
+.time {
+  flex: none;
+  min-width: calc(var(--space-8) + var(--space-5));
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-align: right;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-0);
+  flex: none;
+}
+
+.action {
+  display: grid;
+  place-items: center;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.row:hover .action,
+.row[data-active] .action,
+.action[data-favorite] {
+  opacity: 1;
+}
+
+.action:hover {
+  background: var(--bg-active);
+  color: var(--fg-primary);
+}
+
+.action[data-favorite] {
+  color: var(--warning);
+}

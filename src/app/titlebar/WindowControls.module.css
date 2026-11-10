@@ -1,0 +1,32 @@
+.controls {
+  display: flex;
+  align-self: stretch;
+  flex: none;
+  margin-right: calc(var(--space-4) * -1);
+}
+
+.button {
+  display: grid;
+  place-items: center;
+  width: var(--window-button-width);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: default;
+}
+
+.button:hover {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}
+
+.button:focus-visible {
+  outline-offset: -2px;
+}
+
+.close:hover,
+.close:focus-visible {
+  background: var(--danger);
+  color: var(--accent-fg);
+}

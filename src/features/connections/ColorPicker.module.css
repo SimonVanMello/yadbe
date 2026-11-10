@@ -1,0 +1,30 @@
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.swatch {
+  --swatch: transparent;
+
+  display: grid;
+  place-items: center;
+  width: var(--control-height-md);
+  height: var(--control-height-md);
+  padding: 0;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-full);
+  background: var(--swatch);
+  color: var(--bg-app);
+  cursor: pointer;
+}
+
+.swatch:hover {
+  border-color: var(--fg-primary);
+}
+
+.swatch[aria-checked='true'] {
+  box-shadow:
+    0 0 0 var(--space-0) var(--bg-elevated),
+    0 0 0 calc(var(--space-0) + var(--focus-ring-width)) var(--swatch);
+}

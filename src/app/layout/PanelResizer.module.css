@@ -1,0 +1,51 @@
+.resizer {
+  position: relative;
+  z-index: var(--z-resizer);
+  flex: none;
+  background: var(--border-subtle);
+  touch-action: none;
+}
+
+.resizer[data-orientation='vertical'] {
+  width: var(--border-width);
+  cursor: col-resize;
+}
+
+.resizer[data-orientation='horizontal'] {
+  height: var(--border-width);
+  cursor: row-resize;
+}
+
+/* Wider invisible hit area, centered on the 1px line. */
+.resizer::before {
+  position: absolute;
+  content: '';
+}
+
+.resizer[data-orientation='vertical']::before {
+  inset: 0 calc(var(--resizer-size) / -2);
+}
+
+.resizer[data-orientation='horizontal']::before {
+  inset: calc(var(--resizer-size) / -2) 0;
+}
+
+.resizer:hover,
+.resizer:focus-visible,
+:global(body[data-resizing]) .resizer:active {
+  background: var(--accent);
+}
+
+.resizer:focus-visible {
+  outline: none;
+}
+
+:global(body[data-resizing='col']) {
+  cursor: col-resize;
+  user-select: none;
+}
+
+:global(body[data-resizing='row']) {
+  cursor: row-resize;
+  user-select: none;
+}

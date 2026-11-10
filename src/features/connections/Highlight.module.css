@@ -1,0 +1,5 @@
+.mark {
+  background: none;
+  color: var(--accent);
+  font-weight: var(--weight-semibold);
+}

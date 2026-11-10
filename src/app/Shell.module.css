@@ -1,51 +1,42 @@
 .shell {
+  --shell-tint: transparent;
+
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
+  /* The environment of the active connection, on the whole window (SPEC §4). */
+  border-top: var(--env-stripe-height) solid var(--shell-tint);
   background: var(--bg-app);
-}
-
-.header {
-  display: flex;
-  justify-content: flex-end;
-  padding: var(--space-3) var(--space-5);
-  border-bottom: var(--border-width) solid var(--border-subtle);
-  background: var(--bg-titlebar);
 }
 
 .main {
   display: flex;
   flex: 1;
+  min-height: 0;
+}
+
+.sidebar {
+  flex: none;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.center {
+  display: flex;
+  flex: 1;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
+  min-width: 0;
 }
 
-.logo {
-  color: var(--accent);
+.content {
+  flex: 1;
+  min-height: 0;
 }
 
-.name {
-  margin: 0;
-  font-size: var(--text-2xl);
-  font-weight: var(--weight-semibold);
-}
-
-.tagline {
-  margin: 0;
-  color: var(--fg-secondary);
-}
-
-.version {
-  margin: var(--space-3) 0 0;
-  color: var(--fg-muted);
-  font-family: var(--font-code);
-  font-size: var(--text-sm);
-}
-
-.link {
-  margin-top: var(--space-4);
-  color: var(--accent);
-  font-size: var(--text-sm);
+.bottom {
+  flex: none;
+  min-height: 0;
+  overflow: hidden;
 }

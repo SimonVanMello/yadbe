@@ -1,0 +1,28 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.pasteRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--fg-secondary);
+}
+
+/* "Test connection" sits on the left of the footer, apart from Cancel / Save. */
+.testButton {
+  margin-right: auto;
+}
+
+.ignored {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}

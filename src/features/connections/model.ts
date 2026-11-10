@@ -1,0 +1,327 @@
+import type {
+  ConnectionDefinition,
+  ConnectionGroup,
+  ConnectionOption,
+  ConnectionState as BackendConnectionState,
+  EngineInfo,
+  Engine,
+  EnvironmentKind,
+  ParsedConnectionString,
+  SavedConnection,
+  SecretInput,
+  TlsMode,
+} from '../../ipc';
+
+export type { ConnectionGroup, Engine, EngineInfo, EnvironmentKind, TlsMode };
+
+/** What the user sees of a connection: the backend's states, plus "no session" (`disconnected`). */
+export type ConnectionState = Exclude<BackendConnectionState, 'closed'> | 'disconnected';
+
+export const TLS_MODES: readonly TlsMode[] = ['disable', 'prefer', 'require', 'verifyFull'];
+
+/** Environment choices of the form (`none` is "no environment"). */
+export const ENVIRONMENTS: readonly EnvironmentKind[] = [
+  'none',
+  'dev',
+  'staging',
+  'prod',
+  'custom',
+];
+
+/** What the sidebar, the tabs and the welcome screen show of a saved connection. */
+export interface ConnectionSummary {
+  id: string;
+  name: string;
+  engine: Engine;
+  /** `host:port` or the file name, shown under the name. */
+  target: string;
+  database: string;
+  groupId: string | null;
+  /** Order inside its group, from 0. */
+  position: number;
+  /** `null` when the connection has no environment. */
+  environment: Exclude<EnvironmentKind, 'none'> | null;
+  /** Name of a `custom` environment. */
+  environmentLabel: string | null;
+  /** `#rrggbb` of a `custom` environment. */
+  environmentColor: string | null;
+  readOnly: boolean;
+  favorite: boolean;
+  /** Unix time in ms of the last successful connection. */
+  lastUsedAt: number | null;
+  /** The complete definition, to edit one field and save the rest unchanged. */
+  definition: ConnectionDefinition;
+}
+
+function basename(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
+export function summarize(saved: SavedConnection): ConnectionSummary {
+  const { definition } = saved;
+  const environment = definition.environment.kind;
+  return {
+    id: saved.id,
+    name: definition.name,
+    engine: definition.engine,
+    target:
+      definition.host !== ''
+        ? `${definition.host}${definition.port === null ? '' : `:${String(definition.port)}`}`
+        : basename(definition.filePath),
+    database: definition.host !== '' ? definition.database : '',
+    groupId: definition.groupId,
+    position: saved.position,
+    environment: environment === 'none' ? null : environment,
+    environmentLabel: environment === 'custom' ? definition.environment.label : null,
+    environmentColor: environment === 'custom' ? definition.environment.color : null,
+    readOnly: definition.readOnly,
+    favorite: definition.favorite,
+    lastUsedAt: saved.lastConnectedAt === null ? null : saved.lastConnectedAt * 1000,
+    definition,
+  };
+}
+
+/**
+ * The environment/color of a connection as CSS: the `--env-*` token of a preset, the user's own
+ * color for a custom environment, nothing without environment.
+ */
+export function tintOf(
+  connection: Pick<ConnectionSummary, 'environment' | 'environmentColor'>,
+): string | null {
+  switch (connection.environment) {
+    case 'dev':
+    case 'staging':
+    case 'prod':
+      return `var(--env-${connection.environment})`;
+    case 'custom':
+      return connection.environmentColor;
+    case null:
+      return null;
+  }
+}
+
+/**
+ * The connection form. Text inputs are strings (the port is converted when saving). The
+ * password is write-only: a form for an existing connection starts with it empty and only
+ * sends it when the user types one.
+ */
+export interface ConnectionDraft {
+  /** `null` for a new connection. */
+  id: string | null;
+  name: string;
+  engine: Engine;
+  host: string;
+  port: string;
+  database: string;
+  username: string;
+  /** Path of the database file (file engines). */
+  filePath: string;
+  /** Typed by the user, sent once, never read back. */
+  password: string;
+  /** Password the backend holds from a pasted connection string (it never comes back either). */
+  pendingPasswordId: string | null;
+  rememberPassword: boolean;
+  tlsMode: TlsMode;
+  groupId: string | null;
+  environment: EnvironmentKind;
+  environmentLabel: string;
+  /** `#rrggbb` of a custom environment. */
+  environmentColor: string | null;
+  readOnly: boolean;
+  favorite: boolean;
+  // Not editable in this form yet: carried so that saving does not lose them.
+  caCertPath: string | null;
+  connectTimeoutSecs: number | null;
+  options: ConnectionOption[];
+}
+
+export function emptyDraft(info: EngineInfo): ConnectionDraft {
+  const { capabilities } = info;
+  return {
+    id: null,
+    name: '',
+    engine: info.engine,
+    host: capabilities.usesFile ? '' : 'localhost',
+    port: capabilities.defaultPort === null ? '' : String(capabilities.defaultPort),
+    database: '',
+    username: info.defaultUsername ?? '',
+    filePath: '',
+    password: '',
+    pendingPasswordId: null,
+    rememberPassword: true,
+    tlsMode: 'prefer',
+    groupId: null,
+    environment: 'none',
+    environmentLabel: '',
+    environmentColor: null,
+    readOnly: false,
+    favorite: false,
+    caCertPath: null,
+    connectTimeoutSecs: null,
+    options: [],
+  };
+}
+
+/** The form of a saved connection, without any secret. */
+export function draftFromSaved(saved: SavedConnection): ConnectionDraft {
+  const { definition } = saved;
+  return {
+    id: saved.id,
+    name: definition.name,
+    engine: definition.engine,
+    host: definition.host,
+    port: definition.port === null ? '' : String(definition.port),
+    database: definition.database,
+    username: definition.username,
+    filePath: definition.filePath,
+    password: '',
+    pendingPasswordId: null,
+    rememberPassword: definition.rememberPassword,
+    tlsMode: definition.tlsMode,
+    groupId: definition.groupId,
+    environment: definition.environment.kind,
+    environmentLabel: definition.environment.label ?? '',
+    environmentColor: definition.environment.color,
+    readOnly: definition.readOnly,
+    favorite: definition.favorite,
+    caCertPath: definition.caCertPath,
+    connectTimeoutSecs: definition.connectTimeoutSecs,
+    options: definition.options,
+  };
+}
+
+/** Name suggested when the user left the field empty. */
+export function suggestedName(draft: ConnectionDraft, info: EngineInfo | undefined): string {
+  if (info?.capabilities.usesFile ?? draft.host === '') return basename(draft.filePath.trim());
+  const host = draft.host.trim();
+  if (!host) return '';
+  return draft.database.trim() ? `${draft.database.trim()}@${host}` : host;
+}
+
+/** The definition the backend stores. `info` says whether the engine uses a file or a server. */
+export function toDefinition(draft: ConnectionDraft, info: EngineInfo): ConnectionDefinition {
+  const { capabilities } = info;
+  const file = capabilities.usesFile;
+  const port = draft.port.trim();
+  const environment = draft.environment;
+  return {
+    name: draft.name.trim() || suggestedName(draft, info),
+    engine: draft.engine,
+    host: file ? '' : draft.host.trim(),
+    port: file || port === '' ? null : Number(port),
+    database: file ? '' : draft.database.trim(),
+    username: file ? '' : draft.username.trim(),
+    filePath: file ? draft.filePath.trim() : '',
+    auth: file ? 'none' : 'password',
+    tlsMode: draft.tlsMode,
+    caCertPath: draft.caCertPath,
+    connectTimeoutSecs: draft.connectTimeoutSecs,
+    options: draft.options,
+    groupId: draft.groupId,
+    environment: {
+      kind: environment,
+      label: environment === 'custom' ? draft.environmentLabel.trim() : null,
+      color: environment === 'custom' ? draft.environmentColor : null,
+    },
+    favorite: draft.favorite,
+    readOnly: draft.readOnly,
+    rememberPassword: draft.rememberPassword,
+  };
+}
+
+/** The password the form holds, as the backend takes it: typed, else from a pasted string. */
+export function secretOf(draft: ConnectionDraft): SecretInput | null {
+  if (draft.password !== '') return { kind: 'value', value: draft.password };
+  if (draft.pendingPasswordId !== null) return { kind: 'pending', id: draft.pendingPasswordId };
+  return null;
+}
+
+/**
+ * Switches the engine of a draft: the port follows when it still is the previous engine's
+ * default, the user name when it still is the previous engine's, and the fields the new
+ * engine does not use are cleared.
+ */
+export function withEngine(
+  draft: ConnectionDraft,
+  next: EngineInfo,
+  previous: EngineInfo | undefined,
+): ConnectionDraft {
+  if (next.engine === draft.engine) return draft;
+  const from = previous?.capabilities;
+  const to = next.capabilities;
+  const portIsDefault =
+    draft.port === '' || (from?.defaultPort !== null && draft.port === String(from?.defaultPort));
+  const userIsDefault = draft.username === '' || draft.username === previous?.defaultUsername;
+  return {
+    ...draft,
+    engine: next.engine,
+    port: to.defaultPort === null ? '' : portIsDefault ? String(to.defaultPort) : draft.port,
+    host: to.usesFile ? '' : draft.host === '' ? 'localhost' : draft.host,
+    filePath: to.usesFile ? draft.filePath : '',
+    username: to.usesFile ? '' : userIsDefault ? (next.defaultUsername ?? '') : draft.username,
+    password: to.usesFile ? '' : draft.password,
+    pendingPasswordId: to.usesFile ? null : draft.pendingPasswordId,
+    tlsMode: to.supportsTls ? draft.tlsMode : 'prefer',
+  };
+}
+
+/**
+ * Fills the form from a parsed connection string (F-006). Only what the string states is
+ * replaced; the name, group, environment and the rest of the form stay as the user left them.
+ * `engines` resolves the engine the string names, so its defaults apply.
+ */
+export function applyParsed(
+  draft: ConnectionDraft,
+  parsed: ParsedConnectionString,
+  engines: readonly EngineInfo[],
+): ConnectionDraft {
+  const previous = engines.find((info) => info.engine === draft.engine);
+  const next = engines.find((info) => info.engine === (parsed.engine ?? draft.engine));
+  const base = next ? withEngine(draft, next, previous) : draft;
+  const file = next?.capabilities.usesFile ?? false;
+  return {
+    ...base,
+    host: parsed.host ?? base.host,
+    port: file ? '' : parsed.port === null ? base.port : String(parsed.port),
+    database: parsed.database ?? base.database,
+    username: parsed.username ?? base.username,
+    filePath: parsed.filePath ?? base.filePath,
+    tlsMode: parsed.tlsMode ?? base.tlsMode,
+    caCertPath: parsed.caCertPath ?? base.caCertPath,
+    options: parsed.options.length > 0 ? parsed.options : base.options,
+    // A password in the string is held by the backend; a password typed before is replaced.
+    password: parsed.passwordId === null ? base.password : '',
+    pendingPasswordId: parsed.passwordId ?? base.pendingPasswordId,
+  };
+}
+
+/** Whether pasted text looks like a connection string rather than a host name. */
+export function looksLikeConnectionString(text: string): boolean {
+  const value = text.trim();
+  if (/^[a-z][a-z0-9+.-]*:\/\/\S+/i.test(value)) return true;
+  if (/^jdbc:[a-z0-9]+:/i.test(value)) return true;
+  // ADO.NET style: `Key=value;Key=value`.
+  return /^[\w .-]+=[^;]*;[\w .-]+=/.test(value);
+}
+
+/** Field-level problems that make the form unsendable. Keys are the field names. */
+export type DraftErrors = Partial<
+  Record<'host' | 'port' | 'filePath' | 'environmentLabel', 'required' | 'invalid'>
+>;
+
+export function validateDraft(draft: ConnectionDraft, info: EngineInfo | undefined): DraftErrors {
+  const errors: DraftErrors = {};
+  if (info?.capabilities.usesFile ?? false) {
+    if (!draft.filePath.trim()) errors.filePath = 'required';
+  } else {
+    if (!draft.host.trim()) errors.host = 'required';
+    if (draft.port.trim() !== '') {
+      const port = Number(draft.port);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) errors.port = 'invalid';
+    }
+  }
+  if (draft.environment === 'custom' && !draft.environmentLabel.trim()) {
+    errors.environmentLabel = 'required';
+  }
+  return errors;
+}

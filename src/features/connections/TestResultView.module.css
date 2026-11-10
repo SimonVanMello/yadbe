@@ -1,0 +1,20 @@
+.running,
+.ok {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+}
+
+.running {
+  border: var(--border-width) solid var(--border-subtle);
+  color: var(--fg-secondary);
+}
+
+.ok {
+  border: var(--border-width) solid color-mix(in srgb, var(--success) 35%, transparent);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+}

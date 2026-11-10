@@ -1,0 +1,173 @@
+.tab {
+  --tab-tint: transparent;
+
+  position: relative;
+  display: flex;
+  /* Same width for every tab; all shrink evenly, then the strip scrolls. */
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: var(--tab-max-width);
+  min-width: var(--tab-min-width);
+  height: var(--tab-height);
+  padding: 0 var(--space-1) 0 var(--space-4);
+  border: var(--border-width) solid transparent;
+  border-bottom: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+  cursor: default;
+  user-select: none;
+  transition:
+    background-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+
+/* Environment stripe on top of the tab: always visible, which connection is this? */
+.tab::before {
+  position: absolute;
+  top: calc(var(--border-width) * -1);
+  right: 0;
+  left: 0;
+  height: var(--env-stripe-height);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: var(--tab-tint);
+  content: '';
+}
+
+/* Separator between inactive tabs, hidden next to the active or hovered tab. */
+.tab::after {
+  position: absolute;
+  top: 25%;
+  right: calc(var(--border-width) * -1);
+  width: var(--border-width);
+  height: 50%;
+  background: var(--border-subtle);
+  content: '';
+}
+
+.tab[aria-selected='true']::after,
+.tab:hover::after,
+.tab:has(+ .tab[aria-selected='true'])::after,
+.tab:has(+ .tab:hover)::after {
+  display: none;
+}
+
+.tab:hover {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}
+
+.tab[aria-selected='true'] {
+  z-index: 1;
+  margin-bottom: calc(var(--border-width) * -1);
+  border-color: var(--border-subtle);
+  background: var(--bg-panel);
+  color: var(--fg-primary);
+}
+
+.tab:focus-visible {
+  outline-offset: -2px;
+}
+
+.tab[data-dragging] {
+  z-index: 2;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-popover);
+  transition: none;
+}
+
+/* Pinned: as wide as its short name, no close button. */
+.tab[data-pinned] {
+  width: auto;
+  min-width: 0;
+  max-width: var(--tab-pinned-max-width);
+  padding: 0 var(--space-3);
+}
+
+.label {
+  flex: none;
+  white-space: nowrap;
+}
+
+.connection {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab:not([data-pinned]) .label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab:not([data-pinned]):has(.connection) .label {
+  flex: none;
+}
+
+.tab[data-pinned] .connection {
+  display: none;
+}
+
+.close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.tab:hover .close,
+.tab[aria-selected='true'] .close {
+  opacity: 1;
+}
+
+.close:hover {
+  background: var(--bg-active);
+  color: var(--fg-primary);
+}
+
+.tooltip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-0);
+  /* Names have no spaces to wrap at: break anywhere rather than overflow the box. */
+  overflow-wrap: anywhere;
+}
+
+.tooltipName {
+  font-weight: var(--weight-semibold);
+}
+
+.tooltipConnection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--fg-secondary);
+}
+
+.tooltipDatabase {
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+}
+
+.tooltipPinned {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--fg-secondary);
+}

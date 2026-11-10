@@ -1,0 +1,73 @@
+.row {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  font-size: var(--text-xs);
+  cursor: default;
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.row[aria-selected='true'] {
+  background: var(--bg-selected);
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--accent);
+}
+
+.time {
+  flex: none;
+  width: calc(var(--space-8) * 2);
+  color: var(--fg-muted);
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.connection {
+  flex: none;
+  width: calc(var(--space-8) * 2);
+  overflow: hidden;
+  color: var(--fg-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sql {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-primary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.duration {
+  flex: none;
+  width: var(--space-8);
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.outcome {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  flex: none;
+  width: calc(var(--space-8) + var(--space-4));
+  color: var(--fg-muted);
+  text-align: right;
+}
+
+.row[data-failed] .outcome {
+  color: var(--danger);
+}
