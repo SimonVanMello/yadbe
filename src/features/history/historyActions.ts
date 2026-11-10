@@ -4,7 +4,7 @@ import { ipc, unwrap } from '../../ipc';
 import { toast } from '../../ui/toastStore';
 import { connectTo } from '../connections/connectionActions';
 import { findConnection } from '../query/connectionLookup';
-import { insertIntoActiveEditor, openQueryTabWithText } from '../query/openWithText';
+import { insertIntoActiveEditor, openQueryTab } from '../query/openQueryTab';
 import type { HistoryEntry } from './historyModel';
 import { useHistoryUi } from './historyStore';
 import { refreshHistory } from './useHistory';
@@ -34,7 +34,12 @@ export async function openEntry(entry: HistoryEntry): Promise<void> {
       entry.database === null || entry.database === connection.definition.database
         ? null
         : entry.database;
-    openQueryTabWithText({ connectionId: connection.id, database, text });
+    openQueryTab({
+      connectionId: connection.id,
+      database,
+      initialText: text,
+      reuseWelcomeTab: false,
+    });
     void connectTo(connection);
   } catch (error) {
     showError(error);
