@@ -128,6 +128,8 @@ export interface ConnectionDraft {
   /** `#rrggbb` of a custom environment. */
   environmentColor: string | null;
   readOnly: boolean;
+  /** Statements run on the connection are recorded in the history (F-104). */
+  historyEnabled: boolean;
   favorite: boolean;
   // Not editable in this form yet: carried so that saving does not lose them.
   caCertPath: string | null;
@@ -155,6 +157,7 @@ export function emptyDraft(info: EngineInfo): ConnectionDraft {
     environmentLabel: '',
     environmentColor: null,
     readOnly: false,
+    historyEnabled: true,
     favorite: false,
     caCertPath: null,
     connectTimeoutSecs: null,
@@ -183,6 +186,7 @@ export function draftFromSaved(saved: SavedConnection): ConnectionDraft {
     environmentLabel: definition.environment.label ?? '',
     environmentColor: definition.environment.color,
     readOnly: definition.readOnly,
+    historyEnabled: definition.historyEnabled ?? true,
     favorite: definition.favorite,
     caCertPath: definition.caCertPath,
     connectTimeoutSecs: definition.connectTimeoutSecs,
@@ -226,6 +230,7 @@ export function toDefinition(draft: ConnectionDraft, info: EngineInfo): Connecti
     favorite: draft.favorite,
     readOnly: draft.readOnly,
     rememberPassword: draft.rememberPassword,
+    historyEnabled: draft.historyEnabled,
   };
 }
 

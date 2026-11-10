@@ -92,6 +92,7 @@ export function blankDefinition(engine: Engine, name = ''): ConnectionDefinition
     favorite: false,
     readOnly: false,
     rememberPassword: true,
+    historyEnabled: true,
   };
 }
 

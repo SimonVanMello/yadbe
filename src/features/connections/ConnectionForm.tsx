@@ -180,6 +180,14 @@ export function ConnectionForm({
             : t('connection.readOnly.hint')
         }
       />
+      <Switch
+        checked={draft.historyEnabled}
+        onCheckedChange={(historyEnabled) => {
+          patch({ historyEnabled });
+        }}
+        label={t('connection.history')}
+        hint={t('connection.history.hint')}
+      />
     </div>
   );
 }

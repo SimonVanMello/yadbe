@@ -5,11 +5,11 @@ use std::sync::Arc;
 
 use crate::events::EventSink;
 use crate::secrets::{KeychainBackend, SecretStore};
-use crate::session::history_hook::NoHistory;
+use crate::session::history_writer::StoreHistory;
 use crate::session::meta_cache::{MetaService, ObservingSink};
 use crate::session::statement_log::StatementLog;
 use crate::session::{ConnectionManager, QueryRunner};
-use crate::store::{DB_FILE, Store};
+use crate::store::{DB_FILE, HistoryRetention, Store};
 
 /// Overrides the config folder (tests, isolated `xvfb-run` sessions).
 pub const CONFIG_DIR_ENV: &str = "YADBE_CONFIG_DIR";
@@ -21,6 +21,7 @@ pub struct AppState {
     pub connections: Arc<ConnectionManager>,
     pub meta: Arc<MetaService>,
     pub queries: Arc<QueryRunner>,
+    pub history: Arc<StoreHistory>,
 }
 
 impl AppState {
@@ -40,10 +41,15 @@ impl AppState {
             Arc::clone(&log),
             Arc::clone(&sink),
         ));
+        let history = StoreHistory::new(
+            Arc::clone(&store),
+            Arc::clone(&sink),
+            HistoryRetention::default(),
+        );
         let queries = Arc::new(QueryRunner::new(
             Arc::clone(&connections),
             sink,
-            Arc::new(NoHistory),
+            history.clone(),
         ));
         Self {
             store,
@@ -52,6 +58,7 @@ impl AppState {
             connections,
             meta,
             queries,
+            history,
         }
     }
 }

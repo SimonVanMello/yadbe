@@ -94,6 +94,7 @@ pub fn blank(engine: Engine, name: &str) -> ConnectionDefinition {
         favorite: false,
         read_only: false,
         remember_password: true,
+        history_enabled: true,
     }
 }
 

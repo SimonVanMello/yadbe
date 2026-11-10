@@ -24,6 +24,7 @@ import {
 } from './mockData';
 import { mockErrors } from './mockErrors';
 import { createMockFiles } from './mockFiles';
+import { createMockHistory } from './mock/history';
 import { createMockMeta } from './mock/meta';
 import type { LargeCatalogOptions } from './mock/metaCatalog';
 import { createMockQuery } from './mockQuery';
@@ -274,8 +275,11 @@ function createMockBackend() {
     meta.reconnected(connectionId);
   }
 
+  const history = createMockHistory({ events, connection: findConnection });
+
   const query = createMockQuery({
     events,
+    recordHistory: history.record,
     connection: findConnection,
     session: (id) => sessions.get(id),
     logStatement: (connectionId, connectionName, sql) => {
@@ -599,6 +603,7 @@ function createMockBackend() {
 
     ...meta.commands,
     ...query.commands,
+    ...history.commands,
 
     ...files.commands,
   };
@@ -619,6 +624,7 @@ function createMockBackend() {
     sessions.clear();
     meta.reset();
     query.reset();
+    history.reset();
     files.reset();
     clearReloadState();
     seed();
@@ -695,6 +701,14 @@ function createMockBackend() {
     /** Time between two streamed batches of a query result, in ms (0 in unit tests). */
     setQueryTick(ms: number): void {
       query.setTick(ms);
+    },
+    /** `count` synthetic history entries over the last year (100 000 for the scroll check). */
+    seedHistory(count: number): void {
+      history.seedSynthetic(count);
+    },
+    /** Delay of the debounced `history-changed`, in ms (0 in unit tests). */
+    setHistoryDebounce(ms: number): void {
+      history.setEmitDelay(ms);
     },
     /** Puts a script on the mock disk, or removes it with `null` (a change behind the app's back). */
     setFile: (path: string, text: string | null): void => {

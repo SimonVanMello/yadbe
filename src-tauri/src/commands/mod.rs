@@ -3,6 +3,7 @@
 pub mod app;
 pub mod connections;
 pub mod files;
+pub mod history;
 pub mod meta;
 pub mod query;
 pub mod secrets;

@@ -244,6 +244,14 @@ export function SqlEditor({ tabId, engine }: SqlEditorProps) {
           scrollIntoView: true,
         });
       },
+      insertAtCursor: (text) => {
+        view.dispatch({
+          ...view.state.replaceSelection(text),
+          scrollIntoView: true,
+          userEvent: 'input.paste',
+        });
+        view.focus();
+      },
     };
     const unregister = registerEditor(tabId, controller);
 
