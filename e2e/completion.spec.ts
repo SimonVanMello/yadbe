@@ -91,12 +91,9 @@ for (const { name, colorScheme } of THEMES) {
       await setScript(page, '');
       await type(page, 'select * from ord');
       await expect(options(page).first()).toContainText('orders');
-      expect((await labels(page)).slice(0, 4)).toEqual([
-        'orders',
-        'order_items',
-        'order_coupons',
-        'Order Notes',
-      ]);
+      await expect
+        .poll(async () => (await labels(page)).slice(0, 4))
+        .toEqual(['orders', 'order_items', 'order_coupons', 'Order Notes']);
       // The schema is the detail; the kind is the mark.
       await expect(options(page).first()).toContainText('shop');
       await expect(options(page).first().locator('.cm-yadbe-kind')).toHaveAttribute(
@@ -121,11 +118,11 @@ for (const { name, colorScheme } of THEMES) {
       await editor(page).press('ControlOrMeta+Home');
       for (let i = 0; i < 'select '.length; i++) await page.keyboard.press('ArrowRight');
       await type(page, 'o.');
-      await expect(options(page).first()).toBeVisible();
+      // CodeMirror keeps the previous list up until the new one is computed: wait for the right one.
+      await expect
+        .poll(() => labels(page))
+        .toEqual(expect.arrayContaining(['id', 'customer_id', 'status', 'subtotal', 'total']));
       const columns = await labels(page);
-      expect(columns).toEqual(
-        expect.arrayContaining(['id', 'customer_id', 'status', 'subtotal', 'total']),
-      );
       // The other table's columns are not offered under `o.`.
       expect(columns).not.toContain('email');
       await expect(options(page).first().locator('.cm-yadbe-kind')).toHaveAttribute(
@@ -145,9 +142,10 @@ for (const { name, colorScheme } of THEMES) {
       await openQueryTab(page, 'local postgres');
       await setScript(page, '');
       await type(page, 'select * from sales.');
-      await expect(options(page).first()).toBeVisible();
+      await expect
+        .poll(() => labels(page))
+        .toEqual(expect.arrayContaining(['invoices', 'refunds', 'currencies']));
       const objects = await labels(page);
-      expect(objects).toEqual(expect.arrayContaining(['invoices', 'refunds', 'currencies']));
       expect(objects).not.toContain('orders');
       await capture(page, name, 'completion-schema-qualified');
       await type(page, 'inv');
@@ -202,12 +200,11 @@ for (const { name, colorScheme } of THEMES) {
       await setScript(page, '');
       await type(page, 'select a, cou');
       await expect(page.getByRole('status').filter({ hasText: 'Loading schema' })).toBeVisible();
-      await expect(options(page).first()).toBeVisible();
+      await expect.poll(() => labels(page)).toContain('count');
       const kinds = await options(page)
         .locator('.cm-yadbe-kind')
         .evaluateAll((marks) => marks.map((mark) => (mark as HTMLElement).dataset.kind));
       expect(kinds.every((kind) => kind === 'function' || kind === 'keyword')).toBe(true);
-      expect(await labels(page)).toContain('count');
       await capture(page, name, 'completion-loading');
       // Typing was never blocked, and the schema arrives.
       await expect(page.getByRole('status').filter({ hasText: 'Loading schema' })).toHaveCount(0, {
@@ -225,7 +222,7 @@ for (const { name, colorScheme } of THEMES) {
       await setScript(page, '');
       await type(page, 'select * from schema_03.tab');
       await expect(options(page).first()).toContainText('table_');
-      expect(await options(page).count()).toBeGreaterThan(20);
+      await expect.poll(() => options(page).count()).toBeGreaterThan(20);
       await capture(page, name, 'completion-large');
       // Across all schemas, the schema is the detail.
       await page.keyboard.press('Control+a');
