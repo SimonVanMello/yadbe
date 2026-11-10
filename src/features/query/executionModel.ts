@@ -150,9 +150,17 @@ export function applyDelta(
   };
 }
 
-/** Elapsed time to show: the backend's figure plus what passed since, while the run is active. */
+/**
+ * The server is working on the run: the elapsed time ticks and a spinner shows. A run paused at
+ * its result cap is waiting for the user, so its time stands still until it resumes.
+ */
+export function isWorking(status: TabExecution['status']): boolean {
+  return status === 'connecting' || status === 'running';
+}
+
+/** Elapsed time to show: the backend's figure plus what passed since, while the run works. */
 export function liveElapsed(execution: TabExecution, now: number): number {
-  if (!isActive(execution.status)) return execution.elapsedMs;
+  if (!isWorking(execution.status)) return execution.elapsedMs;
   return execution.elapsedMs + Math.max(0, now - execution.elapsedAt);
 }
 

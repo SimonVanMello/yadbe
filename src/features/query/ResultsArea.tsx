@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from 'react';
 
+import { formatNumber, useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import { Kbd } from '../../ui/Kbd';
 import { Spinner } from '../../ui/Spinner';
@@ -7,7 +8,7 @@ import { ResultGrid } from '../grid/ResultGrid';
 import { shortcutOf } from '../../app/actions';
 import {
   defaultSelection,
-  isActive,
+  isWorking,
   summarizeExecution,
   type ResultsSelection,
   type TabExecution,
@@ -37,6 +38,7 @@ const tabDomId = (tabId: string, key: string) => `results-${tabId}-${key}`;
  */
 export function ResultsArea({ tabId }: { tabId: string }) {
   const t = useT();
+  const locale = useI18nStore((state) => state.locale);
   const execution = useTabExecution(tabId);
   const picked = useExecutionStore((state) => state.selections[tabId]);
   const selection = effectiveSelection(picked, execution);
@@ -48,7 +50,7 @@ export function ResultsArea({ tabId }: { tabId: string }) {
     ...execution.results.map((result, index) => ({
       key: `result-${String(result.resultId)}`,
       label: t('query.results.result', { number: index + 1 }),
-      detail: `· ${String(result.rowCount)}${result.status === 'paused' ? '+' : ''}`,
+      detail: `· ${formatNumber(locale, result.rowCount)}${result.status === 'paused' ? '+' : ''}`,
       value: { kind: 'result', resultId: result.resultId } as const,
     })),
     {
@@ -202,7 +204,7 @@ function RunSummary({ tabId, execution }: { tabId: string; execution: TabExecuti
   }
   return (
     <div className={styles.summary} data-status={status} role="status" aria-live="polite">
-      {isActive(status) && <Spinner />}
+      {isWorking(status) && <Spinner />}
       <span data-testid="run-status">{text}</span>
     </div>
   );

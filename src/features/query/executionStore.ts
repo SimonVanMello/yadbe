@@ -16,6 +16,7 @@ import {
   failedToStart,
   fromSnapshot,
   isActive,
+  isWorking,
   liveElapsed,
   type ResultsSelection,
   type TabExecution,
@@ -202,7 +203,7 @@ export function useTabRunning(tabId: string): boolean {
 /** Elapsed time of the tab's run in ms, refreshed ten times a second while it is in progress. */
 export function useElapsedMs(tabId: string): number {
   const execution = useTabExecution(tabId);
-  const active = isActive(execution.status);
+  const active = isWorking(execution.status);
   const [now, setNow] = useState(() => performance.now());
   useEffect(() => {
     if (!active) return;

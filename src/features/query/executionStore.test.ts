@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { ExecutionDelta, ExecutionStarted, QueryMessage, ResultSummary } from '../../ipc';
 import { mockBackend, mockClient } from '../../ipc/mockClient';
-import { IDLE_EXECUTION, applyDelta, beginExecution, defaultSelection } from './executionModel';
+import {
+  IDLE_EXECUTION,
+  applyDelta,
+  beginExecution,
+  defaultSelection,
+  liveElapsed,
+} from './executionModel';
 import {
   createExecutionStore,
   getTabExecution,
@@ -106,6 +112,19 @@ describe('applying deltas', () => {
     const failed = applyDelta(ok, 7, delta({ status: 'failed', elapsedMs: 200 }), 2);
     expect(defaultSelection(failed)).toEqual({ kind: 'messages' });
     expect(defaultSelection(IDLE_EXECUTION)).toEqual({ kind: 'messages' });
+  });
+});
+
+describe('liveElapsed', () => {
+  it('ticks while the run works and stands still while it is paused at its cap', () => {
+    const running = {
+      ...IDLE_EXECUTION,
+      status: 'running' as const,
+      elapsedMs: 700,
+      elapsedAt: 1000,
+    };
+    expect(liveElapsed(running, 1500)).toBe(1200);
+    expect(liveElapsed({ ...running, status: 'paused' }, 9000)).toBe(700);
   });
 });
 

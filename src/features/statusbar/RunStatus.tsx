@@ -5,7 +5,7 @@ import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
 import { formatCount } from '../grid/formatCount';
 import { useResultSelectionStore } from '../grid/resultSelectionStore';
-import { isActive } from '../query/executionModel';
+import { isActive, isWorking } from '../query/executionModel';
 import { useElapsedMs, useTabExecution } from '../query/executionStore';
 import { formatDuration } from '../query/format';
 import styles from './StatusBar.module.css';
@@ -39,7 +39,7 @@ function RunStatusLine({ tabId }: { tabId: string }) {
   let icon = null;
   let text: string;
   if (isActive(status)) {
-    icon = <Spinner />;
+    icon = isWorking(status) ? <Spinner /> : null;
     text = `${formatCount(locale, 'grid.rows', rows)} · ${time}`;
   } else if (status === 'failed') {
     icon = <Icon name="error" className={styles.failedIcon} />;
