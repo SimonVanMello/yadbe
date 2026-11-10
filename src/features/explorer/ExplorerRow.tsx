@@ -1,5 +1,6 @@
 import { memo, type CSSProperties, type ReactNode } from 'react';
 
+import { formatNumber, useI18nStore, type Locale } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import { Button } from '../../ui/Button';
 import { Icon, type IconName } from '../../ui/Icon';
@@ -58,7 +59,7 @@ function Lines({ lines }: { lines: (string | null | undefined | false)[] }) {
   );
 }
 
-function contentOf(row: Row, t: Translate): Content {
+function contentOf(row: Row, t: Translate, locale: Locale): Content {
   const name = (text: string) => <Highlight text={text} indices={row.indices} />;
   switch (row.type) {
     case 'database':
@@ -85,7 +86,7 @@ function contentOf(row: Row, t: Translate): Content {
       return {
         icon: KIND_ICONS[row.kind],
         name: kindLabel(t, row.kind),
-        meta: <span className={styles.count}>{row.count}</span>,
+        meta: <span className={styles.count}>{formatNumber(locale, row.count)}</span>,
       };
     case 'object': {
       const { object } = row;
@@ -109,7 +110,7 @@ function contentOf(row: Row, t: Translate): Content {
       return {
         icon: GROUP_ICONS[row.group],
         name: groupLabel(t, row.group),
-        meta: <span className={styles.count}>{row.count}</span>,
+        meta: <span className={styles.count}>{formatNumber(locale, row.count)}</span>,
       };
     case 'column': {
       const { column } = row;
@@ -245,6 +246,7 @@ export const ExplorerRow = memo(function ExplorerRow({
   onRefresh,
 }: ExplorerRowProps) {
   const t = useT();
+  const locale = useI18nStore((state) => state.locale);
   const depth = row.level - 1;
   const common = {
     id,
@@ -294,7 +296,7 @@ export const ExplorerRow = memo(function ExplorerRow({
     );
   }
 
-  const content = contentOf(row, t);
+  const content = contentOf(row, t, locale);
   const disabled = row.type === 'database' && !row.database.accessible;
   const refreshable =
     row.type === 'database' ||

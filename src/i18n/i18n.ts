@@ -29,9 +29,22 @@ function isMessageKey(key: string): key is MessageKey {
   return key in catalogs.en;
 }
 
+const numberFormats = new Map<Locale, Intl.NumberFormat>();
+
+/** `1284` as the locale writes it: `1,284` in English, `1 284` in French. */
+export function formatNumber(locale: Locale, value: number): string {
+  let format = numberFormats.get(locale);
+  if (!format) {
+    format = new Intl.NumberFormat(locale);
+    numberFormats.set(locale, format);
+  }
+  return format.format(value);
+}
+
 /**
  * Translates `key`, interpolating `{name}` placeholders. When `params.count` is 1 and a
- * `<key>.one` variant exists, it is used (French also treats 0 as singular).
+ * `<key>.one` variant exists, it is used (French also treats 0 as singular). A numeric `count`
+ * is grouped for the locale (`1 284 lignes`); other numbers go in as they are (ports, lines…).
  */
 export function translate(locale: Locale, key: MessageKey, params?: MessageParams): string {
   const count = params?.count;
@@ -43,7 +56,10 @@ export function translate(locale: Locale, key: MessageKey, params?: MessageParam
   if (!params) return template;
   return template.replace(/\{(\w+)\}/g, (match, name: string) => {
     const value = params[name];
-    return value === undefined ? match : String(value);
+    if (value === undefined) return match;
+    return name === 'count' && typeof value === 'number'
+      ? formatNumber(locale, value)
+      : String(value);
   });
 }
 

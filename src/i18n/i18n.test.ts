@@ -42,6 +42,18 @@ describe('translate', () => {
   });
 });
 
+describe('counts', () => {
+  it('groups a numeric count for the locale and keeps the singular form', () => {
+    expect(translate('en', 'history.clear.effect', { count: 12345 })).toBe(
+      '12,345 entries will be deleted. This cannot be undone.',
+    );
+    expect(translate('fr', 'history.cleared', { count: 12345 }).replace(/\s/g, ' ')).toBe(
+      '12 345 entrées supprimées',
+    );
+    expect(translate('en', 'history.cleared', { count: 1 })).toBe('1 entry deleted');
+  });
+});
+
 describe('detectLocale', () => {
   it('picks the first supported language', () => {
     expect(detectLocale(['de-DE', 'fr-CA', 'en-US'])).toBe('fr');
