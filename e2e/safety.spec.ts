@@ -106,8 +106,7 @@ for (const { name, colorScheme } of THEMES) {
       await page.getByRole('button', { name: /^Close Query 1/ }).click();
       const dialog = page.getByRole('dialog', { name: 'Close with an open transaction?' });
       await expect(dialog).toBeVisible();
-      await expect(dialog.getByTestId('connection-banner')).toHaveCount(0);
-      await expect(dialog.getByRole('list')).toContainText('prod');
+      await expect(dialog.getByTestId('connection-banner')).toContainText('prod');
       await capture(page, name, 'transaction-confirm-prod');
       await dialog.getByRole('button', { name: 'Cancel' }).click();
       await page.getByRole('button', { name: 'Rollback' }).click();

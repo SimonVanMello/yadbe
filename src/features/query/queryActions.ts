@@ -245,7 +245,12 @@ export async function confirmAbandonTransaction(
 ): Promise<boolean> {
   const open = tabIds.filter(hasOpenTransaction);
   if (open.length === 0) return true;
+  const connections = new Set(
+    open.map((id) => useTabsStore.getState().tabs.find((tab) => tab.id === id)?.connectionId),
+  );
+  const [only] = connections.size === 1 ? connections : [];
   return confirm({
+    connection: findConnection(only ?? null),
     title: t(action === 'close' ? 'query.transaction.closeTitle' : 'query.transaction.switchTitle'),
     description: t(
       action === 'close'
