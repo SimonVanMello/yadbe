@@ -98,3 +98,38 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
       - run: cargo test --locked --test postgres --no-fail-fast
+
+  # Integration tests against a real SQL Server (the matrix above skips them with a notice).
+  rust-mssql:
+    name: rust (mssql)
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: Yadbe-test-pw1
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Yadbe-test-pw1 -C -Q 'SELECT 1'"
+          --health-interval 5s
+          --health-retries 30
+    env:
+      YADBE_TEST_MSSQL_URL: sqlserver://localhost:1433;database=master;user=sa;password=Yadbe-test-pw1;trustServerCertificate=true
+    defaults:
+      run:
+        shell: bash
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: cargo test --locked --test query_mssql --test introspection --no-fail-fast
