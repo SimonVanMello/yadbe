@@ -2,6 +2,7 @@
 
 pub mod app;
 pub mod connections;
+pub mod files;
 pub mod query;
 pub mod secrets;
 pub mod sessions;
