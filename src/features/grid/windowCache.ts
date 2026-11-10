@@ -139,12 +139,21 @@ export class WindowCache {
     };
   }
 
+  /** Stops fetching and frees the rows (the grid unmounted). Listeners stay subscribed. */
   dispose(): void {
     this.disposed = true;
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
-    this.listeners.clear();
     this.blockMap.clear();
+  }
+
+  /** Undoes `dispose` (a component remounted with the same cache, e.g. React's strict mode). */
+  revive(): void {
+    if (!this.disposed) return;
+    this.disposed = false;
+    this.wantedKey = '';
+    this.notify();
+    this.pump();
   }
 
   private expected(index: number): number {

@@ -186,4 +186,21 @@ describe('WindowCache', () => {
     cache.setRowCount(5);
     expect(listener).not.toHaveBeenCalled();
   });
+
+  it('stops fetching once disposed, and starts again when revived', async () => {
+    const { cache, pending, flush } = setup(30, { maxConcurrent: 1 });
+    cache.want(0, 10);
+    await flush();
+    expect(cache.get(0)).toBeDefined();
+    cache.dispose();
+    expect(cache.get(0)).toBeUndefined();
+    cache.want(10, 20);
+    expect(pending).toHaveLength(0);
+    const listener = vi.fn();
+    cache.subscribe(listener);
+    cache.revive();
+    expect(listener).toHaveBeenCalled();
+    cache.want(0, 10);
+    expect(pending).toHaveLength(1);
+  });
 });

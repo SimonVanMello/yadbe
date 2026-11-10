@@ -14,7 +14,9 @@ const MAX_WINDOWS = 400;
 export interface ResultRowSource extends RowSource {
   /** The result streamed more rows (`ResultSummary.rowCount`). */
   setRowCount(count: number): void;
+  /** Stops fetching and frees the rows; `revive` starts again (remount). */
   dispose(): void;
+  revive(): void;
   /** Number of window requests sent so far (measurements). */
   readonly fetchCount: number;
 }
@@ -90,6 +92,9 @@ export function createResultRowSource(
     },
     dispose: () => {
       cache.dispose();
+    },
+    revive: () => {
+      cache.revive();
     },
   };
 }
