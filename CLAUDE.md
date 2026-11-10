@@ -33,26 +33,40 @@ Do not add a dependency outside this list without justifying it in the commit me
 
 ```
 src/                      Frontend
-  app/                    Shell: window, tabs, layout, view routing
-  features/<feature>/     One feature = components + hooks + styles + tests (connections, explorer, editor, grid, results, table-data, history, palette, statusbar, welcome, preferences…)
-  ipc/                    Backend access: generated bindings + Tauri client + mock client
+  app/                    Shell: window, title bar and tabs, layout, actions and shortcuts, errors, startup and restore
+  features/<feature>/     One feature = components + hooks + styles + tests:
+    connections/          Connection list model, dialog and forms, password prompt, connection chip
+    sidebar/              Sidebar views (Connections / History), the virtualized tree of connections + explorer
+    explorer/             Explorer rows (pure tree building and filter), metadata queries, context menu, Script as
+    query/                Query tab: SQL editor (CodeMirror), run / cancel, transactions, results area, files, danger guard
+    grid/                 Result grid, selection and copy formats, cell viewer
+    history/              History panel, search and filters, open / insert, clear
+    statement-log/        Statement log panel
+    statusbar/, toolbar/, welcome/   Bottom bar (run status, Ln/Col), query toolbar, welcome screen
+    demo/                 The /#primitives page
+    (M2: table-data, palette, preferences, export)
+  ipc/                    Backend access: generated bindings + Tauri client + mock client (mock/ per domain)
   ui/                     Reusable primitives (Button, Menu, Dialog, Toast…)
   theme/                  tokens.css, graphite.css, paper.css
   i18n/                   fr.json, en.json
+  test/                   Vitest setup
+e2e/                      Playwright specs (mocked backend); perf*.spec.ts run with playwright.perf.config.ts
+scripts/                  check-case, P-01 startup and P-04 WebKitGTK measurements
 src-tauri/
   src/
     commands/             Tauri handlers: thin, no logic (validation → service call → error mapping)
-    db/                   value.rs (Value model), driver.rs (traits), dialect.rs, meta.rs (introspection model), errors.rs (catalog)
-      drivers/<engine>/   postgres, mssql, mysql, sqlite: the only place a driver crate is used
-    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache
-    edit/                 Change set → EditPlanner → parameterized DML
+    db/                   value.rs (Value model), driver.rs (traits), dialect.rs, meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
+      drivers/<engine>/   postgres, mssql, sqlite (mysql in M3): the only place a driver crate is used
+    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording
+    edit/                 Change set → EditPlanner → parameterized DML (M2, empty)
     secrets/              Keychain access, Secret type
-    store/                SQLite: connections, tabs, history, saved queries, preferences
-    export/               Streaming exports
-  tests/                  Integration tests + fixture schema scripts
+    store/                SQLite: connections, tabs, history, preferences (saved queries later)
+    export/               Streaming exports (M2, empty)
+  examples/               export_bindings.rs (`pnpm bindings`)
+  tests/                  Integration tests (common/, query_common/, conformance/) + fixture schema scripts (fixtures/)
   vendor/tiberius/        tiberius 0.13.0, pristine commit then yadbe's patches (PATCHES.md says which and why)
-dev/                      compose.yml (test engines), helper scripts
-docs/
+dev/                      compose.yml (test engines), tls-certs.sh, mssql.conf
+docs/                     SPEC.md, PLAN.md, validation/Mx.md (manual checklists)
 ```
 
 ## Commands
@@ -80,11 +94,13 @@ pnpm perf:startup   # P-01 on the release binary (`pnpm tauri build --no-bundle`
 pnpm perf:tabs      # P-07 on a production build of the front (mock), CPU ×1 and ×4
 pnpm perf:grid      # P-04 on Chromium: scrolling 100k × 50 on the mock (production build), CPU ×1 and ×4
 YADBE_TEST_PG_URL=… pnpm perf:grid:webkit [--binary …]   # P-04 in the real app through tauri-driver (start it with WEBKIT_DISABLE_COMPOSITING_MODE=1 under Xvfb)
-pnpm perf:explorer  # Explorer tree on the mock: first level with 500 tables, scroll and filter on 10k objects (YADBE_PERF_PORT / YADBE_MOCK_PORT when the default port is taken)
+pnpm perf:explorer  # Explorer tree on the mock: first level with 500 tables, scroll, filter (at once and a key at a time) on 10k objects (YADBE_PERF_PORT / YADBE_MOCK_PORT when the default port is taken)
 cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test query_postgres p03 -- --ignored --nocapture   # P-03: query sent → first 500-row window readable, 1M rows
 ```
 
-Driving the real app (WebKitGTK) on Linux, e.g. to check a change end to end: `apt-get install webkit2gtk-driver`, `cargo install tauri-driver --locked`, start `Xvfb :99` and `DISPLAY=:99 YADBE_CONFIG_DIR=<dir> tauri-driver`, then speak W3C WebDriver to `http://127.0.0.1:4444` with the capability `{"tauri:options": {"application": "src-tauri/target/debug/yadbe"}}` (see `docs/validation/M0.md`, "How M0 was checked on Linux").
+`cargo build` / `cargo test` (debug or `--release`) rewrite `src-tauri/target/<profile>/yadbe` without the bundled frontend (it then loads `http://localhost:1420`): run `pnpm tauri build [--debug] --no-bundle` again before launching or measuring that binary.
+
+Driving the real app (WebKitGTK) on Linux, e.g. to check a change end to end: `apt-get install webkit2gtk-driver`, `cargo install tauri-driver --locked`, start `Xvfb :99` and `DISPLAY=:99 YADBE_CONFIG_DIR=<dir> tauri-driver`, then speak W3C WebDriver to `http://127.0.0.1:4444` with the capability `{"tauri:options": {"application": "src-tauri/target/debug/yadbe"}}` (see `docs/validation/M0.md`, "How M0 was checked on Linux", and `docs/validation/M1.md`). Under Xvfb, `WEBKIT_DISABLE_COMPOSITING_MODE=1` makes WebKitGTK render much faster; GTK native dialogs can be driven with `xdotool` (Ctrl+L, type the path, Return).
 
 ## Architecture rules (non-negotiable)
 

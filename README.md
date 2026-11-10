@@ -8,9 +8,15 @@ A local, cross-platform (Windows, macOS, Linux) SQL database explorer in the spi
 
 ## Status
 
-Milestone **M0 (foundations)** is done: the shell (tabs restored on restart, sidebar, status bar, statement log, Graphite and Paper themes, English and French), the connection manager (PostgreSQL and SQLite; create, edit, duplicate, group, favorite, environment tag, paste a connection string, test, connect with automatic reconnection) and the keychain integration.
+Milestones **M0 (foundations)** and **M1 (explore and query)** are done, on **PostgreSQL**, **SQL Server** and **SQLite**:
 
-Not there yet: the schema explorer, the SQL editor and query results (M1), table editing, read-only enforcement and the palette (M2). SQL Server and MySQL connections can be saved but not opened yet. See `docs/PLAN.md` for the roadmap, `docs/SPEC.md` for the requirements and `docs/validation/M0.md` for the manual validation checklist.
+- connections: create, edit, duplicate, group, favorite, environment tag, paste a connection string (URL, ADO.NET, JDBC), test with typed errors, TLS (verify-full by default for a remote host), automatic reconnection, passwords in the keychain;
+- schema explorer: databases, schemas, tables, views, routines, sequences, types, columns, keys, indexes, constraints, triggers; lazy and virtualized, filter, refresh, Script as SELECT / INSERT / UPDATE / DELETE;
+- SQL editor (CodeMirror): run all, selection or the statement under the cursor (dialect-aware splitting, `GO` batches), cancel, auto-commit or manual transactions, dangerous-statement guard, read-only connections enforced by the backend, open / save `.sql` files, database switcher, tabs restored with their text;
+- results: streamed into a virtualized grid (100 000 rows then Load more / Load all), several result sets and messages with error positions, copy as TSV / CSV / JSON / Markdown / INSERT, cell viewer (JSON, XML, binary) with save to file;
+- history of every statement run, with full-text search and filters; statement log of what yadbe runs on its own.
+
+Not there yet (M2): table data browsing and editing, autocomplete, the command palette, export, the preferences screen. MySQL / MariaDB connections can be saved but not opened (M3). See `docs/PLAN.md` for the roadmap, `docs/SPEC.md` for the requirements and `docs/validation/M1.md` for the manual validation checklist and the performance measurements.
 
 ## Running it
 
@@ -34,7 +40,7 @@ pnpm bindings     # regenerate src/ipc/bindings.ts from Rust
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
-Integration tests run against real engines when `YADBE_TEST_PG_URL` (and friends) are set; `dev/compose.yml` starts them. The UI primitives are shown at `/#primitives` in `pnpm dev`. See `CLAUDE.md` for the conventions and the full command list.
+Integration tests run against real engines when `YADBE_TEST_PG_URL` / `YADBE_TEST_MSSQL_URL` are set (SQLite always runs); `docker compose -f dev/compose.yml up -d` starts PostgreSQL (TLS on, after `dev/tls-certs.sh`) and SQL Server, with the URLs to export in the file's header. The UI primitives are shown at `/#primitives` in `pnpm dev`. See `CLAUDE.md` for the conventions and the full command list.
 
 ## License
 
