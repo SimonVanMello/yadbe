@@ -1,4 +1,11 @@
-//! Database layer: `Value` model, `Driver` traits, `Dialect`, introspection model and the
-//! error catalog. Driver crates are used only under `drivers/<engine>/` (M0-2).
+//! Database layer: `Value` model, `Driver` traits, `Dialect`, connection definitions, the
+//! connection-string parser and the error catalog. Driver crates are used only under
+//! `drivers/<engine>/`.
 
+pub mod config;
+pub mod connstring;
+pub mod dialect;
+pub mod driver;
+pub mod drivers;
 pub mod errors;
+pub mod value;

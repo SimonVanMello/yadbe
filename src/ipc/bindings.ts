@@ -8,11 +8,95 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	/**  Returns the app version and the platform it runs on. */
 	appInfo: () => typedError<AppInfo, YadbeError>(__TAURI_INVOKE("app_info")),
+	/**  Engines yadbe knows, with their capabilities and whether this build can connect. */
+	listEngines: () => typedError<EngineInfo[], YadbeError>(__TAURI_INVOKE("list_engines")),
+	/**  Every saved connection, by group then position. */
+	listConnections: () => typedError<SavedConnection[], YadbeError>(__TAURI_INVOKE("list_connections")),
+	/**
+	 *  Saves a new connection at the end of its group. The password is set apart with
+	 *  `set_connection_secret`.
+	 */
+	createConnection: (definition: ConnectionDefinition) => typedError<SavedConnection, YadbeError>(__TAURI_INVOKE("create_connection", { definition })),
+	/**
+	 *  Replaces a connection's definition. An open session keeps its current settings until it
+	 *  reconnects.
+	 */
+	updateConnection: (connectionId: string, definition: ConnectionDefinition) => typedError<SavedConnection, YadbeError>(__TAURI_INVOKE("update_connection", { connectionId, definition })),
+	/**  Copies a connection under a new name (secrets are not copied). */
+	duplicateConnection: (connectionId: string, name: string) => typedError<SavedConnection, YadbeError>(__TAURI_INVOKE("duplicate_connection", { connectionId, name })),
+	/**  Closes the connection if open, forgets its secrets and deletes it. */
+	deleteConnection: (connectionId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("delete_connection", { connectionId })),
+	/**  Moves a connection into a group (`null`: top level) at a position among its siblings. */
+	moveConnection: (connectionId: string, groupId: string | null, position: number) => typedError<null, YadbeError>(__TAURI_INVOKE("move_connection", { connectionId, groupId, position })),
+	listConnectionGroups: () => typedError<ConnectionGroup[], YadbeError>(__TAURI_INVOKE("list_connection_groups")),
+	/**  Creates a group at the end of its parent (`null`: top level). */
+	createConnectionGroup: (name: string, parentId: string | null) => typedError<ConnectionGroup, YadbeError>(__TAURI_INVOKE("create_connection_group", { name, parentId })),
+	renameConnectionGroup: (groupId: string, name: string) => typedError<ConnectionGroup, YadbeError>(__TAURI_INVOKE("rename_connection_group", { groupId, name })),
+	setConnectionGroupCollapsed: (groupId: string, collapsed: boolean) => typedError<null, YadbeError>(__TAURI_INVOKE("set_connection_group_collapsed", { groupId, collapsed })),
+	/**  Moves a group under another (`null`: top level); never into itself or a descendant. */
+	moveConnectionGroup: (groupId: string, parentId: string | null, position: number) => typedError<null, YadbeError>(__TAURI_INVOKE("move_connection_group", { groupId, parentId, position })),
+	/**  Deletes a group; its subgroups and connections move to its parent. */
+	deleteConnectionGroup: (groupId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("delete_connection_group", { groupId })),
+	/**
+	 *  Tests a definition, saved or not: connects, reads the server version, pings and closes.
+	 *  Without `password`, the stored secret of `connectionId` is used. `requestId` lets
+	 *  `cancel_test_connection` abort it.
+	 */
+	testConnection: (requestId: string, definition: ConnectionDefinition, password: { kind: "value"; value: Secret } | { kind: "pending"; id: string } | null, connectionId: string | null) => typedError<TestConnectionResult, YadbeError>(__TAURI_INVOKE("test_connection", { requestId, definition, password, connectionId })),
+	/**  Aborts a running `test_connection` (it then fails with `cancelled`). */
+	cancelTestConnection: (requestId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("cancel_test_connection", { requestId })),
+	/**
+	 *  Opens a saved connection. `password` (typed at connect time) is kept for the session;
+	 *  without it, the session or keychain secret is used. State changes are also pushed as
+	 *  `connection-state-changed`.
+	 */
+	connect: (connectionId: string, password: { kind: "value"; value: Secret } | { kind: "pending"; id: string } | null) => typedError<SessionInfo, YadbeError>(__TAURI_INVOKE("connect", { connectionId, password })),
+	/**  Closes a connection (also aborts a connection attempt or a reconnection). */
+	disconnect: (connectionId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("disconnect", { connectionId })),
+	/**  State of every connection that is not closed. */
+	listSessions: () => typedError<SessionInfo[], YadbeError>(__TAURI_INVOKE("list_sessions")),
+	/**
+	 *  Whether the OS keychain can be used; when it cannot, "remember password" keeps the
+	 *  secret for the session only.
+	 */
+	keychainStatus: () => typedError<KeychainStatus, YadbeError>(__TAURI_INVOKE("keychain_status")),
+	/**
+	 *  Stores a secret of a saved connection: in the keychain when `remember` and a keychain
+	 *  exists, otherwise for the session. Returns where it went.
+	 */
+	setConnectionSecret: (connectionId: string, kind: SecretKind, secret: SecretInput, remember: boolean) => typedError<SecretLocation, YadbeError>(__TAURI_INVOKE("set_connection_secret", { connectionId, kind, secret, remember })),
+	/**  Forgets a secret everywhere (keychain and session). */
+	deleteConnectionSecret: (connectionId: string, kind: SecretKind) => typedError<null, YadbeError>(__TAURI_INVOKE("delete_connection_secret", { connectionId, kind })),
+	/**  Where a secret is kept, `null` when there is none. */
+	hasConnectionSecret: (connectionId: string, kind: SecretKind) => typedError<
+/**  The OS keychain: survives restarts. */
+"keychain" | 
+/**  Memory only: forgotten when yadbe quits. */
+"session" | null, YadbeError>(__TAURI_INVOKE("has_connection_secret", { connectionId, kind })),
+	/**
+	 *  Parses a pasted connection string into form fields. A password in it is kept by the
+	 *  backend for 15 minutes under `passwordId`; it is never sent back.
+	 */
+	parseConnectionString: (input: Secret, engineHint: "postgres" | "mssql" | "mysql" | "sqlite" | null) => typedError<ParsedConnectionString, YadbeError>(__TAURI_INVOKE("parse_connection_string", { input, engineHint })),
+	/**  Drops a password held from a parsed connection string (dialog cancelled). */
+	discardPendingSecret: (id: string) => typedError<null, YadbeError>(__TAURI_INVOKE("discard_pending_secret", { id })),
+	getPreferences: () => typedError<Preferences, YadbeError>(__TAURI_INVOKE("get_preferences")),
+	/**  Saves every preference; returns them as stored. */
+	setPreferences: (preferences: Preferences) => typedError<Preferences, YadbeError>(__TAURI_INVOKE("set_preferences", { preferences })),
+	/**  Tabs saved by the last `save_tabs`, for restoration at startup. */
+	loadTabs: () => typedError<TabsState, YadbeError>(__TAURI_INVOKE("load_tabs")),
+	/**  Replaces the saved tabs (called on every change, debounced by the frontend). */
+	saveTabs: (tabs: TabsState) => typedError<null, YadbeError>(__TAURI_INVOKE("save_tabs", { tabs })),
+	/**  Statements yadbe ran on its own, oldest first (bounded). */
+	getStatementLog: () => typedError<StatementLogEntry[], YadbeError>(__TAURI_INVOKE("get_statement_log")),
+	clearStatementLog: () => typedError<null, YadbeError>(__TAURI_INVOKE("clear_statement_log")),
 };
 
 /** Events */
 export const events = {
 	appReady: makeEvent<AppReady>("app-ready"),
+	connectionStateChanged: makeEvent<ConnectionStateChanged>("connection-state-changed"),
+	statementLogged: makeEvent<StatementLogged>("statement-logged"),
 };
 
 /* Types */
@@ -25,16 +109,161 @@ export type AppInfo = {
 	arch: string,
 };
 
-/**
- *  Sample event that proves the event channel end to end (backend → bindings → both clients).
- *  Real events (connection state, statement log, progress…) arrive with M0-2.
- */
+/**  Emitted once the backend is ready; proves the event channel end to end. */
 export type AppReady = {
 	appVersion: string,
 };
 
+/**  How the user authenticates. */
+export type AuthMethod = 
+/**  User name and password (the password lives in the keychain or in the session). */
+"password" | 
+/**  No secret: trust / peer authentication, SQLite files. */
+"none";
+
+/**  What an engine supports, as data the services and the UI can branch on. */
+export type Capabilities = {
+	/**  The database is a local file (no host, port or user). */
+	usesFile: boolean,
+	/**  Default TCP port, for server engines. */
+	defaultPort: number | null,
+	/**  The engine supports TLS and the connection form shows the TLS settings. */
+	supportsTls: boolean,
+	/**  A server hosts several databases that can be listed and switched. */
+	multipleDatabases: boolean,
+	/**  Schemas exist between the database and its tables. */
+	schemas: boolean,
+	/**  A running statement can be cancelled with a native mechanism. */
+	nativeCancel: boolean,
+	/**  The session can be put in read-only mode by the engine itself. */
+	readOnlySession: boolean,
+};
+
+/**
+ *  Everything the user defines for a connection, without any secret. Server engines use
+ *  `host` / `port` / `database` / `username`; file engines use `filePath` (see the
+ *  engine's capabilities). Empty strings mean "not set".
+ */
+export type ConnectionDefinition = {
+	name: string,
+	engine: Engine,
+	host: string,
+	/**  `null`: the engine's default port. */
+	port: number | null,
+	database: string,
+	username: string,
+	filePath: string,
+	auth: AuthMethod,
+	tlsMode: TlsMode,
+	/**  PEM file of the CA that signs the server certificate (instead of the OS trust store). */
+	caCertPath: string | null,
+	/**  `null`: 15 s. */
+	connectTimeoutSecs: number | null,
+	options: ConnectionOption[],
+	groupId: string | null,
+	environment: Environment,
+	favorite: boolean,
+	/**  Stored now, enforced by the backend from M2 (F-008). */
+	readOnly: boolean,
+	/**
+	 *  The password goes to the OS keychain; otherwise it is asked at connect time and kept
+	 *  in memory for the session.
+	 */
+	rememberPassword: boolean,
+};
+
+/**  A folder of connections; groups can nest. */
+export type ConnectionGroup = {
+	id: string,
+	name: string,
+	parentId: string | null,
+	/**  Order among its siblings, from 0. */
+	position: number,
+	/**  Folded in the sidebar. */
+	collapsed: boolean,
+};
+
+/**  Extra engine parameter passed through to the driver (`application_name`…). */
+export type ConnectionOption = {
+	key: string,
+	value: string,
+};
+
+/**  Life cycle of an open connection (F-013). */
+export type ConnectionState = 
+/**  First connection attempt in progress. */
+"connecting" | "connected" | 
+/**
+ *  The link dropped; nothing is running. Automatic reconnection follows unless the
+ *  failure is not transient or the attempts are exhausted (then `error` says why).
+ */
+"lost" | 
+/**
+ *  Automatic reconnection attempt `reconnectAttempt` in progress. Statements sent
+ *  meanwhile fail with `notConnected`; none is ever replayed.
+ */
+"reconnecting" | 
+/**  Closed by the user, or the first attempt failed (`error`). */
+"closed";
+
+/**  A connection changed state: connecting, connected, lost, reconnecting or closed. */
+export type ConnectionStateChanged = {
+	session: SessionInfo,
+};
+
+export type ConnectionStringFormat = "url" | "adoNet" | "jdbc";
+
+/**  Editor selection, as character offsets into the content. */
+export type CursorPosition = {
+	anchor: number,
+	head: number,
+};
+
+export type Density = "comfortable" | "compact";
+
+/**  Database engines yadbe knows. Every engine has a dialect; drivers arrive one by one. */
+export type Engine = "postgres" | "mssql" | "mysql" | "sqlite";
+
+/**  An engine as the connection form sees it. */
+export type EngineInfo = {
+	engine: Engine,
+	label: string,
+	capabilities: Capabilities,
+	defaultUsername: string | null,
+	/**
+	 *  A driver for this engine ships in this build; otherwise connecting fails with
+	 *  `engineNotSupported`.
+	 */
+	available: boolean,
+};
+
+export type Environment = {
+	kind: EnvironmentKind,
+	/**  Name of a `custom` environment (ignored for the others). */
+	label: string | null,
+	/**  `#rrggbb` color of a `custom` environment; the predefined ones use theme tokens. */
+	color: string | null,
+};
+
+/**  Environment tag shown as a color on the connection, its tabs and the window. */
+export type EnvironmentKind = "none" | "dev" | "staging" | "prod" | 
+/**  User-named environment with its own color. */
+"custom";
+
 /**  What the UI can offer to do about an error. */
-export type ErrorAction = "retry";
+export type ErrorAction = 
+/**  Try the same thing again (transient failure). */
+"retry" | 
+/**  Open the connection form: host, port, database or user is probably wrong. */
+"editConnection" | 
+/**  Ask the user for the password. */
+"enterPassword" | 
+/**  Open the connection form on the TLS settings. */
+"changeTlsMode" | 
+/**  Let the user pick another file. */
+"chooseFile" | 
+/**  Open the connection again. */
+"reconnect";
 
 /**  Stable machine-readable error code; the frontend switches on it, never on messages. */
 export type ErrorCode = 
@@ -43,7 +272,60 @@ export type ErrorCode =
 /**  A frontend-provided argument was rejected by validation. */
 "invalidArgument" | 
 /**  Unexpected internal failure (bug, I/O error…). */
-"internal";
+"internal" | 
+/**  Reading or writing the local app database failed. */
+"storage" | 
+/**  No saved connection has this id. */
+"connectionNotFound" | 
+/**  No connection group has this id. */
+"groupNotFound" | 
+/**  The engine is known but its driver is not available yet. */
+"engineNotSupported" | 
+/**  The connection is not open (never opened, closed, or reconnecting). */
+"notConnected" | 
+/**  The connection needs a password and none was given or stored. */
+"passwordRequired" | 
+/**  A password extracted from a connection string expired or was already used. */
+"pendingSecretExpired" | 
+/**  The host name could not be resolved (DNS). */
+"hostNotFound" | 
+/**  The host answered but nothing listens on that port. */
+"connectionRefused" | 
+/**  The server did not answer in time. */
+"connectionTimeout" | 
+/**  The TLS handshake failed (certificate, protocol…). */
+"tlsFailed" | 
+/**  TLS is required but the server does not offer it. */
+"tlsNotSupported" | 
+/**  The server rejected the user name or the password. */
+"authFailed" | 
+/**  The database does not exist on the server. */
+"unknownDatabase" | 
+/**  The SQLite file does not exist. */
+"fileNotFound" | 
+/**  The file exists but is not a database of the expected engine. */
+"notADatabase" | 
+/**  The connection to the server dropped. */
+"connectionLost" | 
+/**  No OS keychain is available: secrets are kept for the session only. */
+"keychainUnavailable" | 
+/**  The keychain refused an operation (locked, access denied…). */
+"keychainFailed" | 
+/**  The connection string could not be understood. */
+"invalidConnectionString" | 
+/**  The server rejected a statement. */
+"queryFailed" | 
+/**  The operation was cancelled by the user. */
+"cancelled";
+
+export type KeychainStatus = {
+	/**  `false`: "remember password" is not possible, secrets are kept for the session only. */
+	available: boolean,
+	/**  Why the keychain is unavailable (technical). */
+	detail: string | null,
+};
+
+export type Locale = "en" | "fr";
 
 /**  A message in every supported UI language. */
 export type LocalizedText = {
@@ -51,12 +333,177 @@ export type LocalizedText = {
 	fr: string,
 };
 
+/**
+ *  Form fields found in a connection string; `null`: absent from the string (keep the
+ *  form's value).
+ */
+export type ParsedConnectionString = {
+	format: ConnectionStringFormat,
+	engine: Engine | null,
+	host: string | null,
+	port: number | null,
+	database: string | null,
+	username: string | null,
+	filePath: string | null,
+	tlsMode: TlsMode | null,
+	caCertPath: string | null,
+	/**  Engine parameters to pass through (`application_name`…). */
+	options: ConnectionOption[],
+	/**
+	 *  The string held a password: the backend keeps it under this id (see
+	 *  `SecretInput.pending`); it is never sent back.
+	 */
+	passwordId: string | null,
+	/**  Keys yadbe did not understand and ignored. */
+	ignoredKeys: string[],
+};
+
+/**  App preferences (F-125). More fields arrive with the preferences screen (M2-8). */
+export type Preferences = {
+	theme: ThemePreference,
+	/**  `null`: follow the OS language. */
+	locale: Locale | null,
+	density: Density,
+	/**  Opaque JSON owned by the frontend (panel sizes, collapsed sections…), at most 64 KiB. */
+	uiState: string | null,
+};
+
+/**  A connection as saved in the app database. Never contains a secret. */
+export type SavedConnection = {
+	/**  UUID; also the keychain account prefix. */
+	id: string,
+	definition: ConnectionDefinition,
+	/**  Order inside its group, from 0. */
+	position: number,
+	/**  Unix time in seconds. */
+	createdAt: number,
+	updatedAt: number,
+	lastConnectedAt: number | null,
+};
+
+/**  An open tab, saved so it survives a restart (F-044). */
+export type SavedTab = {
+	id: string,
+	kind: TabKind,
+	title: string,
+	/**  `null` when the connection was deleted, or for a tab not bound yet. */
+	connectionId: string | null,
+	database: string | null,
+	/**  Editor text (empty for table tabs). */
+	content: string,
+	cursor: CursorPosition | null,
+	pinned: boolean,
+	/**  The `.sql` file the editor is bound to (F-045). */
+	filePath: string | null,
+	/**  The table of a table tab. */
+	table: TableRef | null,
+	/**  Opaque JSON owned by the frontend (scroll, panel sizes…). */
+	uiState: string | null,
+};
+
+/**
+ *  A password, token or passphrase. Deserializable (the frontend sends it once) but never
+ *  serializable, redacted in `Debug` / `Display`, and zeroized when dropped.
+ * 
+ *  The JSON buffer the IPC layer parsed it from is outside our control; everything yadbe
+ *  copies is wiped.
+ */
+export type Secret = string;
+
+/**
+ *  A secret sent by the frontend: typed by the user, or extracted earlier from a pasted
+ *  connection string and held by the backend under an id.
+ */
+export type SecretInput = { kind: "value"; value: Secret } | { kind: "pending"; id: string };
+
+export type SecretKind = "password" | "sshPassphrase" | "token";
+
+/**  Where a secret is kept. */
+export type SecretLocation = 
+/**  The OS keychain: survives restarts. */
+"keychain" | 
+/**  Memory only: forgotten when yadbe quits. */
+"session";
+
+export type SessionInfo = {
+	connectionId: string,
+	state: ConnectionState,
+	/**  Known once connected (kept while lost / reconnecting). */
+	serverVersion: string | null,
+	/**  Why the connection is lost or closed, when it was not the user's choice. */
+	error: YadbeError | null,
+	/**  1-based, while `reconnecting` (and on the `lost` state that ends the attempts). */
+	reconnectAttempt: number | null,
+};
+
+export type StatementLogEntry = {
+	/**  Increasing, unique for the app's lifetime. */
+	id: number,
+	/**  `null` for a test of a connection that is not saved yet. */
+	connectionId: string | null,
+	/**  Name of the connection when the statement ran. */
+	connectionName: string,
+	sql: string,
+	/**  Unix time in milliseconds. */
+	startedAt: number | null,
+	durationMs: number | null,
+	outcome: StatementOutcome,
+};
+
+/**  yadbe ran a statement on its own (version query, ping, metadata…) and logged it. */
+export type StatementLogged = {
+	entry: StatementLogEntry,
+};
+
+export type StatementOutcome = 
+/**  `rows`: returned or affected, when known. */
+{ kind: "ok"; rows: number | null } | { kind: "error"; error: YadbeError };
+
+export type TabKind = 
+/**  SQL editor. */
+"query" | 
+/**  Data of one table. */
+"table";
+
+export type TableRef = {
+	schema: string | null,
+	name: string,
+};
+
+export type TabsState = {
+	/**  In display order. */
+	tabs: SavedTab[],
+	activeTabId: string | null,
+};
+
+export type TestConnectionResult = {
+	serverVersion: string,
+	/**  Connect + version query + ping. */
+	durationMs: number | null,
+};
+
+export type ThemePreference = "light" | "dark" | "system";
+
+/**  How the transport is protected. `verifyFull` is the default for non-local hosts. */
+export type TlsMode = 
+/**  Plain text. */
+"disable" | 
+/**  TLS when the server offers it, without certificate verification; plain text otherwise. */
+"prefer" | 
+/**
+ *  TLS mandatory. The certificate chain is verified only when a custom CA is set
+ *  (libpq's `verify-ca`), and the host name never.
+ */
+"require" | 
+/**  TLS mandatory, certificate chain and host name verified. */
+"verifyFull";
+
 /**  Error returned by every fallible command. */
 export type YadbeError = {
 	code: ErrorCode,
 	message: LocalizedText,
 	action: ErrorAction | null,
-	/**  Raw technical detail (driver message, I/O error), shown in a collapsible area. */
+	/**  Raw technical detail (driver message, I/O error), redacted, shown in a collapsible area. */
 	detail: string | null,
 };
 

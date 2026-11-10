@@ -31,3 +31,23 @@ specta-typescript = "0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "net", "macros"] }
+# Already in the lockfile through Tauri: drains the row stream of tokio-postgres.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio-postgres = "0.7.18"
+# Same crate family as tokio-postgres: binary decoding of arrays and network types.
+postgres-protocol = "0.6"
+# TLS through rustls with the `ring` provider (aws-lc-rs needs cmake and NASM on Windows).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+# OS trust store for `verify-full` when no custom CA is given.
+rustls-native-certs = "0.8"
+rusqlite = { version = "0.41", features = ["bundled"] }
+keyring = "4.2"
+zeroize = "1"
+# Already in the lockfile through Tauri.
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"
