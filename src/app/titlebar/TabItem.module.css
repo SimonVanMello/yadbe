@@ -90,6 +90,14 @@
   white-space: nowrap;
 }
 
+.dirty {
+  flex: none;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--radius-full);
+  background: var(--fg-muted);
+}
+
 .connection {
   flex: 1;
   min-width: 0;

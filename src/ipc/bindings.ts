@@ -90,6 +90,40 @@ export const commands = {
 	/**  Statements yadbe ran on its own, oldest first (bounded). */
 	getStatementLog: () => typedError<StatementLogEntry[], YadbeError>(__TAURI_INVOKE("get_statement_log")),
 	clearStatementLog: () => typedError<null, YadbeError>(__TAURI_INVOKE("clear_statement_log")),
+	/**  Databases of the server; a single one for file engines (`main` on SQLite). */
+	listDatabases: (requestId: string | null, connectionId: string) => typedError<DatabaseInfo[], YadbeError>(__TAURI_INVOKE("list_databases", { requestId, connectionId })),
+	/**  Schemas of a database, system ones flagged; empty on engines without schemas. */
+	listSchemas: (requestId: string | null, connectionId: string, database: string) => typedError<SchemaInfo[], YadbeError>(__TAURI_INVOKE("list_schemas", { requestId, connectionId, database })),
+	/**
+	 *  One count per object kind the engine has, in explorer order. `schema` is `null` exactly
+	 *  on engines without schemas.
+	 */
+	listObjectCounts: (requestId: string | null, connectionId: string, database: string, schema: string | null) => typedError<ObjectCount[], YadbeError>(__TAURI_INVOKE("list_object_counts", { requestId, connectionId, database, schema })),
+	/**  The objects of one kind in a schema, by name (empty for a kind the engine lacks). */
+	listObjects: (requestId: string | null, connectionId: string, database: string, schema: string | null, kind: ObjectKind) => typedError<ObjectInfo[], YadbeError>(__TAURI_INVOKE("list_objects", { requestId, connectionId, database, schema, kind })),
+	/**
+	 *  Columns, keys, indexes, constraints and triggers of a table, view or materialized view.
+	 *  Fails with `objectNotFound` when it no longer exists.
+	 */
+	getTableDetails: (requestId: string | null, connectionId: string, table: ObjectRef) => typedError<TableDetails, YadbeError>(__TAURI_INVOKE("get_table_details", { requestId, connectionId, table })),
+	/**
+	 *  Everything the autocomplete and the palette need for one database, in one compact
+	 *  payload. Objects of system schemas only with `includeSystem`.
+	 */
+	getCompletionCatalog: (requestId: string | null, connectionId: string, database: string, includeSystem: boolean) => typedError<CompletionCatalog, YadbeError>(__TAURI_INVOKE("get_completion_catalog", { requestId, connectionId, database, includeSystem })),
+	/**
+	 *  Drops the cached metadata of `node` and below, then emits `meta-refreshed`; the next
+	 *  reads go to the server.
+	 */
+	refreshMeta: (connectionId: string, node: MetaNode) => typedError<null, YadbeError>(__TAURI_INVOKE("refresh_meta", { connectionId, node })),
+	/**  Stops the metadata read started with `requestId`; unknown or finished ids are ignored. */
+	cancelMetaRequest: (requestId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("cancel_meta_request", { requestId })),
+	/**
+	 *  "Script as" template of a table (F-023): `SELECT` limited to 1000 rows, `INSERT`,
+	 *  `UPDATE` / `DELETE` of one row by key, or the qualified name. Identifiers are quoted
+	 *  by the dialect; values are `<column, type>` placeholders to fill in.
+	 */
+	scriptTable: (connectionId: string, table: ObjectRef, script: ScriptKind) => typedError<string, YadbeError>(__TAURI_INVOKE("script_table", { connectionId, table, script })),
 	/**
 	 *  The statements of `text`, split the way `engine` reads them (dollar quoting, `GO`
 	 *  batches, `DELIMITER`…), as ranges without their delimiter. Comment-only parts are
@@ -145,12 +179,17 @@ export const commands = {
 	 *  rolled back by the server) and frees its results.
 	 */
 	closeQueryTab: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("close_query_tab", { tabId })),
+	/**  Reads a script file as UTF-8 text (a byte order mark is dropped). */
+	readTextFile: (path: string) => typedError<string, YadbeError>(__TAURI_INVOKE("read_text_file", { path })),
+	/**  Writes `text` to a script file, replacing its content. */
+	writeTextFile: (path: string, text: string) => typedError<null, YadbeError>(__TAURI_INVOKE("write_text_file", { path, text })),
 };
 
 /** Events */
 export const events = {
 	appReady: makeEvent<AppReady>("app-ready"),
 	connectionStateChanged: makeEvent<ConnectionStateChanged>("connection-state-changed"),
+	metaRefreshed: makeEvent<MetaRefreshed>("meta-refreshed"),
 	queryFinished: makeEvent<QueryFinished>("query-finished"),
 	queryProgress: makeEvent<QueryProgress>("query-progress"),
 	statementLogged: makeEvent<StatementLogged>("statement-logged"),
@@ -197,12 +236,102 @@ export type Capabilities = {
 	readOnlySession: boolean,
 };
 
+/**  A foreign key between two relations of the catalog (join suggestions). */
+export type CatalogForeignKey = {
+	/**  Index into `relations`. */
+	from: number,
+	/**  Indices into `relations[from].columns`. */
+	fromColumns: number[],
+	/**  Index into `relations`. */
+	to: number,
+	/**  Indices into `relations[to].columns`. */
+	toColumns: number[],
+};
+
+export type CatalogRelation = {
+	/**  Index into `schemas`; `null` on engines without schemas. */
+	schema: number | null,
+	name: string,
+	/**  `table`, `view` or `materializedView`. */
+	kind: ObjectKind,
+	/**  Column names in ordinal order. */
+	columns: string[],
+	/**  Same length as `columns`: indices into `typeNames`. */
+	columnTypes: number[],
+};
+
+export type CatalogRoutine = {
+	schema: number | null,
+	name: string,
+	/**  `function` or `procedure`. */
+	kind: ObjectKind,
+	arguments: string,
+	returnType: string | null,
+};
+
+export type CatalogSchema = {
+	name: string,
+	system: boolean,
+};
+
+export type CheckConstraint = {
+	name: string | null,
+	/**  The condition, without the `CHECK` keyword. */
+	expression: string,
+};
+
+export type ColumnInfo = {
+	name: string,
+	/**  1-based position among the visible columns. */
+	ordinal: number,
+	/**
+	 *  Type as the engine prints it, with modifiers (`character varying(100)`,
+	 *  `numeric(10,2)`).
+	 */
+	typeName: string,
+	/**  Logical family, as result columns report it. */
+	kind: ValueKind,
+	nullable: boolean,
+	/**  Default expression, as written in the catalog. */
+	default: string | null,
+	identity: Identity | null,
+	generated: Generated | null,
+	comment: string | null,
+	/**  Part of the primary key (key icon). */
+	primaryKey: boolean,
+	/**  Part of an outgoing foreign key (link icon). */
+	foreignKey: boolean,
+};
+
 /**  A column of a result. */
 export type ColumnMeta = {
 	name: string,
 	/**  The engine's type name (`int8`, `varchar`, `numeric`…); empty when unknown. */
 	typeName: string,
 	kind: ValueKind,
+};
+
+export type ColumnRef = {
+	table: ObjectRef,
+	column: string,
+};
+
+/**
+ *  Everything the autocomplete (M2-5) and the palette (M2-6) need for one database, in one
+ *  call. Flat and compact: relations carry their columns as parallel arrays, type names
+ *  are interned in `typeNames`, and references are indices into these arrays.
+ */
+export type CompletionCatalog = {
+	database: string,
+	/**  Empty on engines without schemas. */
+	schemas: CatalogSchema[],
+	/**  Schemas searched for unqualified names, first match wins (`search_path`). */
+	searchPath: string[],
+	/**  Distinct column type names; `CatalogRelation.columnTypes` indexes into it. */
+	typeNames: string[],
+	relations: CatalogRelation[],
+	routines: CatalogRoutine[],
+	foreignKeys: CatalogForeignKey[],
 };
 
 /**
@@ -286,6 +415,17 @@ export type ConnectionStringFormat = "url" | "adoNet" | "jdbc";
 export type CursorPosition = {
 	anchor: number,
 	head: number,
+};
+
+export type DatabaseInfo = {
+	name: string,
+	/**  The database the connection was opened on. */
+	current: boolean,
+	/**  Engine-provided database (templates…), hidden by default. */
+	system: boolean,
+	/**  The user may connect to it (otherwise expanding it fails). */
+	accessible: boolean,
+	comment: string | null,
 };
 
 export type Density = "comfortable" | "compact";
@@ -386,6 +526,8 @@ export type ErrorCode =
 "queryFailed" | 
 /**  The operation was cancelled by the user. */
 "cancelled" | 
+/**  A database object (table, schema…) no longer exists, or was renamed. */
+"objectNotFound" | 
 /**  A query is already running in this tab. */
 "executionRunning" | 
 /**  A transaction is open in this tab: commit or roll it back first. */
@@ -467,6 +609,61 @@ export type ExecutionStatus =
 /**  A statement failed (or was refused); the next ones did not run. */
 "failed" | "cancelled";
 
+export type ForeignKey = {
+	name: string | null,
+	columns: string[],
+	referencedTable: ObjectRef,
+	/**  Same length and order as `columns`. */
+	referencedColumns: string[],
+	onUpdate: ForeignKeyAction,
+	onDelete: ForeignKeyAction,
+	deferrable: boolean,
+};
+
+export type ForeignKeyAction = "noAction" | "restrict" | "cascade" | "setNull" | "setDefault";
+
+/**  A computed column: never written by yadbe. */
+export type Generated = {
+	/**  Stored on disk (otherwise computed on read). */
+	stored: boolean,
+	/**  `null` when the engine does not expose it. */
+	expression: string | null,
+};
+
+/**  How an identity / auto-increment column gets its value. */
+export type Identity = 
+/**
+ *  Values cannot be supplied in a plain `INSERT` (`GENERATED ALWAYS`, SQL Server
+ *  `IDENTITY`).
+ */
+"always" | 
+/**
+ *  Generated when omitted (`GENERATED BY DEFAULT`, SQLite rowid alias, MySQL
+ *  `AUTO_INCREMENT`).
+ */
+"byDefault";
+
+export type IndexInfo = {
+	name: string,
+	/**  Key columns in order; an expression key is given as its text. */
+	columns: string[],
+	unique: boolean,
+	/**  Backs the primary key. */
+	primary: boolean,
+	/**  Access method (`btree`, `gin`…), when the engine has several. */
+	method: string | null,
+	/**  `WHERE` condition of a partial index. */
+	predicate: string | null,
+	/**  The `CREATE INDEX` statement, when the engine keeps or rebuilds it. */
+	definition: string | null,
+};
+
+export type KeyConstraint = {
+	/**  `null` when the engine does not name it (SQLite). */
+	name: string | null,
+	columns: string[],
+};
+
 export type KeychainStatus = {
 	/**  `false`: "remember password" is not possible, secrets are kept for the session only. */
 	available: boolean,
@@ -491,6 +688,88 @@ export type MessageBody = {
 } & ServerMessage | {
 	kind: "error",
 } & StatementError;
+
+/**
+ *  A node of the explorer tree, for refreshes and `meta-refreshed` events. A node covers
+ *  everything below it.
+ */
+export type MetaNode = 
+/**  The whole connection: databases and everything in them. */
+{ level: "connection" } | { level: "database"; database: string } | 
+/**  One schema (or, without schemas, the database's objects). */
+{ level: "schema"; database: string; schema: string | null } | 
+/**  The objects of one kind in a schema, and the details of those objects. */
+{ level: "objects"; database: string; schema: string | null; kind: ObjectKind } | 
+/**  One table, view or materialized view. */
+{ level: "table"; table: ObjectRef };
+
+/**  Why cached metadata was dropped. */
+export type MetaRefreshReason = 
+/**  The user asked for a refresh (`refresh_meta`). */
+"refresh" | 
+/**  The connection came back after a drop: everything is read again. */
+"reconnected";
+
+/**
+ *  The cached metadata of `node` and everything below it was dropped: what is displayed
+ *  there must be read again (lazily, as nodes are shown).
+ */
+export type MetaRefreshed = {
+	connectionId: string,
+	node: MetaNode,
+	reason: MetaRefreshReason,
+};
+
+export type ObjectCount = {
+	kind: ObjectKind,
+	/**  Every object of this kind, system ones included. */
+	count: number,
+	/**  How many of them are flagged `system` (hidden by default). */
+	systemCount: number,
+};
+
+export type ObjectDetail = {
+	type: "relation",
+} & RelationSummary | {
+	type: "routine",
+} & RoutineSignature | {
+	type: "sequence",
+} & SequenceSummary | {
+	type: "type",
+} & TypeSummary;
+
+/**  One entry of an object list. */
+export type ObjectInfo = {
+	kind: ObjectKind,
+	name: string,
+	/**
+	 *  Unique within its schema and kind: the name, or `name(argument types)` for routines
+	 *  (overloads share a name).
+	 */
+	id: string,
+	/**  Engine-internal object (`sqlite_sequence`, FTS shadow tables…), hidden by default. */
+	system: boolean,
+	comment: string | null,
+	/**  Kind-specific summary. */
+	detail: ObjectDetail,
+};
+
+/**  Kinds of objects the explorer groups under a schema (or a database without schemas). */
+export type ObjectKind = 
+/**  Tables, partitioned tables and foreign tables (partitions are not listed). */
+"table" | "view" | "materializedView" | 
+/**  Functions, aggregates and window functions. */
+"function" | "procedure" | "sequence" | 
+/**  User-defined types: enums, composites, domains, ranges, base types. */
+"type";
+
+/**  A database object, addressed the same way on every engine. */
+export type ObjectRef = {
+	database: string,
+	/**  `null` on engines without schemas. */
+	schema: string | null,
+	name: string,
+};
 
 /**
  *  Form fields found in a connection string; `null`: absent from the string (keep the
@@ -573,6 +852,15 @@ export type QueryTabInfo = {
 	execution: ExecutionSnapshot | null,
 };
 
+export type RelationSummary = {
+	/**  The planner's estimate (statistics), when the engine has one. */
+	rowEstimate: number | null,
+	/**  Partitioned table (its partitions are not listed). */
+	partitioned: boolean,
+	/**  Foreign table (data lives elsewhere). */
+	foreign: boolean,
+};
+
 /**  When fetching pauses for one result (SPEC §2.2: memory-capped result store). */
 export type ResultLimits = {
 	maxRows: number,
@@ -622,6 +910,17 @@ export type ResumeMode =
 /**  Everything, without limit. */
 "all";
 
+export type RoutineSignature = {
+	/**  Full argument list as the engine prints it (`p_id integer, p_note text DEFAULT ''`). */
+	arguments: string,
+	/**  Argument types only, which identify an overload (`integer, text`). */
+	identityArguments: string,
+	/**  Return type (`numeric`, `SETOF orders`, `TABLE(id integer)`); `null` for procedures. */
+	returnType: string | null,
+	language: string | null,
+	aggregate: boolean,
+};
+
 /**  A connection as saved in the app database. Never contains a secret. */
 export type SavedConnection = {
 	/**  UUID; also the keychain account prefix. */
@@ -655,6 +954,24 @@ export type SavedTab = {
 	uiState: string | null,
 };
 
+export type SchemaInfo = {
+	name: string,
+	/**  Engine catalog (`pg_catalog`, `information_schema`, `sys`…), hidden by default. */
+	system: boolean,
+	owner: string | null,
+	comment: string | null,
+};
+
+export type ScriptKind = 
+/**  `SELECT` of every column, limited to the first 1000 rows. */
+"select" | "insert" | 
+/**  `UPDATE` of one row, by key. */
+"update" | 
+/**  `DELETE` of one row, by key. */
+"delete" | 
+/**  The qualified, quoted name alone. */
+"qualifiedName";
+
 /**
  *  A password, token or passphrase. Deserializable (the frontend sends it once) but never
  *  serializable, redacted in `Debug` / `Display`, and zeroized when dropped.
@@ -678,6 +995,18 @@ export type SecretLocation =
 "keychain" | 
 /**  Memory only: forgotten when yadbe quits. */
 "session";
+
+export type SequenceSummary = {
+	dataType: string,
+	/**  64-bit values cross as strings. */
+	start: string,
+	increment: string,
+	min: string,
+	max: string,
+	cycle: boolean,
+	/**  The column this sequence belongs to (`serial`, identity). */
+	ownedBy: ColumnRef | null,
+};
 
 /**  A message from the server, never translated. */
 export type ServerMessage = {
@@ -750,6 +1079,26 @@ export type TabKind =
 "query" | 
 /**  Data of one table. */
 "table";
+
+/**
+ *  Everything the explorer shows below a table, view or materialized view (F-021), and
+ *  what script generation and editing need.
+ */
+export type TableDetails = {
+	table: ObjectRef,
+	kind: ObjectKind,
+	comment: string | null,
+	rowEstimate: number | null,
+	/**  In ordinal order. */
+	columns: ColumnInfo[],
+	primaryKey: KeyConstraint | null,
+	uniqueKeys: KeyConstraint[],
+	/**  Outgoing foreign keys. */
+	foreignKeys: ForeignKey[],
+	checks: CheckConstraint[],
+	indexes: IndexInfo[],
+	triggers: TriggerInfo[],
+};
 
 export type TableRef = {
 	schema: string | null,
@@ -831,6 +1180,40 @@ export type TransactionStatus =
  *  until Rollback (PostgreSQL).
  */
 "failed";
+
+export type TriggerEvent = "insert" | "update" | "delete" | "truncate";
+
+export type TriggerInfo = {
+	name: string,
+	timing: TriggerTiming,
+	events: TriggerEvent[],
+	/**  `FOR EACH ROW` (otherwise per statement). */
+	forEachRow: boolean,
+	enabled: boolean,
+	/**  The trigger function, qualified, when the engine has one. */
+	function: string | null,
+	/**  The `CREATE TRIGGER` statement. */
+	definition: string | null,
+};
+
+export type TriggerTiming = "before" | "after" | "insteadOf";
+
+export type TypeAttribute = {
+	name: string,
+	typeName: string,
+};
+
+export type TypeCategory = "enum" | "composite" | "domain" | "range" | "base";
+
+export type TypeSummary = {
+	category: TypeCategory,
+	/**  Labels of an enum, in their sort order. */
+	enumValues: string[],
+	/**  Base type of a domain, subtype of a range. */
+	baseType: string | null,
+	/**  Attributes of a composite type. */
+	attributes: TypeAttribute[],
+};
 
 /**
  *  A cell value. Serialized as `{ "kind": "int", "value": "42" }` (`{ "kind": "null" }`

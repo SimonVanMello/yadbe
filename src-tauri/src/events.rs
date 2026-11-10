@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri_specta::Event;
 
+use crate::db::meta::MetaNode;
 use crate::session::SessionInfo;
 use crate::session::query_model::{ExecutionDelta, TransactionState};
 use crate::session::statement_log::StatementLogEntry;
@@ -30,6 +31,26 @@ pub struct ConnectionStateChanged {
 #[serde(rename_all = "camelCase")]
 pub struct StatementLogged {
     pub entry: StatementLogEntry,
+}
+
+/// Why cached metadata was dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum MetaRefreshReason {
+    /// The user asked for a refresh (`refresh_meta`).
+    Refresh,
+    /// The connection came back after a drop: everything is read again.
+    Reconnected,
+}
+
+/// The cached metadata of `node` and everything below it was dropped: what is displayed
+/// there must be read again (lazily, as nodes are shown).
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct MetaRefreshed {
+    pub connection_id: String,
+    pub node: MetaNode,
+    pub reason: MetaRefreshReason,
 }
 
 /// An execution progressed: rows streamed, a result set or a message appeared, a statement
@@ -66,6 +87,7 @@ pub struct TransactionStateChanged {
 pub enum BackendEvent {
     ConnectionStateChanged(ConnectionStateChanged),
     StatementLogged(StatementLogged),
+    MetaRefreshed(MetaRefreshed),
     QueryProgress(QueryProgress),
     QueryFinished(QueryFinished),
     TransactionStateChanged(TransactionStateChanged),
@@ -116,6 +138,7 @@ impl EventSink for TauriSink {
         let result = match event {
             BackendEvent::ConnectionStateChanged(e) => e.emit(app),
             BackendEvent::StatementLogged(e) => e.emit(app),
+            BackendEvent::MetaRefreshed(e) => e.emit(app),
             BackendEvent::QueryProgress(e) => e.emit(app),
             BackendEvent::QueryFinished(e) => e.emit(app),
             BackendEvent::TransactionStateChanged(e) => e.emit(app),

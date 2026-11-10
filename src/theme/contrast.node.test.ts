@@ -63,6 +63,18 @@ const DATA = [
   '--cell-deleted',
   '--cell-null',
 ];
+// SQL syntax colors (F-040): read over the editor background and its tinted lines.
+const SYNTAX = [
+  '--syn-keyword',
+  '--syn-string',
+  '--syn-tag',
+  '--syn-function',
+  '--syn-number',
+  '--syn-comment',
+  '--syn-type',
+  '--syn-operator',
+  '--syn-special',
+];
 
 describe('WCAG AA contrast of the themes', () => {
   for (const name of ['graphite', 'paper']) {
@@ -84,6 +96,14 @@ describe('WCAG AA contrast of the themes', () => {
     it(`${name}: accent, status, environment and cell-state colors are readable as text`, () => {
       for (const fg of [...STATUS, ...DATA]) {
         for (const bg of ['--bg-app', '--bg-panel']) {
+          expect(contrast(get(fg), get(bg)), `${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    });
+
+    it(`${name}: SQL syntax colors are at least 4.5:1 on the editor surfaces`, () => {
+      for (const fg of SYNTAX) {
+        for (const bg of ['--bg-app', '--bg-panel', '--bg-input']) {
           expect(contrast(get(fg), get(bg)), `${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
         }
       }

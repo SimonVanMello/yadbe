@@ -1,0 +1,4885 @@
+From ea504a4cc1ab3432f207948b37b6bb3a34f8de3c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 10 Nov 2026 15:05:37 +0000
+Subject: [PATCH] wip(M1-2): unfinished work saved at pause
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01SaufxMEYxSRjQLqu9fdKrx
+---
+ e2e/explorer.spec.ts                          | 257 +++++++++
+ e2e/perf.explorer.spec.ts                     | 257 +++++++++
+ src/app/startup.ts                            |   2 +
+ src/app/tabs/openQueryTabWith.test.ts         |  43 ++
+ src/app/tabs/tabsStore.ts                     |  30 ++
+ .../connections/ConnectionContextMenu.tsx     |  11 +
+ src/features/explorer/ExplorerContextMenu.tsx | 128 +++++
+ src/features/explorer/ExplorerRow.module.css  | 160 ++++++
+ src/features/explorer/ExplorerRow.tsx         | 380 +++++++++++++
+ src/features/explorer/explorerActions.ts      | 123 +++++
+ src/features/explorer/explorerLabels.ts       | 101 ++++
+ src/features/explorer/explorerRows.test.ts    | 347 ++++++++++++
+ src/features/explorer/explorerRows.ts         | 502 ++++++++++++++++++
+ src/features/explorer/explorerStore.test.ts   |  74 +++
+ src/features/explorer/explorerStore.ts        |  84 +++
+ src/features/explorer/metaApi.ts              |  43 ++
+ src/features/explorer/metaFeed.ts             |  33 ++
+ src/features/explorer/metaKeys.test.ts        |  75 +++
+ src/features/explorer/metaKeys.ts             |  99 ++++
+ src/features/explorer/metaSource.ts           |  61 +++
+ src/features/explorer/testSource.ts           |  92 ++++
+ src/features/sidebar/ConnectionRow.module.css |  32 +-
+ src/features/sidebar/ConnectionRow.tsx        | 115 +++-
+ src/features/sidebar/ConnectionSidebar.tsx    | 135 +----
+ src/features/sidebar/GroupRow.module.css      |  11 +-
+ src/features/sidebar/GroupRow.tsx             |  66 ++-
+ src/features/sidebar/SidebarTree.module.css   |  12 +
+ src/features/sidebar/SidebarTree.tsx          | 290 ++++++++++
+ src/features/sidebar/rowStyle.ts              |  13 +
+ src/features/sidebar/sidebarActions.ts        |  78 +++
+ src/features/sidebar/sidebarRows.test.ts      | 204 +++++++
+ src/features/sidebar/sidebarRows.ts           | 176 ++++++
+ src/features/sidebar/useRowHeight.ts          |  43 ++
+ src/features/sidebar/useSidebarRows.ts        | 110 ++++
+ src/i18n/en.json                              |  65 ++-
+ src/i18n/fr.json                              |  65 ++-
+ src/ipc/mockClient.ts                         |  10 +-
+ src/ui/Icon.tsx                               |  15 +
+ 38 files changed, 4162 insertions(+), 180 deletions(-)
+ create mode 100644 e2e/explorer.spec.ts
+ create mode 100644 e2e/perf.explorer.spec.ts
+ create mode 100644 src/app/tabs/openQueryTabWith.test.ts
+ create mode 100644 src/features/explorer/ExplorerContextMenu.tsx
+ create mode 100644 src/features/explorer/ExplorerRow.module.css
+ create mode 100644 src/features/explorer/ExplorerRow.tsx
+ create mode 100644 src/features/explorer/explorerActions.ts
+ create mode 100644 src/features/explorer/explorerLabels.ts
+ create mode 100644 src/features/explorer/explorerRows.test.ts
+ create mode 100644 src/features/explorer/explorerRows.ts
+ create mode 100644 src/features/explorer/explorerStore.test.ts
+ create mode 100644 src/features/explorer/explorerStore.ts
+ create mode 100644 src/features/explorer/metaApi.ts
+ create mode 100644 src/features/explorer/metaFeed.ts
+ create mode 100644 src/features/explorer/metaKeys.test.ts
+ create mode 100644 src/features/explorer/metaKeys.ts
+ create mode 100644 src/features/explorer/metaSource.ts
+ create mode 100644 src/features/explorer/testSource.ts
+ create mode 100644 src/features/sidebar/SidebarTree.module.css
+ create mode 100644 src/features/sidebar/SidebarTree.tsx
+ create mode 100644 src/features/sidebar/rowStyle.ts
+ create mode 100644 src/features/sidebar/sidebarActions.ts
+ create mode 100644 src/features/sidebar/sidebarRows.test.ts
+ create mode 100644 src/features/sidebar/sidebarRows.ts
+ create mode 100644 src/features/sidebar/useRowHeight.ts
+ create mode 100644 src/features/sidebar/useSidebarRows.ts
+
+diff --git a/e2e/explorer.spec.ts b/e2e/explorer.spec.ts
+new file mode 100644
+index 0000000..09ac64e
+--- /dev/null
++++ b/e2e/explorer.spec.ts
+@@ -0,0 +1,257 @@
++import { expect, test, type Locator, type Page } from '@playwright/test';
++
++/** The mock backend's controls, as the page exposes them (see `src/ipc/index.ts`). */
++interface MockControls {
++  setLatency: (ms: number) => void;
++  setMetaLatency: (ms: number) => void;
++  setMetaCatalog: (
++    kind: 'shop' | 'large',
++    options?: {
++      schemas: number;
++      tablesPerSchema: number;
++      columnsPerTable: number;
++      viewsPerSchema: number;
++      functionsPerSchema: number;
++    },
++  ) => void;
++  commands: { getTableDetails: (...args: unknown[]) => Promise<unknown> };
++}
++type MockWindow = Window & { __yadbeMock?: MockControls };
++
++const THEMES = [
++  { name: 'graphite', colorScheme: 'dark' },
++  { name: 'paper', colorScheme: 'light' },
++] as const;
++
++async function capture(page: Page, theme: string, state: string) {
++  await page.evaluate(() => document.fonts.ready);
++  await page.screenshot({
++    path: test.info().outputPath(`explorer-${state}-${theme}.png`),
++    animations: 'disabled',
++  });
++}
++
++const tree = (page: Page) => page.getByRole('tree', { name: 'Connections' });
++const item = (page: Page, name: string | RegExp) => tree(page).getByRole('treeitem', { name });
++
++/** Opens a node by its twisty, whatever the row does on a click. */
++async function expand(row: Locator) {
++  await expect(row).toBeVisible();
++  if ((await row.getAttribute('aria-expanded')) === 'false') {
++    await row.locator('span').first().click();
++  }
++  await expect(row).toHaveAttribute('aria-expanded', 'true');
++}
++
++async function connect(page: Page, name: RegExp) {
++  await item(page, name).dblclick();
++  // A connection that needs a password would open the prompt: none of these do.
++  await expect(item(page, name)).toHaveAccessibleName(/Connected/);
++}
++
++/** PostgreSQL ("local postgres"): the database opens by itself, then shop → Tables → orders. */
++async function openOrders(page: Page) {
++  await connect(page, /^local postgres,/);
++  await expand(item(page, /^shop$/));
++  await expand(item(page, /^Tables \(/));
++  await expand(item(page, /^orders$/));
++}
++
++for (const { name, colorScheme } of THEMES) {
++  test.describe(`${name} theme`, () => {
++    test.use({ colorScheme, locale: 'en-US', viewport: { width: 1280, height: 1000 } });
++
++    test.beforeEach(async ({ page }) => {
++      await page.goto('/');
++      await expect(page.locator('html')).toHaveAttribute('data-theme', name);
++      await expect(item(page, /^shop · prod,/)).toBeVisible();
++      await page.evaluate(() => (window as MockWindow).__yadbeMock?.setMetaLatency(40));
++    });
++
++    test('PostgreSQL: database, schema, kinds, table, columns and keys', async ({ page }) => {
++      await openOrders(page);
++      await expand(item(page, /^Columns \(/));
++      await expand(item(page, /^Keys \(/));
++      await expand(item(page, /^Foreign keys \(/));
++      await expect(item(page, /^id, /)).toBeVisible();
++      await expect(item(page, /^customer_id, /)).toBeVisible();
++      // The levels nest: a column sits two levels under its table (column group in between).
++      const level = async (row: Locator) => Number(await row.getAttribute('aria-level'));
++      expect(await level(item(page, /^id, /))).toBe((await level(item(page, /^orders$/))) + 2);
++      await capture(page, name, 'postgres');
++    });
++
++    test('SQLite: no database and no schema level', async ({ page }) => {
++      await connect(page, /^app\.sqlite,/);
++      await expect(item(page, /^Tables \(/)).toBeVisible();
++      await expect(item(page, /^main$/)).toHaveCount(0);
++      await expand(item(page, /^Tables \(/));
++      await expand(item(page, /^notes$/));
++      await expand(item(page, /^Columns \(/));
++      await expect(item(page, /^title, TEXT/)).toBeVisible();
++      await capture(page, name, 'sqlite');
++    });
++
++    test('the filter keeps the ancestors of the loaded matches', async ({ page }) => {
++      await openOrders(page);
++      await page.getByRole('textbox', { name: 'Filter connections' }).fill('ord');
++      await expect(item(page, /^orders$/)).toBeVisible();
++      await expect(item(page, /^shop$/)).toBeVisible();
++      await expect(item(page, /^app_dev$/)).toBeVisible();
++      await expect(item(page, /^local postgres,/)).toBeVisible();
++      await expect(item(page, /^products$/)).toHaveCount(0);
++      await capture(page, name, 'filter');
++      await page.getByRole('textbox', { name: 'Filter connections' }).fill('');
++      await expect(item(page, /^products$/)).toBeVisible();
++    });
++
++    test('system objects are hidden until asked for', async ({ page }) => {
++      await connect(page, /^local postgres,/);
++      await expect(item(page, /^shop$/)).toBeVisible();
++      await expect(item(page, /^information_schema$/)).toHaveCount(0);
++      await expect(item(page, /^template1$/)).toHaveCount(0);
++      await page.getByRole('button', { name: 'Show system objects' }).click();
++      await expect(item(page, /^information_schema$/)).toBeVisible();
++      await expect(item(page, /^template1$/)).toBeVisible();
++      await expand(item(page, /^pg_catalog$/));
++      await capture(page, name, 'system');
++      await page.getByRole('button', { name: 'Hide system objects' }).click();
++      await expect(item(page, /^pg_catalog$/)).toHaveCount(0);
++    });
++
++    test('a node that fails shows its error and retries', async ({ page }) => {
++      await page.evaluate(() => {
++        const mock = (window as MockWindow).__yadbeMock;
++        if (!mock) return;
++        const original = mock.commands.getTableDetails;
++        mock.commands.getTableDetails = () =>
++          Promise.resolve({
++            status: 'error' as const,
++            error: {
++              code: 'objectNotFound' as const,
++              message: {
++                en: '"shop"."orders" no longer exists. Refresh the explorer to see the current objects.',
++                fr: '« shop.orders » n’existe plus.',
++              },
++              action: null,
++              detail: null,
++            },
++          });
++        (window as unknown as { __restoreDetails: () => void }).__restoreDetails = () => {
++          mock.commands.getTableDetails = original;
++        };
++      });
++      await openOrders(page);
++      const error = page.getByRole('treeitem', { name: /no longer exists/ });
++      await expect(error).toBeVisible();
++      await capture(page, name, 'error');
++      await page.evaluate(() => {
++        (window as unknown as { __restoreDetails: () => void }).__restoreDetails();
++      });
++      await error.getByRole('button', { name: 'Retry' }).click();
++      await expect(error).toHaveCount(0);
++      await expect(item(page, /^Columns \(/)).toBeVisible();
++    });
++
++    test('keyboard: arrows, type-ahead, expand, collapse, menu key', async ({ page }) => {
++      await connect(page, /^local postgres,/);
++      await expect(item(page, /^analytics$/)).toBeVisible();
++      const active = () =>
++        page.evaluate(() => {
++          const element = document.querySelector('[role="tree"]');
++          const id = element?.getAttribute('aria-activedescendant');
++          const row = id ? document.getElementById(id) : null;
++          return row ? (row.getAttribute('aria-label') ?? row.textContent) : null;
++        });
++      await tree(page).focus();
++      await page.keyboard.press('Home');
++      await expect.poll(active).toMatch(/^Clients/);
++      // Type-ahead: the next row whose name starts with the letters typed.
++      await page.keyboard.type('local');
++      await expect.poll(active).toMatch(/^Local/);
++      await page.keyboard.press('ArrowDown');
++      await expect.poll(active).toMatch(/^local postgres,/);
++      // → on an open node goes to its first child, → on a closed one opens it.
++      await page.keyboard.press('ArrowRight');
++      await expect.poll(active).toBe('analytics_archive');
++      await page.keyboard.press('ArrowDown');
++      await page.keyboard.press('ArrowRight');
++      await expect.poll(active).toBe('analytics');
++      await page.keyboard.press('ArrowRight');
++      await expect(item(page, /^analytics$/)).toHaveAttribute('aria-expanded', 'true');
++      await expect(item(page, /^Tables \(/).first()).toBeVisible();
++      // ← closes an open node, then goes to the parent.
++      await page.keyboard.press('ArrowLeft');
++      await expect(item(page, /^analytics$/)).toHaveAttribute('aria-expanded', 'false');
++      await page.keyboard.press('ArrowLeft');
++      await expect.poll(active).toBe('app_dev');
++      await page.keyboard.press('End');
++      await expect.poll(active).toMatch(/^auth failure demo,/);
++      await page.keyboard.press('Home');
++      await expect.poll(active).toMatch(/^Clients/);
++      // The menu key opens the context menu of the active row.
++      // A pause ends the run of letters typed before.
++      await page.waitForTimeout(800);
++      await page.keyboard.type('local postgres');
++      await page.keyboard.press('ContextMenu');
++      await expect(page.getByRole('menuitem', { name: 'Refresh' })).toBeVisible();
++      await page.keyboard.press('Escape');
++    });
++
++    test('context menu: Script as opens a query tab', async ({ page }) => {
++      await connect(page, /^local postgres,/);
++      await expand(item(page, /^shop$/));
++      await expand(item(page, /^Tables \(/));
++      const tabs = page.getByRole('tablist').getByRole('tab');
++      await expect(tabs).toHaveCount(1);
++      await item(page, /^orders$/).click({ button: 'right' });
++      await expect(page.getByRole('menuitem', { name: /Open data/ })).toHaveAttribute(
++        'aria-disabled',
++        'true',
++      );
++      await page.getByRole('menuitem', { name: 'Script as' }).hover();
++      await expect(page.getByRole('menuitem', { name: 'UPDATE' })).toBeVisible();
++      await capture(page, name, 'menu');
++      await page.getByRole('menuitem', { name: 'SELECT' }).click();
++      await expect(tabs).toHaveCount(2);
++    });
++  });
++}
++
++test.describe('large catalog', () => {
++  test.use({ colorScheme: 'dark', locale: 'en-US', viewport: { width: 1280, height: 1000 } });
++
++  for (const { name, colorScheme } of THEMES) {
++    test(`10 000 objects stay navigable (${name})`, async ({ browser }) => {
++      const context = await browser.newContext({
++        colorScheme,
++        viewport: { width: 1280, height: 1000 },
++      });
++      const page = await context.newPage();
++      await page.goto('/');
++      await expect(item(page, /^shop · prod,/)).toBeVisible();
++      await page.evaluate(() => {
++        (window as MockWindow).__yadbeMock?.setMetaLatency(0);
++        (window as MockWindow).__yadbeMock?.setMetaCatalog('large');
++      });
++      await connect(page, /^local postgres,/);
++      // Bottom up, so that the schemas still to open stay at the top, where they are drawn.
++      for (let schema = 9; schema >= 0; schema--) {
++        await expand(item(page, new RegExp(`^schema_0${String(schema)}$`)));
++        await expand(item(page, /^Tables \(/).first());
++      }
++      // Every schema is open down to its tables: thousands of rows, a few dozen in the DOM.
++      const rendered = await tree(page).getByRole('treeitem').count();
++      expect(rendered).toBeLessThan(120);
++      await tree(page).focus();
++      await page.keyboard.press('End');
++      await expect(item(page, /^Types \(/).last()).toBeVisible();
++      await page.evaluate(() => {
++        const element = document.querySelector('[role="tree"]');
++        if (element) element.scrollTop = element.scrollHeight / 2;
++      });
++      await capture(page, name, 'large');
++      await context.close();
++    });
++  }
++});
+diff --git a/e2e/perf.explorer.spec.ts b/e2e/perf.explorer.spec.ts
+new file mode 100644
+index 0000000..1033586
+--- /dev/null
++++ b/e2e/perf.explorer.spec.ts
+@@ -0,0 +1,257 @@
++import { writeFileSync } from 'node:fs';
++
++import { expect, test, type CDPSession, type Locator, type Page } from '@playwright/test';
++
++/** The mock backend's controls, as the page exposes them (see `src/ipc/index.ts`). */
++interface MockControls {
++  setLatency: (ms: number) => void;
++  setMetaLatency: (ms: number) => void;
++  setMetaCatalog: (
++    kind: 'shop' | 'large',
++    options?: {
++      schemas: number;
++      tablesPerSchema: number;
++      columnsPerTable: number;
++      viewsPerSchema: number;
++      functionsPerSchema: number;
++    },
++  ) => void;
++  commands: { getTableDetails: (...args: unknown[]) => Promise<unknown> };
++}
++type MockWindow = Window & { __yadbeMock?: MockControls };
++
++/**
++ * Explorer (M1-2, F-020 to F-022, spec §6 "nothing blocks"): the front's share of showing a
++ * catalog, on the mock backend with a production build and no simulated server latency, so that
++ * what is measured is React and the DOM. Reported, not gated, except for a generous ceiling.
++ */
++
++const tree = (page: Page) => page.getByRole('tree', { name: 'Connections' });
++const item = (page: Page, name: string | RegExp) => tree(page).getByRole('treeitem', { name });
++
++async function expand(row: Locator) {
++  await expect(row).toBeVisible();
++  if ((await row.getAttribute('aria-expanded')) === 'false') {
++    await row.locator('span').first().click();
++  }
++  await expect(row).toHaveAttribute('aria-expanded', 'true');
++}
++
++/** CPU time the main thread has spent so far, in seconds. */
++async function taskSeconds(cdp: CDPSession): Promise<number> {
++  const { metrics } = await cdp.send('Performance.getMetrics');
++  return metrics.find((metric) => metric.name === 'TaskDuration')?.value ?? 0;
++}
++
++function stats(durations: number[]) {
++  const sorted = [...durations].sort((a, b) => a - b);
++  const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? 0;
++  const round = (n: number) => Math.round(n * 10) / 10;
++  return { median: round(at(0.5)), p95: round(at(0.95)), max: round(at(1)), runs: sorted.length };
++}
++
++/** Time from the double click on a connection to the first level (databases and schemas) drawn. */
++function timeToFirstLevel(page: Page): Promise<number> {
++  return page.evaluate(async () => {
++    const start = performance.now();
++    const row = [...document.querySelectorAll('[role="treeitem"]')].find((el) =>
++      el.getAttribute('aria-label')?.startsWith('local postgres,'),
++    );
++    row?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
++    return new Promise<number>((resolve, reject) => {
++      const timer = setTimeout(() => {
++        reject(new Error('the first level never showed'));
++      }, 20_000);
++      const check = () => {
++        const labels = [...document.querySelectorAll('[role="treeitem"]')].map((el) =>
++          el.getAttribute('aria-label'),
++        );
++        if (
++          labels.includes('app_dev') &&
++          labels.includes('public') &&
++          labels.includes('schema_00')
++        ) {
++          clearTimeout(timer);
++          // Resolve once the frame that shows it is painted.
++          requestAnimationFrame(() => {
++            setTimeout(() => {
++              resolve(performance.now() - start);
++            }, 0);
++          });
++          return;
++        }
++        requestAnimationFrame(check);
++      };
++      check();
++    });
++  });
++}
++
++/**
++ * Scrolls the tree from top to bottom, `step` px per frame (a fast fling: about 40 rows a frame),
++ * and returns each frame's duration.
++ */
++function scrollFrames(page: Page, step: number, distance = Infinity): Promise<number[]> {
++  return page.evaluate(
++    async ({ step, distance }) => {
++      const element = document.querySelector('[role="tree"]');
++      if (!element) throw new Error('no tree');
++      const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
++      const durations: number[] = [];
++      element.scrollTop = 0;
++      let previous = await frame();
++      while (
++        element.scrollTop < distance &&
++        element.scrollTop + element.clientHeight < element.scrollHeight - 1
++      ) {
++        element.scrollTop += step;
++        const now = await frame();
++        durations.push(now - previous);
++        previous = now;
++      }
++      return durations;
++    },
++    { step, distance },
++  );
++}
++
++/** Time from typing in the filter to the tree showing the matches. */
++function timeToFilter(page: Page, text: string, firstMatch: string): Promise<number> {
++  return page.evaluate(
++    async ({ text, firstMatch }) => {
++      const input = document.querySelector<HTMLInputElement>(
++        'input[aria-label="Filter connections"]',
++      );
++      if (!input) throw new Error('no filter');
++      const list = document.querySelector('[role="tree"]');
++      if (list) list.scrollTop = 0;
++      await new Promise((resolve) => requestAnimationFrame(resolve));
++      const start = performance.now();
++      // React tracks the value of a controlled input: only the native setter makes it notice.
++      // eslint-disable-next-line @typescript-eslint/unbound-method
++      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
++      setter?.call(input, text);
++      input.dispatchEvent(new Event('input', { bubbles: true }));
++      return new Promise<number>((resolve, reject) => {
++        const timer = setTimeout(() => {
++          reject(new Error('the filter never showed'));
++        }, 20_000);
++        const check = () => {
++          const first = [...document.querySelectorAll('[role="treeitem"]')].find((el) =>
++            el.getAttribute('aria-label')?.startsWith(firstMatch),
++          );
++          if (first) {
++            clearTimeout(timer);
++            requestAnimationFrame(() => {
++              setTimeout(() => {
++                resolve(performance.now() - start);
++              }, 0);
++            });
++            return;
++          }
++          requestAnimationFrame(check);
++        };
++        check();
++      });
++    },
++    { text, firstMatch },
++  );
++}
++
++test.use({ colorScheme: 'dark', locale: 'en-US', viewport: { width: 1280, height: 1000 } });
++
++test('first level after connect, 500 tables', async ({ page }) => {
++  await page.goto('/');
++  await expect(item(page, /^local postgres,/)).toBeVisible();
++  await page.evaluate(() => {
++    (window as MockWindow).__yadbeMock?.setLatency(0);
++    (window as MockWindow).__yadbeMock?.setMetaLatency(0);
++    (window as MockWindow).__yadbeMock?.setMetaCatalog('large', {
++      schemas: 1,
++      tablesPerSchema: 500,
++      columnsPerTable: 10,
++      viewsPerSchema: 0,
++      functionsPerSchema: 0,
++    });
++  });
++  const firstLevel = await timeToFirstLevel(page);
++  await expect(item(page, /^local postgres,/)).toHaveAccessibleName(/Connected/);
++
++  // Opening the schema and its 500 tables.
++  await expand(item(page, /^schema_00$/));
++  const started = Date.now();
++  await expand(item(page, /^Tables \(/));
++  await expect(item(page, /^table_0000$/)).toBeVisible();
++  const tables = Date.now() - started;
++  const result = { firstLevelMs: Math.round(firstLevel), expandedTablesMsPlaywright: tables };
++  console.log(`Explorer, 500 tables: ${JSON.stringify(result)}`);
++  writeFileSync(test.info().outputPath('explorer-500.json'), JSON.stringify(result, null, 2));
++  expect(firstLevel).toBeLessThan(1000);
++});
++
++test('scrolling and filtering 10 000 objects', async ({ page }) => {
++  test.setTimeout(120_000);
++  await page.goto('/');
++  await expect(item(page, /^local postgres,/)).toBeVisible();
++  await page.evaluate(() => {
++    (window as MockWindow).__yadbeMock?.setLatency(0);
++    (window as MockWindow).__yadbeMock?.setMetaLatency(0);
++    (window as MockWindow).__yadbeMock?.setMetaCatalog('large');
++  });
++  await item(page, /^local postgres,/).dblclick();
++  await expect(item(page, /^local postgres,/)).toHaveAccessibleName(/Connected/);
++  // Bottom up, so that the schemas still to open stay at the top, where they are drawn.
++  for (let schema = 9; schema >= 0; schema--) {
++    await expand(item(page, new RegExp(`^schema_0${String(schema)}$`)));
++    // Views first: once the tables are open, the views row is thousands of rows further down.
++    await expand(item(page, /^Views \(/).first());
++    await expand(item(page, /^Tables \(/).first());
++  }
++  const rows = await page.evaluate(() => {
++    const element = document.querySelector('[role="tree"]');
++    return element ? Math.round(element.scrollHeight / 28) : 0;
++  });
++  const mounted = await tree(page).getByRole('treeitem').count();
++  await page.screenshot({ path: test.info().outputPath('explorer-10k.png') });
++
++  const cdp = await page.context().newCDPSession(page);
++  await cdp.send('Performance.enable');
++  const top = () =>
++    page.evaluate(() => {
++      const element = document.querySelector('[role="tree"]');
++      if (element) element.scrollTop = 0;
++    });
++  /** Frame durations (wall clock, noisy on a busy machine) and the CPU time of the main thread. */
++  const scroll = async (step: number, distance?: number) => {
++    await top();
++    const before = await taskSeconds(cdp);
++    const frames = await scrollFrames(page, step, distance);
++    const cpu = (await taskSeconds(cdp)) - before;
++    return { ...stats(frames), cpuPerFrame: Math.round((cpu * 10_000) / frames.length) / 10 };
++  };
++
++  await scroll(1200);
++  // A wheel: about 4 rows a frame over 200 rows; a fling: about 40 rows a frame over the whole list.
++  const wheelNormal = await scroll(120, 5600);
++  const flingNormal = await scroll(1200);
++  const filterNormal = await timeToFilter(page, 'table_01', 'table_0001');
++  await page.getByRole('textbox', { name: 'Filter connections' }).fill('');
++  await expect(item(page, /^schema_00$/)).toBeVisible();
++
++  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
++  const wheelThrottled = await scroll(120, 5600);
++  const flingThrottled = await scroll(1200);
++  const filterThrottled = await timeToFilter(page, 'table_02', 'table_0002');
++  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
++
++  const result = {
++    rowsInTheTree: rows,
++    rowsMounted: mounted,
++    wheelFrameMs: { x1: wheelNormal, x4: wheelThrottled },
++    flingFrameMs: { x1: flingNormal, x4: flingThrottled },
++    filterMs: { x1: Math.round(filterNormal), x4: Math.round(filterThrottled) },
++  };
++  console.log(`Explorer, 10 000 objects: ${JSON.stringify(result)}`);
++  writeFileSync(test.info().outputPath('explorer-10k.json'), JSON.stringify(result, null, 2));
++  expect(mounted).toBeLessThan(120);
++});
+diff --git a/src/app/startup.ts b/src/app/startup.ts
+index b37fdcc..98f4461 100644
+--- a/src/app/startup.ts
++++ b/src/app/startup.ts
+@@ -1,4 +1,5 @@
+ import { startConnectionFeed } from '../features/connections/connectionStore';
++import { startMetaFeed } from '../features/explorer/metaFeed';
+ import { startStatementLogFeed } from '../features/statement-log/statementLogStore';
+ import { initI18n, translate, useI18nStore } from '../i18n/i18n';
+ import { ipc, unwrap } from '../ipc';
+@@ -82,6 +83,7 @@ export function startup(): Promise<void> {
+   started ??= (async () => {
+     void startConnectionFeed();
+     void startStatementLogFeed();
++    startMetaFeed();
+     await restorePreferences();
+     await Promise.all([restoreAndPersistLayout(), restoreTabs()]);
+     persistTabs();
+diff --git a/src/app/tabs/openQueryTabWith.test.ts b/src/app/tabs/openQueryTabWith.test.ts
+new file mode 100644
+index 0000000..687b35c
+--- /dev/null
++++ b/src/app/tabs/openQueryTabWith.test.ts
+@@ -0,0 +1,43 @@
++import { beforeEach, describe, expect, it } from 'vitest';
++
++import { openQueryTabWith, selectActiveTab, useTabsStore } from './tabsStore';
++
++beforeEach(() => {
++  const id = useTabsStore.getState().newTab();
++  useTabsStore.setState((state) => ({
++    tabs: state.tabs.filter((tab) => tab.id === id),
++    activeTabId: id,
++    closedTabs: [],
++    lastOrdinal: 0,
++  }));
++});
++
++describe('openQueryTabWith (the explorer opens tabs through it)', () => {
++  it('turns the active welcome tab into a query tab aimed at a database, holding the text', () => {
++    const id = openQueryTabWith({
++      connectionId: 'c1',
++      database: 'shop',
++      initialText: 'SELECT 1;',
++    });
++    const tab = selectActiveTab(useTabsStore.getState());
++    expect(tab).toMatchObject({
++      id,
++      connectionId: 'c1',
++      database: 'shop',
++      initialText: 'SELECT 1;',
++    });
++    expect(useTabsStore.getState().tabs).toHaveLength(1);
++  });
++
++  it('opens a new tab when the active one already is a query tab', () => {
++    useTabsStore.getState().openQueryTab('c1');
++    const id = openQueryTabWith({ connectionId: 'c1', database: null });
++    const { tabs, activeTabId } = useTabsStore.getState();
++    expect(tabs).toHaveLength(3);
++    expect(activeTabId).toBe(id);
++    expect(selectActiveTab(useTabsStore.getState())).toMatchObject({
++      database: null,
++      initialText: null,
++    });
++  });
++});
+diff --git a/src/app/tabs/tabsStore.ts b/src/app/tabs/tabsStore.ts
+index f73e831..c5ed33d 100644
+--- a/src/app/tabs/tabsStore.ts
++++ b/src/app/tabs/tabsStore.ts
+@@ -9,6 +9,10 @@ export interface ShellTab {
+   ordinal: number;
+   /** Pinned tabs come first in the strip, in their own order; welcome tabs are never pinned. */
+   pinned: boolean;
++  /** Database the tab runs in (set when opened from the explorer); `null`: the connection's. */
++  database?: string | null;
++  /** SQL the editor opens with, set once when the tab is opened from the explorer. */
++  initialText?: string | null;
+ }
+ 
+ /** Shape written to the store and read back at startup. */
+@@ -343,3 +347,29 @@ export function openConnectionTab(connectionId: string): string {
+   }
+   return store.openQueryTab(connectionId);
+ }
++
++/** Where a new query tab starts: its database and the text its editor opens with. */
++export interface QueryTabTarget {
++  connectionId: string;
++  /** Database the tab runs in; `null`: the connection's. */
++  database?: string | null;
++  /** SQL the editor starts with (a "Script as" result, say). */
++  initialText?: string | null;
++}
++
++/**
++ * Opens a query tab on a connection, aimed at a database and holding some SQL: in the active
++ * tab when it is still a welcome tab, in a new one otherwise. The explorer (M1-2) uses it for
++ * "New query" and "Script as"; the editor (M1-4) reads `database` and `initialText` from the tab.
++ */
++export function openQueryTabWith(target: QueryTabTarget): string {
++  const id = openConnectionTab(target.connectionId);
++  useTabsStore.setState((state) => ({
++    tabs: state.tabs.map((tab) =>
++      tab.id === id
++        ? { ...tab, database: target.database ?? null, initialText: target.initialText ?? null }
++        : tab,
++    ),
++  }));
++  return id;
++}
+diff --git a/src/features/connections/ConnectionContextMenu.tsx b/src/features/connections/ConnectionContextMenu.tsx
+index f6cb111..9bf0795 100644
+--- a/src/features/connections/ConnectionContextMenu.tsx
++++ b/src/features/connections/ConnectionContextMenu.tsx
+@@ -7,6 +7,7 @@ import { ContextMenu } from '../../ui/ContextMenu';
+ import { ContextMenuItem } from '../../ui/ContextMenuItem';
+ import { ContextMenuSeparator } from '../../ui/ContextMenuSeparator';
+ import { ContextMenuSub } from '../../ui/ContextMenuSub';
++import { refreshNode } from '../explorer/explorerActions';
+ import {
+   connectTo,
+   deleteConnection,
+@@ -63,6 +64,16 @@ export function ConnectionContextMenu({ connection, children }: ConnectionContex
+           >
+             {t('connection.menu.newQuery')}
+           </ContextMenuItem>
++          {state === 'connected' && (
++            <ContextMenuItem
++              icon="retry"
++              onSelect={() => {
++                void refreshNode(connection.id, { level: 'connection' });
++              }}
++            >
++              {t('explorer.menu.refresh')}
++            </ContextMenuItem>
++          )}
+           <ContextMenuSeparator />
+           <ContextMenuItem
+             icon="pencil"
+diff --git a/src/features/explorer/ExplorerContextMenu.tsx b/src/features/explorer/ExplorerContextMenu.tsx
+new file mode 100644
+index 0000000..e51286d
+--- /dev/null
++++ b/src/features/explorer/ExplorerContextMenu.tsx
+@@ -0,0 +1,128 @@
++import type { ReactElement } from 'react';
++
++import { useT } from '../../i18n/useT';
++import { ContextMenu } from '../../ui/ContextMenu';
++import { ContextMenuItem } from '../../ui/ContextMenuItem';
++import { ContextMenuSeparator } from '../../ui/ContextMenuSeparator';
++import { ContextMenuSub } from '../../ui/ContextMenuSub';
++import {
++  copyName,
++  copyQualifiedName,
++  databaseOf,
++  metaNodeOf,
++  newQuery,
++  refreshNode,
++  scriptAs,
++} from './explorerActions';
++import { explorerRowLabel } from './explorerLabels';
++import type { ExplorerRow } from './explorerRows';
++
++interface ExplorerContextMenuProps {
++  row: ExplorerRow;
++  /** The element that opens the menu on right click; must accept a ref. */
++  children: ReactElement;
++}
++
++/** Context menu of an explorer row (F-023): new query, script as, copy, refresh. */
++export function ExplorerContextMenu({ row, children }: ExplorerContextMenuProps) {
++  const t = useT();
++  const node = metaNodeOf(row);
++  // A loading or failed row has the retry button and nothing else to offer.
++  if (row.type === 'status' || node === null) return children;
++  const { connectionId } = row;
++  const table = row.type === 'object' && row.expandable ? row.ref : null;
++  const scripts = row.type === 'object' && row.object.kind === 'table';
++  const name = explorerRowLabel(row, t);
++  const copyable = row.type !== 'kind' && row.type !== 'detailGroup';
++
++  return (
++    <ContextMenu
++      content={
++        <>
++          <ContextMenuItem
++            icon="plus"
++            onSelect={() => {
++              newQuery(connectionId, databaseOf(row));
++            }}
++          >
++            {t('explorer.menu.newQuery')}
++          </ContextMenuItem>
++          {table && (
++            <>
++              <ContextMenuItem icon="table" disabled hint={t('explorer.menu.openData.hint')}>
++                {t('explorer.menu.openData')}
++              </ContextMenuItem>
++              <ContextMenuSub label={t('explorer.menu.scriptAs')} icon="terminal">
++                <ContextMenuItem
++                  onSelect={() => {
++                    void scriptAs(connectionId, table, 'select');
++                  }}
++                >
++                  {t('explorer.menu.script.select')}
++                </ContextMenuItem>
++                {scripts && (
++                  <>
++                    <ContextMenuItem
++                      onSelect={() => {
++                        void scriptAs(connectionId, table, 'insert');
++                      }}
++                    >
++                      {t('explorer.menu.script.insert')}
++                    </ContextMenuItem>
++                    <ContextMenuItem
++                      onSelect={() => {
++                        void scriptAs(connectionId, table, 'update');
++                      }}
++                    >
++                      {t('explorer.menu.script.update')}
++                    </ContextMenuItem>
++                    <ContextMenuItem
++                      onSelect={() => {
++                        void scriptAs(connectionId, table, 'delete');
++                      }}
++                    >
++                      {t('explorer.menu.script.delete')}
++                    </ContextMenuItem>
++                  </>
++                )}
++              </ContextMenuSub>
++            </>
++          )}
++          {copyable && <ContextMenuSeparator />}
++          {copyable && (
++            <ContextMenuItem
++              icon="copy"
++              onSelect={() => {
++                void copyName(row.type === 'object' ? row.object.name : name);
++              }}
++            >
++              {t('explorer.menu.copyName')}
++            </ContextMenuItem>
++          )}
++          {table && (
++            <ContextMenuItem
++              icon="copy"
++              onSelect={() => {
++                void copyQualifiedName(connectionId, table);
++              }}
++            >
++              {t('explorer.menu.copyQualifiedName')}
++            </ContextMenuItem>
++          )}
++          <ContextMenuSeparator />
++          <ContextMenuItem
++            icon="retry"
++            shortcut="F5"
++            onSelect={() => {
++              void refreshNode(connectionId, node);
++            }}
++          >
++            {t('explorer.menu.refresh')}
++          </ContextMenuItem>
++        </>
++      }
++    >
++      {children}
++    </ContextMenu>
++  );
++}
+diff --git a/src/features/explorer/ExplorerRow.module.css b/src/features/explorer/ExplorerRow.module.css
+new file mode 100644
+index 0000000..914d16b
+--- /dev/null
++++ b/src/features/explorer/ExplorerRow.module.css
+@@ -0,0 +1,160 @@
++.row {
++  --depth: 0;
++
++  display: flex;
++  align-items: center;
++  gap: var(--space-2);
++  height: var(--row-height);
++  padding: 0 var(--space-2) 0 calc(var(--space-2) + var(--depth) * var(--space-4));
++  border-radius: var(--radius-md);
++  color: var(--fg-primary);
++  font-size: var(--text-sm);
++  cursor: default;
++  user-select: none;
++}
++
++.row:hover {
++  background: var(--bg-hover);
++}
++
++.row[data-active] {
++  background: var(--bg-selected);
++}
++
++/* The tree keeps the focus (aria-activedescendant): ring the active row while it has it. */
++:global([role='tree']:focus-visible) .row[data-active] {
++  outline: var(--focus-ring-width) solid var(--accent);
++  outline-offset: calc(var(--focus-ring-width) * -1);
++}
++
++.row[aria-disabled='true'] {
++  color: var(--fg-disabled);
++}
++
++.twisty {
++  display: grid;
++  place-items: center;
++  flex: none;
++  width: var(--icon-size-sm);
++  height: var(--icon-size-sm);
++  color: var(--fg-muted);
++}
++
++.icon {
++  color: var(--fg-secondary);
++}
++
++.row[aria-disabled='true'] .icon {
++  color: var(--fg-disabled);
++}
++
++.keyTone {
++  color: var(--warning);
++}
++
++.mutedTone {
++  color: var(--fg-muted);
++}
++
++.linkTone {
++  color: var(--info);
++}
++
++.errorTone {
++  color: var(--danger);
++}
++
++.text {
++  display: flex;
++  flex: 1;
++  align-items: baseline;
++  gap: var(--space-2);
++  min-width: 0;
++  overflow: hidden;
++  white-space: nowrap;
++}
++
++.name {
++  flex: 0 1 auto;
++  min-width: 0;
++  overflow: hidden;
++  text-overflow: ellipsis;
++}
++
++.meta {
++  flex: 1 1 0;
++  min-width: 0;
++  overflow: hidden;
++  color: var(--fg-muted);
++  font-family: var(--font-code);
++  font-size: var(--text-xs);
++  text-overflow: ellipsis;
++}
++
++.count {
++  font-family: var(--font-ui);
++  font-variant-numeric: tabular-nums;
++}
++
++.nullability {
++  opacity: 0.7;
++}
++
++.badge {
++  color: var(--fg-muted);
++}
++
++.row[data-type='kind'],
++.row[data-type='detailGroup'] {
++  color: var(--fg-secondary);
++}
++
++.row[data-status] {
++  color: var(--fg-muted);
++  font-size: var(--text-xs);
++}
++
++.statusText {
++  flex: 1;
++  min-width: 0;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.refresh {
++  display: grid;
++  place-items: center;
++  flex: none;
++  width: var(--control-height-sm);
++  height: var(--control-height-sm);
++  padding: 0;
++  border: 0;
++  border-radius: var(--radius-sm);
++  background: transparent;
++  color: var(--fg-muted);
++  cursor: pointer;
++  opacity: 0;
++}
++
++.row:hover .refresh,
++.row[data-active] .refresh {
++  opacity: 1;
++}
++
++.refresh:hover {
++  background: var(--bg-active);
++  color: var(--fg-primary);
++}
++
++.tooltip {
++  display: flex;
++  flex-direction: column;
++  gap: var(--space-0);
++  overflow-wrap: anywhere;
++}
++
++.tooltipTitle {
++  font-family: var(--font-code);
++  font-weight: var(--weight-semibold);
++}
+diff --git a/src/features/explorer/ExplorerRow.tsx b/src/features/explorer/ExplorerRow.tsx
+new file mode 100644
+index 0000000..0347ae4
+--- /dev/null
++++ b/src/features/explorer/ExplorerRow.tsx
+@@ -0,0 +1,380 @@
++import { memo, type CSSProperties, type ReactNode } from 'react';
++
++import { useT } from '../../i18n/useT';
++import { Button } from '../../ui/Button';
++import { Icon, type IconName } from '../../ui/Icon';
++import { Spinner } from '../../ui/Spinner';
++import { Tooltip } from '../../ui/Tooltip';
++import { Highlight } from '../connections/Highlight';
++import { rowStyle } from '../sidebar/rowStyle';
++import styles from './ExplorerRow.module.css';
++import { explorerRowLabel, GROUP_ICONS, groupLabel, kindLabel, KIND_ICONS } from './explorerLabels';
++import type { ExplorerRow as Row } from './explorerRows';
++import { ExplorerContextMenu } from './ExplorerContextMenu';
++
++export interface ExplorerRowProps {
++  row: Row;
++  id: string;
++  index: number;
++  active: boolean;
++  posInSet: number;
++  setSize: number;
++  /** Distance from the top of the list, and the height of the row, in px. */
++  offset: number;
++  height: number;
++  onSelect: (index: number) => void;
++  onToggle: (row: Row) => void;
++  onOpen: (row: Row) => void;
++  onRefresh: (row: Row) => void;
++}
++
++type Translate = ReturnType<typeof useT>;
++
++interface Content {
++  icon: IconName | null;
++  /** CSS class of the icon (color). */
++  iconTone?: string;
++  /** The name, highlighted while filtering. */
++  name: ReactNode;
++  /** What follows the name: a type, a count… */
++  meta?: ReactNode;
++  /** Small icons after the meta (identity, generated…). */
++  badges?: IconName[];
++  /** Details shown in a tooltip. */
++  tooltip?: ReactNode;
++}
++
++function Lines({ lines }: { lines: (string | null | undefined | false)[] }) {
++  return (
++    <span className={styles.tooltip}>
++      {lines.map((line, index) =>
++        line ? (
++          <span key={index} className={index === 0 ? styles.tooltipTitle : undefined}>
++            {line}
++          </span>
++        ) : null,
++      )}
++    </span>
++  );
++}
++
++function contentOf(row: Row, t: Translate): Content {
++  const name = (text: string) => <Highlight text={text} indices={row.indices} />;
++  switch (row.type) {
++    case 'database':
++      return {
++        icon: 'database',
++        name: name(row.database.name),
++        tooltip: row.database.accessible ? (
++          row.database.comment ? (
++            <Lines lines={[row.database.name, row.database.comment]} />
++          ) : undefined
++        ) : (
++          <Lines lines={[row.database.name, t('explorer.noAccess')]} />
++        ),
++      };
++    case 'schema':
++      return {
++        icon: 'layers',
++        name: name(row.schema.name),
++        tooltip: row.schema.comment ? (
++          <Lines lines={[row.schema.name, row.schema.comment]} />
++        ) : undefined,
++      };
++    case 'kind':
++      return {
++        icon: KIND_ICONS[row.kind],
++        name: kindLabel(t, row.kind),
++        meta: <span className={styles.count}>{row.count}</span>,
++      };
++    case 'object': {
++      const { object } = row;
++      const detail = object.detail;
++      let meta: ReactNode;
++      if (detail.type === 'routine') {
++        meta = `(${detail.arguments})`;
++      } else if (detail.type === 'sequence') {
++        meta = detail.dataType;
++      } else if (detail.type === 'type') {
++        meta = detail.category;
++      }
++      return {
++        icon: KIND_ICONS[object.kind],
++        name: name(object.name),
++        meta,
++        tooltip: object.comment ? <Lines lines={[object.name, object.comment]} /> : undefined,
++      };
++    }
++    case 'detailGroup':
++      return {
++        icon: GROUP_ICONS[row.group],
++        name: groupLabel(t, row.group),
++        meta: <span className={styles.count}>{row.count}</span>,
++      };
++    case 'column': {
++      const { column } = row;
++      const badges: IconName[] = [];
++      if (column.primaryKey && column.foreignKey) badges.push('link');
++      if (column.identity !== null) badges.push('hash');
++      if (column.generated !== null) badges.push('formula');
++      const icon: IconName = column.primaryKey ? 'key' : column.foreignKey ? 'link' : 'columns';
++      return {
++        icon,
++        iconTone: column.primaryKey
++          ? styles.keyTone
++          : column.foreignKey
++            ? styles.linkTone
++            : styles.mutedTone,
++        name: name(column.name),
++        meta: (
++          <>
++            {column.typeName}
++            <span className={styles.nullability}>
++              {column.nullable ? ' · NULL' : ' · NOT NULL'}
++            </span>
++          </>
++        ),
++        badges,
++        tooltip: (
++          <Lines
++            lines={[
++              `${column.name}: ${column.typeName}`,
++              column.nullable ? t('explorer.col.nullable') : t('explorer.col.notNull'),
++              column.default !== null && `${t('explorer.col.default')}: ${column.default}`,
++              column.primaryKey && t('explorer.col.primaryKey'),
++              column.foreignKey && t('explorer.col.foreignKey'),
++              column.identity !== null && t(`explorer.col.identity.${column.identity}`),
++              column.generated !== null &&
++                `${t(column.generated.stored ? 'explorer.col.generated.stored' : 'explorer.col.generated.virtual')}${column.generated.expression ? `: ${column.generated.expression}` : ''}`,
++              column.comment,
++            ]}
++          />
++        ),
++      };
++    }
++    case 'key':
++      return {
++        icon: 'key',
++        iconTone: row.primary ? styles.keyTone : undefined,
++        name: name(row.name ?? row.columns.join(', ')),
++        meta: `${row.primary ? t('explorer.key.primary') : t('explorer.key.unique')} (${row.columns.join(', ')})`,
++      };
++    case 'foreignKey': {
++      const { foreignKey } = row;
++      const target = foreignKey.referencedTable;
++      const targetName = target.schema === null ? target.name : `${target.schema}.${target.name}`;
++      return {
++        icon: 'link',
++        iconTone: styles.linkTone,
++        name: name(foreignKey.name ?? foreignKey.columns.join(', ')),
++        meta: `→ ${targetName} (${foreignKey.referencedColumns.join(', ')})`,
++        tooltip: (
++          <Lines
++            lines={[
++              `${foreignKey.columns.join(', ')} → ${targetName} (${foreignKey.referencedColumns.join(', ')})`,
++              t('explorer.fk.onDelete', { action: foreignKey.onDelete }),
++              t('explorer.fk.onUpdate', { action: foreignKey.onUpdate }),
++            ]}
++          />
++        ),
++      };
++    }
++    case 'index': {
++      const { index } = row;
++      const flags = [
++        index.primary
++          ? t('explorer.index.primary')
++          : index.unique
++            ? t('explorer.index.unique')
++            : '',
++        index.method ?? '',
++      ].filter(Boolean);
++      return {
++        icon: 'index',
++        name: name(index.name),
++        meta: `${flags.length > 0 ? `${flags.join(', ')} ` : ''}(${index.columns.join(', ')})`,
++        tooltip: index.definition ? <Lines lines={[index.name, index.definition]} /> : undefined,
++      };
++    }
++    case 'check':
++      return {
++        icon: 'checkSquare',
++        name: name(row.check.name ?? row.check.expression),
++        meta: row.check.name ? row.check.expression : undefined,
++        tooltip: <Lines lines={[row.check.name, row.check.expression]} />,
++      };
++    case 'trigger': {
++      const { trigger } = row;
++      const timing = trigger.timing === 'insteadOf' ? 'INSTEAD OF' : trigger.timing.toUpperCase();
++      return {
++        icon: 'bolt',
++        name: name(trigger.name),
++        meta: `${timing} ${trigger.events.map((event) => event.toUpperCase()).join(' OR ')}${trigger.enabled ? '' : ` · ${t('explorer.trigger.disabled')}`}`,
++        tooltip: (
++          <Lines
++            lines={[
++              trigger.name,
++              trigger.function,
++              trigger.forEachRow
++                ? t('explorer.trigger.rowLevel')
++                : t('explorer.trigger.statementLevel'),
++              trigger.definition,
++            ]}
++          />
++        ),
++      };
++    }
++    case 'status':
++      return { icon: null, name: explorerRowLabel(row, t) };
++  }
++}
++
++/** One row of an open connection's tree: database, schema, kind, object, column… (F-020, F-021). */
++export const ExplorerRow = memo(function ExplorerRow({
++  row,
++  id,
++  index,
++  active,
++  posInSet,
++  setSize,
++  offset,
++  height,
++  onSelect,
++  onToggle,
++  onOpen,
++  onRefresh,
++}: ExplorerRowProps) {
++  const t = useT();
++  const depth = row.level - 1;
++  const common = {
++    id,
++    role: 'treeitem',
++    'aria-level': row.level,
++    'aria-posinset': posInSet,
++    'aria-setsize': setSize,
++    'data-row-index': index,
++    'data-active': active || undefined,
++    style: { ...rowStyle(offset, height), '--depth': depth } as CSSProperties,
++  };
++
++  if (row.type === 'status') {
++    const failed = row.status === 'error';
++    const message = explorerRowLabel(row, t);
++    return (
++      <div
++        {...common}
++        aria-selected={active}
++        aria-label={message}
++        data-status={row.status}
++        className={styles.row}
++        onClick={() => {
++          onSelect(index);
++        }}
++      >
++        <span className={styles.twisty} />
++        {row.status === 'loading' && <Spinner />}
++        {failed && <Icon name="warning" className={styles.errorTone} />}
++        <span className={styles.statusText} title={message}>
++          {message}
++        </span>
++        {failed && (
++          <Button
++            size="sm"
++            variant="secondary"
++            tabIndex={-1}
++            onClick={(event) => {
++              event.stopPropagation();
++              onRefresh(row);
++            }}
++          >
++            {t('explorer.retry')}
++          </Button>
++        )}
++      </div>
++    );
++  }
++
++  const content = contentOf(row, t);
++  const disabled = row.type === 'database' && !row.database.accessible;
++  const refreshable =
++    row.type === 'database' ||
++    row.type === 'schema' ||
++    row.type === 'kind' ||
++    (row.type === 'object' && row.expandable);
++  const label = explorerRowLabel(row, t);
++  const ariaLabel = row.type === 'column' ? `${label}, ${row.column.typeName}` : label;
++
++  const body = (
++    <div
++      {...common}
++      aria-selected={active}
++      aria-expanded={row.expandable ? row.expanded : undefined}
++      aria-disabled={disabled || undefined}
++      aria-label={ariaLabel}
++      data-type={row.type}
++      className={styles.row}
++      onClick={() => {
++        onSelect(index);
++        // Containers open with a click; objects and connections only select (double click opens).
++        if (row.expandable && row.type !== 'object') onToggle(row);
++      }}
++      onDoubleClick={() => {
++        onOpen(row);
++      }}
++    >
++      <span
++        className={styles.twisty}
++        onClick={(event) => {
++          if (!row.expandable) return;
++          event.stopPropagation();
++          onSelect(index);
++          onToggle(row);
++        }}
++      >
++        {row.expandable && <Icon name={row.expanded ? 'chevronDown' : 'chevronRight'} />}
++      </span>
++      {content.icon && (
++        <Icon
++          name={content.icon}
++          className={[styles.icon, content.iconTone].filter(Boolean).join(' ')}
++        />
++      )}
++      {(() => {
++        const text = (
++          <span className={styles.text}>
++            <span className={styles.name}>{content.name}</span>
++            {content.meta !== undefined && <span className={styles.meta}>{content.meta}</span>}
++          </span>
++        );
++        return content.tooltip ? (
++          <Tooltip side="right" content={content.tooltip}>
++            {text}
++          </Tooltip>
++        ) : (
++          text
++        );
++      })()}
++      {content.badges?.map((badge, position) => (
++        <Icon key={position} name={badge} className={styles.badge} />
++      ))}
++      {refreshable && (
++        <button
++          type="button"
++          tabIndex={-1}
++          className={styles.refresh}
++          aria-label={t('explorer.refresh', { name: label })}
++          onClick={(event) => {
++            event.stopPropagation();
++            onRefresh(row);
++          }}
++          onDoubleClick={(event) => {
++            event.stopPropagation();
++          }}
++        >
++          <Icon name="retry" />
++        </button>
++      )}
++    </div>
++  );
++  return <ExplorerContextMenu row={row}>{body}</ExplorerContextMenu>;
++});
+diff --git a/src/features/explorer/explorerActions.ts b/src/features/explorer/explorerActions.ts
+new file mode 100644
+index 0000000..2062c55
+--- /dev/null
++++ b/src/features/explorer/explorerActions.ts
+@@ -0,0 +1,123 @@
++import { showError } from '../../app/errors/presentError';
++import { openQueryTabWith } from '../../app/tabs/tabsStore';
++import { translate, useI18nStore, type MessageKey, type MessageParams } from '../../i18n/i18n';
++import { ipc, unwrap, type MetaNode, type ObjectRef, type ScriptKind } from '../../ipc';
++import { toast } from '../../ui/toastStore';
++import { isRelationKind, type ExplorerRow } from './explorerRows';
++
++function t(key: MessageKey, params?: MessageParams): string {
++  return translate(useI18nStore.getState().locale, key, params);
++}
++
++/** "New query" on a connection, a database or any object of it. */
++export function newQuery(connectionId: string, database: string | null): void {
++  openQueryTabWith({ connectionId, database });
++}
++
++/** Opens a new query tab holding the script of a table (F-023). */
++export async function scriptAs(
++  connectionId: string,
++  table: ObjectRef,
++  script: Exclude<ScriptKind, 'qualifiedName'>,
++): Promise<void> {
++  try {
++    const text = await unwrap(ipc.commands.scriptTable(connectionId, table, script));
++    openQueryTabWith({ connectionId, database: table.database, initialText: text });
++  } catch (error) {
++    showError(error, { title: t('explorer.scriptFailed', { name: table.name }) });
++  }
++}
++
++/**
++ * What a double click (or Enter) on a table does. Table tabs arrive with table editing (M2):
++ * until then it is the same as "Script as SELECT" in a new query tab.
++ */
++export function openTable(connectionId: string, table: ObjectRef): Promise<void> {
++  return scriptAs(connectionId, table, 'select');
++}
++
++async function copyText(text: string, what: string): Promise<void> {
++  try {
++    await navigator.clipboard.writeText(text);
++    toast({ variant: 'success', title: t('explorer.copied', { what }) });
++  } catch (error) {
++    showError(error, { title: t('explorer.copyFailed') });
++  }
++}
++
++export function copyName(name: string): Promise<void> {
++  return copyText(name, t('explorer.what.name'));
++}
++
++/** The name as the engine writes it, quoted and qualified by its dialect. */
++export async function copyQualifiedName(connectionId: string, table: ObjectRef): Promise<void> {
++  try {
++    const name = await unwrap(ipc.commands.scriptTable(connectionId, table, 'qualifiedName'));
++    await copyText(name, t('explorer.what.qualifiedName'));
++  } catch (error) {
++    showError(error, { title: t('explorer.copyFailed') });
++  }
++}
++
++/** Drops the cached metadata of a node: the backend answers with `meta-refreshed`. */
++export async function refreshNode(connectionId: string, node: MetaNode): Promise<void> {
++  try {
++    await unwrap(ipc.commands.refreshMeta(connectionId, node));
++  } catch (error) {
++    showError(error, { title: t('explorer.refreshFailed') });
++  }
++}
++
++/** The node an explorer row stands for, in the backend's terms (`null`: nothing to refresh). */
++export function metaNodeOf(row: ExplorerRow): MetaNode | null {
++  switch (row.type) {
++    case 'database':
++      return { level: 'database', database: row.database.name };
++    case 'schema':
++      return { level: 'schema', database: row.database, schema: row.schema.name };
++    case 'kind':
++      return { level: 'objects', database: row.database, schema: row.schema, kind: row.kind };
++    case 'object':
++      return isRelationKind(row.object.kind)
++        ? { level: 'table', table: row.ref }
++        : {
++            level: 'objects',
++            database: row.ref.database,
++            schema: row.ref.schema,
++            kind: row.object.kind,
++          };
++    case 'detailGroup':
++    case 'column':
++    case 'key':
++    case 'foreignKey':
++    case 'index':
++    case 'check':
++    case 'trigger':
++      return { level: 'table', table: row.table };
++    case 'status':
++      return row.refresh;
++  }
++}
++
++/** The database a row lives in, for "New query"; `null` on the connection's own row. */
++export function databaseOf(row: ExplorerRow): string | null {
++  switch (row.type) {
++    case 'database':
++      return row.database.name;
++    case 'schema':
++    case 'kind':
++      return row.database;
++    case 'object':
++      return row.ref.database;
++    case 'detailGroup':
++    case 'column':
++    case 'key':
++    case 'foreignKey':
++    case 'index':
++    case 'check':
++    case 'trigger':
++      return row.table.database;
++    case 'status':
++      return null;
++  }
++}
+diff --git a/src/features/explorer/explorerLabels.ts b/src/features/explorer/explorerLabels.ts
+new file mode 100644
+index 0000000..9668082
+--- /dev/null
++++ b/src/features/explorer/explorerLabels.ts
+@@ -0,0 +1,101 @@
++import type { MessageKey, MessageParams } from '../../i18n/i18n';
++import type { ObjectKind } from '../../ipc';
++import type { IconName } from '../../ui/Icon';
++import { localize } from '../../app/errors/presentError';
++import type { DetailGroup, ExplorerRow, StatusSubject } from './explorerRows';
++
++type Translate = (key: MessageKey, params?: MessageParams) => string;
++
++const KIND_LABELS: Record<ObjectKind, MessageKey> = {
++  table: 'explorer.kind.table',
++  view: 'explorer.kind.view',
++  materializedView: 'explorer.kind.materializedView',
++  function: 'explorer.kind.function',
++  procedure: 'explorer.kind.procedure',
++  sequence: 'explorer.kind.sequence',
++  type: 'explorer.kind.type',
++};
++
++const GROUP_LABELS: Record<DetailGroup, MessageKey> = {
++  columns: 'explorer.group.columns',
++  keys: 'explorer.group.keys',
++  foreignKeys: 'explorer.group.foreignKeys',
++  indexes: 'explorer.group.indexes',
++  constraints: 'explorer.group.constraints',
++  triggers: 'explorer.group.triggers',
++};
++
++const EMPTY_LABELS: Record<StatusSubject, MessageKey> = {
++  connecting: 'explorer.status.loading',
++  databases: 'explorer.status.empty.databases',
++  schemas: 'explorer.status.empty.schemas',
++  kinds: 'explorer.status.empty.kinds',
++  objects: 'explorer.status.empty.objects',
++  details: 'explorer.status.empty.details',
++};
++
++export const KIND_ICONS: Record<ObjectKind, IconName> = {
++  table: 'table',
++  view: 'view',
++  materializedView: 'matView',
++  function: 'routine',
++  procedure: 'routine',
++  sequence: 'sequence',
++  type: 'tag',
++};
++
++export const GROUP_ICONS: Record<DetailGroup, IconName> = {
++  columns: 'columns',
++  keys: 'key',
++  foreignKeys: 'link',
++  indexes: 'index',
++  constraints: 'checkSquare',
++  triggers: 'bolt',
++};
++
++export const kindLabel = (t: Translate, kind: ObjectKind) => t(KIND_LABELS[kind]);
++export const groupLabel = (t: Translate, group: DetailGroup) => t(GROUP_LABELS[group]);
++
++/** Name of a foreign key, or the columns it covers when it has none. */
++function foreignKeyName(row: Extract<ExplorerRow, { type: 'foreignKey' }>): string {
++  const { foreignKey } = row;
++  return foreignKey.name ?? foreignKey.columns.join(', ');
++}
++
++/** Text of a row without its decorations: for the type-ahead and the accessible name. */
++export function explorerRowLabel(row: ExplorerRow, t: Translate): string {
++  switch (row.type) {
++    case 'database':
++      return row.database.name;
++    case 'schema':
++      return row.schema.name;
++    case 'kind':
++      return `${kindLabel(t, row.kind)} (${String(row.count)})`;
++    case 'object':
++      return row.object.name;
++    case 'detailGroup':
++      return `${groupLabel(t, row.group)} (${String(row.count)})`;
++    case 'column':
++      return row.column.name;
++    case 'key':
++      return row.name ?? row.columns.join(', ');
++    case 'foreignKey':
++      return foreignKeyName(row);
++    case 'index':
++      return row.index.name;
++    case 'check':
++      return row.check.name ?? row.check.expression;
++    case 'trigger':
++      return row.trigger.name;
++    case 'status':
++      if (row.status === 'error') {
++        return row.error ? localize(row.error.message) : t('explorer.status.failed');
++      }
++      if (row.status === 'loading') {
++        return t(
++          row.subject === 'connecting' ? 'explorer.status.connecting' : 'explorer.status.loading',
++        );
++      }
++      return t(EMPTY_LABELS[row.subject]);
++  }
++}
+diff --git a/src/features/explorer/explorerRows.test.ts b/src/features/explorer/explorerRows.test.ts
+new file mode 100644
+index 0000000..ffbc73d
+--- /dev/null
++++ b/src/features/explorer/explorerRows.test.ts
+@@ -0,0 +1,347 @@
++import { describe, expect, it } from 'vitest';
++
++import { postgresServer, sqliteFile } from '../../ipc/mock/metaCatalog';
++import {
++  buildNodes,
++  flattenNodes,
++  nodeKeys,
++  pruneNodes,
++  type ExplorerLevels,
++  type ExplorerRow,
++  type MetaSource,
++} from './explorerRows';
++import { catalogSource } from './testSource';
++
++const ORDERS = { database: 'app_dev', schema: 'shop', name: 'orders' } as const;
++
++const PG_LEVELS: ExplorerLevels = { databases: true, schemas: true };
++const SQLITE_LEVELS: ExplorerLevels = { databases: false, schemas: false };
++
++interface Setup {
++  levels?: ExplorerLevels;
++  source: MetaSource;
++  expanded?: string[];
++  showSystem?: boolean;
++  exhaustive?: boolean;
++  fetching?: boolean;
++}
++
++function rows({
++  levels = PG_LEVELS,
++  source,
++  expanded = [],
++  showSystem = false,
++  exhaustive = false,
++  fetching = true,
++}: Setup): ExplorerRow[] {
++  const open = new Set(expanded);
++  const nodes = buildNodes({ levels, showSystem, expanded: open, source, exhaustive }, fetching);
++  return flattenNodes(nodes, { connectionId: 'c', level: 2, expanded: open, open: false });
++}
++
++/** `type:name` of each row, indented by level, to read a tree at a glance. */
++function outline(list: ExplorerRow[]): string[] {
++  return list.map((row) => {
++    let text: string = row.type;
++    if (row.type === 'database') text += `:${row.database.name}`;
++    if (row.type === 'schema') text += `:${row.schema.name}`;
++    if (row.type === 'kind') text += `:${row.kind}(${String(row.count)})`;
++    if (row.type === 'object') text += `:${row.object.name}`;
++    if (row.type === 'detailGroup') text += `:${row.group}(${String(row.count)})`;
++    if (row.type === 'column') text += `:${row.column.name}`;
++    if (row.type === 'status') text += `:${row.status}`;
++    return `${'  '.repeat(row.level - 2)}${text}`;
++  });
++}
++
++const pg = (options?: Parameters<typeof catalogSource>[2]) =>
++  catalogSource('postgres', postgresServer('app_dev', null), options);
++const sqlite = (options?: Parameters<typeof catalogSource>[2]) =>
++  catalogSource('sqlite', sqliteFile(), options);
++
++describe('levels follow the capabilities', () => {
++  it('lists the databases of a server, system ones hidden, inaccessible ones disabled', () => {
++    const { source } = pg();
++    const list = rows({ source });
++    expect(outline(list)).toEqual([
++      'database:analytics_archive',
++      'database:app_dev',
++      'database:postgres',
++    ]);
++    const archive = list[0];
++    expect(archive?.type === 'database' && archive.database.accessible).toBe(false);
++    expect(archive?.expandable).toBe(false);
++    expect(list[1]?.expandable).toBe(true);
++  });
++
++  it('goes database → schema → kinds → objects → table details', () => {
++    const { source } = pg();
++    const list = rows({
++      source,
++      expanded: [
++        nodeKeys.database('app_dev'),
++        nodeKeys.schema('app_dev', 'shop'),
++        nodeKeys.kind('app_dev', 'shop', 'table'),
++        nodeKeys.object('app_dev', 'shop', 'table', 'orders'),
++        nodeKeys.group(ORDERS, 'table', 'columns'),
++      ],
++    });
++    const text = outline(list);
++    expect(text).toContain('  schema:shop');
++    expect(text).toContain('    kind:table(21)');
++    expect(text).toContain('      object:orders');
++    expect(text).toContain('        detailGroup:columns(10)');
++    expect(text).toContain('          column:id');
++    // Groups with nothing in them are left out, the columns always stay.
++    const groups = list.flatMap((row) => (row.type === 'detailGroup' ? [row.group] : []));
++    expect(groups).toEqual(['columns', 'keys', 'foreignKeys', 'indexes', 'triggers']);
++    const columns = list.find((row) => row.type === 'detailGroup');
++    expect(columns).toMatchObject({ expandable: true, expanded: true, level: 6 });
++  });
++
++  it('has no database and no schema level on SQLite: the kinds hang off the connection', () => {
++    const { source, requested } = sqlite();
++    const list = rows({ levels: SQLITE_LEVELS, source });
++    expect(outline(list)[0]).toBe('kind:table(4)');
++    expect(list.every((row) => row.level === 2)).toBe(true);
++    // `main` is read from the database list, and the objects are asked with `schema: null`.
++    expect(requested).toEqual([
++      { type: 'databases' },
++      { type: 'counts', database: 'main', schema: null },
++    ]);
++  });
++
++  it('skips the schema level on an engine with several databases but no schemas', () => {
++    const { source } = pg();
++    const list = rows({
++      levels: { databases: true, schemas: false },
++      source,
++      expanded: [nodeKeys.database('app_dev')],
++    });
++    const text = outline(list);
++    expect(text.slice(0, 3)).toEqual([
++      'database:analytics_archive',
++      'database:app_dev',
++      '  kind:table(0)',
++    ]);
++  });
++
++  it('opens objects of a kind other than relations without details', () => {
++    const { source } = pg();
++    const kinds = [
++      nodeKeys.database('app_dev'),
++      nodeKeys.schema('app_dev', 'shop'),
++      nodeKeys.kind('app_dev', 'shop', 'function'),
++    ];
++    const list = rows({ source, expanded: kinds });
++    const fn = list.find((row) => row.type === 'object');
++    expect(fn).toMatchObject({ expandable: false, expanded: false });
++  });
++});
++
++describe('system objects', () => {
++  it('hides system schemas and subtracts system objects from the counts', () => {
++    const { source } = sqlite();
++    const hidden = rows({ levels: SQLITE_LEVELS, source });
++    expect(hidden[0]).toMatchObject({ type: 'kind', kind: 'table', count: 4 });
++    const shown = rows({ levels: SQLITE_LEVELS, source, showSystem: true });
++    expect(shown[0]).toMatchObject({ type: 'kind', kind: 'table', count: 5 });
++  });
++
++  it('lists system databases and schemas on demand', () => {
++    const { source } = pg();
++    const open = [nodeKeys.database('app_dev')];
++    expect(outline(rows({ source, expanded: open }))).not.toContain('  schema:pg_catalog');
++    const all = outline(rows({ source, expanded: open, showSystem: true }));
++    expect(all).toContain('  schema:pg_catalog');
++    expect(all).toContain('database:template1');
++  });
++
++  it('hides the objects themselves too', () => {
++    const { source } = sqlite();
++    const kind = [nodeKeys.kind('main', null, 'table')];
++    const hidden = outline(rows({ levels: SQLITE_LEVELS, source, expanded: kind }));
++    expect(hidden.filter((line) => line.includes('sqlite_sequence'))).toEqual([]);
++    const shown = outline(
++      rows({ levels: SQLITE_LEVELS, source, expanded: kind, showSystem: true }),
++    );
++    expect(shown.filter((line) => line.includes('sqlite_sequence'))).toHaveLength(1);
++  });
++});
++
++describe('lazy loading', () => {
++  it('asks for nothing under a collapsed node', () => {
++    const { source, requested } = pg();
++    rows({ source });
++    expect(requested).toEqual([{ type: 'databases' }]);
++  });
++
++  it('asks only for the open nodes', () => {
++    const { source, requested } = pg();
++    rows({
++      source,
++      expanded: [
++        nodeKeys.database('app_dev'),
++        nodeKeys.schema('app_dev', 'shop'),
++        nodeKeys.kind('app_dev', 'shop', 'view'),
++        // Open, but under a node that is closed: not asked for.
++        nodeKeys.kind('app_dev', 'sales', 'table'),
++      ],
++    });
++    expect(requested).toEqual([
++      { type: 'databases' },
++      { type: 'schemas', database: 'app_dev' },
++      { type: 'counts', database: 'app_dev', schema: 'shop' },
++      { type: 'objects', database: 'app_dev', schema: 'shop', kind: 'view' },
++    ]);
++  });
++
++  it('does not ask for anything while the connection is not up', () => {
++    const { source, requested } = pg();
++    const list = rows({ source, expanded: [nodeKeys.database('app_dev')], fetching: false });
++    expect(requested).toEqual([]);
++    expect(outline(list)).toContain('  schema:shop');
++  });
++
++  it('shows a loading row under a node that is on its way', () => {
++    const { source } = pg({ loading: (r) => r.type === 'schemas' });
++    const list = rows({ source, expanded: [nodeKeys.database('app_dev')] });
++    expect(outline(list)).toEqual([
++      'database:analytics_archive',
++      'database:app_dev',
++      '  status:loading',
++      'database:postgres',
++    ]);
++  });
++
++  it('shows the typed error on the node, with the node a retry refreshes', () => {
++    const notFound = {
++      code: 'objectNotFound' as const,
++      message: { en: 'gone', fr: 'disparu' },
++      action: null,
++      detail: null,
++    };
++    const { source } = pg({ error: (r) => (r.type === 'table' ? notFound : undefined) });
++    const list = rows({
++      source,
++      expanded: [
++        nodeKeys.database('app_dev'),
++        nodeKeys.schema('app_dev', 'shop'),
++        nodeKeys.kind('app_dev', 'shop', 'table'),
++        nodeKeys.object('app_dev', 'shop', 'table', 'orders'),
++      ],
++    });
++    const failed = list.find((row) => row.type === 'status');
++    expect(failed).toMatchObject({
++      status: 'error',
++      error: { code: 'objectNotFound' },
++      // The table is gone: the list it was in must be read again, not the table alone.
++      refresh: { level: 'objects', database: 'app_dev', schema: 'shop', kind: 'table' },
++    });
++    const queryFailed = { ...notFound, code: 'queryFailed' as const };
++    const other = pg({ error: (r) => (r.type === 'counts' ? queryFailed : undefined) });
++    const second = rows({
++      source: other.source,
++      expanded: [nodeKeys.database('app_dev'), nodeKeys.schema('app_dev', 'shop')],
++    });
++    expect(second.find((row) => row.type === 'status')).toMatchObject({
++      status: 'error',
++      refresh: { level: 'schema', database: 'app_dev', schema: 'shop' },
++    });
++  });
++
++  it('says so when a node has no children', () => {
++    const { source } = pg();
++    const list = rows({
++      source,
++      expanded: [nodeKeys.database('postgres'), nodeKeys.schema('postgres', 'public')],
++    });
++    // `postgres` only holds an empty `public` schema: its kinds all count 0 and cannot open.
++    expect(list.find((row) => row.type === 'kind')).toMatchObject({ count: 0, expandable: false });
++  });
++});
++
++describe('flat rows', () => {
++  it('gives every row a unique key and the right expanded state', () => {
++    const { source } = pg();
++    const list = rows({
++      source,
++      expanded: [nodeKeys.database('app_dev'), nodeKeys.schema('app_dev', 'shop')],
++    });
++    expect(new Set(list.map((row) => row.key)).size).toBe(list.length);
++    const shop = list.find((row) => row.type === 'schema' && row.schema.name === 'shop');
++    const auth = list.find((row) => row.type === 'schema' && row.schema.name === 'auth');
++    expect(shop?.expanded).toBe(true);
++    expect(auth?.expanded).toBe(false);
++  });
++});
++
++describe('filter', () => {
++  const open = [
++    nodeKeys.database('app_dev'),
++    nodeKeys.schema('app_dev', 'shop'),
++    nodeKeys.kind('app_dev', 'shop', 'table'),
++    nodeKeys.object('app_dev', 'shop', 'table', 'orders'),
++    nodeKeys.group(ORDERS, 'table', 'columns'),
++  ];
++
++  function filtered(query: string, expanded: string[] = open): ExplorerRow[] {
++    const { source } = pg();
++    const set = new Set(expanded);
++    const nodes = buildNodes(
++      { levels: PG_LEVELS, showSystem: false, expanded: set, source, exhaustive: true },
++      false,
++    );
++    return flattenNodes(pruneNodes(nodes, query), {
++      connectionId: 'c',
++      level: 2,
++      expanded: set,
++      open: true,
++    });
++  }
++
++  it('keeps the matches with their ancestors, and drops the rest', () => {
++    const text = outline(filtered('orders'));
++    expect(text).toContain('database:app_dev');
++    expect(text).toContain('  schema:shop');
++    expect(text).toContain('    kind:table(21)');
++    expect(text).toContain('      object:orders');
++    expect(text).not.toContain('      object:products');
++    expect(text).not.toContain('database:postgres');
++  });
++
++  it('looks inside the loaded nodes even where they are collapsed', () => {
++    // Nothing is expanded, but what was loaded stays in the cache: `fake` has it all.
++    const text = outline(filtered('customer_id', []));
++    expect(text).toContain('          column:customer_id');
++  });
++
++  it('highlights the matched characters', () => {
++    const found = filtered('ord').find(
++      (row) => row.type === 'object' && row.object.name === 'orders',
++    );
++    expect(found?.indices).toEqual([0, 1, 2]);
++  });
++
++  it('shows nothing for a query that matches nothing loaded', () => {
++    expect(filtered('zzzz')).toEqual([]);
++  });
++
++  it('leaves out the loading and failed rows', () => {
++    const { source } = pg({ loading: (r) => r.type === 'schemas' });
++    const set = new Set([nodeKeys.database('app_dev')]);
++    const nodes = buildNodes(
++      { levels: PG_LEVELS, showSystem: false, expanded: set, source, exhaustive: true },
++      true,
++    );
++    expect(pruneNodes(nodes, 'app')).toHaveLength(1);
++    expect(
++      flattenNodes(pruneNodes(nodes, 'app'), {
++        connectionId: 'c',
++        level: 2,
++        expanded: set,
++        open: true,
++      }),
++    ).toHaveLength(1);
++  });
++});
+diff --git a/src/features/explorer/explorerRows.ts b/src/features/explorer/explorerRows.ts
+new file mode 100644
+index 0000000..3a2b8c1
+--- /dev/null
++++ b/src/features/explorer/explorerRows.ts
+@@ -0,0 +1,502 @@
++import type {
++  CheckConstraint,
++  ColumnInfo,
++  DatabaseInfo,
++  ForeignKey,
++  IndexInfo,
++  MetaNode,
++  ObjectCount,
++  ObjectInfo,
++  ObjectKind,
++  ObjectRef,
++  SchemaInfo,
++  TableDetails,
++  TriggerInfo,
++  YadbeError,
++} from '../../ipc';
++import { fuzzyMatch } from '../connections/fuzzy';
++import { ROOT_NODE } from './explorerStore';
++
++/** What a node's data is: not asked, on its way, failed, or there. */
++export type Loadable<T> =
++  | { state: 'idle' }
++  | { state: 'loading' }
++  | { state: 'error'; error: YadbeError }
++  | { state: 'ready'; data: T };
++
++/**
++ * Where the tree reads its data. `fetch` says the node is open on screen: whoever implements
++ * the source then makes sure the data gets loaded; without it the source only peeks at what is
++ * already there.
++ */
++export interface MetaSource {
++  databases(fetch: boolean): Loadable<DatabaseInfo[]>;
++  schemas(database: string, fetch: boolean): Loadable<SchemaInfo[]>;
++  counts(database: string, schema: string | null, fetch: boolean): Loadable<ObjectCount[]>;
++  objects(
++    database: string,
++    schema: string | null,
++    kind: ObjectKind,
++    fetch: boolean,
++  ): Loadable<ObjectInfo[]>;
++  table(table: ObjectRef, kind: ObjectKind, fetch: boolean): Loadable<TableDetails>;
++}
++
++/** Which levels the engine has (its capabilities), never its name. */
++export interface ExplorerLevels {
++  /** A server hosts several databases; otherwise the only one is not shown as a level. */
++  databases: boolean;
++  /** Schemas exist between the database and its objects. */
++  schemas: boolean;
++}
++
++export type DetailGroup =
++  'columns' | 'keys' | 'foreignKeys' | 'indexes' | 'constraints' | 'triggers';
++
++/** What an empty or failed list was a list of. */
++export type StatusSubject =
++  'connecting' | 'databases' | 'schemas' | 'kinds' | 'objects' | 'details';
++
++export type ExplorerBody =
++  | { type: 'database'; database: DatabaseInfo }
++  | { type: 'schema'; database: string; schema: SchemaInfo }
++  | { type: 'kind'; database: string; schema: string | null; kind: ObjectKind; count: number }
++  | { type: 'object'; ref: ObjectRef; object: ObjectInfo }
++  | { type: 'detailGroup'; table: ObjectRef; group: DetailGroup; count: number }
++  | { type: 'column'; table: ObjectRef; column: ColumnInfo }
++  | { type: 'key'; table: ObjectRef; name: string | null; columns: string[]; primary: boolean }
++  | { type: 'foreignKey'; table: ObjectRef; foreignKey: ForeignKey }
++  | { type: 'index'; table: ObjectRef; index: IndexInfo }
++  | { type: 'check'; table: ObjectRef; check: CheckConstraint }
++  | { type: 'trigger'; table: ObjectRef; trigger: TriggerInfo }
++  | {
++      type: 'status';
++      status: 'loading' | 'empty' | 'error';
++      subject: StatusSubject;
++      error: YadbeError | null;
++      /** What the retry button refreshes. */
++      refresh: MetaNode;
++    };
++
++export const DETAIL_GROUPS: readonly DetailGroup[] = [
++  'columns',
++  'keys',
++  'foreignKeys',
++  'indexes',
++  'constraints',
++  'triggers',
++];
++
++export const RELATION_KINDS: readonly ObjectKind[] = ['table', 'view', 'materializedView'];
++
++export function isRelationKind(kind: ObjectKind): boolean {
++  return RELATION_KINDS.includes(kind);
++}
++
++/** Identity of a node inside its connection; the expanded state is a set of these. */
++export const nodeKeys = {
++  root: ROOT_NODE,
++  database: (database: string) => JSON.stringify(['d', database]),
++  schema: (database: string, schema: string) => JSON.stringify(['s', database, schema]),
++  kind: (database: string, schema: string | null, kind: ObjectKind) =>
++    JSON.stringify(['k', database, schema, kind]),
++  object: (database: string, schema: string | null, kind: ObjectKind, id: string) =>
++    JSON.stringify(['t', database, schema, kind, id]),
++  group: (table: ObjectRef, kind: ObjectKind, group: DetailGroup) =>
++    JSON.stringify(['g', table.database, table.schema, kind, table.name, group]),
++};
++
++export interface ExplorerNode {
++  /** Node key; unique among the nodes of a connection. */
++  id: string;
++  body: ExplorerBody;
++  expandable: boolean;
++  /** `null`: the node was not listed (collapsed, or its data is not loaded). */
++  children: ExplorerNode[] | null;
++  /** Matched characters of the name, while filtering. */
++  indices: number[];
++}
++
++export interface BuildContext {
++  levels: ExplorerLevels;
++  showSystem: boolean;
++  expanded: ReadonlySet<string>;
++  source: MetaSource;
++  /** List the loaded nodes even where collapsed (the filter looks at all of them). */
++  exhaustive: boolean;
++}
++
++function node(
++  id: string,
++  body: ExplorerBody,
++  expandable: boolean,
++  children: ExplorerNode[] | null = null,
++): ExplorerNode {
++  return { id, body, expandable, children, indices: [] };
++}
++
++/** A "loading", "empty" or "error" row under `parent`. */
++export function statusNode(
++  parent: string,
++  kind: 'loading' | 'empty' | 'error',
++  subject: StatusSubject,
++  refresh: MetaNode,
++  error: YadbeError | null = null,
++): ExplorerNode {
++  return node(`${parent}/status`, { type: 'status', status: kind, subject, error, refresh }, false);
++}
++
++/**
++ * The children of an expandable node. Collapsed: none (unless the filter wants the loaded
++ * ones). Expanded: a "loading", "error" or "empty" row, or the real children.
++ */
++function expandNode<T>(
++  ctx: BuildContext,
++  id: string,
++  fetching: boolean,
++  read: (fetch: boolean) => Loadable<T>,
++  subject: StatusSubject,
++  refresh: (error: YadbeError | null) => MetaNode,
++  build: (data: T, fetching: boolean) => ExplorerNode[],
++): ExplorerNode[] | null {
++  const open = ctx.expanded.has(id);
++  if (!open && !ctx.exhaustive) return null;
++  const loadable = read(fetching && open);
++  if (!open) return loadable.state === 'ready' ? build(loadable.data, false) : null;
++  switch (loadable.state) {
++    case 'idle':
++    case 'loading':
++      return [statusNode(id, 'loading', subject, refresh(null))];
++    case 'error':
++      return [statusNode(id, 'error', subject, refresh(loadable.error), loadable.error)];
++    case 'ready': {
++      const children = build(loadable.data, fetching);
++      return children.length > 0 ? children : [statusNode(id, 'empty', subject, refresh(null))];
++    }
++  }
++}
++
++function tableChildren(
++  ctx: BuildContext,
++  ref: ObjectRef,
++  kind: ObjectKind,
++  details: TableDetails,
++): ExplorerNode[] {
++  const keys = [
++    ...(details.primaryKey ? [{ ...details.primaryKey, primary: true }] : []),
++    ...details.uniqueKeys.map((key) => ({ ...key, primary: false })),
++  ];
++  const items: Record<DetailGroup, ExplorerBody[]> = {
++    columns: details.columns.map((column) => ({ type: 'column', table: ref, column })),
++    keys: keys.map((key) => ({
++      type: 'key',
++      table: ref,
++      name: key.name,
++      columns: key.columns,
++      primary: key.primary,
++    })),
++    foreignKeys: details.foreignKeys.map((foreignKey) => ({
++      type: 'foreignKey',
++      table: ref,
++      foreignKey,
++    })),
++    indexes: details.indexes.map((index) => ({ type: 'index', table: ref, index })),
++    constraints: details.checks.map((check) => ({ type: 'check', table: ref, check })),
++    triggers: details.triggers.map((trigger) => ({ type: 'trigger', table: ref, trigger })),
++  };
++  const groups: ExplorerNode[] = [];
++  for (const group of DETAIL_GROUPS) {
++    const bodies = items[group];
++    // An empty group is noise, except the columns: a table always has some.
++    if (bodies.length === 0 && group !== 'columns') continue;
++    const id = nodeKeys.group(ref, kind, group);
++    const expanded = ctx.expanded.has(id);
++    const children =
++      expanded || ctx.exhaustive
++        ? bodies.map((body, index) => node(`${id}/${String(index)}`, body, false))
++        : null;
++    groups.push(
++      node(
++        id,
++        { type: 'detailGroup', table: ref, group, count: bodies.length },
++        bodies.length > 0,
++        children,
++      ),
++    );
++  }
++  return groups;
++}
++
++function objectNodes(
++  ctx: BuildContext,
++  database: string,
++  schema: string | null,
++  kind: ObjectKind,
++  objects: ObjectInfo[],
++  fetching: boolean,
++): ExplorerNode[] {
++  const nodes: ExplorerNode[] = [];
++  for (const object of objects) {
++    if (object.system && !ctx.showSystem) continue;
++    const ref: ObjectRef = { database, schema, name: object.name };
++    const id = nodeKeys.object(database, schema, kind, object.id);
++    const relation = isRelationKind(kind);
++    const children = relation
++      ? expandNode(
++          ctx,
++          id,
++          fetching,
++          (fetch) => ctx.source.table(ref, kind, fetch),
++          'details',
++          (error) =>
++            error?.code === 'objectNotFound'
++              ? { level: 'objects', database, schema, kind }
++              : { level: 'table', table: ref },
++          (details) => tableChildren(ctx, ref, kind, details),
++        )
++      : null;
++    nodes.push(node(id, { type: 'object', ref, object }, relation, children));
++  }
++  return nodes;
++}
++
++/** The object kinds of a schema (or of a database without schemas), with their counts. */
++function kindNodes(
++  ctx: BuildContext,
++  database: string,
++  schema: string | null,
++  counts: ObjectCount[],
++  fetching: boolean,
++): ExplorerNode[] {
++  return counts.map((entry) => {
++    const id = nodeKeys.kind(database, schema, entry.kind);
++    // Hidden system objects do not count.
++    const count = ctx.showSystem ? entry.count : entry.count - entry.systemCount;
++    const children =
++      count > 0
++        ? expandNode(
++            ctx,
++            id,
++            fetching,
++            (fetch) => ctx.source.objects(database, schema, entry.kind, fetch),
++            'objects',
++            () => ({ level: 'objects', database, schema, kind: entry.kind }),
++            (objects, fetchingBelow) =>
++              objectNodes(ctx, database, schema, entry.kind, objects, fetchingBelow),
++          )
++        : null;
++    return node(
++      id,
++      { type: 'kind', database, schema, kind: entry.kind, count },
++      count > 0,
++      children,
++    );
++  });
++}
++
++/** What sits directly under a container that has kinds in it: the database or a schema. */
++function schemaContent(
++  ctx: BuildContext,
++  parentId: string,
++  database: string,
++  schema: string | null,
++  fetching: boolean,
++): ExplorerNode[] | null {
++  return expandNode(
++    ctx,
++    parentId,
++    fetching,
++    (fetch) => ctx.source.counts(database, schema, fetch),
++    'kinds',
++    () => ({ level: 'schema', database, schema }),
++    (counts, fetchingBelow) => kindNodes(ctx, database, schema, counts, fetchingBelow),
++  );
++}
++
++/** What sits under a database: schemas, or the kinds when the engine has no schemas. */
++function databaseContent(
++  ctx: BuildContext,
++  parentId: string,
++  database: string,
++  fetching: boolean,
++): ExplorerNode[] | null {
++  if (!ctx.levels.schemas) return schemaContent(ctx, parentId, database, null, fetching);
++  return expandNode(
++    ctx,
++    parentId,
++    fetching,
++    (fetch) => ctx.source.schemas(database, fetch),
++    'schemas',
++    () => ({ level: 'database', database }),
++    (schemas, fetchingBelow) => {
++      const nodes: ExplorerNode[] = [];
++      for (const schema of schemas) {
++        if (schema.system && !ctx.showSystem) continue;
++        const id = nodeKeys.schema(database, schema.name);
++        nodes.push(
++          node(
++            id,
++            { type: 'schema', database, schema },
++            true,
++            schemaContent(ctx, id, database, schema.name, fetchingBelow),
++          ),
++        );
++      }
++      return nodes;
++    },
++  );
++}
++
++/**
++ * The tree under an open connection row. `fetching`: the connection is up and its row open,
++ * so the open nodes are loaded; otherwise only what is loaded already is shown.
++ */
++export function buildNodes(ctx: BuildContext, fetching: boolean): ExplorerNode[] {
++  const { source, levels } = ctx;
++  const databases = source.databases(fetching);
++  const refresh = (): MetaNode => ({ level: 'connection' });
++  switch (databases.state) {
++    case 'idle':
++    case 'loading':
++      return [statusNode(nodeKeys.root, 'loading', 'databases', refresh())];
++    case 'error':
++      return [statusNode(nodeKeys.root, 'error', 'databases', refresh(), databases.error)];
++    case 'ready':
++      break;
++  }
++  if (!levels.databases) {
++    // The only database is not a level of its own: its content hangs off the connection.
++    const only = databases.data.find((database) => database.current) ?? databases.data[0];
++    if (!only) return [statusNode(nodeKeys.root, 'empty', 'databases', refresh())];
++    const children = rootContent(ctx, only.name, fetching);
++    return children.length > 0
++      ? children
++      : [statusNode(nodeKeys.root, 'empty', 'kinds', refresh())];
++  }
++  const nodes: ExplorerNode[] = [];
++  for (const database of databases.data) {
++    if (database.system && !ctx.showSystem) continue;
++    const id = nodeKeys.database(database.name);
++    const accessible = database.accessible;
++    nodes.push(
++      node(
++        id,
++        { type: 'database', database },
++        accessible,
++        accessible ? databaseContent(ctx, id, database.name, fetching) : null,
++      ),
++    );
++  }
++  return nodes.length > 0 ? nodes : [statusNode(nodeKeys.root, 'empty', 'databases', refresh())];
++}
++
++/** Content of a database that is not a level: always open, no node of its own. */
++function rootContent(ctx: BuildContext, database: string, fetching: boolean): ExplorerNode[] {
++  // The node key of the root stands for the database here, and it is open.
++  const open: BuildContext = { ...ctx, expanded: new Set([...ctx.expanded, ROOT_NODE]) };
++  return databaseContent(open, ROOT_NODE, database, fetching) ?? [];
++}
++
++// --- Filter ---------------------------------------------------------------------------------
++
++function nameOf(body: ExplorerBody): string | null {
++  switch (body.type) {
++    case 'database':
++      return body.database.name;
++    case 'schema':
++      return body.schema.name;
++    case 'object':
++      return body.object.name;
++    case 'column':
++      return body.column.name;
++    case 'key':
++      return body.name;
++    case 'foreignKey':
++      return body.foreignKey.name;
++    case 'index':
++      return body.index.name;
++    case 'check':
++      return body.check.name;
++    case 'trigger':
++      return body.trigger.name;
++    default:
++      return null;
++  }
++}
++
++/**
++ * Keeps the nodes whose name matches the query, and the ancestors of those (F-022). Groups
++ * (kinds, columns…) have no name: they stay when something under them matches.
++ */
++export function pruneNodes(nodes: readonly ExplorerNode[], query: string): ExplorerNode[] {
++  const kept: ExplorerNode[] = [];
++  for (const entry of nodes) {
++    if (entry.body.type === 'status') continue;
++    const name = nameOf(entry.body);
++    const match = name === null ? null : fuzzyMatch(query, name);
++    const children = entry.children ? pruneNodes(entry.children, query) : [];
++    if (!match && children.length === 0) continue;
++    kept.push({ ...entry, indices: match?.indices ?? [], children });
++  }
++  return kept;
++}
++
++// --- Flat rows ------------------------------------------------------------------------------
++
++type WithRowFields<T> = T & {
++  /** Unique in the whole sidebar. */
++  key: string;
++  connectionId: string;
++  /** Node key inside the connection; status rows have none that can be expanded. */
++  nodeKey: string;
++  /** ARIA level, 1-based, counted from the top of the sidebar. */
++  level: number;
++  expandable: boolean;
++  expanded: boolean;
++  indices: readonly number[];
++};
++
++export type ExplorerRow = WithRowFields<ExplorerBody>;
++
++export interface FlattenOptions {
++  connectionId: string;
++  /** Level of the first row (the connection's own level + 1). */
++  level: number;
++  expanded: ReadonlySet<string>;
++  /** Show every listed child, whatever the expanded state (filtering). */
++  open: boolean;
++}
++
++/** Rows of the visible nodes, in tree order. */
++export function flattenNodes(
++  nodes: readonly ExplorerNode[],
++  options: FlattenOptions,
++): ExplorerRow[] {
++  const rows: ExplorerRow[] = [];
++  const walk = (list: readonly ExplorerNode[], level: number) => {
++    for (const entry of list) {
++      const expanded =
++        entry.expandable &&
++        entry.children !== null &&
++        (options.open || options.expanded.has(entry.id));
++      rows.push({
++        ...entry.body,
++        key: `${options.connectionId}\u001f${entry.id}`,
++        connectionId: options.connectionId,
++        nodeKey: entry.id,
++        level,
++        expandable: entry.expandable,
++        expanded,
++        indices: entry.indices,
++      });
++      if (expanded && entry.children) walk(entry.children, level + 1);
++    }
++  };
++  walk(nodes, options.level);
++  return rows;
++}
++
++/** Label used by the type-ahead and the accessible name: the name of whatever the row shows. */
++export function nameOfRow(row: ExplorerRow): string {
++  return nameOf(row) ?? '';
++}
+diff --git a/src/features/explorer/explorerStore.test.ts b/src/features/explorer/explorerStore.test.ts
+new file mode 100644
+index 0000000..154b69d
+--- /dev/null
++++ b/src/features/explorer/explorerStore.test.ts
+@@ -0,0 +1,74 @@
++import { beforeEach, describe, expect, it } from 'vitest';
++
++import { nodeKeys } from './explorerRows';
++import { createExplorerStore, ROOT_NODE } from './explorerStore';
++
++let store: ReturnType<typeof createExplorerStore>;
++const state = () => store.getState();
++const open = (connectionId: string) => [...(state().expanded[connectionId] ?? [])];
++
++beforeEach(() => {
++  store = createExplorerStore();
++});
++
++describe('expanded nodes', () => {
++  it('remembers the open nodes of each connection apart', () => {
++    state().setExpanded('a', nodeKeys.database('shop'), true);
++    state().setExpanded('b', nodeKeys.database('crm'), true);
++    expect(open('a')).toEqual([nodeKeys.database('shop')]);
++    expect(open('b')).toEqual([nodeKeys.database('crm')]);
++  });
++
++  it('toggles a node', () => {
++    const node = nodeKeys.schema('shop', 'public');
++    state().toggle('a', node);
++    expect(open('a')).toEqual([node]);
++    state().toggle('a', node);
++    expect(open('a')).toEqual([]);
++  });
++
++  it('keeps the same object when nothing changes, so nothing re-renders', () => {
++    state().setExpanded('a', nodeKeys.database('shop'), true);
++    const before = state().expanded;
++    state().setExpanded('a', nodeKeys.database('shop'), true);
++    state().setExpanded('a', nodeKeys.database('other'), false);
++    expect(state().expanded).toBe(before);
++  });
++});
++
++describe('first connection', () => {
++  it('opens the connection once, then the current database once', () => {
++    expect(state().seed('a')).toBe(true);
++    expect(open('a')).toEqual([ROOT_NODE]);
++    state().seedDatabase('a', nodeKeys.database('shop'));
++    expect(open('a')).toEqual([ROOT_NODE, nodeKeys.database('shop')]);
++    // The user closes both: a reconnection does not open them again.
++    state().setExpanded('a', ROOT_NODE, false);
++    state().setExpanded('a', nodeKeys.database('shop'), false);
++    expect(state().seed('a')).toBe(false);
++    state().seedDatabase('a', nodeKeys.database('shop'));
++    expect(open('a')).toEqual([]);
++  });
++
++  it('does not open a database of a connection that was not seeded', () => {
++    state().seedDatabase('a', nodeKeys.database('shop'));
++    expect(open('a')).toEqual([]);
++  });
++});
++
++describe('system objects and forgetting', () => {
++  it('hides system objects until asked', () => {
++    expect(state().showSystem).toBe(false);
++    state().setShowSystem(true);
++    expect(state().showSystem).toBe(true);
++  });
++
++  it('forgets a connection', () => {
++    state().seed('a');
++    state().seed('b');
++    state().forget('a');
++    expect(state().expanded['a']).toBeUndefined();
++    expect(state().seed('a')).toBe(true);
++    expect(open('b')).toEqual([ROOT_NODE]);
++  });
++});
+diff --git a/src/features/explorer/explorerStore.ts b/src/features/explorer/explorerStore.ts
+new file mode 100644
+index 0000000..b50de7e
+--- /dev/null
++++ b/src/features/explorer/explorerStore.ts
+@@ -0,0 +1,84 @@
++import { create } from 'zustand';
++
++/** Node key of the connection row itself, in its own expanded set. */
++export const ROOT_NODE = '["c"]';
++
++interface ExplorerStore {
++  /** Expanded nodes per connection (node keys of `explorerRows.ts`), remembered for the session. */
++  expanded: Readonly<Record<string, ReadonlySet<string>>>;
++  /**
++   * Connections opened once: the first time, the tree opens down to the current database
++   * (`root`: the connection row is open, `database`: the database too).
++   */
++  seeded: Readonly<Record<string, 'root' | 'database'>>;
++  /** System databases, schemas and objects are hidden by default (F-027). */
++  showSystem: boolean;
++  setExpanded: (connectionId: string, node: string, expanded: boolean) => void;
++  toggle: (connectionId: string, node: string) => void;
++  /** Opens the connection row once, the first time it connects. Returns whether it did. */
++  seed: (connectionId: string) => boolean;
++  /** Opens the current database node once, when the first seed knows its name. */
++  seedDatabase: (connectionId: string, databaseNode: string) => void;
++  setShowSystem: (show: boolean) => void;
++  forget: (connectionId: string) => void;
++}
++
++function withNode(
++  current: ReadonlySet<string> | undefined,
++  node: string,
++  expanded: boolean,
++): ReadonlySet<string> {
++  const next = new Set(current);
++  if (expanded) next.add(node);
++  else next.delete(node);
++  return next;
++}
++
++export function createExplorerStore() {
++  return create<ExplorerStore>()((set, get) => ({
++    expanded: {},
++    seeded: {},
++    showSystem: false,
++    setExpanded: (connectionId, node, expanded) => {
++      const current = get().expanded[connectionId];
++      if ((current?.has(node) ?? false) === expanded) return;
++      set((state) => ({
++        expanded: { ...state.expanded, [connectionId]: withNode(current, node, expanded) },
++      }));
++    },
++    toggle: (connectionId, node) => {
++      get().setExpanded(connectionId, node, !(get().expanded[connectionId]?.has(node) ?? false));
++    },
++    seed: (connectionId) => {
++      if (get().seeded[connectionId]) return false;
++      set((state) => ({
++        seeded: { ...state.seeded, [connectionId]: 'root' },
++        expanded: {
++          ...state.expanded,
++          [connectionId]: withNode(state.expanded[connectionId], ROOT_NODE, true),
++        },
++      }));
++      return true;
++    },
++    seedDatabase: (connectionId, databaseNode) => {
++      if (get().seeded[connectionId] !== 'root') return;
++      set((state) => ({
++        seeded: { ...state.seeded, [connectionId]: 'database' },
++        expanded: {
++          ...state.expanded,
++          [connectionId]: withNode(state.expanded[connectionId], databaseNode, true),
++        },
++      }));
++    },
++    setShowSystem: (showSystem) => {
++      set({ showSystem });
++    },
++    forget: (connectionId) => {
++      const without = <T>(record: Readonly<Record<string, T>>) =>
++        Object.fromEntries(Object.entries(record).filter(([id]) => id !== connectionId));
++      set((state) => ({ expanded: without(state.expanded), seeded: without(state.seeded) }));
++    },
++  }));
++}
++
++export const useExplorerStore = createExplorerStore();
+diff --git a/src/features/explorer/metaApi.ts b/src/features/explorer/metaApi.ts
+new file mode 100644
+index 0000000..989bd2a
+--- /dev/null
++++ b/src/features/explorer/metaApi.ts
+@@ -0,0 +1,43 @@
++import { ipc, unwrap, type IpcResult } from '../../ipc';
++import type { MetaRequest } from './metaKeys';
++
++let counter = 0;
++
++/**
++ * Runs a metadata read that the backend can stop: aborting `signal` (the query lost its last
++ * observer, e.g. the node was collapsed while loading) cancels the read on the server.
++ */
++async function read<T>(signal: AbortSignal, call: (requestId: string) => Promise<IpcResult<T>>) {
++  counter += 1;
++  const requestId = `explorer-${Date.now().toString(36)}-${counter.toString(36)}`;
++  const cancel = () => {
++    void ipc.commands.cancelMetaRequest(requestId).catch(() => undefined);
++  };
++  signal.addEventListener('abort', cancel, { once: true });
++  try {
++    return await unwrap(call(requestId));
++  } finally {
++    signal.removeEventListener('abort', cancel);
++  }
++}
++
++/** Reads one node of the explorer. Rejects with a `YadbeIpcError`. */
++export function fetchMeta(connectionId: string, request: MetaRequest, signal: AbortSignal) {
++  const { commands } = ipc;
++  switch (request.type) {
++    case 'databases':
++      return read(signal, (id) => commands.listDatabases(id, connectionId));
++    case 'schemas':
++      return read(signal, (id) => commands.listSchemas(id, connectionId, request.database));
++    case 'counts':
++      return read(signal, (id) =>
++        commands.listObjectCounts(id, connectionId, request.database, request.schema),
++      );
++    case 'objects':
++      return read(signal, (id) =>
++        commands.listObjects(id, connectionId, request.database, request.schema, request.kind),
++      );
++    case 'table':
++      return read(signal, (id) => commands.getTableDetails(id, connectionId, request.table));
++  }
++}
+diff --git a/src/features/explorer/metaFeed.ts b/src/features/explorer/metaFeed.ts
+new file mode 100644
+index 0000000..e663da4
+--- /dev/null
++++ b/src/features/explorer/metaFeed.ts
+@@ -0,0 +1,33 @@
++import { queryClient } from '../../app/queryClient';
++import { ipc, type MetaNode } from '../../ipc';
++import { stateOf, useSessions } from '../connections/connectionStore';
++import { invalidationFilters, metaKeys } from './metaKeys';
++
++/** Marks what a refreshed node covers as stale: the nodes on screen read it again, only those. */
++export async function invalidateMeta(connectionId: string, node: MetaNode): Promise<void> {
++  await Promise.all(
++    invalidationFilters(connectionId, node).map((filters) =>
++      queryClient.invalidateQueries(filters),
++    ),
++  );
++}
++
++let feed = false;
++
++/** Follows the backend: refreshed nodes, and connections that went away. Runs once per launch. */
++export function startMetaFeed(): void {
++  if (feed) return;
++  feed = true;
++  ipc.events.subscribe('metaRefreshed', ({ connectionId, node }) => {
++    void invalidateMeta(connectionId, node);
++  });
++  // The backend empties its cache with the session; so does the front.
++  useSessions.subscribe((state, previous) => {
++    for (const connectionId of Object.keys(previous.sessions)) {
++      if (stateOf(state.sessions[connectionId]) === 'disconnected') {
++        void queryClient.cancelQueries({ queryKey: metaKeys.connection(connectionId) });
++        queryClient.removeQueries({ queryKey: metaKeys.connection(connectionId) });
++      }
++    }
++  });
++}
+diff --git a/src/features/explorer/metaKeys.test.ts b/src/features/explorer/metaKeys.test.ts
+new file mode 100644
+index 0000000..1ecbf6f
+--- /dev/null
++++ b/src/features/explorer/metaKeys.test.ts
+@@ -0,0 +1,75 @@
++import { QueryClient } from '@tanstack/react-query';
++import { beforeEach, describe, expect, it } from 'vitest';
++
++import type { MetaNode, ObjectRef } from '../../ipc';
++import { invalidationFilters, metaKeys } from './metaKeys';
++
++const ORDERS: ObjectRef = { database: 'app', schema: 'shop', name: 'orders' };
++const CUSTOMERS: ObjectRef = { database: 'app', schema: 'shop', name: 'customers' };
++
++let client: QueryClient;
++
++/** Name of each cached query, to compare what a refresh makes stale. */
++const keys = {
++  databases: metaKeys.databases('c1'),
++  schemas: metaKeys.schemas('c1', 'app'),
++  counts: metaKeys.counts('c1', 'app', 'shop'),
++  tables: metaKeys.objects('c1', 'app', 'shop', 'table'),
++  views: metaKeys.objects('c1', 'app', 'shop', 'view'),
++  orders: metaKeys.table('c1', ORDERS, 'table'),
++  customers: metaKeys.table('c1', CUSTOMERS, 'table'),
++  salesCounts: metaKeys.counts('c1', 'app', 'sales'),
++  otherDatabase: metaKeys.schemas('c1', 'archive'),
++  otherConnection: metaKeys.databases('c2'),
++};
++
++beforeEach(() => {
++  client = new QueryClient();
++  for (const key of Object.values(keys)) client.setQueryData([...key], 'data');
++});
++
++async function stale(node: MetaNode, connectionId = 'c1'): Promise<string[]> {
++  await Promise.all(
++    invalidationFilters(connectionId, node).map((filters) => client.invalidateQueries(filters)),
++  );
++  return Object.entries(keys)
++    .filter(([, key]) => client.getQueryState([...key])?.isInvalidated)
++    .map(([name]) => name);
++}
++
++describe('invalidating by node', () => {
++  it('drops the whole connection and nothing of another', async () => {
++    const dropped = await stale({ level: 'connection' });
++    expect(dropped).not.toContain('otherConnection');
++    expect(dropped).toHaveLength(Object.keys(keys).length - 1);
++  });
++
++  it('drops a database with its schemas, and no other database', async () => {
++    const dropped = await stale({ level: 'database', database: 'app' });
++    expect(dropped).toEqual(
++      expect.arrayContaining(['schemas', 'counts', 'tables', 'orders', 'salesCounts']),
++    );
++    expect(dropped).not.toContain('databases');
++    expect(dropped).not.toContain('otherDatabase');
++  });
++
++  it('drops a schema with what is in it, but not the list of schemas', async () => {
++    const dropped = await stale({ level: 'schema', database: 'app', schema: 'shop' });
++    expect(dropped.sort()).toEqual(['counts', 'customers', 'orders', 'tables', 'views']);
++  });
++
++  it('drops one kind of object, the counts and the details of those objects', async () => {
++    const dropped = await stale({
++      level: 'objects',
++      database: 'app',
++      schema: 'shop',
++      kind: 'table',
++    });
++    expect(dropped.sort()).toEqual(['counts', 'customers', 'orders', 'tables']);
++  });
++
++  it('drops one table whatever its kind', async () => {
++    const dropped = await stale({ level: 'table', table: ORDERS });
++    expect(dropped).toEqual(['orders']);
++  });
++});
+diff --git a/src/features/explorer/metaKeys.ts b/src/features/explorer/metaKeys.ts
+new file mode 100644
+index 0000000..c08bb15
+--- /dev/null
++++ b/src/features/explorer/metaKeys.ts
+@@ -0,0 +1,99 @@
++import type { InvalidateQueryFilters } from '@tanstack/react-query';
++
++import type { MetaNode, ObjectKind, ObjectRef } from '../../ipc';
++
++/** What the explorer asks the backend, one request per node that lists its children. */
++export type MetaRequest =
++  | { type: 'databases' }
++  | { type: 'schemas'; database: string }
++  | { type: 'counts'; database: string; schema: string | null }
++  | { type: 'objects'; database: string; schema: string | null; kind: ObjectKind }
++  | { type: 'table'; table: ObjectRef; kind: ObjectKind };
++
++type Key = readonly (string | null)[];
++
++/**
++ * Query keys nest like the backend's `MetaCache`, so that a `meta-refreshed` node maps to one
++ * key prefix: `['meta', connection, 'db', database, 'schema', schema, …]`.
++ */
++export const metaKeys = {
++  connection: (connectionId: string): Key => ['meta', connectionId],
++  databases: (connectionId: string): Key => ['meta', connectionId, 'databases'],
++  database: (connectionId: string, database: string): Key => ['meta', connectionId, 'db', database],
++  schemas: (connectionId: string, database: string): Key => [
++    ...metaKeys.database(connectionId, database),
++    'schemas',
++  ],
++  schema: (connectionId: string, database: string, schema: string | null): Key => [
++    ...metaKeys.database(connectionId, database),
++    'schema',
++    schema,
++  ],
++  counts: (connectionId: string, database: string, schema: string | null): Key => [
++    ...metaKeys.schema(connectionId, database, schema),
++    'counts',
++  ],
++  objects: (
++    connectionId: string,
++    database: string,
++    schema: string | null,
++    kind: ObjectKind,
++  ): Key => [...metaKeys.schema(connectionId, database, schema), 'objects', kind],
++  table: (connectionId: string, table: ObjectRef, kind: ObjectKind): Key => [
++    ...metaKeys.schema(connectionId, table.database, table.schema),
++    'table',
++    kind,
++    table.name,
++  ],
++};
++
++export function requestKey(connectionId: string, request: MetaRequest): Key {
++  switch (request.type) {
++    case 'databases':
++      return metaKeys.databases(connectionId);
++    case 'schemas':
++      return metaKeys.schemas(connectionId, request.database);
++    case 'counts':
++      return metaKeys.counts(connectionId, request.database, request.schema);
++    case 'objects':
++      return metaKeys.objects(connectionId, request.database, request.schema, request.kind);
++    case 'table':
++      return metaKeys.table(connectionId, request.table, request.kind);
++  }
++}
++
++/**
++ * The queries a refreshed node makes stale (mirror of the backend's `CacheData::invalidate`):
++ * a node covers everything below it, and a level never drops the list that holds it.
++ */
++export function invalidationFilters(
++  connectionId: string,
++  node: MetaNode,
++): InvalidateQueryFilters[] {
++  switch (node.level) {
++    case 'connection':
++      return [{ queryKey: metaKeys.connection(connectionId) }];
++    case 'database':
++      return [{ queryKey: metaKeys.database(connectionId, node.database) }];
++    case 'schema':
++      return [{ queryKey: metaKeys.schema(connectionId, node.database, node.schema) }];
++    case 'objects': {
++      const schema = metaKeys.schema(connectionId, node.database, node.schema);
++      return [
++        { queryKey: [...schema, 'counts'] },
++        { queryKey: [...schema, 'objects', node.kind] },
++        { queryKey: [...schema, 'table', node.kind] },
++      ];
++    }
++    case 'table': {
++      const schema = metaKeys.schema(connectionId, node.table.database, node.table.schema);
++      // The node does not say whether it is a table or a view: match on the name.
++      return [
++        {
++          queryKey: [...schema, 'table'],
++          predicate: (query) => query.queryKey[8] === node.table.name,
++        },
++      ];
++    }
++  }
++}
+diff --git a/src/features/explorer/metaSource.ts b/src/features/explorer/metaSource.ts
+new file mode 100644
+index 0000000..5dacec5
+--- /dev/null
++++ b/src/features/explorer/metaSource.ts
+@@ -0,0 +1,61 @@
++import type { QueryClient, QueryState } from '@tanstack/react-query';
++
++import { YadbeIpcError, type YadbeError } from '../../ipc';
++import { fetchMeta } from './metaApi';
++import { requestKey, type MetaRequest } from './metaKeys';
++import type { Loadable, MetaSource } from './explorerRows';
++
++/** The query behind one node: data stay cached until a refresh, the backend has its own cache. */
++export function metaQuery(connectionId: string, request: MetaRequest) {
++  return {
++    queryKey: requestKey(connectionId, request),
++    queryFn: ({ signal }: { signal: AbortSignal }) => fetchMeta(connectionId, request, signal),
++    staleTime: Infinity,
++    // A collapsed node keeps its data a while: opening it again is instant.
++    gcTime: 10 * 60_000,
++  };
++}
++
++const INTERNAL: YadbeError = {
++  code: 'internal',
++  message: { en: 'Unexpected error.', fr: 'Erreur inattendue.' },
++  action: null,
++  detail: null,
++};
++
++function asLoadable<T>(state: QueryState<T> | undefined, fetch: boolean): Loadable<T> {
++  if (state === undefined) return fetch ? { state: 'loading' } : { state: 'idle' };
++  if (state.data !== undefined) return { state: 'ready', data: state.data };
++  if (state.fetchStatus === 'fetching') return { state: 'loading' };
++  if (state.status === 'error') {
++    const error = state.error instanceof YadbeIpcError ? state.error.error : INTERNAL;
++    return { state: 'error', error };
++  }
++  return { state: 'loading' };
++}
++
++/**
++ * The tree's view of the query cache. Every request made with `fetch` is recorded, so that the
++ * caller can observe (and so load) exactly the nodes that are open on screen.
++ */
++export function createCacheSource(
++  client: QueryClient,
++  connectionId: string,
++  record: (connectionId: string, request: MetaRequest) => void,
++): MetaSource {
++  const read = <T>(request: MetaRequest, fetch: boolean): Loadable<T> => {
++    if (fetch) record(connectionId, request);
++    return asLoadable(
++      client.getQueryState<T>(requestKey(connectionId, request) as unknown[]),
++      fetch,
++    );
++  };
++  return {
++    databases: (fetch) => read({ type: 'databases' }, fetch),
++    schemas: (database, fetch) => read({ type: 'schemas', database }, fetch),
++    counts: (database, schema, fetch) => read({ type: 'counts', database, schema }, fetch),
++    objects: (database, schema, kind, fetch) =>
++      read({ type: 'objects', database, schema, kind }, fetch),
++    table: (table, kind, fetch) => read({ type: 'table', table, kind }, fetch),
++  };
++}
+diff --git a/src/features/explorer/testSource.ts b/src/features/explorer/testSource.ts
+new file mode 100644
+index 0000000..bad000e
+--- /dev/null
++++ b/src/features/explorer/testSource.ts
+@@ -0,0 +1,92 @@
++import type { Capabilities, YadbeError } from '../../ipc';
++import { MOCK_OBJECT_KINDS, type MockDatabase } from '../../ipc/mock/metaCatalog';
++import type { Engine } from '../../ipc';
++import type { Loadable, MetaSource } from './explorerRows';
++import { requestKey, type MetaRequest } from './metaKeys';
++
++/** Tests only: a `MetaSource` over the mock catalog, with requests recorded and failures on demand. */
++export function catalogSource(
++  engine: Engine,
++  databases: MockDatabase[],
++  options: {
++    /** Requests (by `requestKey`) that never answer. */
++    loading?: (request: MetaRequest) => boolean;
++    error?: (request: MetaRequest) => YadbeError | undefined;
++  } = {},
++) {
++  const requested: MetaRequest[] = [];
++  const answer = <T>(request: MetaRequest, fetch: boolean, read: () => T): Loadable<T> => {
++    if (fetch) requested.push(request);
++    const error = options.error?.(request);
++    if (error) return { state: 'error', error };
++    if (options.loading?.(request)) return fetch ? { state: 'loading' } : { state: 'idle' };
++    return { state: 'ready', data: read() };
++  };
++  const schemaOf = (database: string, schema: string | null) =>
++    databases
++      .find((d) => d.info.name === database)
++      ?.schemas.find((s) => (s.info?.name ?? null) === schema);
++  const source: MetaSource = {
++    databases: (fetch) =>
++      answer({ type: 'databases' }, fetch, () => databases.map((database) => database.info)),
++    schemas: (database, fetch) =>
++      answer({ type: 'schemas', database }, fetch, () =>
++        (databases.find((d) => d.info.name === database)?.schemas ?? []).flatMap((s) =>
++          s.info ? [s.info] : [],
++        ),
++      ),
++    counts: (database, schema, fetch) =>
++      answer({ type: 'counts', database, schema }, fetch, () =>
++        (MOCK_OBJECT_KINDS[engine] ?? []).map((kind) => {
++          const objects = (schemaOf(database, schema)?.objects ?? []).filter(
++            (o) => o.kind === kind,
++          );
++          return {
++            kind,
++            count: objects.length,
++            systemCount: objects.filter((o) => o.system).length,
++          };
++        }),
++      ),
++    objects: (database, schema, kind, fetch) =>
++      answer({ type: 'objects', database, schema, kind }, fetch, () =>
++        (schemaOf(database, schema)?.objects ?? []).filter((o) => o.kind === kind),
++      ),
++    table: (table, kind, fetch) =>
++      answer({ type: 'table', table, kind }, fetch, () => {
++        const details = schemaOf(table.database, table.schema)?.tables.get(table.name);
++        if (!details) throw new Error(`no such table ${table.name}`);
++        return details;
++      }),
++  };
++  return {
++    source,
++    requested,
++    keys: () => requested.map((r) => JSON.stringify(requestKey('c', r))),
++  };
++}
++
++export const POSTGRES: Capabilities = {
++  usesFile: false,
++  defaultPort: 5432,
++  supportsTls: true,
++  multipleDatabases: true,
++  schemas: true,
++  nativeCancel: true,
++  readOnlySession: true,
++};
++
++export const SQLITE: Capabilities = {
++  usesFile: true,
++  defaultPort: null,
++  supportsTls: false,
++  multipleDatabases: false,
++  schemas: false,
++  nativeCancel: false,
++  readOnlySession: false,
++};
++
++export const MYSQL: Capabilities = {
++  ...POSTGRES,
++  schemas: false,
++};
+diff --git a/src/features/sidebar/ConnectionRow.module.css b/src/features/sidebar/ConnectionRow.module.css
+index ee5d41d..5b6f4b3 100644
+--- a/src/features/sidebar/ConnectionRow.module.css
++++ b/src/features/sidebar/ConnectionRow.module.css
+@@ -7,7 +7,7 @@
+   align-items: center;
+   gap: var(--space-2);
+   height: var(--row-height);
+-  padding: 0 var(--space-2) 0 calc(var(--space-4) + var(--depth) * var(--space-5));
++  padding: 0 var(--space-2) 0 calc(var(--space-3) + var(--depth) * var(--space-4));
+   border-radius: var(--radius-md);
+   color: var(--fg-primary);
+   font-size: var(--text-sm);
+@@ -31,11 +31,25 @@
+   background: var(--bg-hover);
+ }
+ 
+-.row:focus-visible {
+-  outline-offset: -2px;
++.row[data-active] {
+   background: var(--bg-selected);
+ }
+ 
++/* The tree keeps the focus (aria-activedescendant): ring the active row while it has it. */
++:global([role='tree']:focus-visible) .row[data-active] {
++  outline: var(--focus-ring-width) solid var(--accent);
++  outline-offset: calc(var(--focus-ring-width) * -1);
++}
++
++.twisty {
++  display: grid;
++  place-items: center;
++  flex: none;
++  width: var(--icon-size-sm);
++  height: var(--icon-size-sm);
++  color: var(--fg-muted);
++}
++
+ .name {
+   flex: 1;
+   min-width: 0;
+@@ -52,7 +66,7 @@
+   color: var(--fg-muted);
+ }
+ 
+-.favorite {
++.action {
+   display: grid;
+   place-items: center;
+   flex: none;
+@@ -67,17 +81,17 @@
+   opacity: 0;
+ }
+ 
+-.row:hover .favorite,
+-.row:focus-within .favorite,
+-.favorite[data-active] {
++.row:hover .action,
++.row[data-active] .action,
++.action[data-active] {
+   opacity: 1;
+ }
+ 
+-.favorite[data-active] {
++.action[data-active] {
+   color: var(--warning);
+ }
+ 
+-.favorite:hover {
++.action:hover {
+   background: var(--bg-active);
+ }
+ 
+diff --git a/src/features/sidebar/ConnectionRow.tsx b/src/features/sidebar/ConnectionRow.tsx
+index 059d3cc..4b87624 100644
+--- a/src/features/sidebar/ConnectionRow.tsx
++++ b/src/features/sidebar/ConnectionRow.tsx
+@@ -1,59 +1,99 @@
+-import type { CSSProperties, KeyboardEvent } from 'react';
++import { memo, type CSSProperties } from 'react';
+ 
+ import { useT } from '../../i18n/useT';
+ import { Icon } from '../../ui/Icon';
+ import { Tooltip } from '../../ui/Tooltip';
+-import { openQuery, toggleFavorite } from '../connections/connectionActions';
++import { toggleFavorite } from '../connections/connectionActions';
+ import { ConnectionContextMenu } from '../connections/ConnectionContextMenu';
+-import { useConnectionState, useEngineInfo } from '../connections/connectionStore';
++import { useEngineInfo } from '../connections/connectionStore';
+ import { EnvTag } from '../connections/EnvTag';
+ import { Highlight } from '../connections/Highlight';
+ import { StateDot } from '../connections/StateDot';
+-import { tintOf, type ConnectionSummary } from '../connections/model';
++import { tintOf } from '../connections/model';
+ import styles from './ConnectionRow.module.css';
++import { rowStyle } from './rowStyle';
++import type { SidebarTreeRow } from './sidebarRows';
++
++export type ConnectionTreeRow = Extract<SidebarTreeRow, { type: 'connection' }>;
+ 
+ interface ConnectionRowProps {
+-  connection: ConnectionSummary;
+-  nameIndices: readonly number[];
+-  depth: number;
+-  focused: boolean;
+-  onFocus: () => void;
+-  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
++  row: ConnectionTreeRow;
++  id: string;
++  index: number;
++  active: boolean;
++  posInSet: number;
++  setSize: number;
++  offset: number;
++  height: number;
++  onSelect: (index: number) => void;
++  onToggle: (row: ConnectionTreeRow) => void;
++  onOpen: (row: ConnectionTreeRow) => void;
++  onRefresh: (row: ConnectionTreeRow) => void;
+ }
+ 
+ /** One saved connection of the sidebar: state, engine, name, environment, favorite (F-007). */
+-export function ConnectionRow({
+-  connection,
+-  nameIndices,
+-  depth,
+-  focused,
+-  onFocus,
+-  onKeyDown,
++export const ConnectionRow = memo(function ConnectionRow({
++  row,
++  id,
++  index,
++  active,
++  posInSet,
++  setSize,
++  offset,
++  height,
++  onSelect,
++  onToggle,
++  onOpen,
++  onRefresh,
+ }: ConnectionRowProps) {
+   const t = useT();
+-  const state = useConnectionState(connection.id);
++  const { connection, state } = row;
+   const engine = useEngineInfo(connection.engine);
+   const tint = tintOf(connection);
+ 
+   return (
+     <ConnectionContextMenu connection={connection}>
+       <div
++        id={id}
+         role="treeitem"
+-        aria-selected={false}
+-        aria-level={depth + 1}
++        aria-selected={active}
++        aria-level={row.level}
++        aria-posinset={posInSet}
++        aria-setsize={setSize}
++        aria-expanded={row.expanded}
+         aria-label={`${connection.name}, ${t(`connection.state.${state}`)}`}
+-        tabIndex={focused ? 0 : -1}
+-        data-row-id={`connection:${connection.id}`}
++        data-row-index={index}
++        data-active={active || undefined}
+         data-connection-id={connection.id}
+         data-state={state}
+         className={styles.row}
+-        style={{ '--depth': depth, '--row-tint': tint ?? 'transparent' } as CSSProperties}
+-        onFocus={onFocus}
+-        onKeyDown={onKeyDown}
++        style={
++          {
++            ...rowStyle(offset, height),
++            '--depth': row.level - 1,
++            '--row-tint': tint ?? 'transparent',
++          } as CSSProperties
++        }
++        onClick={() => {
++          onSelect(index);
++        }}
+         onDoubleClick={() => {
+-          openQuery(connection);
++          onOpen(row);
+         }}
+       >
++        <span
++          className={styles.twisty}
++          onClick={(event) => {
++            event.stopPropagation();
++            onSelect(index);
++            onToggle(row);
++          }}
++          onDoubleClick={(event) => {
++            event.stopPropagation();
++          }}
++        >
++          <Icon name={row.expanded ? 'chevronDown' : 'chevronRight'} />
++        </span>
+         <StateDot state={state} decorative />
+         <Tooltip
+           side="right"
+@@ -71,7 +111,7 @@ export function ConnectionRow({
+           }
+         >
+           <span className={styles.name}>
+-            <Highlight text={connection.name} indices={nameIndices} />
++            <Highlight text={connection.name} indices={row.nameIndices} />
+           </span>
+         </Tooltip>
+         {connection.readOnly && (
+@@ -84,10 +124,27 @@ export function ConnectionRow({
+             tint={tint}
+           />
+         )}
++        {state === 'connected' && (
++          <button
++            type="button"
++            tabIndex={-1}
++            className={styles.action}
++            aria-label={t('explorer.refresh', { name: connection.name })}
++            onClick={(event) => {
++              event.stopPropagation();
++              onRefresh(row);
++            }}
++            onDoubleClick={(event) => {
++              event.stopPropagation();
++            }}
++          >
++            <Icon name="retry" />
++          </button>
++        )}
+         <button
+           type="button"
+           tabIndex={-1}
+-          className={styles.favorite}
++          className={styles.action}
+           data-active={connection.favorite || undefined}
+           aria-pressed={connection.favorite}
+           aria-label={
+@@ -106,4 +163,4 @@ export function ConnectionRow({
+       </div>
+     </ConnectionContextMenu>
+   );
+-}
++});
+diff --git a/src/features/sidebar/ConnectionSidebar.tsx b/src/features/sidebar/ConnectionSidebar.tsx
+index 983fd76..e88d318 100644
+--- a/src/features/sidebar/ConnectionSidebar.tsx
++++ b/src/features/sidebar/ConnectionSidebar.tsx
+@@ -1,4 +1,4 @@
+-import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
++import { useDeferredValue, useRef, useState } from 'react';
+ 
+ import { ErrorPanel } from '../../app/errors/ErrorPanel';
+ import { useShellStore } from '../../app/shellStore';
+@@ -10,87 +10,38 @@ import { IconButton } from '../../ui/IconButton';
+ import { Spinner } from '../../ui/Spinner';
+ import { TextInput } from '../../ui/TextInput';
+ import { openQuery } from '../connections/connectionActions';
+-import { buildSidebarRows, type SidebarRow } from '../connections/connectionRows';
+ import { refreshConnections, useConnectionList } from '../connections/connectionStore';
+-import { setGroupCollapsed } from '../connections/groupActions';
+ import { useGroupDialog } from '../connections/groupDialogStore';
+-import { ConnectionRow } from './ConnectionRow';
++import { useExplorerStore } from '../explorer/explorerStore';
+ import styles from './ConnectionSidebar.module.css';
+-import { GroupRow } from './GroupRow';
++import { SidebarTree } from './SidebarTree';
++import { useSidebarRows } from './useSidebarRows';
+ 
+-const rowId = (row: SidebarRow) =>
+-  row.kind === 'group' ? `group:${row.group.id}` : `connection:${row.connection.id}`;
+-
+-/** Connection list of the sidebar (F-007): folders, environment, state, favorites, filter. */
++/** Connection list and explorer of the sidebar (F-007, F-020 to F-023). */
+ export function ConnectionSidebar() {
+   const t = useT();
+   const list = useConnectionList();
+-  const [focusedRow, setFocusedRow] = useState<string | null>(null);
+   const [query, setQuery] = useState('');
+   const treeRef = useRef<HTMLDivElement>(null);
+-
+-  const connections = list.data?.connections;
+-  const groups = list.data?.groups;
+-  const rows = useMemo(
+-    () => (connections && groups ? buildSidebarRows(connections, groups, query) : []),
+-    [connections, groups, query],
+-  );
+-  const ids = rows.map(rowId);
+-  // Roving tabindex: the focused row, else the first, is the one Tab lands on.
+-  const tabStop = focusedRow !== null && ids.includes(focusedRow) ? focusedRow : (ids[0] ?? null);
++  // Typing stays instant; the tree follows when it can.
++  const rows = useSidebarRows(useDeferredValue(query));
++  const showSystem = useExplorerStore((store) => store.showSystem);
+   const searching = query.trim() !== '';
+ 
+-  const focusRow = (id: string | undefined) => {
+-    if (!id) return;
+-    treeRef.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`)?.focus();
+-  };
+-
+-  const onKeyDown = (row: SidebarRow, index: number) => (event: KeyboardEvent<HTMLDivElement>) => {
+-    switch (event.key) {
+-      case 'ArrowDown':
+-        focusRow(ids[index + 1]);
+-        break;
+-      case 'ArrowUp':
+-        focusRow(ids[index - 1]);
+-        break;
+-      case 'Home':
+-        focusRow(ids[0]);
+-        break;
+-      case 'End':
+-        focusRow(ids.at(-1));
+-        break;
+-      case 'ArrowRight':
+-        if (row.kind !== 'group') return;
+-        if (!row.expanded) void setGroupCollapsed(row.group, false);
+-        else focusRow(ids[index + 1]);
+-        break;
+-      case 'ArrowLeft':
+-        if (row.kind === 'group') {
+-          if (row.expanded) void setGroupCollapsed(row.group, true);
+-        } else if (row.depth > 0) {
+-          const parent = rows
+-            .slice(0, index)
+-            .reverse()
+-            .find((r) => r.kind === 'group' && r.depth === row.depth - 1);
+-          focusRow(parent && rowId(parent));
+-        }
+-        break;
+-      case 'Enter':
+-      case ' ':
+-        if (row.kind === 'group') void setGroupCollapsed(row.group, row.expanded);
+-        else openQuery(row.connection);
+-        break;
+-      default:
+-        return;
+-    }
+-    event.preventDefault();
+-  };
+-
+   return (
+     <aside className={styles.sidebar} aria-label={t('sidebar.connections')}>
+       <div className={styles.header}>
+         <h2 className={styles.title}>{t('sidebar.connections')}</h2>
+         <div className={styles.actions}>
++          <IconButton
++            icon={showSystem ? 'eye' : 'eyeOff'}
++            size="sm"
++            label={showSystem ? t('explorer.hideSystem') : t('explorer.showSystem')}
++            aria-pressed={showSystem}
++            onClick={() => {
++              useExplorerStore.getState().setShowSystem(!showSystem);
++            }}
++          />
+           <IconButton
+             icon="folder"
+             size="sm"
+@@ -121,12 +72,12 @@ export function ConnectionSidebar() {
+           }}
+           onKeyDown={(event) => {
+             if (event.key === 'Escape') setQuery('');
+-            else if (event.key === 'ArrowDown' && ids[0]) {
++            else if (event.key === 'ArrowDown' && rows.length > 0) {
+               event.preventDefault();
+-              focusRow(ids[0]);
++              treeRef.current?.focus();
+             } else if (event.key === 'Enter' && searching) {
+-              const first = rows.find((row) => row.kind === 'connection');
+-              if (first?.kind === 'connection') openQuery(first.connection);
++              const first = rows.find((row) => row.type === 'connection');
++              if (first?.type === 'connection') openQuery(first.connection);
+             }
+           }}
+         />
+@@ -155,41 +106,11 @@ export function ConnectionSidebar() {
+         </div>
+       )}
+       {list.isSuccess && (
+-        <div
+-          ref={treeRef}
+-          role="tree"
+-          aria-label={t('sidebar.connections')}
+-          className={styles.tree}
+-        >
+-          {rows.map((row, index) =>
+-            row.kind === 'group' ? (
+-              <GroupRow
+-                key={rowId(row)}
+-                group={row.group}
+-                expanded={row.expanded}
+-                count={row.count}
+-                depth={row.depth}
+-                focused={rowId(row) === tabStop}
+-                onFocus={() => {
+-                  setFocusedRow(rowId(row));
+-                }}
+-                onKeyDown={onKeyDown(row, index)}
+-              />
+-            ) : (
+-              <ConnectionRow
+-                key={rowId(row)}
+-                connection={row.connection}
+-                nameIndices={row.nameIndices}
+-                depth={row.depth}
+-                focused={rowId(row) === tabStop}
+-                onFocus={() => {
+-                  setFocusedRow(rowId(row));
+-                }}
+-                onKeyDown={onKeyDown(row, index)}
+-              />
+-            ),
+-          )}
+-          {rows.length === 0 && (
++        <SidebarTree
++          rows={rows}
++          label={t('sidebar.connections')}
++          treeRef={treeRef}
++          empty={
+             <div className={styles.state}>
+               {searching ? (
+                 <p className={styles.empty}>{t('sidebar.noMatch')}</p>
+@@ -208,8 +129,8 @@ export function ConnectionSidebar() {
+                 </>
+               )}
+             </div>
+-          )}
+-        </div>
++          }
++        />
+       )}
+     </aside>
+   );
+diff --git a/src/features/sidebar/GroupRow.module.css b/src/features/sidebar/GroupRow.module.css
+index d021e39..29020ec 100644
+--- a/src/features/sidebar/GroupRow.module.css
++++ b/src/features/sidebar/GroupRow.module.css
+@@ -5,7 +5,7 @@
+   align-items: center;
+   gap: var(--space-2);
+   height: var(--row-height);
+-  padding: 0 var(--space-3) 0 calc(var(--space-1) + var(--depth) * var(--space-5));
++  padding: 0 var(--space-3) 0 calc(var(--space-2) + var(--depth) * var(--space-4));
+   border-radius: var(--radius-md);
+   color: var(--fg-secondary);
+   font-size: var(--text-sm);
+@@ -19,11 +19,16 @@
+   color: var(--fg-primary);
+ }
+ 
+-.row:focus-visible {
+-  outline-offset: -2px;
++.row[data-active] {
+   background: var(--bg-selected);
+ }
+ 
++/* The tree keeps the focus (aria-activedescendant): ring the active row while it has it. */
++:global([role='tree']:focus-visible) .row[data-active] {
++  outline: var(--focus-ring-width) solid var(--accent);
++  outline-offset: calc(var(--focus-ring-width) * -1);
++}
++
+ .chevron {
+   color: var(--fg-muted);
+ }
+diff --git a/src/features/sidebar/GroupRow.tsx b/src/features/sidebar/GroupRow.tsx
+index 292a942..7f87615 100644
+--- a/src/features/sidebar/GroupRow.tsx
++++ b/src/features/sidebar/GroupRow.tsx
+@@ -1,4 +1,4 @@
+-import type { CSSProperties, KeyboardEvent } from 'react';
++import { memo, type CSSProperties } from 'react';
+ 
+ import { useShellStore } from '../../app/shellStore';
+ import { useT } from '../../i18n/useT';
+@@ -6,32 +6,42 @@ import { ContextMenu } from '../../ui/ContextMenu';
+ import { ContextMenuItem } from '../../ui/ContextMenuItem';
+ import { ContextMenuSeparator } from '../../ui/ContextMenuSeparator';
+ import { Icon } from '../../ui/Icon';
++import { deleteGroup } from '../connections/groupActions';
+ import { useGroupDialog } from '../connections/groupDialogStore';
+-import { deleteGroup, setGroupCollapsed } from '../connections/groupActions';
+-import type { ConnectionGroup } from '../connections/model';
+ import styles from './GroupRow.module.css';
++import { rowStyle } from './rowStyle';
++import type { SidebarTreeRow } from './sidebarRows';
++
++export type GroupTreeRow = Extract<SidebarTreeRow, { type: 'group' }>;
+ 
+ interface GroupRowProps {
+-  group: ConnectionGroup;
+-  expanded: boolean;
+-  count: number;
+-  depth: number;
+-  focused: boolean;
+-  onFocus: () => void;
+-  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
++  row: GroupTreeRow;
++  id: string;
++  index: number;
++  active: boolean;
++  posInSet: number;
++  setSize: number;
++  offset: number;
++  height: number;
++  onSelect: (index: number) => void;
++  onToggle: (row: GroupTreeRow) => void;
+ }
+ 
+ /** A folder of the connection list (F-007): click to fold, right click to rename or delete. */
+-export function GroupRow({
+-  group,
+-  expanded,
+-  count,
+-  depth,
+-  focused,
+-  onFocus,
+-  onKeyDown,
++export const GroupRow = memo(function GroupRow({
++  row,
++  id,
++  index,
++  active,
++  posInSet,
++  setSize,
++  offset,
++  height,
++  onSelect,
++  onToggle,
+ }: GroupRowProps) {
+   const t = useT();
++  const { group, expanded, count } = row;
+   return (
+     <ContextMenu
+       content={
+@@ -76,18 +86,20 @@ export function GroupRow({
+       }
+     >
+       <div
++        id={id}
+         role="treeitem"
+-        aria-level={depth + 1}
++        aria-level={row.level}
++        aria-posinset={posInSet}
++        aria-setsize={setSize}
+         aria-expanded={expanded}
+-        aria-selected={false}
+-        tabIndex={focused ? 0 : -1}
+-        data-row-id={`group:${group.id}`}
++        aria-selected={active}
++        data-row-index={index}
++        data-active={active || undefined}
+         className={styles.row}
+-        style={{ '--depth': depth } as CSSProperties}
+-        onFocus={onFocus}
+-        onKeyDown={onKeyDown}
++        style={{ ...rowStyle(offset, height), '--depth': row.level - 1 } as CSSProperties}
+         onClick={() => {
+-          void setGroupCollapsed(group, expanded);
++          onSelect(index);
++          onToggle(row);
+         }}
+       >
+         <Icon name={expanded ? 'chevronDown' : 'chevronRight'} className={styles.chevron} />
+@@ -97,4 +109,4 @@ export function GroupRow({
+       </div>
+     </ContextMenu>
+   );
+-}
++});
+diff --git a/src/features/sidebar/SidebarTree.module.css b/src/features/sidebar/SidebarTree.module.css
+new file mode 100644
+index 0000000..99e2b2d
+--- /dev/null
++++ b/src/features/sidebar/SidebarTree.module.css
+@@ -0,0 +1,12 @@
++.tree {
++  flex: 1;
++  min-height: 0;
++  padding: 0 var(--space-2) var(--space-3);
++  overflow-y: auto;
++  outline: none;
++}
++
++.inner {
++  position: relative;
++  width: 100%;
++}
+diff --git a/src/features/sidebar/SidebarTree.tsx b/src/features/sidebar/SidebarTree.tsx
+new file mode 100644
+index 0000000..11a62bc
+--- /dev/null
++++ b/src/features/sidebar/SidebarTree.tsx
+@@ -0,0 +1,290 @@
++import { observeElementRect, useVirtualizer } from '@tanstack/react-virtual';
++import {
++  useCallback,
++  useEffect,
++  useId,
++  useMemo,
++  useRef,
++  useState,
++  type KeyboardEvent,
++  type ReactNode,
++  type Ref,
++} from 'react';
++
++import { useT } from '../../i18n/useT';
++import { ExplorerRow } from '../explorer/ExplorerRow';
++import { ConnectionRow } from './ConnectionRow';
++import { GroupRow } from './GroupRow';
++import styles from './SidebarTree.module.css';
++import { openRow, refreshRow, rowLabel, setRowExpanded, toggleRow } from './sidebarActions';
++import { treeShape, type SidebarTreeRow } from './sidebarRows';
++import { useRowHeight } from './useRowHeight';
++
++const OVERSCAN = 12;
++const PAGE = 10;
++/** Pause that ends a run of typed letters, in ms. */
++const TYPE_AHEAD_RESET_MS = 700;
++/** Rows drawn before the real size is measured (and in tests, where nothing is measured). */
++const INITIAL_RECT = { width: 280, height: 640 };
++
++interface SidebarTreeProps {
++  rows: readonly SidebarTreeRow[];
++  label: string;
++  /** Shown instead of rows when there are none. */
++  empty?: ReactNode;
++  treeRef?: Ref<HTMLDivElement>;
++}
++
++/**
++ * The sidebar tree: connection folders, connections, and the explorer of the open ones, as one
++ * flat virtualized list (ARIA `tree`). The tree itself keeps the focus and names the active row
++ * with `aria-activedescendant`, so that a row scrolled out of the window stays the active one.
++ */
++export function SidebarTree({ rows, label, empty, treeRef }: SidebarTreeProps) {
++  const t = useT();
++  const baseId = useId();
++  const rowHeight = useRowHeight();
++  const scrollRef = useRef<HTMLDivElement | null>(null);
++  const [activeKey, setActiveKey] = useState<string | null>(null);
++  const lastIndex = useRef(0);
++  const typed = useRef({ text: '', timer: 0 });
++
++  const shape = useMemo(() => treeShape(rows), [rows]);
++  const indexByKey = useMemo(() => new Map(rows.map((row, index) => [row.key, index])), [rows]);
++
++  // eslint-disable-next-line react-hooks/incompatible-library -- rows are not memoized children
++  const virtualizer = useVirtualizer({
++    count: rows.length,
++    getScrollElement: () => scrollRef.current,
++    estimateSize: () => rowHeight,
++    overscan: OVERSCAN,
++    initialRect: INITIAL_RECT,
++    // An element that reports no size (not laid out yet, or jsdom) keeps the initial one.
++    observeElementRect: (instance, cb) =>
++      observeElementRect(instance, (rect) => {
++        cb(rect.height === 0 ? INITIAL_RECT : rect);
++      }),
++    getItemKey: (index) => rows[index]?.key ?? index,
++  });
++
++  const found = activeKey === null ? undefined : indexByKey.get(activeKey);
++  // The active row went away (its parent collapsed): stay about where it was.
++  const activeIndex =
++    found ??
++    (rows.length === 0 || activeKey === null ? -1 : Math.min(lastIndex.current, rows.length - 1));
++  if (activeIndex >= 0) lastIndex.current = activeIndex;
++
++  const setRefs = (element: HTMLDivElement | null) => {
++    scrollRef.current = element;
++    if (typeof treeRef === 'function') treeRef(element);
++    else if (treeRef) treeRef.current = element;
++  };
++
++  const moveTo = (index: number) => {
++    const row = rows[index];
++    if (!row) return;
++    setActiveKey(row.key);
++    virtualizer.scrollToIndex(index, { align: 'auto' });
++  };
++
++  // Stable, so that the rows that did not change are not drawn again on every scroll.
++  const rowsRef = useRef(rows);
++  useEffect(() => {
++    rowsRef.current = rows;
++  });
++  const select = useCallback((index: number) => {
++    const row = rowsRef.current[index];
++    if (row) setActiveKey(row.key);
++  }, []);
++
++  const openMenuFromKeyboard = (index: number) => {
++    const element = scrollRef.current?.querySelector<HTMLElement>(
++      `[data-row-index="${String(index)}"]`,
++    );
++    if (!element) return;
++    const rect = element.getBoundingClientRect();
++    element.dispatchEvent(
++      new MouseEvent('contextmenu', {
++        bubbles: true,
++        cancelable: true,
++        clientX: rect.left + 24,
++        clientY: rect.bottom - 2,
++      }),
++    );
++  };
++
++  const typeAhead = (char: string, from: number) => {
++    window.clearTimeout(typed.current.timer);
++    typed.current.text += char.toLowerCase();
++    typed.current.timer = window.setTimeout(() => {
++      typed.current.text = '';
++    }, TYPE_AHEAD_RESET_MS);
++    const { text } = typed.current;
++    // The same letter again moves on to the next row that starts with it.
++    const first = text.charAt(0);
++    const repeated = text.length > 1 && text.split(first).join('') === '';
++    const needle = repeated ? first : text;
++    const start = text.length === 1 || repeated ? from + 1 : from;
++    for (let step = 0; step < rows.length; step++) {
++      const index = (start + step) % rows.length;
++      const row = rows[index];
++      if (row && rowLabel(row, t).toLowerCase().startsWith(needle)) {
++        moveTo(index);
++        return;
++      }
++    }
++  };
++
++  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
++    const row = activeIndex >= 0 ? rows[activeIndex] : undefined;
++    const stop = () => {
++      event.preventDefault();
++      event.stopPropagation();
++    };
++    if ((event.ctrlKey || event.metaKey) && !event.altKey) {
++      if (event.key.toLowerCase() === 'r' && row) {
++        stop();
++        refreshRow(row);
++      }
++      return;
++    }
++    if (event.altKey) return;
++    const last = rows.length - 1;
++    switch (event.key) {
++      case 'ArrowDown':
++        stop();
++        moveTo(Math.min(last, activeIndex + 1));
++        return;
++      case 'ArrowUp':
++        stop();
++        moveTo(Math.max(0, activeIndex < 0 ? last : activeIndex - 1));
++        return;
++      case 'Home':
++        stop();
++        moveTo(0);
++        return;
++      case 'End':
++        stop();
++        moveTo(last);
++        return;
++      case 'PageDown':
++        stop();
++        moveTo(Math.min(last, Math.max(0, activeIndex) + PAGE));
++        return;
++      case 'PageUp':
++        stop();
++        moveTo(Math.max(0, activeIndex - PAGE));
++        return;
++      case 'ArrowRight':
++        stop();
++        if (!row?.expandable) return;
++        if (!row.expanded) setRowExpanded(row, true);
++        else if (rows[activeIndex + 1] && shape.parent[activeIndex + 1] === activeIndex) {
++          moveTo(activeIndex + 1);
++        }
++        return;
++      case 'ArrowLeft':
++        stop();
++        if (row?.expandable && row.expanded) setRowExpanded(row, false);
++        else if (activeIndex >= 0 && (shape.parent[activeIndex] ?? -1) >= 0) {
++          moveTo(shape.parent[activeIndex] ?? 0);
++        }
++        return;
++      case 'Enter':
++        stop();
++        if (!row) return;
++        if (row.type === 'status') refreshRow(row);
++        else if (!openRow(row)) toggleRow(row);
++        return;
++      case ' ':
++        stop();
++        // Part of a name being typed, else the key that opens and closes a node.
++        if (typed.current.text !== '') typeAhead(' ', Math.max(0, activeIndex));
++        else if (row) toggleRow(row);
++        return;
++      case 'F5':
++        stop();
++        if (row) refreshRow(row);
++        return;
++      case 'ContextMenu':
++        stop();
++        if (activeIndex >= 0) openMenuFromKeyboard(activeIndex);
++        return;
++      case 'F10':
++        if (event.shiftKey) {
++          stop();
++          if (activeIndex >= 0) openMenuFromKeyboard(activeIndex);
++        }
++        return;
++      default:
++        if (event.key.length === 1) {
++          stop();
++          typeAhead(event.key, Math.max(0, activeIndex));
++        }
++    }
++  };
++
++  const items = virtualizer.getVirtualItems();
++
++  return (
++    <div
++      ref={setRefs}
++      role="tree"
++      aria-label={label}
++      aria-multiselectable={false}
++      tabIndex={0}
++      aria-activedescendant={activeIndex >= 0 ? `${baseId}-${String(activeIndex)}` : undefined}
++      className={styles.tree}
++      onKeyDown={onKeyDown}
++      onFocus={(event) => {
++        if (event.target !== event.currentTarget || activeIndex >= 0) return;
++        const first = rows[0];
++        if (first) setActiveKey(first.key);
++      }}
++    >
++      <div className={styles.inner} style={{ height: virtualizer.getTotalSize() }}>
++        {items.map((item) => {
++          const row = rows[item.index];
++          if (!row) return null;
++          const common = {
++            id: `${baseId}-${String(item.index)}`,
++            index: item.index,
++            active: item.index === activeIndex,
++            posInSet: shape.posInSet[item.index] ?? 1,
++            setSize: shape.setSize[item.index] ?? 1,
++            offset: item.start,
++            height: rowHeight,
++            onSelect: select,
++          };
++          switch (row.type) {
++            case 'group':
++              return <GroupRow key={row.key} row={row} {...common} onToggle={toggleRow} />;
++            case 'connection':
++              return (
++                <ConnectionRow
++                  key={row.key}
++                  row={row}
++                  {...common}
++                  onToggle={toggleRow}
++                  onOpen={openRow}
++                  onRefresh={refreshRow}
++                />
++              );
++            default:
++              return (
++                <ExplorerRow
++                  key={row.key}
++                  row={row}
++                  {...common}
++                  onToggle={toggleRow}
++                  onOpen={openRow}
++                  onRefresh={refreshRow}
++                />
++              );
++          }
++        })}
++      </div>
++      {rows.length === 0 && empty}
++    </div>
++  );
++}
+diff --git a/src/features/sidebar/rowStyle.ts b/src/features/sidebar/rowStyle.ts
+new file mode 100644
+index 0000000..1ce382a
+--- /dev/null
++++ b/src/features/sidebar/rowStyle.ts
+@@ -0,0 +1,13 @@
++import type { CSSProperties } from 'react';
++
++/** Where a virtualized row sits: all rows are laid out from the top, moved down by their offset. */
++export function rowStyle(offset: number, height: number): CSSProperties {
++  return {
++    position: 'absolute',
++    top: 0,
++    left: 0,
++    right: 0,
++    height,
++    transform: `translateY(${String(offset)}px)`,
++  };
++}
+diff --git a/src/features/sidebar/sidebarActions.ts b/src/features/sidebar/sidebarActions.ts
+new file mode 100644
+index 0000000..d080be9
+--- /dev/null
++++ b/src/features/sidebar/sidebarActions.ts
+@@ -0,0 +1,78 @@
++import type { MessageKey, MessageParams } from '../../i18n/i18n';
++import { connectTo, openQuery } from '../connections/connectionActions';
++import { setGroupCollapsed } from '../connections/groupActions';
++import { metaNodeOf, openTable, refreshNode } from '../explorer/explorerActions';
++import { explorerRowLabel } from '../explorer/explorerLabels';
++import { isRelationKind, nodeKeys } from '../explorer/explorerRows';
++import { useExplorerStore } from '../explorer/explorerStore';
++import type { SidebarTreeRow } from './sidebarRows';
++
++type Translate = (key: MessageKey, params?: MessageParams) => string;
++
++/** Opens or closes the node a row stands for. A connection that is not up connects first. */
++export function setRowExpanded(row: SidebarTreeRow, expanded: boolean): void {
++  if (!row.expandable) return;
++  const explorer = useExplorerStore.getState();
++  switch (row.type) {
++    case 'group':
++      void setGroupCollapsed(row.group, !expanded);
++      return;
++    case 'connection':
++      explorer.setExpanded(row.connection.id, nodeKeys.root, expanded);
++      if (expanded && row.state === 'disconnected') void connectTo(row.connection);
++      return;
++    case 'status':
++      return;
++    default:
++      explorer.setExpanded(row.connectionId, row.nodeKey, expanded);
++  }
++}
++
++export function toggleRow(row: SidebarTreeRow): void {
++  setRowExpanded(row, !row.expanded);
++}
++
++/**
++ * What a double click or Enter does on a row, `false` when it does nothing there. A table opens
++ * as a script for now (table tabs come with table editing).
++ */
++export function openRow(row: SidebarTreeRow): boolean {
++  switch (row.type) {
++    case 'connection':
++      openQuery(row.connection);
++      return true;
++    case 'object':
++      if (!isRelationKind(row.object.kind)) return false;
++      void openTable(row.connectionId, row.ref);
++      return true;
++    default:
++      return false;
++  }
++}
++
++/** Refreshes the metadata under a row (F5): the nodes on screen read it again. */
++export function refreshRow(row: SidebarTreeRow): void {
++  switch (row.type) {
++    case 'group':
++      return;
++    case 'connection':
++      if (row.state === 'connected') void refreshNode(row.connection.id, { level: 'connection' });
++      return;
++    default: {
++      const node = metaNodeOf(row);
++      if (node) void refreshNode(row.connectionId, node);
++    }
++  }
++}
++
++/** What the type-ahead matches against. */
++export function rowLabel(row: SidebarTreeRow, t: Translate): string {
++  switch (row.type) {
++    case 'group':
++      return row.group.name;
++    case 'connection':
++      return row.connection.name;
++    default:
++      return explorerRowLabel(row, t);
++  }
++}
+diff --git a/src/features/sidebar/sidebarRows.test.ts b/src/features/sidebar/sidebarRows.test.ts
+new file mode 100644
+index 0000000..1c99c98
+--- /dev/null
++++ b/src/features/sidebar/sidebarRows.test.ts
+@@ -0,0 +1,204 @@
++import { describe, expect, it } from 'vitest';
++
++import { postgresServer, sqliteFile } from '../../ipc/mock/metaCatalog';
++import { MOCK_CONNECTIONS, MOCK_GROUPS } from '../../ipc/mockData';
++import { summarize, type ConnectionState } from '../connections/model';
++import { nodeKeys } from '../explorer/explorerRows';
++import { ROOT_NODE } from '../explorer/explorerStore';
++import { catalogSource, POSTGRES, SQLITE } from '../explorer/testSource';
++import {
++  composeSidebarRows,
++  treeShape,
++  type SidebarInput,
++  type SidebarTreeRow,
++} from './sidebarRows';
++
++const PG = 'conn-local-pg';
++const LITE = 'conn-app-sqlite';
++const connections = MOCK_CONNECTIONS.map(summarize);
++
++const pg = catalogSource('postgres', postgresServer('app_dev', null));
++const lite = catalogSource('sqlite', sqliteFile());
++
++function compose(
++  overrides: Partial<SidebarInput> & { states?: Record<string, ConnectionState> } = {},
++): SidebarTreeRow[] {
++  const { states = {}, ...rest } = overrides;
++  return composeSidebarRows({
++    connections,
++    groups: MOCK_GROUPS,
++    query: '',
++    capabilities: new Map([
++      ['postgres', POSTGRES],
++      ['sqlite', SQLITE],
++    ]),
++    stateOf: (id) => states[id] ?? 'disconnected',
++    expanded: {},
++    showSystem: false,
++    sourceFor: (id) => (id === LITE ? lite.source : pg.source),
++    ...rest,
++  });
++}
++
++const describeRow = (row: SidebarTreeRow): string => {
++  switch (row.type) {
++    case 'group':
++      return `group:${row.group.name}`;
++    case 'connection':
++      return `connection:${row.connection.name}`;
++    case 'database':
++      return `database:${row.database.name}`;
++    case 'schema':
++      return `schema:${row.schema.name}`;
++    case 'kind':
++      return `kind:${row.kind}`;
++    case 'object':
++      return `object:${row.object.name}`;
++    default:
++      return row.type;
++  }
++};
++
++describe('the sidebar rows', () => {
++  it('lists folders and connections, closed, when nothing is open', () => {
++    const rows = compose();
++    expect(rows.map(describeRow)).toEqual([
++      'group:Clients',
++      'group:ACME',
++      'connection:shop · prod',
++      'connection:shop · staging',
++      'connection:reporting',
++      'group:Local',
++      'connection:local postgres',
++      'connection:wordpress',
++      'connection:app.sqlite',
++      'connection:auth failure demo',
++    ]);
++    expect(rows.every((row) => row.type !== 'connection' || !row.expanded)).toBe(true);
++  });
++
++  it('puts the explorer of an open connection right under its row, one level deeper', () => {
++    const rows = compose({
++      states: { [PG]: 'connected' },
++      expanded: { [PG]: new Set([ROOT_NODE, nodeKeys.database('app_dev')]) },
++    });
++    const at = rows.findIndex((row) => row.type === 'connection' && row.connection.id === PG);
++    const connection = rows[at];
++    expect(connection).toMatchObject({ expanded: true, level: 2 });
++    const text = rows.slice(at + 1, at + 4).map(describeRow);
++    expect(text).toEqual(['database:analytics_archive', 'database:app_dev', 'schema:analytics']);
++    expect(rows[at + 1]?.level).toBe(3);
++    expect(rows[at + 3]?.level).toBe(4);
++  });
++
++  it('shows the kinds directly under a SQLite connection', () => {
++    const rows = compose({
++      states: { [LITE]: 'connected' },
++      expanded: { [LITE]: new Set([ROOT_NODE]) },
++    });
++    const at = rows.findIndex((row) => row.type === 'connection' && row.connection.id === LITE);
++    expect(rows.slice(at + 1, at + 3).map(describeRow)).toEqual(['kind:table', 'kind:view']);
++    expect(rows[at + 1]?.level).toBe(2);
++  });
++
++  it('shows what is being done while connecting, and nothing once closed', () => {
++    const connecting = compose({
++      states: { [PG]: 'connecting' },
++      expanded: { [PG]: new Set([ROOT_NODE]) },
++    });
++    const at = connecting.findIndex((row) => row.type === 'connection' && row.connection.id === PG);
++    expect(connecting[at + 1]).toMatchObject({ type: 'status', subject: 'connecting' });
++
++    const closed = compose({ expanded: { [PG]: new Set([ROOT_NODE]) } });
++    const row = closed.find((r) => r.type === 'connection' && r.connection.id === PG);
++    expect(row).toMatchObject({ expanded: false });
++    expect(closed.some((r) => r.type === 'database')).toBe(false);
++  });
++
++  it('does not ask for anything from a connection that is not up, but shows what it has', () => {
++    const { source, requested } = catalogSource('postgres', postgresServer('app_dev', null));
++    const rows = compose({
++      states: { [PG]: 'lost' },
++      expanded: { [PG]: new Set([ROOT_NODE]) },
++      sourceFor: () => source,
++    });
++    expect(requested).toEqual([]);
++    expect(rows.some((row) => row.type === 'database')).toBe(true);
++  });
++
++  it('is not tied to a folder: a connection folded away takes its explorer with it', () => {
++    const folded = MOCK_GROUPS.map((group) =>
++      group.id === 'group-local' ? { ...group, collapsed: true } : group,
++    );
++    const rows = compose({
++      groups: folded,
++      states: { [PG]: 'connected' },
++      expanded: { [PG]: new Set([ROOT_NODE]) },
++    });
++    expect(rows.some((row) => row.type === 'database')).toBe(false);
++  });
++});
++
++describe('filtering the sidebar', () => {
++  const open = {
++    expanded: {
++      [PG]: new Set([
++        ROOT_NODE,
++        nodeKeys.database('app_dev'),
++        nodeKeys.schema('app_dev', 'shop'),
++        nodeKeys.kind('app_dev', 'shop', 'table'),
++      ]),
++    },
++    states: { [PG]: 'connected' as const },
++  };
++
++  it('lists matching connections flat, then the ones that hold a matching node', () => {
++    const rows = compose({ ...open, query: 'order' });
++    const text = rows.map(describeRow);
++    // No connection is called "order": only the open one shows, with its matches' ancestors.
++    expect(text[0]).toBe('connection:local postgres');
++    expect(text).toEqual(
++      expect.arrayContaining([
++        'database:app_dev',
++        'schema:shop',
++        'kind:table',
++        'object:Order Notes',
++        'object:orders',
++      ]),
++    );
++    expect(text).not.toContain('object:products');
++    expect(rows.every((row) => row.type !== 'group')).toBe(true);
++    expect(rows[0]).toMatchObject({ type: 'connection', expanded: true });
++  });
++
++  it('shows a connection matched by name alone as a single, closed row', () => {
++    const rows = compose({ ...open, query: 'sqlite' });
++    expect(rows.map(describeRow)).toEqual(['connection:app.sqlite']);
++    expect(rows[0]).toMatchObject({ expanded: false });
++  });
++
++  it('does not touch the explorer of a connection that is not connected', () => {
++    const rows = compose({ query: 'order' });
++    expect(rows).toEqual([]);
++  });
++});
++
++describe('tree shape', () => {
++  it('derives parents and sibling positions from the levels', () => {
++    const shape = treeShape([
++      { level: 1 },
++      { level: 2 },
++      { level: 3 },
++      { level: 3 },
++      { level: 2 },
++      { level: 1 },
++    ]);
++    expect(shape.parent).toEqual([-1, 0, 1, 1, 0, -1]);
++    expect(shape.posInSet).toEqual([1, 1, 1, 2, 2, 2]);
++    expect(shape.setSize).toEqual([2, 2, 2, 2, 2, 2]);
++  });
++
++  it('handles an empty tree', () => {
++    expect(treeShape([])).toEqual({ parent: [], posInSet: [], setSize: [] });
++  });
++});
+diff --git a/src/features/sidebar/sidebarRows.ts b/src/features/sidebar/sidebarRows.ts
+new file mode 100644
+index 0000000..4fc6839
+--- /dev/null
++++ b/src/features/sidebar/sidebarRows.ts
+@@ -0,0 +1,176 @@
++import type { Capabilities, Engine } from '../../ipc';
++import { buildSidebarRows, searchConnections } from '../connections/connectionRows';
++import type { ConnectionGroup, ConnectionState, ConnectionSummary } from '../connections/model';
++import {
++  buildNodes,
++  flattenNodes,
++  nodeKeys,
++  pruneNodes,
++  statusNode,
++  type ExplorerRow,
++  type MetaSource,
++} from '../explorer/explorerRows';
++
++export type SidebarTreeRow =
++  | {
++      type: 'group';
++      key: string;
++      level: number;
++      group: ConnectionGroup;
++      expandable: true;
++      expanded: boolean;
++      /** Connections in the group and its subgroups. */
++      count: number;
++    }
++  | {
++      type: 'connection';
++      key: string;
++      level: number;
++      connection: ConnectionSummary;
++      nameIndices: readonly number[];
++      state: ConnectionState;
++      expandable: true;
++      expanded: boolean;
++    }
++  | ExplorerRow;
++
++export interface SidebarInput {
++  connections: readonly ConnectionSummary[];
++  groups: readonly ConnectionGroup[];
++  query: string;
++  capabilities: ReadonlyMap<Engine, Capabilities>;
++  stateOf: (connectionId: string) => ConnectionState;
++  /** Expanded nodes of each connection. */
++  expanded: Readonly<Record<string, ReadonlySet<string>>>;
++  showSystem: boolean;
++  /** Where the tree of a connection reads its data. */
++  sourceFor: (connectionId: string) => MetaSource;
++}
++
++const NO_NODES: ReadonlySet<string> = new Set();
++
++/** The rows under a connection row: its explorer tree, shown as far as it is open. */
++function explorerRows(
++  input: SidebarInput,
++  connection: ConnectionSummary,
++  level: number,
++  state: ConnectionState,
++  filter: string,
++): ExplorerRow[] {
++  const capabilities = input.capabilities.get(connection.engine);
++  const expanded = input.expanded[connection.id] ?? NO_NODES;
++  const open = expanded.has(nodeKeys.root);
++  if (!capabilities || state === 'disconnected') return [];
++  if (filter === '' && !open) return [];
++  const options = { connectionId: connection.id, level };
++  if (state === 'connecting' && filter === '') {
++    const connecting = statusNode(nodeKeys.root, 'loading', 'connecting', { level: 'connection' });
++    return flattenNodes([connecting], { ...options, expanded, open: false });
++  }
++  const context = {
++    levels: { databases: capabilities.multipleDatabases, schemas: capabilities.schemas },
++    showSystem: input.showSystem,
++    expanded,
++    source: input.sourceFor(connection.id),
++  };
++  // Only a connection that is up loads anything: the rest shows what it already holds.
++  const fetching = state === 'connected' && open;
++  if (filter === '') {
++    const nodes = buildNodes({ ...context, exhaustive: false }, fetching);
++    return flattenNodes(nodes, { ...options, expanded, open: false });
++  }
++  const nodes = pruneNodes(buildNodes({ ...context, exhaustive: true }, fetching), filter);
++  return flattenNodes(nodes, { ...options, expanded, open: true });
++}
++
++/**
++ * The flat rows of the sidebar: connection folders and connections, and under each open
++ * connection its explorer tree. While filtering, connections that match by name come first, then
++ * the ones that only hold a matching loaded node, each with its matches and their ancestors.
++ */
++export function composeSidebarRows(input: SidebarInput): SidebarTreeRow[] {
++  const filter = input.query.trim();
++  const rows: SidebarTreeRow[] = [];
++
++  const pushConnection = (
++    connection: ConnectionSummary,
++    nameIndices: readonly number[],
++    level: number,
++    keepAlone: boolean,
++  ) => {
++    const state = input.stateOf(connection.id);
++    const children = explorerRows(input, connection, level + 1, state, filter);
++    if (!keepAlone && children.length === 0) return;
++    const open = input.expanded[connection.id]?.has(nodeKeys.root) ?? false;
++    rows.push({
++      type: 'connection',
++      key: `connection:${connection.id}`,
++      level,
++      connection,
++      nameIndices,
++      state,
++      expandable: true,
++      expanded: filter === '' ? open && state !== 'disconnected' : children.length > 0,
++    });
++    rows.push(...children);
++  };
++
++  if (filter !== '') {
++    const matches = searchConnections(input.connections, filter);
++    const named = new Set(matches.map((match) => match.connection.id));
++    for (const match of matches) pushConnection(match.connection, match.nameIndices, 1, true);
++    const others = input.connections
++      .filter((connection) => !named.has(connection.id))
++      .sort((a, b) => a.name.localeCompare(b.name));
++    for (const connection of others) pushConnection(connection, [], 1, false);
++    return rows;
++  }
++
++  for (const row of buildSidebarRows(input.connections, input.groups, '')) {
++    if (row.kind === 'group') {
++      rows.push({
++        type: 'group',
++        key: `group:${row.group.id}`,
++        level: row.depth + 1,
++        group: row.group,
++        expandable: true,
++        expanded: row.expanded,
++        count: row.count,
++      });
++    } else {
++      pushConnection(row.connection, row.nameIndices, row.depth + 1, true);
++    }
++  }
++  return rows;
++}
++
++export interface TreeShape {
++  /** Index of the parent row, `-1` at the top. */
++  parent: number[];
++  /** 1-based position among the siblings, for `aria-posinset`. */
++  posInSet: number[];
++  /** Number of siblings, for `aria-setsize`. */
++  setSize: number[];
++}
++
++/** Parents and sibling positions, which a virtualized tree must state itself (ARIA). */
++export function treeShape(rows: readonly { level: number }[]): TreeShape {
++  const parent: number[] = [];
++  const posInSet: number[] = [];
++  const setSize: number[] = [];
++  const stack: number[] = [];
++  const counts = new Map<number, number>();
++  rows.forEach((row, index) => {
++    while (stack.length >= row.level) stack.pop();
++    const up = stack.at(-1) ?? -1;
++    parent.push(up);
++    const position = (counts.get(up) ?? 0) + 1;
++    counts.set(up, position);
++    posInSet.push(position);
++    stack.push(index);
++  });
++  rows.forEach((_, index) => {
++    setSize.push(counts.get(parent[index] ?? -1) ?? 1);
++  });
++  return { parent, posInSet, setSize };
++}
+diff --git a/src/features/sidebar/useRowHeight.ts b/src/features/sidebar/useRowHeight.ts
+new file mode 100644
+index 0000000..c3d9ba8
+--- /dev/null
++++ b/src/features/sidebar/useRowHeight.ts
+@@ -0,0 +1,43 @@
++import { useSyncExternalStore } from 'react';
++
++const FALLBACK_PX = 28;
++
++function readHeight(): number {
++  const value = parseFloat(
++    getComputedStyle(document.documentElement).getPropertyValue('--row-height'),
++  );
++  return Number.isFinite(value) && value > 0 ? value : FALLBACK_PX;
++}
++
++// Read once and cached: `getComputedStyle` forces a style recalculation. Only the density and
++// the theme change it.
++let cached: number | null = null;
++const listeners = new Set<() => void>();
++let observer: MutationObserver | null = null;
++
++function subscribe(listener: () => void): () => void {
++  listeners.add(listener);
++  if (!observer && typeof MutationObserver !== 'undefined') {
++    observer = new MutationObserver(() => {
++      cached = null;
++      for (const notify of listeners) notify();
++    });
++    observer.observe(document.documentElement, {
++      attributes: true,
++      attributeFilter: ['data-density', 'data-theme'],
++    });
++  }
++  return () => {
++    listeners.delete(listener);
++  };
++}
++
++function snapshot(): number {
++  cached ??= readHeight();
++  return cached;
++}
++
++/** `--row-height` in px; follows the comfortable / compact density switch and the theme. */
++export function useRowHeight(): number {
++  return useSyncExternalStore(subscribe, snapshot);
++}
+diff --git a/src/features/sidebar/useSidebarRows.ts b/src/features/sidebar/useSidebarRows.ts
+new file mode 100644
+index 0000000..7c04fc1
+--- /dev/null
++++ b/src/features/sidebar/useSidebarRows.ts
+@@ -0,0 +1,110 @@
++import { useQueries } from '@tanstack/react-query';
++import { useEffect, useMemo, useSyncExternalStore } from 'react';
++
++import { queryClient } from '../../app/queryClient';
++import type { Capabilities, Engine } from '../../ipc';
++import {
++  stateOf,
++  useConnectionList,
++  useEngines,
++  useSessions,
++} from '../connections/connectionStore';
++import { useExplorerStore } from '../explorer/explorerStore';
++import { requestKey, type MetaRequest } from '../explorer/metaKeys';
++import { createCacheSource, metaQuery } from '../explorer/metaSource';
++import { composeSidebarRows, type SidebarTreeRow } from './sidebarRows';
++
++let cacheVersion = 0;
++
++/** Ticks whenever a metadata query changes, so the rows are built again from the cache. */
++function subscribeToMeta(onChange: () => void): () => void {
++  return queryClient.getQueryCache().subscribe((event) => {
++    const [scope] = event.query.queryKey as readonly unknown[];
++    if (event.type === 'updated' && scope === 'meta') {
++      cacheVersion += 1;
++      onChange();
++    }
++  });
++}
++
++const getCacheVersion = () => cacheVersion;
++
++interface Recorded {
++  connectionId: string;
++  request: MetaRequest;
++}
++
++/**
++ * The rows of the sidebar: connections and their explorer trees (F-020). The tree is a pure
++ * function of the expanded nodes and of the query cache; the nodes that are open and not loaded
++ * yet are recorded while it is built, and observed right after, which loads them.
++ */
++export function useSidebarRows(query: string): SidebarTreeRow[] {
++  const list = useConnectionList();
++  const { engines } = useEngines();
++  const sessions = useSessions((store) => store.sessions);
++  const expanded = useExplorerStore((store) => store.expanded);
++  const showSystem = useExplorerStore((store) => store.showSystem);
++  const version = useSyncExternalStore(subscribeToMeta, getCacheVersion);
++  const connections = list.data?.connections;
++  const groups = list.data?.groups;
++
++  const capabilities = useMemo(
++    () => new Map<Engine, Capabilities>(engines.map((info) => [info.engine, info.capabilities])),
++    [engines],
++  );
++
++  const { rows, recorded } = useMemo(() => {
++    const recorded = new Map<string, Recorded>();
++    if (!connections || !groups) return { rows: [] as SidebarTreeRow[], recorded };
++    const rows = composeSidebarRows({
++      connections,
++      groups,
++      query,
++      capabilities,
++      stateOf: (id) => stateOf(sessions[id]),
++      expanded,
++      showSystem,
++      sourceFor: (connectionId) =>
++        createCacheSource(queryClient, connectionId, (id, request) => {
++          recorded.set(JSON.stringify(requestKey(id, request)), { connectionId: id, request });
++        }),
++    });
++    return { rows, recorded };
++    // `version` is not read in the body: the cache changed, the rows must be built again.
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [connections, groups, query, capabilities, sessions, expanded, showSystem, version]);
++
++  // Observing a query loads it, and unobserving it (node collapsed, filter typed) cancels it.
++  useQueries({
++    queries: [...recorded.values()].map(({ connectionId, request }) =>
++      metaQuery(connectionId, request),
++    ),
++    combine: () => null,
++  });
++
++  // A connection that just came up opens down to its database, once.
++  useEffect(() => {
++    if (!connections) return;
++    for (const connection of connections) {
++      if (stateOf(sessions[connection.id]) !== 'connected') continue;
++      useExplorerStore.getState().seed(connection.id);
++    }
++  }, [connections, sessions]);
++
++  const databaseSeeds = useMemo(() => {
++    const seeds: { connectionId: string; node: string }[] = [];
++    for (const row of rows) {
++      if (row.type !== 'database' || !row.database.current) continue;
++      seeds.push({ connectionId: row.connectionId, node: row.nodeKey });
++    }
++    return seeds;
++  }, [rows]);
++  useEffect(() => {
++    for (const { connectionId, node } of databaseSeeds) {
++      useExplorerStore.getState().seedDatabase(connectionId, node);
++    }
++  }, [databaseSeeds]);
++
++  return rows;
++}
+diff --git a/src/i18n/en.json b/src/i18n/en.json
+index e567d5f..147d071 100644
+--- a/src/i18n/en.json
++++ b/src/i18n/en.json
+@@ -277,5 +277,68 @@
+   "connection.test.okNoTime": "Connected to {version}.",
+   "crash.title": "yadbe hit a problem",
+   "crash.text": "Something went wrong while drawing the window. Your connections and saved tabs are safe: reload to carry on.",
+-  "crash.reload": "Reload"
++  "crash.reload": "Reload",
++  "explorer.kind.table": "Tables",
++  "explorer.kind.view": "Views",
++  "explorer.kind.materializedView": "Materialized views",
++  "explorer.kind.function": "Functions",
++  "explorer.kind.procedure": "Procedures",
++  "explorer.kind.sequence": "Sequences",
++  "explorer.kind.type": "Types",
++  "explorer.group.columns": "Columns",
++  "explorer.group.keys": "Keys",
++  "explorer.group.foreignKeys": "Foreign keys",
++  "explorer.group.indexes": "Indexes",
++  "explorer.group.constraints": "Constraints",
++  "explorer.group.triggers": "Triggers",
++  "explorer.status.loading": "Loading…",
++  "explorer.status.connecting": "Connecting…",
++  "explorer.status.failed": "Could not load this node.",
++  "explorer.status.empty.databases": "No databases",
++  "explorer.status.empty.schemas": "No schemas",
++  "explorer.status.empty.kinds": "No objects",
++  "explorer.status.empty.objects": "No objects",
++  "explorer.status.empty.details": "Nothing to show",
++  "explorer.retry": "Retry",
++  "explorer.refresh": "Refresh {name}",
++  "explorer.refreshFailed": "Could not refresh",
++  "explorer.showSystem": "Show system objects",
++  "explorer.hideSystem": "Hide system objects",
++  "explorer.noAccess": "You cannot open this database.",
++  "explorer.menu.newQuery": "New query",
++  "explorer.menu.openData": "Open data",
++  "explorer.menu.openData.hint": "Coming with table editing",
++  "explorer.menu.scriptAs": "Script as",
++  "explorer.menu.script.select": "SELECT",
++  "explorer.menu.script.insert": "INSERT",
++  "explorer.menu.script.update": "UPDATE",
++  "explorer.menu.script.delete": "DELETE",
++  "explorer.menu.copyName": "Copy name",
++  "explorer.menu.copyQualifiedName": "Copy qualified name",
++  "explorer.menu.refresh": "Refresh",
++  "explorer.scriptFailed": "Could not script {name}",
++  "explorer.copied": "{what} copied",
++  "explorer.copyFailed": "Could not copy",
++  "explorer.what.name": "Name",
++  "explorer.what.qualifiedName": "Qualified name",
++  "explorer.col.nullable": "Nullable",
++  "explorer.col.notNull": "Not null",
++  "explorer.col.default": "Default",
++  "explorer.col.identity.always": "Identity (always)",
++  "explorer.col.identity.byDefault": "Identity (by default)",
++  "explorer.col.generated.stored": "Generated (stored)",
++  "explorer.col.generated.virtual": "Generated (computed)",
++  "explorer.col.primaryKey": "Primary key",
++  "explorer.col.foreignKey": "Foreign key",
++  "explorer.key.primary": "Primary key",
++  "explorer.key.unique": "Unique",
++  "explorer.index.unique": "unique",
++  "explorer.index.primary": "primary key",
++  "explorer.fk.references": "References {table}",
++  "explorer.fk.onDelete": "On delete: {action}",
++  "explorer.fk.onUpdate": "On update: {action}",
++  "explorer.trigger.disabled": "disabled",
++  "explorer.trigger.rowLevel": "per row",
++  "explorer.trigger.statementLevel": "per statement",
++  "explorer.table.rows": "About {count} rows"
+ }
+diff --git a/src/i18n/fr.json b/src/i18n/fr.json
+index 5b510e7..b241271 100644
+--- a/src/i18n/fr.json
++++ b/src/i18n/fr.json
+@@ -277,5 +277,68 @@
+   "connection.test.okNoTime": "Connecté à {version}.",
+   "crash.title": "yadbe a rencontré un problème",
+   "crash.text": "Une erreur est survenue lors de l’affichage de la fenêtre. Vos connexions et vos onglets enregistrés sont intacts : rechargez pour continuer.",
+-  "crash.reload": "Recharger"
++  "crash.reload": "Recharger",
++  "explorer.kind.table": "Tables",
++  "explorer.kind.view": "Vues",
++  "explorer.kind.materializedView": "Vues matérialisées",
++  "explorer.kind.function": "Fonctions",
++  "explorer.kind.procedure": "Procédures",
++  "explorer.kind.sequence": "Séquences",
++  "explorer.kind.type": "Types",
++  "explorer.group.columns": "Colonnes",
++  "explorer.group.keys": "Clés",
++  "explorer.group.foreignKeys": "Clés étrangères",
++  "explorer.group.indexes": "Index",
++  "explorer.group.constraints": "Contraintes",
++  "explorer.group.triggers": "Déclencheurs",
++  "explorer.status.loading": "Chargement…",
++  "explorer.status.connecting": "Connexion…",
++  "explorer.status.failed": "Impossible de charger ce nœud.",
++  "explorer.status.empty.databases": "Aucune base",
++  "explorer.status.empty.schemas": "Aucun schéma",
++  "explorer.status.empty.kinds": "Aucun objet",
++  "explorer.status.empty.objects": "Aucun objet",
++  "explorer.status.empty.details": "Rien à afficher",
++  "explorer.retry": "Réessayer",
++  "explorer.refresh": "Actualiser {name}",
++  "explorer.refreshFailed": "Impossible d'actualiser",
++  "explorer.showSystem": "Afficher les objets système",
++  "explorer.hideSystem": "Masquer les objets système",
++  "explorer.noAccess": "Vous ne pouvez pas ouvrir cette base.",
++  "explorer.menu.newQuery": "Nouvelle requête",
++  "explorer.menu.openData": "Ouvrir les données",
++  "explorer.menu.openData.hint": "Arrive avec l'édition des tables",
++  "explorer.menu.scriptAs": "Générer le script",
++  "explorer.menu.script.select": "SELECT",
++  "explorer.menu.script.insert": "INSERT",
++  "explorer.menu.script.update": "UPDATE",
++  "explorer.menu.script.delete": "DELETE",
++  "explorer.menu.copyName": "Copier le nom",
++  "explorer.menu.copyQualifiedName": "Copier le nom qualifié",
++  "explorer.menu.refresh": "Actualiser",
++  "explorer.scriptFailed": "Impossible de générer le script de {name}",
++  "explorer.copied": "{what} copié",
++  "explorer.copyFailed": "Impossible de copier",
++  "explorer.what.name": "Nom",
++  "explorer.what.qualifiedName": "Nom qualifié",
++  "explorer.col.nullable": "Peut être NULL",
++  "explorer.col.notNull": "Non NULL",
++  "explorer.col.default": "Valeur par défaut",
++  "explorer.col.identity.always": "Identité (toujours)",
++  "explorer.col.identity.byDefault": "Identité (par défaut)",
++  "explorer.col.generated.stored": "Générée (stockée)",
++  "explorer.col.generated.virtual": "Générée (calculée)",
++  "explorer.col.primaryKey": "Clé primaire",
++  "explorer.col.foreignKey": "Clé étrangère",
++  "explorer.key.primary": "Clé primaire",
++  "explorer.key.unique": "Unique",
++  "explorer.index.unique": "unique",
++  "explorer.index.primary": "clé primaire",
++  "explorer.fk.references": "Référence {table}",
++  "explorer.fk.onDelete": "À la suppression : {action}",
++  "explorer.fk.onUpdate": "À la mise à jour : {action}",
++  "explorer.trigger.disabled": "désactivé",
++  "explorer.trigger.rowLevel": "par ligne",
++  "explorer.trigger.statementLevel": "par instruction",
++  "explorer.table.rows": "Environ {count} lignes"
+ }
+diff --git a/src/ipc/mockClient.ts b/src/ipc/mockClient.ts
+index 5ad8a4a..a255c65 100644
+--- a/src/ipc/mockClient.ts
++++ b/src/ipc/mockClient.ts
+@@ -24,6 +24,7 @@ import {
+ } from './mockData';
+ import { mockErrors } from './mockErrors';
+ import { createMockMeta } from './mock/meta';
++import type { LargeCatalogOptions } from './mock/metaCatalog';
+ import { createMockQuery } from './mockQuery';
+ 
+ /** Version reported by the mock backend: the one of the app it stands in for. */
+@@ -678,9 +679,12 @@ function createMockBackend() {
+     setMetaLatency(ms: number): void {
+       meta.setLatency(ms);
+     },
+-    /** `large`: PostgreSQL connections opened from now on see a 10 000-object database. */
+-    setMetaCatalog(kind: 'shop' | 'large'): void {
+-      meta.setCatalog(kind);
++    /**
++     * `large`: PostgreSQL connections opened from now on see a 10 000-object database, or the
++     * synthetic one `options` describe.
++     */
++    setMetaCatalog(kind: 'shop' | 'large', options?: LargeCatalogOptions): void {
++      meta.setCatalog(kind, options);
+     },
+     /** Time between two streamed batches of a query result, in ms (0 in unit tests). */
+     setQueryTick(ms: number): void {
+diff --git a/src/ui/Icon.tsx b/src/ui/Icon.tsx
+index a178616..ff17fb7 100644
+--- a/src/ui/Icon.tsx
++++ b/src/ui/Icon.tsx
+@@ -57,6 +57,21 @@ const PATHS = {
+   database:
+     'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
+   table: 'M4 5h16v14H4zM4 10h16M4 15h16M10 5v14',
++  layers: 'm12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5',
++  view: 'M4 5h16v14H4zM4 10h16M10 10v9',
++  matView: 'M4 5h16v14H4zM4 10h16M10 10v9M15 14h3',
++  routine:
++    'M9 4C7 4 6 5 6 7v3c0 1.5-1 2-2 2 1 0 2 .5 2 2v3c0 2 1 3 3 3M15 4c2 0 3 1 3 3v3c0 1.5 1 2 2 2-1 0-2 .5-2 2v3c0 2-1 3-3 3',
++  sequence: 'M4 7h2v4H4M4 17h3m-3 0 2.5-3a1.5 1.5 0 0 0-2.5-1M11 8h9M11 16h9',
++  tag: 'M3 12V4h8l10 10-8 8L3 12Zm5-5h.01',
++  key: 'M14.5 9.5a4.5 4.5 0 1 0-4 4.5l1 1H14v2h2v2h3l1-1v-3l-6.5-6.5ZM7.5 8.5h.01',
++  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
++  hash: 'M5 9h15M4 15h15M10 4 8 20M16 4l-2 16',
++  formula: 'M16 5c-1.5 0-2.5.8-3 3l-1.5 8c-.5 2.2-1.5 3-3 3M8 11h8',
++  columns: 'M4 5h16v14H4zM9.5 5v14M14.5 5v14',
++  index: 'M3 6h12M3 12h8M3 18h5m9-10v10m0 0 3-3m-3 3-3-3',
++  bolt: 'M13 3 5 13h6l-1 8 8-10h-6l1-8Z',
++  checkSquare: 'M4 4h16v16H4zM8 12l3 3 5-6',
+ } as const;
+ 
+ export type IconName = keyof typeof PATHS;
+-- 
+2.43.0
+

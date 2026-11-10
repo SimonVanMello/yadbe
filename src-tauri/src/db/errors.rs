@@ -62,6 +62,8 @@ pub enum ErrorCode {
     QueryFailed,
     /// The operation was cancelled by the user.
     Cancelled,
+    /// A database object (table, schema…) no longer exists, or was renamed.
+    ObjectNotFound,
     /// A query is already running in this tab.
     ExecutionRunning,
     /// A transaction is open in this tab: commit or roll it back first.
@@ -358,6 +360,19 @@ impl YadbeError {
         Self::new(ErrorCode::Cancelled, "Cancelled.", "Annulé.")
     }
 
+    /// `what`: the object as the user knows it (`shop.orders`), never translated.
+    pub fn object_not_found(what: &str) -> Self {
+        Self::new(
+            ErrorCode::ObjectNotFound,
+            format!(
+                "\"{what}\" no longer exists. Refresh the explorer to see the current objects."
+            ),
+            format!(
+                "« {what} » n'existe plus. Actualisez l'explorateur pour voir les objets actuels."
+            ),
+        )
+    }
+
     pub fn execution_running() -> Self {
         Self::new(
             ErrorCode::ExecutionRunning,
@@ -549,6 +564,7 @@ mod tests {
             YadbeError::keychain_failed("locked"),
             YadbeError::password_required(),
             YadbeError::engine_not_supported("MySQL"),
+            YadbeError::object_not_found("shop.orders"),
             YadbeError::execution_running(),
             YadbeError::transaction_open(),
             YadbeError::read_only_violation("UPDATE"),

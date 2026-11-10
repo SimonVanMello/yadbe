@@ -2,6 +2,7 @@
 
 mod decode;
 mod execute;
+mod introspect;
 mod tls;
 
 use std::error::Error as _;
@@ -259,6 +260,10 @@ impl Connection for PgConnection {
         events: ExecSender,
     ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
         Box::pin(self.execute_streaming(sql, events))
+    }
+
+    fn introspector(&self) -> Option<&dyn crate::db::introspect::Introspector> {
+        Some(self)
     }
 }
 

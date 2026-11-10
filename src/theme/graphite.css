@@ -75,6 +75,18 @@
   --syn-string: #86efac;
   --syn-tag: #67e8f9;
   --syn-function: #fcd34d;
+  --syn-number: #fdba74;
+  --syn-comment: #8c919c;
+  --syn-type: #7dd3fc;
+  --syn-operator: #a3a9b6;
+  --syn-special: #f9a8d4;
+
+  /* SQL editor (F-040): selection, current line, statement about to run, matches. */
+  --editor-selection: rgb(139 124 246 / 0.3);
+  --editor-active-line: rgb(255 255 255 / 0.035);
+  --editor-statement: rgb(139 124 246 / 0.14);
+  --editor-bracket-match: rgb(139 124 246 / 0.32);
+  --editor-search-match: rgb(251 191 36 / 0.3);
 
   /* Elevation */
   --shadow-popover: 0 12px 40px rgb(0 0 0 / 0.5);

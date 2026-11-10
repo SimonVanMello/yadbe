@@ -1,0 +1,138 @@
+.scroller {
+  height: 100%;
+  overflow: auto;
+  background: var(--bg-panel);
+}
+
+.list {
+  position: relative;
+  width: 100%;
+}
+
+.slot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-5);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  font-size: var(--text-sm);
+}
+
+.row[data-kind='error'] {
+  background: var(--danger-soft);
+}
+
+.icon {
+  margin-top: var(--space-0);
+  color: var(--fg-muted);
+}
+
+.row[data-kind='completed'] .icon {
+  color: var(--success);
+}
+
+.row[data-kind='error'] .icon {
+  color: var(--danger);
+}
+
+.row[data-kind='warning'] .icon {
+  color: var(--warning);
+}
+
+.row[data-kind='notice'] .icon {
+  color: var(--info);
+}
+
+.content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.text,
+.sub {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.text {
+  color: var(--fg-primary);
+  line-height: var(--leading-normal);
+}
+
+.sub {
+  color: var(--fg-secondary);
+  font-size: var(--text-xs);
+}
+
+.label {
+  margin-right: var(--space-2);
+  color: var(--fg-secondary);
+  font-weight: var(--weight-semibold);
+}
+
+.severity {
+  margin-right: var(--space-2);
+  color: var(--fg-secondary);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.duration {
+  color: var(--fg-muted);
+}
+
+.statement {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time {
+  flex: none;
+  color: var(--fg-muted);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+}
+
+.jump {
+  flex: none;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.jump:hover {
+  background: var(--bg-hover);
+}
+
+.jump:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: 0;
+}
