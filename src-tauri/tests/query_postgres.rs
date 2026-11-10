@@ -379,6 +379,13 @@ CREATE OR REPLACE FUNCTION m13_write() RETURNS int LANGUAGE sql AS $$ INSERT INT
         Some("25006"),
         "{run:?}"
     );
+    // The engine's refusal is the typed read-only error, not a generic failure.
+    assert_eq!(
+        run.error_code(),
+        Some(ErrorCode::ReadOnlyViolation),
+        "{run:?}"
+    );
+    assert!(run.errors()[0].error.message.en.contains("read-only"));
 
     // Same without the runner's classifier: straight to a read-only driver connection.
     let url = pg_url("read_only (driver)").expect("url");
@@ -398,6 +405,7 @@ CREATE OR REPLACE FUNCTION m13_write() RETURNS int LANGUAGE sql AS $$ INSERT INT
         .execute("INSERT INTO m13_ro VALUES (2)", sender)
         .await
         .expect_err("read-only transaction");
+    assert_eq!(failed.error.code, ErrorCode::ReadOnlyViolation);
     assert_eq!(failed.server.and_then(|s| s.code).as_deref(), Some("25006"));
     assert!(events.try_recv().is_err());
     conn.close().await;

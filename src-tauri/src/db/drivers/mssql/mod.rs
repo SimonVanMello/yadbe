@@ -29,7 +29,7 @@ use crate::db::driver::{
     ExecError, ExecSender, ExecSummary, LinkSignal, LinkWatch, StatementRecorder, recorded,
     recorded_bound,
 };
-use crate::db::errors::{YadbeError, from_mssql_login_error};
+use crate::db::errors::{YadbeError, from_mssql_login_error, from_mssql_query_error};
 use crate::db::value::{QueryResult, Value};
 
 type Tds = Client<Compat<TcpStream>>;
@@ -513,12 +513,16 @@ fn classify_connect(err: &TdsError, target: &ConnectTarget) -> YadbeError {
 /// A failure of a statement: the server's error, or a lost connection.
 fn classify_query(err: &TdsError) -> YadbeError {
     match err {
-        TdsError::Server(token) => YadbeError::query_failed(format!(
-            "{} (error {}, severity {})",
-            token.message(),
-            token.code(),
-            token.class()
-        )),
+        TdsError::Server(token) => {
+            let detail = format!(
+                "{} (error {}, severity {})",
+                token.message(),
+                token.code(),
+                token.class()
+            );
+            from_mssql_query_error(token.code(), &detail)
+                .unwrap_or_else(|| YadbeError::query_failed(detail))
+        }
         TdsError::Io { message, .. } => YadbeError::connection_lost().with_detail(message),
         TdsError::Protocol(message) => YadbeError::connection_lost().with_detail(message.as_ref()),
         other => YadbeError::internal(other.to_string()),

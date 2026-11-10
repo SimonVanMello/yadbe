@@ -11,7 +11,7 @@ use tokio::time::Instant;
 use super::MssqlConnection;
 use super::decode::{self, Decoder};
 use crate::db::driver::{ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary};
-use crate::db::errors::YadbeError;
+use crate::db::errors::{YadbeError, from_mssql_query_error};
 use crate::db::value::Value;
 use crate::session::query_model::ServerMessage;
 
@@ -112,7 +112,8 @@ impl MssqlConnection {
                 .then_some(ErrorLocation::Line(error.line))
                 .filter(|_| error.line > 0);
             return Err(ExecError {
-                error: YadbeError::query_failed(detail(&error)),
+                error: from_mssql_query_error(error.number, &detail(&error))
+                    .unwrap_or_else(|| YadbeError::query_failed(detail(&error))),
                 server: Some(Box::new(server_message(&error))),
                 location,
             });
