@@ -1,0 +1,380 @@
+import { memo, type CSSProperties, type ReactNode } from 'react';
+
+import { useT } from '../../i18n/useT';
+import { Button } from '../../ui/Button';
+import { Icon, type IconName } from '../../ui/Icon';
+import { Spinner } from '../../ui/Spinner';
+import { Tooltip } from '../../ui/Tooltip';
+import { Highlight } from '../connections/Highlight';
+import { rowStyle } from '../sidebar/rowStyle';
+import styles from './ExplorerRow.module.css';
+import { explorerRowLabel, GROUP_ICONS, groupLabel, kindLabel, KIND_ICONS } from './explorerLabels';
+import type { ExplorerRow as Row } from './explorerRows';
+import { ExplorerContextMenu } from './ExplorerContextMenu';
+
+export interface ExplorerRowProps {
+  row: Row;
+  id: string;
+  index: number;
+  active: boolean;
+  posInSet: number;
+  setSize: number;
+  /** Distance from the top of the list, and the height of the row, in px. */
+  offset: number;
+  height: number;
+  onSelect: (index: number) => void;
+  onToggle: (row: Row) => void;
+  onOpen: (row: Row) => void;
+  onRefresh: (row: Row) => void;
+}
+
+type Translate = ReturnType<typeof useT>;
+
+interface Content {
+  icon: IconName | null;
+  /** CSS class of the icon (color). */
+  iconTone?: string;
+  /** The name, highlighted while filtering. */
+  name: ReactNode;
+  /** What follows the name: a type, a count… */
+  meta?: ReactNode;
+  /** Small icons after the meta (identity, generated…). */
+  badges?: IconName[];
+  /** Details shown in a tooltip. */
+  tooltip?: ReactNode;
+}
+
+function Lines({ lines }: { lines: (string | null | undefined | false)[] }) {
+  return (
+    <span className={styles.tooltip}>
+      {lines.map((line, index) =>
+        line ? (
+          <span key={index} className={index === 0 ? styles.tooltipTitle : undefined}>
+            {line}
+          </span>
+        ) : null,
+      )}
+    </span>
+  );
+}
+
+function contentOf(row: Row, t: Translate): Content {
+  const name = (text: string) => <Highlight text={text} indices={row.indices} />;
+  switch (row.type) {
+    case 'database':
+      return {
+        icon: 'database',
+        name: name(row.database.name),
+        tooltip: row.database.accessible ? (
+          row.database.comment ? (
+            <Lines lines={[row.database.name, row.database.comment]} />
+          ) : undefined
+        ) : (
+          <Lines lines={[row.database.name, t('explorer.noAccess')]} />
+        ),
+      };
+    case 'schema':
+      return {
+        icon: 'layers',
+        name: name(row.schema.name),
+        tooltip: row.schema.comment ? (
+          <Lines lines={[row.schema.name, row.schema.comment]} />
+        ) : undefined,
+      };
+    case 'kind':
+      return {
+        icon: KIND_ICONS[row.kind],
+        name: kindLabel(t, row.kind),
+        meta: <span className={styles.count}>{row.count}</span>,
+      };
+    case 'object': {
+      const { object } = row;
+      const detail = object.detail;
+      let meta: ReactNode;
+      if (detail.type === 'routine') {
+        meta = `(${detail.arguments})`;
+      } else if (detail.type === 'sequence') {
+        meta = detail.dataType;
+      } else if (detail.type === 'type') {
+        meta = detail.category;
+      }
+      return {
+        icon: KIND_ICONS[object.kind],
+        name: name(object.name),
+        meta,
+        tooltip: object.comment ? <Lines lines={[object.name, object.comment]} /> : undefined,
+      };
+    }
+    case 'detailGroup':
+      return {
+        icon: GROUP_ICONS[row.group],
+        name: groupLabel(t, row.group),
+        meta: <span className={styles.count}>{row.count}</span>,
+      };
+    case 'column': {
+      const { column } = row;
+      const badges: IconName[] = [];
+      if (column.primaryKey && column.foreignKey) badges.push('link');
+      if (column.identity !== null) badges.push('hash');
+      if (column.generated !== null) badges.push('formula');
+      const icon: IconName = column.primaryKey ? 'key' : column.foreignKey ? 'link' : 'columns';
+      return {
+        icon,
+        iconTone: column.primaryKey
+          ? styles.keyTone
+          : column.foreignKey
+            ? styles.linkTone
+            : styles.mutedTone,
+        name: name(column.name),
+        meta: (
+          <>
+            {column.typeName}
+            <span className={styles.nullability}>
+              {column.nullable ? ' · NULL' : ' · NOT NULL'}
+            </span>
+          </>
+        ),
+        badges,
+        tooltip: (
+          <Lines
+            lines={[
+              `${column.name}: ${column.typeName}`,
+              column.nullable ? t('explorer.col.nullable') : t('explorer.col.notNull'),
+              column.default !== null && `${t('explorer.col.default')}: ${column.default}`,
+              column.primaryKey && t('explorer.col.primaryKey'),
+              column.foreignKey && t('explorer.col.foreignKey'),
+              column.identity !== null && t(`explorer.col.identity.${column.identity}`),
+              column.generated !== null &&
+                `${t(column.generated.stored ? 'explorer.col.generated.stored' : 'explorer.col.generated.virtual')}${column.generated.expression ? `: ${column.generated.expression}` : ''}`,
+              column.comment,
+            ]}
+          />
+        ),
+      };
+    }
+    case 'key':
+      return {
+        icon: 'key',
+        iconTone: row.primary ? styles.keyTone : undefined,
+        name: name(row.name ?? row.columns.join(', ')),
+        meta: `${row.primary ? t('explorer.key.primary') : t('explorer.key.unique')} (${row.columns.join(', ')})`,
+      };
+    case 'foreignKey': {
+      const { foreignKey } = row;
+      const target = foreignKey.referencedTable;
+      const targetName = target.schema === null ? target.name : `${target.schema}.${target.name}`;
+      return {
+        icon: 'link',
+        iconTone: styles.linkTone,
+        name: name(foreignKey.name ?? foreignKey.columns.join(', ')),
+        meta: `→ ${targetName} (${foreignKey.referencedColumns.join(', ')})`,
+        tooltip: (
+          <Lines
+            lines={[
+              `${foreignKey.columns.join(', ')} → ${targetName} (${foreignKey.referencedColumns.join(', ')})`,
+              t('explorer.fk.onDelete', { action: foreignKey.onDelete }),
+              t('explorer.fk.onUpdate', { action: foreignKey.onUpdate }),
+            ]}
+          />
+        ),
+      };
+    }
+    case 'index': {
+      const { index } = row;
+      const flags = [
+        index.primary
+          ? t('explorer.index.primary')
+          : index.unique
+            ? t('explorer.index.unique')
+            : '',
+        index.method ?? '',
+      ].filter(Boolean);
+      return {
+        icon: 'index',
+        name: name(index.name),
+        meta: `${flags.length > 0 ? `${flags.join(', ')} ` : ''}(${index.columns.join(', ')})`,
+        tooltip: index.definition ? <Lines lines={[index.name, index.definition]} /> : undefined,
+      };
+    }
+    case 'check':
+      return {
+        icon: 'checkSquare',
+        name: name(row.check.name ?? row.check.expression),
+        meta: row.check.name ? row.check.expression : undefined,
+        tooltip: <Lines lines={[row.check.name, row.check.expression]} />,
+      };
+    case 'trigger': {
+      const { trigger } = row;
+      const timing = trigger.timing === 'insteadOf' ? 'INSTEAD OF' : trigger.timing.toUpperCase();
+      return {
+        icon: 'bolt',
+        name: name(trigger.name),
+        meta: `${timing} ${trigger.events.map((event) => event.toUpperCase()).join(' OR ')}${trigger.enabled ? '' : ` · ${t('explorer.trigger.disabled')}`}`,
+        tooltip: (
+          <Lines
+            lines={[
+              trigger.name,
+              trigger.function,
+              trigger.forEachRow
+                ? t('explorer.trigger.rowLevel')
+                : t('explorer.trigger.statementLevel'),
+              trigger.definition,
+            ]}
+          />
+        ),
+      };
+    }
+    case 'status':
+      return { icon: null, name: explorerRowLabel(row, t) };
+  }
+}
+
+/** One row of an open connection's tree: database, schema, kind, object, column… (F-020, F-021). */
+export const ExplorerRow = memo(function ExplorerRow({
+  row,
+  id,
+  index,
+  active,
+  posInSet,
+  setSize,
+  offset,
+  height,
+  onSelect,
+  onToggle,
+  onOpen,
+  onRefresh,
+}: ExplorerRowProps) {
+  const t = useT();
+  const depth = row.level - 1;
+  const common = {
+    id,
+    role: 'treeitem',
+    'aria-level': row.level,
+    'aria-posinset': posInSet,
+    'aria-setsize': setSize,
+    'data-row-index': index,
+    'data-active': active || undefined,
+    style: { ...rowStyle(offset, height), '--depth': depth } as CSSProperties,
+  };
+
+  if (row.type === 'status') {
+    const failed = row.status === 'error';
+    const message = explorerRowLabel(row, t);
+    return (
+      <div
+        {...common}
+        aria-selected={active}
+        aria-label={message}
+        data-status={row.status}
+        className={styles.row}
+        onClick={() => {
+          onSelect(index);
+        }}
+      >
+        <span className={styles.twisty} />
+        {row.status === 'loading' && <Spinner />}
+        {failed && <Icon name="warning" className={styles.errorTone} />}
+        <span className={styles.statusText} title={message}>
+          {message}
+        </span>
+        {failed && (
+          <Button
+            size="sm"
+            variant="secondary"
+            tabIndex={-1}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRefresh(row);
+            }}
+          >
+            {t('explorer.retry')}
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  const content = contentOf(row, t);
+  const disabled = row.type === 'database' && !row.database.accessible;
+  const refreshable =
+    row.type === 'database' ||
+    row.type === 'schema' ||
+    row.type === 'kind' ||
+    (row.type === 'object' && row.expandable);
+  const label = explorerRowLabel(row, t);
+  const ariaLabel = row.type === 'column' ? `${label}, ${row.column.typeName}` : label;
+
+  const body = (
+    <div
+      {...common}
+      aria-selected={active}
+      aria-expanded={row.expandable ? row.expanded : undefined}
+      aria-disabled={disabled || undefined}
+      aria-label={ariaLabel}
+      data-type={row.type}
+      className={styles.row}
+      onClick={() => {
+        onSelect(index);
+        // Containers open with a click; objects and connections only select (double click opens).
+        if (row.expandable && row.type !== 'object') onToggle(row);
+      }}
+      onDoubleClick={() => {
+        onOpen(row);
+      }}
+    >
+      <span
+        className={styles.twisty}
+        onClick={(event) => {
+          if (!row.expandable) return;
+          event.stopPropagation();
+          onSelect(index);
+          onToggle(row);
+        }}
+      >
+        {row.expandable && <Icon name={row.expanded ? 'chevronDown' : 'chevronRight'} />}
+      </span>
+      {content.icon && (
+        <Icon
+          name={content.icon}
+          className={[styles.icon, content.iconTone].filter(Boolean).join(' ')}
+        />
+      )}
+      {(() => {
+        const text = (
+          <span className={styles.text}>
+            <span className={styles.name}>{content.name}</span>
+            {content.meta !== undefined && <span className={styles.meta}>{content.meta}</span>}
+          </span>
+        );
+        return content.tooltip ? (
+          <Tooltip side="right" content={content.tooltip}>
+            {text}
+          </Tooltip>
+        ) : (
+          text
+        );
+      })()}
+      {content.badges?.map((badge, position) => (
+        <Icon key={position} name={badge} className={styles.badge} />
+      ))}
+      {refreshable && (
+        <button
+          type="button"
+          tabIndex={-1}
+          className={styles.refresh}
+          aria-label={t('explorer.refresh', { name: label })}
+          onClick={(event) => {
+            event.stopPropagation();
+            onRefresh(row);
+          }}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          <Icon name="retry" />
+        </button>
+      )}
+    </div>
+  );
+  return <ExplorerContextMenu row={row}>{body}</ExplorerContextMenu>;
+});

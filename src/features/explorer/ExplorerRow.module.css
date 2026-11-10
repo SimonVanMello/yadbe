@@ -1,0 +1,160 @@
+.row {
+  --depth: 0;
+
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--row-height);
+  padding: 0 var(--space-2) 0 calc(var(--space-2) + var(--depth) * var(--space-4));
+  border-radius: var(--radius-md);
+  color: var(--fg-primary);
+  font-size: var(--text-sm);
+  cursor: default;
+  user-select: none;
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.row[data-active] {
+  background: var(--bg-selected);
+}
+
+/* The tree keeps the focus (aria-activedescendant): ring the active row while it has it. */
+:global([role='tree']:focus-visible) .row[data-active] {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+.row[aria-disabled='true'] {
+  color: var(--fg-disabled);
+}
+
+.twisty {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  color: var(--fg-muted);
+}
+
+.icon {
+  color: var(--fg-secondary);
+}
+
+.row[aria-disabled='true'] .icon {
+  color: var(--fg-disabled);
+}
+
+.keyTone {
+  color: var(--warning);
+}
+
+.mutedTone {
+  color: var(--fg-muted);
+}
+
+.linkTone {
+  color: var(--info);
+}
+
+.errorTone {
+  color: var(--danger);
+}
+
+.text {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+}
+
+.count {
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+.nullability {
+  opacity: 0.7;
+}
+
+.badge {
+  color: var(--fg-muted);
+}
+
+.row[data-type='kind'],
+.row[data-type='detailGroup'] {
+  color: var(--fg-secondary);
+}
+
+.row[data-status] {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.statusText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.refresh {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.row:hover .refresh,
+.row[data-active] .refresh {
+  opacity: 1;
+}
+
+.refresh:hover {
+  background: var(--bg-active);
+  color: var(--fg-primary);
+}
+
+.tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0);
+  overflow-wrap: anywhere;
+}
+
+.tooltipTitle {
+  font-family: var(--font-code);
+  font-weight: var(--weight-semibold);
+}

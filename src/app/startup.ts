@@ -1,4 +1,5 @@
 import { startConnectionFeed } from '../features/connections/connectionStore';
+import { startMetaFeed } from '../features/explorer/metaFeed';
 import { startStatementLogFeed } from '../features/statement-log/statementLogStore';
 import { initI18n, translate, useI18nStore } from '../i18n/i18n';
 import { ipc, unwrap } from '../ipc';
@@ -82,6 +83,7 @@ export function startup(): Promise<void> {
   started ??= (async () => {
     void startConnectionFeed();
     void startStatementLogFeed();
+    startMetaFeed();
     await restorePreferences();
     await Promise.all([restoreAndPersistLayout(), restoreTabs()]);
     persistTabs();

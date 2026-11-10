@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useDeferredValue, useRef, useState } from 'react';
 
 import { ErrorPanel } from '../../app/errors/ErrorPanel';
 import { useShellStore } from '../../app/shellStore';
@@ -10,87 +10,38 @@ import { IconButton } from '../../ui/IconButton';
 import { Spinner } from '../../ui/Spinner';
 import { TextInput } from '../../ui/TextInput';
 import { openQuery } from '../connections/connectionActions';
-import { buildSidebarRows, type SidebarRow } from '../connections/connectionRows';
 import { refreshConnections, useConnectionList } from '../connections/connectionStore';
-import { setGroupCollapsed } from '../connections/groupActions';
 import { useGroupDialog } from '../connections/groupDialogStore';
-import { ConnectionRow } from './ConnectionRow';
+import { useExplorerStore } from '../explorer/explorerStore';
 import styles from './ConnectionSidebar.module.css';
-import { GroupRow } from './GroupRow';
+import { SidebarTree } from './SidebarTree';
+import { useSidebarRows } from './useSidebarRows';
 
-const rowId = (row: SidebarRow) =>
-  row.kind === 'group' ? `group:${row.group.id}` : `connection:${row.connection.id}`;
-
-/** Connection list of the sidebar (F-007): folders, environment, state, favorites, filter. */
+/** Connection list and explorer of the sidebar (F-007, F-020 to F-023). */
 export function ConnectionSidebar() {
   const t = useT();
   const list = useConnectionList();
-  const [focusedRow, setFocusedRow] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const treeRef = useRef<HTMLDivElement>(null);
-
-  const connections = list.data?.connections;
-  const groups = list.data?.groups;
-  const rows = useMemo(
-    () => (connections && groups ? buildSidebarRows(connections, groups, query) : []),
-    [connections, groups, query],
-  );
-  const ids = rows.map(rowId);
-  // Roving tabindex: the focused row, else the first, is the one Tab lands on.
-  const tabStop = focusedRow !== null && ids.includes(focusedRow) ? focusedRow : (ids[0] ?? null);
+  // Typing stays instant; the tree follows when it can.
+  const rows = useSidebarRows(useDeferredValue(query));
+  const showSystem = useExplorerStore((store) => store.showSystem);
   const searching = query.trim() !== '';
-
-  const focusRow = (id: string | undefined) => {
-    if (!id) return;
-    treeRef.current?.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(id)}"]`)?.focus();
-  };
-
-  const onKeyDown = (row: SidebarRow, index: number) => (event: KeyboardEvent<HTMLDivElement>) => {
-    switch (event.key) {
-      case 'ArrowDown':
-        focusRow(ids[index + 1]);
-        break;
-      case 'ArrowUp':
-        focusRow(ids[index - 1]);
-        break;
-      case 'Home':
-        focusRow(ids[0]);
-        break;
-      case 'End':
-        focusRow(ids.at(-1));
-        break;
-      case 'ArrowRight':
-        if (row.kind !== 'group') return;
-        if (!row.expanded) void setGroupCollapsed(row.group, false);
-        else focusRow(ids[index + 1]);
-        break;
-      case 'ArrowLeft':
-        if (row.kind === 'group') {
-          if (row.expanded) void setGroupCollapsed(row.group, true);
-        } else if (row.depth > 0) {
-          const parent = rows
-            .slice(0, index)
-            .reverse()
-            .find((r) => r.kind === 'group' && r.depth === row.depth - 1);
-          focusRow(parent && rowId(parent));
-        }
-        break;
-      case 'Enter':
-      case ' ':
-        if (row.kind === 'group') void setGroupCollapsed(row.group, row.expanded);
-        else openQuery(row.connection);
-        break;
-      default:
-        return;
-    }
-    event.preventDefault();
-  };
 
   return (
     <aside className={styles.sidebar} aria-label={t('sidebar.connections')}>
       <div className={styles.header}>
         <h2 className={styles.title}>{t('sidebar.connections')}</h2>
         <div className={styles.actions}>
+          <IconButton
+            icon={showSystem ? 'eye' : 'eyeOff'}
+            size="sm"
+            label={showSystem ? t('explorer.hideSystem') : t('explorer.showSystem')}
+            aria-pressed={showSystem}
+            onClick={() => {
+              useExplorerStore.getState().setShowSystem(!showSystem);
+            }}
+          />
           <IconButton
             icon="folder"
             size="sm"
@@ -121,12 +72,12 @@ export function ConnectionSidebar() {
           }}
           onKeyDown={(event) => {
             if (event.key === 'Escape') setQuery('');
-            else if (event.key === 'ArrowDown' && ids[0]) {
+            else if (event.key === 'ArrowDown' && rows.length > 0) {
               event.preventDefault();
-              focusRow(ids[0]);
+              treeRef.current?.focus();
             } else if (event.key === 'Enter' && searching) {
-              const first = rows.find((row) => row.kind === 'connection');
-              if (first?.kind === 'connection') openQuery(first.connection);
+              const first = rows.find((row) => row.type === 'connection');
+              if (first?.type === 'connection') openQuery(first.connection);
             }
           }}
         />
@@ -155,41 +106,11 @@ export function ConnectionSidebar() {
         </div>
       )}
       {list.isSuccess && (
-        <div
-          ref={treeRef}
-          role="tree"
-          aria-label={t('sidebar.connections')}
-          className={styles.tree}
-        >
-          {rows.map((row, index) =>
-            row.kind === 'group' ? (
-              <GroupRow
-                key={rowId(row)}
-                group={row.group}
-                expanded={row.expanded}
-                count={row.count}
-                depth={row.depth}
-                focused={rowId(row) === tabStop}
-                onFocus={() => {
-                  setFocusedRow(rowId(row));
-                }}
-                onKeyDown={onKeyDown(row, index)}
-              />
-            ) : (
-              <ConnectionRow
-                key={rowId(row)}
-                connection={row.connection}
-                nameIndices={row.nameIndices}
-                depth={row.depth}
-                focused={rowId(row) === tabStop}
-                onFocus={() => {
-                  setFocusedRow(rowId(row));
-                }}
-                onKeyDown={onKeyDown(row, index)}
-              />
-            ),
-          )}
-          {rows.length === 0 && (
+        <SidebarTree
+          rows={rows}
+          label={t('sidebar.connections')}
+          treeRef={treeRef}
+          empty={
             <div className={styles.state}>
               {searching ? (
                 <p className={styles.empty}>{t('sidebar.noMatch')}</p>
@@ -208,8 +129,8 @@ export function ConnectionSidebar() {
                 </>
               )}
             </div>
-          )}
-        </div>
+          }
+        />
       )}
     </aside>
   );

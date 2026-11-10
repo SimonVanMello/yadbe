@@ -9,6 +9,10 @@ export interface ShellTab {
   ordinal: number;
   /** Pinned tabs come first in the strip, in their own order; welcome tabs are never pinned. */
   pinned: boolean;
+  /** Database the tab runs in (set when opened from the explorer); `null`: the connection's. */
+  database?: string | null;
+  /** SQL the editor opens with, set once when the tab is opened from the explorer. */
+  initialText?: string | null;
 }
 
 /** Shape written to the store and read back at startup. */
@@ -342,4 +346,30 @@ export function openConnectionTab(connectionId: string): string {
     return active.id;
   }
   return store.openQueryTab(connectionId);
+}
+
+/** Where a new query tab starts: its database and the text its editor opens with. */
+export interface QueryTabTarget {
+  connectionId: string;
+  /** Database the tab runs in; `null`: the connection's. */
+  database?: string | null;
+  /** SQL the editor starts with (a "Script as" result, say). */
+  initialText?: string | null;
+}
+
+/**
+ * Opens a query tab on a connection, aimed at a database and holding some SQL: in the active
+ * tab when it is still a welcome tab, in a new one otherwise. The explorer (M1-2) uses it for
+ * "New query" and "Script as"; the editor (M1-4) reads `database` and `initialText` from the tab.
+ */
+export function openQueryTabWith(target: QueryTabTarget): string {
+  const id = openConnectionTab(target.connectionId);
+  useTabsStore.setState((state) => ({
+    tabs: state.tabs.map((tab) =>
+      tab.id === id
+        ? { ...tab, database: target.database ?? null, initialText: target.initialText ?? null }
+        : tab,
+    ),
+  }));
+  return id;
 }

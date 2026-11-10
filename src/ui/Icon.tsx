@@ -57,6 +57,21 @@ const PATHS = {
   database:
     'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
   table: 'M4 5h16v14H4zM4 10h16M4 15h16M10 5v14',
+  layers: 'm12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5',
+  view: 'M4 5h16v14H4zM4 10h16M10 10v9',
+  matView: 'M4 5h16v14H4zM4 10h16M10 10v9M15 14h3',
+  routine:
+    'M9 4C7 4 6 5 6 7v3c0 1.5-1 2-2 2 1 0 2 .5 2 2v3c0 2 1 3 3 3M15 4c2 0 3 1 3 3v3c0 1.5 1 2 2 2-1 0-2 .5-2 2v3c0 2-1 3-3 3',
+  sequence: 'M4 7h2v4H4M4 17h3m-3 0 2.5-3a1.5 1.5 0 0 0-2.5-1M11 8h9M11 16h9',
+  tag: 'M3 12V4h8l10 10-8 8L3 12Zm5-5h.01',
+  key: 'M14.5 9.5a4.5 4.5 0 1 0-4 4.5l1 1H14v2h2v2h3l1-1v-3l-6.5-6.5ZM7.5 8.5h.01',
+  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  hash: 'M5 9h15M4 15h15M10 4 8 20M16 4l-2 16',
+  formula: 'M16 5c-1.5 0-2.5.8-3 3l-1.5 8c-.5 2.2-1.5 3-3 3M8 11h8',
+  columns: 'M4 5h16v14H4zM9.5 5v14M14.5 5v14',
+  index: 'M3 6h12M3 12h8M3 18h5m9-10v10m0 0 3-3m-3 3-3-3',
+  bolt: 'M13 3 5 13h6l-1 8 8-10h-6l1-8Z',
+  checkSquare: 'M4 4h16v16H4zM8 12l3 3 5-6',
 } as const;
 
 export type IconName = keyof typeof PATHS;

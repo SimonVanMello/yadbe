@@ -1,59 +1,99 @@
-import type { CSSProperties, KeyboardEvent } from 'react';
+import { memo, type CSSProperties } from 'react';
 
 import { useT } from '../../i18n/useT';
 import { Icon } from '../../ui/Icon';
 import { Tooltip } from '../../ui/Tooltip';
-import { openQuery, toggleFavorite } from '../connections/connectionActions';
+import { toggleFavorite } from '../connections/connectionActions';
 import { ConnectionContextMenu } from '../connections/ConnectionContextMenu';
-import { useConnectionState, useEngineInfo } from '../connections/connectionStore';
+import { useEngineInfo } from '../connections/connectionStore';
 import { EnvTag } from '../connections/EnvTag';
 import { Highlight } from '../connections/Highlight';
 import { StateDot } from '../connections/StateDot';
-import { tintOf, type ConnectionSummary } from '../connections/model';
+import { tintOf } from '../connections/model';
 import styles from './ConnectionRow.module.css';
+import { rowStyle } from './rowStyle';
+import type { SidebarTreeRow } from './sidebarRows';
+
+export type ConnectionTreeRow = Extract<SidebarTreeRow, { type: 'connection' }>;
 
 interface ConnectionRowProps {
-  connection: ConnectionSummary;
-  nameIndices: readonly number[];
-  depth: number;
-  focused: boolean;
-  onFocus: () => void;
-  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+  row: ConnectionTreeRow;
+  id: string;
+  index: number;
+  active: boolean;
+  posInSet: number;
+  setSize: number;
+  offset: number;
+  height: number;
+  onSelect: (index: number) => void;
+  onToggle: (row: ConnectionTreeRow) => void;
+  onOpen: (row: ConnectionTreeRow) => void;
+  onRefresh: (row: ConnectionTreeRow) => void;
 }
 
 /** One saved connection of the sidebar: state, engine, name, environment, favorite (F-007). */
-export function ConnectionRow({
-  connection,
-  nameIndices,
-  depth,
-  focused,
-  onFocus,
-  onKeyDown,
+export const ConnectionRow = memo(function ConnectionRow({
+  row,
+  id,
+  index,
+  active,
+  posInSet,
+  setSize,
+  offset,
+  height,
+  onSelect,
+  onToggle,
+  onOpen,
+  onRefresh,
 }: ConnectionRowProps) {
   const t = useT();
-  const state = useConnectionState(connection.id);
+  const { connection, state } = row;
   const engine = useEngineInfo(connection.engine);
   const tint = tintOf(connection);
 
   return (
     <ConnectionContextMenu connection={connection}>
       <div
+        id={id}
         role="treeitem"
-        aria-selected={false}
-        aria-level={depth + 1}
+        aria-selected={active}
+        aria-level={row.level}
+        aria-posinset={posInSet}
+        aria-setsize={setSize}
+        aria-expanded={row.expanded}
         aria-label={`${connection.name}, ${t(`connection.state.${state}`)}`}
-        tabIndex={focused ? 0 : -1}
-        data-row-id={`connection:${connection.id}`}
+        data-row-index={index}
+        data-active={active || undefined}
         data-connection-id={connection.id}
         data-state={state}
         className={styles.row}
-        style={{ '--depth': depth, '--row-tint': tint ?? 'transparent' } as CSSProperties}
-        onFocus={onFocus}
-        onKeyDown={onKeyDown}
+        style={
+          {
+            ...rowStyle(offset, height),
+            '--depth': row.level - 1,
+            '--row-tint': tint ?? 'transparent',
+          } as CSSProperties
+        }
+        onClick={() => {
+          onSelect(index);
+        }}
         onDoubleClick={() => {
-          openQuery(connection);
+          onOpen(row);
         }}
       >
+        <span
+          className={styles.twisty}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect(index);
+            onToggle(row);
+          }}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          <Icon name={row.expanded ? 'chevronDown' : 'chevronRight'} />
+        </span>
         <StateDot state={state} decorative />
         <Tooltip
           side="right"
@@ -71,7 +111,7 @@ export function ConnectionRow({
           }
         >
           <span className={styles.name}>
-            <Highlight text={connection.name} indices={nameIndices} />
+            <Highlight text={connection.name} indices={row.nameIndices} />
           </span>
         </Tooltip>
         {connection.readOnly && (
@@ -84,10 +124,27 @@ export function ConnectionRow({
             tint={tint}
           />
         )}
+        {state === 'connected' && (
+          <button
+            type="button"
+            tabIndex={-1}
+            className={styles.action}
+            aria-label={t('explorer.refresh', { name: connection.name })}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRefresh(row);
+            }}
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            <Icon name="retry" />
+          </button>
+        )}
         <button
           type="button"
           tabIndex={-1}
-          className={styles.favorite}
+          className={styles.action}
           data-active={connection.favorite || undefined}
           aria-pressed={connection.favorite}
           aria-label={
@@ -106,4 +163,4 @@ export function ConnectionRow({
       </div>
     </ConnectionContextMenu>
   );
-}
+});

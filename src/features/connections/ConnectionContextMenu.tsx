@@ -7,6 +7,7 @@ import { ContextMenu } from '../../ui/ContextMenu';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
 import { ContextMenuSeparator } from '../../ui/ContextMenuSeparator';
 import { ContextMenuSub } from '../../ui/ContextMenuSub';
+import { refreshNode } from '../explorer/explorerActions';
 import {
   connectTo,
   deleteConnection,
@@ -63,6 +64,16 @@ export function ConnectionContextMenu({ connection, children }: ConnectionContex
           >
             {t('connection.menu.newQuery')}
           </ContextMenuItem>
+          {state === 'connected' && (
+            <ContextMenuItem
+              icon="retry"
+              onSelect={() => {
+                void refreshNode(connection.id, { level: 'connection' });
+              }}
+            >
+              {t('explorer.menu.refresh')}
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem
             icon="pencil"
