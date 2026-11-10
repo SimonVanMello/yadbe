@@ -72,6 +72,7 @@ const PATHS = {
   index: 'M3 6h12M3 12h8M3 18h5m9-10v10m0 0 3-3m-3 3-3-3',
   bolt: 'M13 3 5 13h6l-1 8 8-10h-6l1-8Z',
   checkSquare: 'M4 4h16v16H4zM8 12l3 3 5-6',
+  save: 'M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6',
 } as const;
 
 export type IconName = keyof typeof PATHS;

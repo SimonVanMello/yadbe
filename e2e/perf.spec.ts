@@ -20,13 +20,13 @@ async function openThreeTabs(page: Page) {
       .getByRole('tree', { name: 'Connections' })
       .getByRole('treeitem', { name: new RegExp(`^${name},`) })
       .dblclick();
-    await expect(page.getByRole('tab', { selected: true })).toHaveAccessibleName(
-      new RegExp(name.replace('.', '\\.')),
-    );
+    await expect(
+      page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab', { selected: true }),
+    ).toHaveAccessibleName(new RegExp(name.replace('.', '\\.')));
     // A connection that needs a password would open the prompt: not part of this measure.
     await page.keyboard.press('Escape');
   }
-  await expect(page.getByRole('tablist').getByRole('tab')).toHaveCount(3);
+  await expect(page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab')).toHaveCount(3);
   // Let the simulated connection attempts settle: the measure is about stable tabs.
   await expect(page.getByRole('treeitem', { name: /^app\.sqlite,/ })).toHaveAccessibleName(
     /Connected/,

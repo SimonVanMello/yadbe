@@ -7,6 +7,7 @@ import type {
 } from 'react';
 
 import { useConnection, useConnectionState } from '../../features/connections/connectionStore';
+import { useIsDirty, useTabFileName } from '../../features/query/queryTabStore';
 import { EnvTag } from '../../features/connections/EnvTag';
 import { StateDot } from '../../features/connections/StateDot';
 import { tintOf } from '../../features/connections/model';
@@ -40,10 +41,12 @@ export function TabItem({
   const t = useT();
   const connection = useConnection(tab.connectionId);
   const state = useConnectionState(tab.connectionId);
+  const fileName = useTabFileName(tab.id);
+  const dirty = useIsDirty(tab.id);
 
   const isWelcome = tab.connectionId === null;
   const pinned = tab.pinned && !isWelcome;
-  const name = isWelcome ? t('tab.new') : t('tab.query', { number: tab.ordinal });
+  const name = isWelcome ? t('tab.new') : (fileName ?? t('tab.query', { number: tab.ordinal }));
   const tint = connection ? tintOf(connection) : null;
 
   const tooltip = isWelcome ? (
@@ -84,6 +87,7 @@ export function TabItem({
         aria-controls="tab-panel"
         aria-label={[
           name,
+          ...(dirty && !isWelcome ? [t('tab.unsaved')] : []),
           ...(connection ? [connection.name] : []),
           ...(pinned ? [t('tab.pinned')] : []),
         ].join(', ')}
@@ -106,6 +110,9 @@ export function TabItem({
       >
         {!isWelcome && <StateDot state={state} decorative />}
         <span className={styles.label}>{name}</span>
+        {dirty && !isWelcome && (
+          <span className={styles.dirty} role="img" aria-label={t('tab.unsaved')} />
+        )}
         {!isWelcome && connection && <span className={styles.connection}>{connection.name}</span>}
         {/* A pinned tab closes only on purpose: ⌘W, middle click or its menu. */}
         {!pinned && (

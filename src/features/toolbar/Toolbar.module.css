@@ -17,15 +17,6 @@
   background: var(--border-subtle);
 }
 
-.disabledWrap {
-  display: inline-flex;
-}
-
-.chip {
-  display: flex;
-  min-width: 0;
-}
-
 .noConnection {
   color: var(--fg-muted);
   font-size: var(--text-sm);

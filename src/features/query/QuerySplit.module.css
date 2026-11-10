@@ -1,0 +1,25 @@
+.split {
+  position: relative;
+  z-index: var(--z-resizer);
+  flex: none;
+  height: var(--border-width);
+  background: var(--border-strong);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+/* Wider invisible hit area, centered on the 1px line. */
+.split::before {
+  position: absolute;
+  inset: calc(var(--resizer-size) / -2) 0;
+  content: '';
+}
+
+.split:hover,
+.split:focus-visible {
+  background: var(--accent);
+}
+
+.split:focus-visible {
+  outline: none;
+}

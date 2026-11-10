@@ -179,6 +179,10 @@ export const commands = {
 	 *  rolled back by the server) and frees its results.
 	 */
 	closeQueryTab: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("close_query_tab", { tabId })),
+	/**  Reads a script file as UTF-8 text (a byte order mark is dropped). */
+	readTextFile: (path: string) => typedError<string, YadbeError>(__TAURI_INVOKE("read_text_file", { path })),
+	/**  Writes `text` to a script file, replacing its content. */
+	writeTextFile: (path: string, text: string) => typedError<null, YadbeError>(__TAURI_INVOKE("write_text_file", { path, text })),
 };
 
 /** Events */

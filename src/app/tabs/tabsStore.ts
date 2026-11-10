@@ -23,6 +23,8 @@ export interface SavedTabs {
 
 /** A query tab closed in this session, for "Reopen closed tab". */
 export interface ClosedTab {
+  /** Its id, reused when it reopens so that what the editor kept for it comes back. */
+  id: string;
   connectionId: string;
   ordinal: number;
   /** Position in the strip when it was closed. */
@@ -32,6 +34,18 @@ export interface ClosedTab {
 
 /** Closed tabs remembered for "Reopen closed tab" (session only, never saved). */
 export const CLOSED_TABS_KEPT = 10;
+
+/**
+ * Asked before tabs close, to let a feature stop it (a transaction is open in one of them).
+ * `true` closes, `false` keeps the tabs; a promise lets the feature ask the user first.
+ */
+export type CloseGuard = (ids: readonly string[]) => boolean | Promise<boolean>;
+
+let closeGuard: CloseGuard | null = null;
+
+export function setCloseGuard(guard: CloseGuard | null): void {
+  closeGuard = guard;
+}
 
 interface TabsStore {
   tabs: ShellTab[];
@@ -52,6 +66,8 @@ interface TabsStore {
    * active tab, if closed, gives way to `activateId` or else its nearest neighbor left open.
    */
   closeTabs: (ids: readonly string[], activateId?: string) => void;
+  /** `closeTabs` without asking the close guard (the tabs' connection is gone). */
+  closeTabsNow: (ids: readonly string[], activateId?: string) => void;
   /** Closes every unpinned tab but `id`. */
   closeOtherTabs: (id: string) => void;
   /** Closes the unpinned tabs after `id`. */
@@ -104,6 +120,7 @@ function remember(
   tabs.forEach((tab, index) => {
     if (ids.has(tab.id) && tab.connectionId !== null) {
       closed.unshift({
+        id: tab.id,
         connectionId: tab.connectionId,
         ordinal: tab.ordinal,
         index,
@@ -172,6 +189,16 @@ export function createTabsStore() {
     },
 
     closeTabs: (ids, activateId) => {
+      const verdict = closeGuard?.(ids) ?? true;
+      if (verdict === true) get().closeTabsNow(ids, activateId);
+      else if (verdict !== false) {
+        void verdict.then((allowed) => {
+          if (allowed) get().closeTabsNow(ids, activateId);
+        });
+      }
+    },
+
+    closeTabsNow: (ids, activateId) => {
       const { tabs, activeTabId, closedTabs } = get();
       const closing = new Set(ids.filter((id) => tabs.some((tab) => tab.id === id)));
       if (closing.size === 0) return;
@@ -221,7 +248,8 @@ export function createTabsStore() {
       const ids = get()
         .tabs.filter((tab) => tab.connectionId === connectionId)
         .map((tab) => tab.id);
-      get().closeTabs(ids);
+      // The connection is gone, and with it every transaction: nothing to ask.
+      get().closeTabsNow(ids);
       set((state) => ({
         closedTabs: state.closedTabs.filter((closed) => closed.connectionId !== connectionId),
       }));
@@ -232,7 +260,7 @@ export function createTabsStore() {
       const closed = closedTabs.at(-1);
       if (!closed) return null;
       const tab: ShellTab = {
-        id: newTabId(),
+        id: tabs.some((open) => open.id === closed.id) ? newTabId() : closed.id,
         connectionId: closed.connectionId,
         ordinal: closed.ordinal,
         pinned: closed.pinned,

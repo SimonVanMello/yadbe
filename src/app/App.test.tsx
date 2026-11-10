@@ -43,7 +43,9 @@ describe('App', () => {
     await user.click(within(list).getByRole('option', { name: /local postgres/ }));
     expect(await screen.findByRole('tab', { name: /Query 1, local postgres/ })).toBeInTheDocument();
     expect(await screen.findByText('PostgreSQL 16.4')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Run' })).toBeDisabled();
+    expect(await screen.findByTestId('sql-editor')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
   });
 
   it('filters the sidebar with the fuzzy search', async () => {
