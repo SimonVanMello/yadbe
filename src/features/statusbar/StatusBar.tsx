@@ -5,6 +5,7 @@ import { Icon } from '../../ui/Icon';
 import { useConnection, useSession, stateOf } from '../connections/connectionStore';
 import { StateDot } from '../connections/StateDot';
 import { failedCount, isFailed, useStatementLog } from '../statement-log/statementLogStore';
+import { CursorPosition } from './CursorPosition';
 import { RunStatus } from './RunStatus';
 import styles from './StatusBar.module.css';
 
@@ -42,6 +43,7 @@ export function StatusBar() {
         )}
       </div>
       <div className={styles.right}>
+        <CursorPosition />
         {last && (
           <span className={styles.last} title={last.sql}>
             {!isFailed(last) ? (

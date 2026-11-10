@@ -28,6 +28,7 @@ import type { Engine, TextRange } from '../../ipc';
 import { styleNonce } from '../../ui/cspNonce';
 import { currentOffset, markRun, queryFields, setErrors } from './editorFields';
 import { editorPhrases } from './editorPhrases';
+import { useEditorCursorStore } from './editorCursorStore';
 import { registerEditor, type EditorController } from './editorRegistry';
 import { sqlEditorTheme } from './editorTheme';
 import { errorMarks } from './errorMarks';
@@ -36,6 +37,15 @@ import { getQueryTabState, useQueryTabStore } from './queryTabStore';
 import styles from './SqlEditor.module.css';
 import { sqlLanguage } from './sqlLanguage';
 import { statementHighlighter } from './statementHighlighter';
+
+/** Line and column of the main cursor, for the status bar. `lineAt` is logarithmic. */
+function reportCursor(tabId: string, state: EditorState): void {
+  const { from, to, head } = state.selection.main;
+  const line = state.doc.lineAt(head);
+  useEditorCursorStore
+    .getState()
+    .set(tabId, { line: line.number, column: head - line.from + 1, selected: to - from });
+}
 
 /**
  * Editor states kept while a tab's editor is unmounted (the editor only exists for the active
@@ -124,6 +134,7 @@ function editorExtensions(
       if (update.docChanged || update.selectionSet) {
         const { anchor, head } = update.state.selection.main;
         state.setSelection(tabId, { anchor, head });
+        reportCursor(tabId, update.state);
       }
     }),
     EditorView.domEventHandlers({
@@ -209,6 +220,7 @@ export function SqlEditor({ tabId, engine }: SqlEditorProps) {
     });
     const view = new EditorView({ state, parent });
     viewRef.current = view;
+    reportCursor(tabId, view.state);
 
     const restoreScroll = () => {
       view.scrollDOM.scrollTop = stored.scrollTop;
@@ -267,6 +279,7 @@ export function SqlEditor({ tabId, engine }: SqlEditorProps) {
         store.setSelection(tabId, { anchor, head });
         savedStates.set(tabId, view.state.toJSON({ history: historyField }));
       }
+      useEditorCursorStore.getState().forget(tabId);
       viewRef.current = null;
       view.destroy();
     };

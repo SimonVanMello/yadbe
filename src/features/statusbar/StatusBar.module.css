@@ -25,6 +25,12 @@
   color: var(--fg-muted);
 }
 
+.cursor {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .badge {
   padding: 0 var(--space-2);
   border: var(--border-width) solid var(--border-strong);
