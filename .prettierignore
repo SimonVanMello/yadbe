@@ -10,3 +10,4 @@ playwright-report
 docs
 CLAUDE.md
 .claude
+src-tauri/vendor
