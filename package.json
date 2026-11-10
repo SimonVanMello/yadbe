@@ -22,6 +22,7 @@
     "perf:tabs": "playwright test --config playwright.perf.config.ts perf.spec",
     "perf:explorer": "playwright test --config playwright.perf.config.ts perf.explorer",
     "perf:palette": "playwright test --config playwright.perf.config.ts perf.palette",
+    "perf:completion": "playwright test --config playwright.perf.config.ts perf.completion",
     "perf:grid": "playwright test --config playwright.perf.config.ts perf-grid.spec",
     "perf:grid:webkit": "node scripts/perf-grid-webkit.mjs",
     "bindings": "cargo run --manifest-path src-tauri/Cargo.toml --example export-bindings"
