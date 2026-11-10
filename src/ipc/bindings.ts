@@ -183,6 +183,8 @@ export const commands = {
 	readTextFile: (path: string) => typedError<string, YadbeError>(__TAURI_INVOKE("read_text_file", { path })),
 	/**  Writes `text` to a script file, replacing its content. */
 	writeTextFile: (path: string, text: string) => typedError<null, YadbeError>(__TAURI_INVOKE("write_text_file", { path, text })),
+	/**  Writes a value shown in the cell viewer to a file picked in the save dialog, replacing it. */
+	writeValueFile: (path: string, contents: string, encoding: ValueFileEncoding) => typedError<null, YadbeError>(__TAURI_INVOKE("write_value_file", { path, contents, encoding })),
 };
 
 /** Events */
@@ -1242,6 +1244,13 @@ export type Value = { kind: "null" } | { kind: "bool"; value: boolean } |
 { kind: "json"; value: string } | { kind: "array"; value: Value[] } | 
 /**  A type yadbe does not decode, in its text form (read-only in the grid). */
 { kind: "other"; value: string };
+
+/**  How the `contents` string of `write_value_file` becomes bytes. */
+export type ValueFileEncoding = 
+/**  Written as UTF-8 text. */
+"utf8" | 
+/**  Hexadecimal digits (the grid's form of binary values), written as the bytes they spell. */
+"hex";
 
 /**
  *  Logical family of a column, for alignment, formatting and editors. Per-cell values may

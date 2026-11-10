@@ -120,6 +120,18 @@ for (const { name, colorScheme } of THEMES) {
       await expect(viewer.getByRole('radio', { name: 'Hex' })).toBeChecked();
       await expect(viewer).toContainText('00000000  00 02 3c cd');
       await capture(page, name, 'viewer-binary');
+      // Saved through the backend's `writeValueFile` (the mock disk keeps the hex form).
+      await viewer.getByRole('button', { name: 'Save to a file…' }).click();
+      await expect(page.getByText('Saved to /home/ana/Downloads/blob-4.bin')).toBeVisible();
+      expect(
+        await page.evaluate(() =>
+          (
+            window as unknown as {
+              __yadbeMock: { getFile: (path: string) => string | undefined };
+            }
+          ).__yadbeMock.getFile('/home/ana/Downloads/blob-4.bin'),
+        ),
+      ).toBe('00023ccd');
     });
 
     test('streaming result paused at the row limit', async ({ page }) => {

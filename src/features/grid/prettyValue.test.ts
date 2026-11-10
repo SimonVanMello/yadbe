@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { analyzeValue, extensionFor, hexDump, hexToBytes, parseXml } from './prettyValue';
+import { analyzeValue, extensionFor, hexDump, parseXml } from './prettyValue';
 
 describe('hexDump', () => {
   it('writes offsets, two groups of bytes and printable ASCII', () => {
@@ -17,10 +17,6 @@ describe('hexDump', () => {
 
   it('stops at the limit', () => {
     expect(hexDump('00'.repeat(100), 32)).toHaveLength(2);
-  });
-
-  it('decodes bytes', () => {
-    expect([...hexToBytes('00ff10')]).toEqual([0, 255, 16]);
   });
 });
 

@@ -18,7 +18,6 @@ import {
   extensionFor,
   HEX_DUMP_BYTES,
   hexDump,
-  hexToBytes,
   TEXT_VIEW_CHARS,
   type ViewerMode,
 } from './prettyValue';
@@ -98,7 +97,8 @@ export function CellViewer({ source, sourceKey, target, onClose }: CellViewerPro
           { name: filterName ?? t('grid.viewer.filter.all'), extensions: [extension] },
           { name: t('grid.viewer.filter.all'), extensions: ['*'] },
         ],
-        contents: isBinary ? hexToBytes(text) : text,
+        contents: text,
+        encoding: isBinary ? 'hex' : 'utf8',
       })
       .then(
         (path) => {
@@ -214,8 +214,8 @@ export function CellViewer({ source, sourceKey, target, onClose }: CellViewerPro
         <IconButton
           icon="file"
           size="sm"
-          label={fileSaver.available ? t('grid.viewer.save') : t('grid.viewer.saveUnavailable')}
-          disabled={!ready || !fileSaver.available}
+          label={t('grid.viewer.save')}
+          disabled={!ready}
           onClick={save}
         />
         <IconButton icon="close" size="sm" label={t('grid.viewer.hide')} onClick={onClose} />

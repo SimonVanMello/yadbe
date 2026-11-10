@@ -75,6 +75,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::query::close_query_tab,
             commands::files::read_text_file,
             commands::files::write_text_file,
+            commands::value_file::write_value_file,
         ])
         .events(collect_events![
             events::AppReady,

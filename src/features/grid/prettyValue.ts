@@ -34,12 +34,6 @@ export function hexDump(hex: string, maxBytes = HEX_DUMP_BYTES): string[] {
   return lines;
 }
 
-export function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(Math.floor(hex.length / 2));
-  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return bytes;
-}
-
 export type XmlNode =
   | { type: 'element'; name: string; attributes: [string, string][]; children: XmlNode[] }
   | { type: 'text'; text: string }
