@@ -7,6 +7,7 @@ use crate::events::EventSink;
 use crate::export::ExportManager;
 use crate::secrets::{KeychainBackend, SecretStore};
 use crate::session::history_writer::StoreHistory;
+use crate::session::library::Library;
 use crate::session::meta_cache::{MetaService, ObservingSink};
 use crate::session::statement_log::StatementLog;
 use crate::session::table_data::TableDataService;
@@ -24,6 +25,7 @@ pub struct AppState {
     pub meta: Arc<MetaService>,
     pub queries: Arc<QueryRunner>,
     pub history: Arc<StoreHistory>,
+    pub library: Arc<Library>,
     pub exports: Arc<ExportManager>,
     pub tables: Arc<TableDataService>,
 }
@@ -32,6 +34,7 @@ impl AppState {
     pub fn new(store: Store, keychain: Arc<dyn KeychainBackend>, sink: Arc<dyn EventSink>) -> Self {
         let store = Arc::new(store);
         let secrets = Arc::new(SecretStore::new(keychain));
+        let library = Arc::new(Library::new(Arc::clone(&store), Arc::clone(&sink)));
         let log = Arc::new(StatementLog::new(Arc::clone(&sink)));
         let meta = Arc::new(MetaService::new(Arc::clone(&sink)));
         // The metadata cache follows connection states (dropped, back, closed).
@@ -70,6 +73,7 @@ impl AppState {
             meta,
             queries,
             history,
+            library,
             exports,
             tables,
         }

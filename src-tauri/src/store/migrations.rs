@@ -96,6 +96,54 @@ const MIGRATIONS: &[&str] = &[
     CREATE TRIGGER history_after_delete AFTER DELETE ON history BEGIN
         INSERT INTO history_fts(history_fts, rowid, sql) VALUES ('delete', old.id, old.sql);
     END;",
+    // v3: saved queries and snippets (F-050). A query bound to a connection keeps living (as
+    // a global one) when that connection is deleted: the library never loses a query. The
+    // `seq` integer is the FTS5 rowid (a TEXT primary key has no stable rowid). A folder
+    // deletes what it holds, after a confirmation that counts it.
+    "CREATE TABLE saved_query_folders (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        parent_id TEXT REFERENCES saved_query_folders(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL
+    );
+    CREATE INDEX saved_query_folders_by_parent ON saved_query_folders(parent_id);
+    CREATE TABLE saved_queries (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        folder_id TEXT REFERENCES saved_query_folders(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        sql TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT '[]',
+        connection_id TEXT REFERENCES connections(id) ON DELETE SET NULL,
+        database_name TEXT,
+        snippet_trigger TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        last_used_at INTEGER
+    );
+    CREATE INDEX saved_queries_by_folder ON saved_queries(folder_id);
+    CREATE INDEX saved_queries_by_connection ON saved_queries(connection_id);
+    CREATE VIRTUAL TABLE saved_queries_fts USING fts5(
+        name, sql, description, tags, content='saved_queries', content_rowid='seq',
+        tokenize='unicode61 remove_diacritics 2', prefix='2 3'
+    );
+    CREATE TRIGGER saved_queries_after_insert AFTER INSERT ON saved_queries BEGIN
+        INSERT INTO saved_queries_fts(rowid, name, sql, description, tags)
+        VALUES (new.seq, new.name, new.sql, new.description, new.tags);
+    END;
+    CREATE TRIGGER saved_queries_after_delete AFTER DELETE ON saved_queries BEGIN
+        INSERT INTO saved_queries_fts(saved_queries_fts, rowid, name, sql, description, tags)
+        VALUES ('delete', old.seq, old.name, old.sql, old.description, old.tags);
+    END;
+    -- Not on `last_used_at`: using a query must not rewrite its text in the index.
+    CREATE TRIGGER saved_queries_after_update AFTER UPDATE OF name, sql, description, tags
+    ON saved_queries BEGIN
+        INSERT INTO saved_queries_fts(saved_queries_fts, rowid, name, sql, description, tags)
+        VALUES ('delete', old.seq, old.name, old.sql, old.description, old.tags);
+        INSERT INTO saved_queries_fts(rowid, name, sql, description, tags)
+        VALUES (new.seq, new.name, new.sql, new.description, new.tags);
+    END;",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {

@@ -213,6 +213,55 @@ export const commands = {
 	 *  many.
 	 */
 	clearHistory: (scope: HistoryScope) => typedError<number, YadbeError>(__TAURI_INVOKE("clear_history", { scope })),
+	/**  Every folder and query; statements are cut to a preview (`sqlTruncated`). */
+	listSavedQueries: () => typedError<SavedQueryLibrary, YadbeError>(__TAURI_INVOKE("list_saved_queries")),
+	/**  A query with its whole statement; `null` once deleted. */
+	getSavedQuery: (id: string) => typedError<{
+	id: string,
+	folderId: string | null,
+	name: string,
+	sql: string,
+	sqlTruncated: boolean,
+	description: string,
+	tags: string[],
+	/**  Scope: `null` is global, else the query belongs to this connection. */
+	connectionId: string | null,
+	/**  Database of the connection the query is bound to; only with `connection_id`. */
+	database: string | null,
+	/**  A snippet expands in the editor when its trigger word is completed. */
+	snippetTrigger: string | null,
+	/**  Unix time in seconds. */
+	createdAt: number,
+	updatedAt: number,
+	lastUsedAt: number | null,
+} | null, YadbeError>(__TAURI_INVOKE("get_saved_query", { id })),
+	/**
+	 *  Ids of the queries matching `text` in their name, statement, description or tags, best
+	 *  first. `connectionId`: only the global queries and that connection's.
+	 */
+	searchSavedQueries: (text: string, connectionId: string | null) => typedError<string[], YadbeError>(__TAURI_INVOKE("search_saved_queries", { text, connectionId })),
+	/**  The snippets (queries with a trigger word), whole templates. */
+	listSnippets: () => typedError<SnippetDefinition[], YadbeError>(__TAURI_INVOKE("list_snippets")),
+	createSavedQuery: (query: NewSavedQuery) => typedError<SavedQuery, YadbeError>(__TAURI_INVOKE("create_saved_query", { query })),
+	/**  Replaces every field of a query (`sql` `null`: keep the text). */
+	updateSavedQuery: (id: string, update: SavedQueryUpdate) => typedError<SavedQuery, YadbeError>(__TAURI_INVOKE("update_saved_query", { id, update })),
+	/**  Moves a query into a folder (`null`: the root of the library). */
+	moveSavedQuery: (id: string, folderId: string | null) => typedError<SavedQuery, YadbeError>(__TAURI_INVOKE("move_saved_query", { id, folderId })),
+	/**  A copy in the same folder, named like the original followed by `copySuffix`. */
+	duplicateSavedQuery: (id: string, copySuffix: string) => typedError<SavedQuery, YadbeError>(__TAURI_INVOKE("duplicate_saved_query", { id, copySuffix })),
+	deleteSavedQuery: (id: string) => typedError<null, YadbeError>(__TAURI_INVOKE("delete_saved_query", { id })),
+	/**  Notes that a query was just opened, inserted or run (no event). */
+	touchSavedQuery: (id: string) => typedError<null, YadbeError>(__TAURI_INVOKE("touch_saved_query", { id })),
+	createQueryFolder: (name: string, parentId: string | null) => typedError<QueryFolder, YadbeError>(__TAURI_INVOKE("create_query_folder", { name, parentId })),
+	renameQueryFolder: (id: string, name: string) => typedError<QueryFolder, YadbeError>(__TAURI_INVOKE("rename_query_folder", { id, name })),
+	/**  Moves a folder under another (`null`: the root); never into itself or its subfolders. */
+	moveQueryFolder: (id: string, parentId: string | null) => typedError<QueryFolder, YadbeError>(__TAURI_INVOKE("move_query_folder", { id, parentId })),
+	/**  Deletes a folder with its subfolders and every query in them; returns what went. */
+	deleteQueryFolder: (id: string) => typedError<FolderDeletion, YadbeError>(__TAURI_INVOKE("delete_query_folder", { id })),
+	/**  Writes the library to a JSON file (chosen in a save dialog). Scope is not exported. */
+	exportSavedQueries: (path: string) => typedError<null, YadbeError>(__TAURI_INVOKE("export_saved_queries", { path })),
+	/**  Adds the content of an exported library file; what is already there is skipped. */
+	importSavedQueries: (path: string) => typedError<ImportReport, YadbeError>(__TAURI_INVOKE("import_saved_queries", { path })),
 	/**  Reads a script file as UTF-8 text (a byte order mark is dropped). */
 	readTextFile: (path: string) => typedError<string, YadbeError>(__TAURI_INVOKE("read_text_file", { path })),
 	/**  Writes `text` to a script file, replacing its content. */
@@ -286,6 +335,7 @@ export const events = {
 	metaRefreshed: makeEvent<MetaRefreshed>("meta-refreshed"),
 	queryFinished: makeEvent<QueryFinished>("query-finished"),
 	queryProgress: makeEvent<QueryProgress>("query-progress"),
+	savedQueriesChanged: makeEvent<SavedQueriesChanged>("saved-queries-changed"),
 	statementLogged: makeEvent<StatementLogged>("statement-logged"),
 	tableDataChanged: makeEvent<TableDataChanged>("table-data-changed"),
 	transactionStateChanged: makeEvent<TransactionStateChanged>("transaction-state-changed"),
@@ -733,6 +783,10 @@ export type ErrorCode =
 "connectionNotFound" | 
 /**  No connection group has this id. */
 "groupNotFound" | 
+/**  No saved query has this id (deleted since the list was read). */
+"savedQueryNotFound" | 
+/**  No saved-query folder has this id. */
+"queryFolderNotFound" | 
 /**  The engine is known but its driver is not available yet. */
 "engineNotSupported" | 
 /**  The connection is not open (never opened, closed, or reconnecting). */
@@ -962,6 +1016,12 @@ export type FilterOp =
 /**  Two values, both bounds included. */
 "between";
 
+/**  What deleting a folder removed. */
+export type FolderDeletion = {
+	folders: number,
+	queries: number,
+};
+
 export type ForeignKey = {
 	name: string | null,
 	columns: string[],
@@ -1063,6 +1123,14 @@ export type Identity =
  *  `AUTO_INCREMENT`).
  */
 "byDefault";
+
+/**  What an import added. */
+export type ImportReport = {
+	folders: number,
+	queries: number,
+	/**  Queries already in the library (same folder, name and text). */
+	skipped: number,
+};
 
 export type IndexInfo = {
 	name: string,
@@ -1177,6 +1245,18 @@ export type MetaRefreshed = {
 	connectionId: string,
 	node: MetaNode,
 	reason: MetaRefreshReason,
+};
+
+/**  What a new saved query holds. */
+export type NewSavedQuery = {
+	name: string,
+	sql: string,
+	description: string,
+	tags: string[],
+	folderId: string | null,
+	connectionId: string | null,
+	database: string | null,
+	snippetTrigger: string | null,
 };
 
 export type ObjectCount = {
@@ -1302,6 +1382,13 @@ export type QueryFinished = {
 	tabId: string,
 	executionId: number,
 	delta: ExecutionDelta,
+};
+
+export type QueryFolder = {
+	id: string,
+	name: string,
+	parentId: string | null,
+	createdAt: number,
 };
 
 /**  A line of the Messages tab (F-061). */
@@ -1441,6 +1528,57 @@ export type SavedConnection = {
 	lastConnectedAt: number | null,
 };
 
+/**
+ *  The query library changed: a query or folder was created, edited, moved or deleted, or a
+ *  file was imported. Not sent when a query is merely used (`last_used_at`).
+ */
+export type SavedQueriesChanged = Record<string, never>;
+
+/**
+ *  A saved query or snippet. In the library list `sql` is cut to [`SAVED_PREVIEW_CHARS`]
+ *  (`sqlTruncated`); `get_saved_query` returns it whole.
+ */
+export type SavedQuery = {
+	id: string,
+	folderId: string | null,
+	name: string,
+	sql: string,
+	sqlTruncated: boolean,
+	description: string,
+	tags: string[],
+	/**  Scope: `null` is global, else the query belongs to this connection. */
+	connectionId: string | null,
+	/**  Database of the connection the query is bound to; only with `connection_id`. */
+	database: string | null,
+	/**  A snippet expands in the editor when its trigger word is completed. */
+	snippetTrigger: string | null,
+	/**  Unix time in seconds. */
+	createdAt: number,
+	updatedAt: number,
+	lastUsedAt: number | null,
+};
+
+/**  The whole library: folders and queries, unordered (the sidebar sorts them). */
+export type SavedQueryLibrary = {
+	folders: QueryFolder[],
+	queries: SavedQuery[],
+};
+
+/**
+ *  Every field of a saved query, replaced at once; `sql` `null` keeps the text (the sidebar
+ *  only holds a preview of it).
+ */
+export type SavedQueryUpdate = {
+	name: string,
+	sql: string | null,
+	description: string,
+	tags: string[],
+	folderId: string | null,
+	connectionId: string | null,
+	database: string | null,
+	snippetTrigger: string | null,
+};
+
 /**  An open tab, saved so it survives a restart (F-044). */
 export type SavedTab = {
 	id: string,
@@ -1535,6 +1673,17 @@ export type SessionInfo = {
 	error: YadbeError | null,
 	/**  1-based, while `reconnecting` (and on the `lost` state that ends the attempts). */
 	reconnectAttempt: number | null,
+};
+
+/**  A snippet with its whole template, for the editor's completion. */
+export type SnippetDefinition = {
+	id: string,
+	name: string,
+	trigger: string,
+	template: string,
+	description: string,
+	connectionId: string | null,
+	database: string | null,
 };
 
 export type SortDirection = "asc" | "desc";

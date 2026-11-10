@@ -28,6 +28,7 @@ import { mockErrors } from './mockErrors';
 import { createMockExport } from './mock/export';
 import { createMockFiles } from './mockFiles';
 import { createMockHistory } from './mock/history';
+import { createMockSavedQueries } from './mock/savedQueries';
 import { createMockMeta } from './mock/meta';
 import type { LargeCatalogOptions } from './mock/metaCatalog';
 import { cellValue, createMockQuery } from './mockQuery';
@@ -300,6 +301,7 @@ function createMockBackend() {
   });
 
   const files = createMockFiles();
+  const savedQueries = createMockSavedQueries({ events, connection: findConnection, files });
 
   const exporter = createMockExport({
     events,
@@ -387,6 +389,7 @@ function createMockBackend() {
       if (!findConnection(connectionId)) return fail(mockErrors.connectionNotFound(connectionId));
       await commands.disconnect(connectionId);
       connections = connections.filter((c) => c.id !== connectionId);
+      savedQueries.connectionDeleted(connectionId);
       for (const kind of ['password', 'sshPassphrase', 'token'] as const) {
         secrets.delete(secretKey(connectionId, kind));
       }
@@ -651,6 +654,7 @@ function createMockBackend() {
     ...meta.commands,
     ...query.commands,
     ...history.commands,
+    ...savedQueries.commands,
     ...tableData.commands,
 
     ...files.commands,
@@ -674,6 +678,7 @@ function createMockBackend() {
     meta.reset();
     query.reset();
     history.reset();
+    savedQueries.reset();
     tableData.reset();
     files.reset();
     exporter.reset();
@@ -760,6 +765,10 @@ function createMockBackend() {
     /** `count` synthetic history entries over the last year (100 000 for the scroll check). */
     seedHistory(count: number): void {
       history.seedSynthetic(count);
+    },
+    /** Empties the query library (a screen that shows its empty state). */
+    clearSavedQueries(): void {
+      savedQueries.clear();
     },
     /** Delay of the debounced `history-changed`, in ms (0 in unit tests). */
     setHistoryDebounce(ms: number): void {

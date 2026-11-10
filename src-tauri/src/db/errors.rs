@@ -24,6 +24,10 @@ pub enum ErrorCode {
     ConnectionNotFound,
     /// No connection group has this id.
     GroupNotFound,
+    /// No saved query has this id (deleted since the list was read).
+    SavedQueryNotFound,
+    /// No saved-query folder has this id.
+    QueryFolderNotFound,
     /// The engine is known but its driver is not available yet.
     EngineNotSupported,
     /// The connection is not open (never opened, closed, or reconnecting).
@@ -216,6 +220,24 @@ impl YadbeError {
             "Ce groupe n'existe plus.",
         )
         .with_detail(format!("group id {id}"))
+    }
+
+    pub fn saved_query_not_found(id: &str) -> Self {
+        Self::new(
+            ErrorCode::SavedQueryNotFound,
+            "This saved query no longer exists.",
+            "Cette requête enregistrée n'existe plus.",
+        )
+        .with_detail(format!("saved query id {id}"))
+    }
+
+    pub fn query_folder_not_found(id: &str) -> Self {
+        Self::new(
+            ErrorCode::QueryFolderNotFound,
+            "This folder no longer exists.",
+            "Ce dossier n'existe plus.",
+        )
+        .with_detail(format!("folder id {id}"))
     }
 
     pub fn engine_not_supported(label: &str) -> Self {
@@ -764,6 +786,8 @@ mod tests {
             YadbeError::keychain_unavailable(),
             YadbeError::keychain_failed("locked"),
             YadbeError::password_required(),
+            YadbeError::saved_query_not_found("q"),
+            YadbeError::query_folder_not_found("f"),
             YadbeError::engine_not_supported("MySQL"),
             YadbeError::object_not_found("shop.orders"),
             YadbeError::execution_running(),

@@ -4,6 +4,7 @@
 mod connection;
 pub mod history_hook;
 pub mod history_writer;
+pub mod library;
 mod manager;
 pub mod meta_cache;
 mod model;

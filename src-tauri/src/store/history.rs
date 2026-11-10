@@ -165,7 +165,7 @@ impl Default for HistoryRetention {
 
 /// The words of `text` as an FTS5 query: every word a quoted prefix term. `None` when there
 /// is no word at all (only punctuation).
-fn fts_query(text: &str) -> Option<String> {
+pub(super) fn fts_query(text: &str) -> Option<String> {
     let terms: Vec<String> = text
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
