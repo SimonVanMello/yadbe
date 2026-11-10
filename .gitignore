@@ -10,3 +10,4 @@ docs/progress/
 
 # Sub-session worktrees
 .claude/worktrees/
+dev/certs/
