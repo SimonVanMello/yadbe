@@ -18,8 +18,8 @@ export const commands = {
 	 */
 	createConnection: (definition: ConnectionDefinition) => typedError<SavedConnection, YadbeError>(__TAURI_INVOKE("create_connection", { definition })),
 	/**
-	 *  Replaces a connection's definition. An open session keeps its current settings until it
-	 *  reconnects.
+	 *  Replaces a connection's definition. An open session keeps the settings it was opened
+	 *  with (reconnections included) until it is closed and opened again.
 	 */
 	updateConnection: (connectionId: string, definition: ConnectionDefinition) => typedError<SavedConnection, YadbeError>(__TAURI_INVOKE("update_connection", { connectionId, definition })),
 	/**  Copies a connection under a new name (secrets are not copied). */
