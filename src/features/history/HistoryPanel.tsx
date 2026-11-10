@@ -23,7 +23,7 @@ import styles from './HistoryPanel.module.css';
 import { deleteEntry, insertEntry, openEntry } from './historyActions';
 import { activeFilterCount, dayDistance, groupByDay, isFiltered } from './historyModel';
 import { useHistoryUi } from './historyStore';
-import { LOAD_MORE_MARGIN, refreshHistory, useHistoryList } from './useHistory';
+import { LOAD_MORE_MARGIN, noteNewHistory, useHistoryList } from './useHistory';
 
 const SEARCH_DELAY_MS = 200;
 const ROW_ESTIMATE = 58;
@@ -43,9 +43,9 @@ export function HistoryPanel() {
   // The search runs once the user pauses; what is shown (and emphasized) is what ran.
   const searched = useDebouncedValue(filters.text, SEARCH_DELAY_MS);
   const queryFilters = useMemo(() => ({ ...filters, text: searched }), [filters, searched]);
-  const { query, entries } = useHistoryList(queryFilters);
+  const { query, entries, behind, catchUp } = useHistoryList(queryFilters);
   useYadbeEvent('historyChanged', () => {
-    void refreshHistory();
+    void noteNewHistory();
   });
 
   const items = useMemo(() => groupByDay(entries), [entries]);
@@ -74,6 +74,12 @@ export function HistoryPanel() {
       void fetchNextPage();
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage, lastVisible, items.length]);
+
+  // A list scrolled into older pages when statements ran catches up once back at the top.
+  const firstVisible = virtualItems[0]?.index ?? 0;
+  useEffect(() => {
+    if (behind && firstVisible === 0) void catchUp();
+  }, [behind, firstVisible, catchUp]);
 
   // A new search starts from the top.
   useEffect(() => {

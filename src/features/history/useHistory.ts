@@ -1,4 +1,9 @@
-import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useQuery,
+  type InfiniteData,
+} from '@tanstack/react-query';
 import { useMemo } from 'react';
 
 import { queryClient } from '../../app/queryClient';
@@ -22,6 +27,11 @@ export const historyKeys = {
   entry: (id: number) => ['history-entry', id] as const,
 };
 
+interface HistoryPage {
+  rows: HistoryEntry[];
+  next: number | null;
+}
+
 /** Rows of the next page are asked for when the list is this close to its last loaded row. */
 export const LOAD_MORE_MARGIN = 40;
 /** How often the list notices that the day changed. */
@@ -33,7 +43,7 @@ export function useHistoryList(filters: HistoryFilters) {
   const base = useMemo(() => toBaseQuery(filters, today), [filters, today]);
   const query = useInfiniteQuery({
     queryKey: historyKeys.list(base),
-    queryFn: async ({ pageParam }) => {
+    queryFn: async ({ pageParam }): Promise<HistoryPage> => {
       const page = await unwrap(ipc.commands.searchHistory({ ...base, after: pageParam }));
       return { rows: page.rows.map(toEntry), next: page.next };
     },
@@ -46,7 +56,20 @@ export function useHistoryList(filters: HistoryFilters) {
     () => query.data?.pages.flatMap((page) => page.rows) ?? [],
     [query.data],
   );
-  return { query, entries };
+  const key = historyKeys.list(base);
+  /** Whether new statements were recorded since this list was loaded beyond its first page. */
+  const behind =
+    (query.data?.pages.length ?? 0) > 1 &&
+    queryClient.getQueryState(key)?.isInvalidated === true &&
+    !query.isFetching;
+  /** Loads the first page again (with the new statements), dropping the older pages. */
+  const catchUp = () => {
+    queryClient.setQueryData<InfiniteData<HistoryPage, number | null>>(key, (data) =>
+      data ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data,
+    );
+    return queryClient.refetchQueries({ queryKey: key, exact: true });
+  };
+  return { query, entries, behind, catchUp };
 }
 
 /** The whole statement and error of an entry (the list holds a truncated copy). */
@@ -72,4 +95,22 @@ export function useHistoryCount(scope: HistoryScope) {
 
 export function refreshHistory(): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: historyKeys.all });
+}
+
+/**
+ * New statements were recorded (`history-changed`, after every run). Refetching an infinite list
+ * reads every loaded page again, one after the other: a list scrolled thousands of entries deep
+ * would do that after each run. Lists still on their first page are refetched at once; the
+ * others are only marked, and catch up once scrolled back to the top (`catchUp`).
+ */
+export async function noteNewHistory(): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: historyKeys.all, refetchType: 'none' });
+  await queryClient.refetchQueries({
+    queryKey: historyKeys.all,
+    type: 'active',
+    predicate: (query) => {
+      const data = query.state.data as InfiniteData<HistoryPage> | undefined;
+      return query.queryKey[1] !== 'list' || (data?.pages.length ?? 0) <= 1;
+    },
+  });
 }
