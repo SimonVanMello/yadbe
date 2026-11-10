@@ -9,6 +9,7 @@ import { TextInput } from '../../ui/TextInput';
 import { useKeychainAvailable } from './connectionStore';
 import type { ConnectionSummary } from './model';
 import { usePasswordPrompt } from './passwordPromptStore';
+import styles from './PasswordPromptDialog.module.css';
 
 function PromptForm({ connection }: { connection: ConnectionSummary }) {
   const t = useT();
@@ -48,7 +49,7 @@ function PromptForm({ connection }: { connection: ConnectionSummary }) {
         </>
       }
     >
-      <form id="password-form" onSubmit={submit}>
+      <form id="password-form" className={styles.form} onSubmit={submit}>
         <Field label={t('connection.password')} htmlFor="prompt-password">
           <TextInput
             id="prompt-password"
