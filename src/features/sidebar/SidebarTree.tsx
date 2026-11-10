@@ -18,6 +18,7 @@ import { GroupRow } from './GroupRow';
 import styles from './SidebarTree.module.css';
 import { openRow, refreshRow, rowLabel, setRowExpanded, toggleRow } from './sidebarActions';
 import { treeShape, type SidebarTreeRow } from './sidebarRows';
+import { useRevealRow } from './useRevealRow';
 import { useRowHeight } from './useRowHeight';
 
 const OVERSCAN = 12;
@@ -86,6 +87,16 @@ export function SidebarTree({ rows, label, empty, treeRef }: SidebarTreeProps) {
     setActiveKey(row.key);
     virtualizer.scrollToIndex(index, { align: 'auto' });
   };
+
+  // "Reveal in explorer" (the palette): focus first, since focusing the tree activates its first
+  // row when none is.
+  useRevealRow(rows, (index) => {
+    const row = rows[index];
+    if (!row) return;
+    scrollRef.current?.focus({ preventScroll: true });
+    setActiveKey(row.key);
+    virtualizer.scrollToIndex(index, { align: 'center' });
+  });
 
   // Stable, so that the rows that did not change are not drawn again on every scroll.
   const rowsRef = useRef(rows);

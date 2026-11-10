@@ -1,15 +1,17 @@
 import { queryClient } from '../../app/queryClient';
 import { ipc, type MetaNode } from '../../ipc';
 import { stateOf, useSessions } from '../connections/connectionStore';
+import { catalogKeys, invalidateCatalogs } from './catalogCache';
 import { invalidationFilters, metaKeys } from './metaKeys';
 
 /** Marks what a refreshed node covers as stale: the nodes on screen read it again, only those. */
 export async function invalidateMeta(connectionId: string, node: MetaNode): Promise<void> {
-  await Promise.all(
-    invalidationFilters(connectionId, node).map((filters) =>
+  await Promise.all([
+    ...invalidationFilters(connectionId, node).map((filters) =>
       queryClient.invalidateQueries(filters),
     ),
-  );
+    invalidateCatalogs(queryClient, connectionId, node),
+  ]);
 }
 
 let feed = false;
@@ -25,8 +27,13 @@ export function startMetaFeed(): void {
   useSessions.subscribe((state, previous) => {
     for (const connectionId of Object.keys(previous.sessions)) {
       if (stateOf(state.sessions[connectionId]) === 'disconnected') {
-        void queryClient.cancelQueries({ queryKey: metaKeys.connection(connectionId) });
-        queryClient.removeQueries({ queryKey: metaKeys.connection(connectionId) });
+        for (const queryKey of [
+          metaKeys.connection(connectionId),
+          catalogKeys.connection(connectionId),
+        ]) {
+          void queryClient.cancelQueries({ queryKey });
+          queryClient.removeQueries({ queryKey });
+        }
       }
     }
   });
