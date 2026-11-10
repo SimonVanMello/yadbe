@@ -1,3 +1,5 @@
+import { editorFromSaved, editorToSaved } from '../../features/query/queryTabPersistence';
+import { fileNameOf, type QueryTabState } from '../../features/query/queryTabStore';
 import type { SavedTab, TabsState } from '../../ipc';
 import type { SavedTabs } from './tabsStore';
 
@@ -18,25 +20,48 @@ function ordinalOf(uiState: string | null): number {
 
 /**
  * The tabs as the backend stores them (F-044). `titleOf` names a query tab in the current
- * language; a welcome tab is an unbound query tab.
+ * language; a welcome tab is an unbound query tab. `editors` holds what each query tab contains
+ * (text, cursor, database, file): without it a tab is saved empty.
  */
-export function toBackendTabs(saved: SavedTabs, titleOf: (ordinal: number) => string): TabsState {
+export function toBackendTabs(
+  saved: SavedTabs,
+  titleOf: (ordinal: number) => string,
+  editors: Readonly<Record<string, QueryTabState>> = {},
+): TabsState {
   return {
-    tabs: saved.tabs.map((tab): SavedTab => ({
-      id: tab.id,
-      kind: 'query',
-      title: tab.connectionId === null ? '' : titleOf(tab.ordinal),
-      connectionId: tab.connectionId,
-      database: null,
-      content: '',
-      cursor: null,
-      pinned: tab.pinned,
-      filePath: null,
-      table: null,
-      uiState: JSON.stringify({ ordinal: tab.ordinal }),
-    })),
+    tabs: saved.tabs.map((tab): SavedTab => {
+      const editor = tab.connectionId === null ? undefined : editors[tab.id];
+      const persisted = editor ? editorToSaved(editor) : null;
+      return {
+        id: tab.id,
+        kind: 'query',
+        title:
+          tab.connectionId === null
+            ? ''
+            : editor?.filePath
+              ? fileNameOf(editor.filePath)
+              : titleOf(tab.ordinal),
+        connectionId: tab.connectionId,
+        database: persisted?.database ?? null,
+        content: persisted?.content ?? '',
+        cursor: persisted?.cursor ?? null,
+        pinned: tab.pinned,
+        filePath: persisted?.filePath ?? null,
+        table: null,
+        uiState: JSON.stringify({ ordinal: tab.ordinal, ...persisted?.ui }),
+      };
+    }),
     activeTabId: saved.activeTabId,
   };
+}
+
+/** The editor state of every saved query tab (text, cursor, scroll, database, file). */
+export function editorsFromBackendTabs(state: TabsState): Record<string, QueryTabState> {
+  return Object.fromEntries(
+    state.tabs
+      .filter((tab) => tab.kind === 'query' && tab.connectionId !== null)
+      .map((tab) => [tab.id, editorFromSaved(tab)]),
+  );
 }
 
 /**

@@ -1,0 +1,61 @@
+import type { QueryClient, QueryState } from '@tanstack/react-query';
+
+import { YadbeIpcError, type YadbeError } from '../../ipc';
+import { fetchMeta } from './metaApi';
+import { requestKey, type MetaRequest } from './metaKeys';
+import type { Loadable, MetaSource } from './explorerRows';
+
+/** The query behind one node: data stay cached until a refresh, the backend has its own cache. */
+export function metaQuery(connectionId: string, request: MetaRequest) {
+  return {
+    queryKey: requestKey(connectionId, request),
+    queryFn: ({ signal }: { signal: AbortSignal }) => fetchMeta(connectionId, request, signal),
+    staleTime: Infinity,
+    // A collapsed node keeps its data a while: opening it again is instant.
+    gcTime: 10 * 60_000,
+  };
+}
+
+const INTERNAL: YadbeError = {
+  code: 'internal',
+  message: { en: 'Unexpected error.', fr: 'Erreur inattendue.' },
+  action: null,
+  detail: null,
+};
+
+function asLoadable<T>(state: QueryState<T> | undefined, fetch: boolean): Loadable<T> {
+  if (state === undefined) return fetch ? { state: 'loading' } : { state: 'idle' };
+  if (state.data !== undefined) return { state: 'ready', data: state.data };
+  if (state.fetchStatus === 'fetching') return { state: 'loading' };
+  if (state.status === 'error') {
+    const error = state.error instanceof YadbeIpcError ? state.error.error : INTERNAL;
+    return { state: 'error', error };
+  }
+  return { state: 'loading' };
+}
+
+/**
+ * The tree's view of the query cache. Every request made with `fetch` is recorded, so that the
+ * caller can observe (and so load) exactly the nodes that are open on screen.
+ */
+export function createCacheSource(
+  client: QueryClient,
+  connectionId: string,
+  record: (connectionId: string, request: MetaRequest) => void,
+): MetaSource {
+  const read = <T>(request: MetaRequest, fetch: boolean): Loadable<T> => {
+    if (fetch) record(connectionId, request);
+    return asLoadable(
+      client.getQueryState<T>(requestKey(connectionId, request) as unknown[]),
+      fetch,
+    );
+  };
+  return {
+    databases: (fetch) => read({ type: 'databases' }, fetch),
+    schemas: (database, fetch) => read({ type: 'schemas', database }, fetch),
+    counts: (database, schema, fetch) => read({ type: 'counts', database, schema }, fetch),
+    objects: (database, schema, kind, fetch) =>
+      read({ type: 'objects', database, schema, kind }, fetch),
+    table: (table, kind, fetch) => read({ type: 'table', table, kind }, fetch),
+  };
+}

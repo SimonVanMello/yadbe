@@ -7,7 +7,7 @@
   align-items: center;
   gap: var(--space-2);
   height: var(--row-height);
-  padding: 0 var(--space-2) 0 calc(var(--space-4) + var(--depth) * var(--space-5));
+  padding: 0 var(--space-2) 0 calc(var(--space-3) + var(--depth) * var(--space-4));
   border-radius: var(--radius-md);
   color: var(--fg-primary);
   font-size: var(--text-sm);
@@ -31,9 +31,23 @@
   background: var(--bg-hover);
 }
 
-.row:focus-visible {
-  outline-offset: -2px;
+.row[data-active] {
   background: var(--bg-selected);
+}
+
+/* The tree keeps the focus (aria-activedescendant): ring the active row while it has it. */
+:global([role='tree']:focus-visible) .row[data-active] {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+.twisty {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  color: var(--fg-muted);
 }
 
 .name {
@@ -52,7 +66,7 @@
   color: var(--fg-muted);
 }
 
-.favorite {
+.action {
   display: grid;
   place-items: center;
   flex: none;
@@ -67,17 +81,17 @@
   opacity: 0;
 }
 
-.row:hover .favorite,
-.row:focus-within .favorite,
-.favorite[data-active] {
+.row:hover .action,
+.row[data-active] .action,
+.action[data-active] {
   opacity: 1;
 }
 
-.favorite[data-active] {
+.action[data-active] {
   color: var(--warning);
 }
 
-.favorite:hover {
+.action:hover {
   background: var(--bg-active);
 }
 

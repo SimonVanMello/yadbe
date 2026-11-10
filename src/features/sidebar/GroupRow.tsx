@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent } from 'react';
+import { memo, type CSSProperties } from 'react';
 
 import { useShellStore } from '../../app/shellStore';
 import { useT } from '../../i18n/useT';
@@ -6,32 +6,42 @@ import { ContextMenu } from '../../ui/ContextMenu';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
 import { ContextMenuSeparator } from '../../ui/ContextMenuSeparator';
 import { Icon } from '../../ui/Icon';
+import { deleteGroup } from '../connections/groupActions';
 import { useGroupDialog } from '../connections/groupDialogStore';
-import { deleteGroup, setGroupCollapsed } from '../connections/groupActions';
-import type { ConnectionGroup } from '../connections/model';
 import styles from './GroupRow.module.css';
+import { rowStyle } from './rowStyle';
+import type { SidebarTreeRow } from './sidebarRows';
+
+export type GroupTreeRow = Extract<SidebarTreeRow, { type: 'group' }>;
 
 interface GroupRowProps {
-  group: ConnectionGroup;
-  expanded: boolean;
-  count: number;
-  depth: number;
-  focused: boolean;
-  onFocus: () => void;
-  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+  row: GroupTreeRow;
+  id: string;
+  index: number;
+  active: boolean;
+  posInSet: number;
+  setSize: number;
+  offset: number;
+  height: number;
+  onSelect: (index: number) => void;
+  onToggle: (row: GroupTreeRow) => void;
 }
 
 /** A folder of the connection list (F-007): click to fold, right click to rename or delete. */
-export function GroupRow({
-  group,
-  expanded,
-  count,
-  depth,
-  focused,
-  onFocus,
-  onKeyDown,
+export const GroupRow = memo(function GroupRow({
+  row,
+  id,
+  index,
+  active,
+  posInSet,
+  setSize,
+  offset,
+  height,
+  onSelect,
+  onToggle,
 }: GroupRowProps) {
   const t = useT();
+  const { group, expanded, count } = row;
   return (
     <ContextMenu
       content={
@@ -76,18 +86,20 @@ export function GroupRow({
       }
     >
       <div
+        id={id}
         role="treeitem"
-        aria-level={depth + 1}
+        aria-level={row.level}
+        aria-posinset={posInSet}
+        aria-setsize={setSize}
         aria-expanded={expanded}
-        aria-selected={false}
-        tabIndex={focused ? 0 : -1}
-        data-row-id={`group:${group.id}`}
+        aria-selected={active}
+        data-row-index={index}
+        data-active={active || undefined}
         className={styles.row}
-        style={{ '--depth': depth } as CSSProperties}
-        onFocus={onFocus}
-        onKeyDown={onKeyDown}
+        style={{ ...rowStyle(offset, height), '--depth': row.level - 1 } as CSSProperties}
         onClick={() => {
-          void setGroupCollapsed(group, expanded);
+          onSelect(index);
+          onToggle(row);
         }}
       >
         <Icon name={expanded ? 'chevronDown' : 'chevronRight'} className={styles.chevron} />
@@ -97,4 +109,4 @@ export function GroupRow({
       </div>
     </ContextMenu>
   );
-}
+});

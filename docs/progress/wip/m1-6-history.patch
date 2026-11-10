@@ -1,0 +1,2023 @@
+From e2cc7534ebef16806d30abd2f4d7a5b67b608c4f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 10 Nov 2026 15:05:37 +0000
+Subject: [PATCH] wip(M1-6): unfinished work saved at pause
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01SaufxMEYxSRjQLqu9fdKrx
+---
+ src-tauri/src/commands/history.rs       |  68 ++++
+ src-tauri/src/commands/mod.rs           |   1 +
+ src-tauri/src/db/config.rs              |   9 +
+ src-tauri/src/events.rs                 |   8 +
+ src-tauri/src/lib.rs                    |   6 +
+ src-tauri/src/session/history_writer.rs | 264 +++++++++++++
+ src-tauri/src/session/mod.rs            |   1 +
+ src-tauri/src/state.rs                  |  13 +-
+ src-tauri/src/store/history.rs          | 498 ++++++++++++++++++++++++
+ src-tauri/src/store/history_tests.rs    | 376 ++++++++++++++++++
+ src-tauri/src/store/migrations.rs       |  37 ++
+ src-tauri/src/store/mod.rs              |  13 +-
+ src-tauri/tests/common/mod.rs           |   1 +
+ src-tauri/tests/history.rs              | 236 +++++++++++
+ src-tauri/tests/history_bench.rs        | 149 +++++++
+ src-tauri/tests/query_common/mod.rs     |  26 +-
+ 16 files changed, 1698 insertions(+), 8 deletions(-)
+ create mode 100644 src-tauri/src/commands/history.rs
+ create mode 100644 src-tauri/src/session/history_writer.rs
+ create mode 100644 src-tauri/src/store/history.rs
+ create mode 100644 src-tauri/src/store/history_tests.rs
+ create mode 100644 src-tauri/tests/history.rs
+ create mode 100644 src-tauri/tests/history_bench.rs
+
+diff --git a/src-tauri/src/commands/history.rs b/src-tauri/src/commands/history.rs
+new file mode 100644
+index 0000000..399f62a
+--- /dev/null
++++ b/src-tauri/src/commands/history.rs
+@@ -0,0 +1,68 @@
++//! History (F-100, F-101, F-104): search, entry, delete, clear. Recording happens in the
++//! query runner; `history-changed` tells the panel to query again.
++
++use std::sync::Arc;
++
++use tauri::State;
++
++use super::blocking;
++use crate::db::errors::YadbeError;
++use crate::state::AppState;
++use crate::store::{HistoryPage, HistoryQuery, HistoryRow, HistoryScope};
++
++/// One page of the history, newest first: full-text `text`, filters, keyset pagination
++/// (`after` is the previous page's `next`). Statements are cut in list rows.
++#[tauri::command]
++#[specta::specta]
++pub async fn search_history(
++    state: State<'_, AppState>,
++    query: HistoryQuery,
++) -> Result<HistoryPage, YadbeError> {
++    let store = Arc::clone(&state.store);
++    blocking(move || store.search_history(&query)).await
++}
++
++/// An entry with its whole statement and error message; `null` once deleted or pruned.
++#[tauri::command]
++#[specta::specta]
++pub async fn get_history_entry(
++    state: State<'_, AppState>,
++    id: f64,
++) -> Result<Option<HistoryRow>, YadbeError> {
++    let store = Arc::clone(&state.store);
++    blocking(move || store.history_entry(id)).await
++}
++
++#[tauri::command]
++#[specta::specta]
++pub async fn delete_history_entry(state: State<'_, AppState>, id: f64) -> Result<(), YadbeError> {
++    let store = Arc::clone(&state.store);
++    blocking(move || store.delete_history_entry(id)).await?;
++    state.history.notify_changed();
++    Ok(())
++}
++
++/// How many entries `clear_history` would delete: the concrete effect to confirm.
++#[tauri::command]
++#[specta::specta]
++pub async fn count_history(
++    state: State<'_, AppState>,
++    scope: HistoryScope,
++) -> Result<u32, YadbeError> {
++    let store = Arc::clone(&state.store);
++    blocking(move || store.count_history(&scope)).await
++}
++
++/// Deletes the entries inside `scope` (all, one connection, a date range); returns how
++/// many.
++#[tauri::command]
++#[specta::specta]
++pub async fn clear_history(
++    state: State<'_, AppState>,
++    scope: HistoryScope,
++) -> Result<u32, YadbeError> {
++    let store = Arc::clone(&state.store);
++    let removed = blocking(move || store.clear_history(&scope)).await?;
++    state.history.notify_changed();
++    Ok(removed)
++}
+diff --git a/src-tauri/src/commands/mod.rs b/src-tauri/src/commands/mod.rs
+index 1254ff8..d06569a 100644
+--- a/src-tauri/src/commands/mod.rs
++++ b/src-tauri/src/commands/mod.rs
+@@ -3,6 +3,7 @@
+ pub mod app;
+ pub mod connections;
+ pub mod files;
++pub mod history;
+ pub mod meta;
+ pub mod query;
+ pub mod secrets;
+diff --git a/src-tauri/src/db/config.rs b/src-tauri/src/db/config.rs
+index 342df40..39fb956 100644
+--- a/src-tauri/src/db/config.rs
++++ b/src-tauri/src/db/config.rs
+@@ -193,6 +193,14 @@ pub struct ConnectionDefinition {
+     /// The password goes to the OS keychain; otherwise it is asked at connect time and kept
+     /// in memory for the session.
+     pub remember_password: bool,
++    /// Statements run on this connection go to the history (F-104). `true` unless the user
++    /// opts out; absent in older payloads.
++    #[serde(default = "default_true")]
++    pub history_enabled: bool,
++}
++
++fn default_true() -> bool {
++    true
+ }
+ 
+ impl ConnectionDefinition {
+@@ -379,6 +387,7 @@ pub(crate) fn sample_definition(engine: Engine) -> ConnectionDefinition {
+         favorite: false,
+         read_only: false,
+         remember_password: true,
++        history_enabled: true,
+     }
+ }
+ 
+diff --git a/src-tauri/src/events.rs b/src-tauri/src/events.rs
+index 0d9416b..7d5c163 100644
+--- a/src-tauri/src/events.rs
++++ b/src-tauri/src/events.rs
+@@ -82,6 +82,12 @@ pub struct TransactionStateChanged {
+     pub transaction: TransactionState,
+ }
+ 
++/// The history changed: statements recorded, an entry deleted, the history cleared or pruned.
++/// Debounced (at most about four per second): query it again.
++#[derive(Debug, Clone, Serialize, Type, Event)]
++#[serde(rename_all = "camelCase")]
++pub struct HistoryChanged {}
++
+ /// Every event the services emit, so they can be tested without Tauri.
+ #[derive(Debug, Clone)]
+ pub enum BackendEvent {
+@@ -91,6 +97,7 @@ pub enum BackendEvent {
+     QueryProgress(QueryProgress),
+     QueryFinished(QueryFinished),
+     TransactionStateChanged(TransactionStateChanged),
++    HistoryChanged(HistoryChanged),
+ }
+ 
+ pub trait EventSink: Send + Sync {
+@@ -142,6 +149,7 @@ impl EventSink for TauriSink {
+             BackendEvent::QueryProgress(e) => e.emit(app),
+             BackendEvent::QueryFinished(e) => e.emit(app),
+             BackendEvent::TransactionStateChanged(e) => e.emit(app),
++            BackendEvent::HistoryChanged(e) => e.emit(app),
+         };
+         if let Err(err) = result {
+             tracing::warn!(error = %err, "failed to emit event");
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 9306df4..c96b4de 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -73,6 +73,11 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
+             commands::query::commit_transaction,
+             commands::query::rollback_transaction,
+             commands::query::close_query_tab,
++            commands::history::search_history,
++            commands::history::get_history_entry,
++            commands::history::delete_history_entry,
++            commands::history::count_history,
++            commands::history::clear_history,
+             commands::files::read_text_file,
+             commands::files::write_text_file,
+         ])
+@@ -84,6 +89,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
+             events::QueryProgress,
+             events::QueryFinished,
+             events::TransactionStateChanged,
++            events::HistoryChanged,
+         ])
+ }
+ 
+diff --git a/src-tauri/src/session/history_writer.rs b/src-tauri/src/session/history_writer.rs
+new file mode 100644
+index 0000000..04b6e03
+--- /dev/null
++++ b/src-tauri/src/session/history_writer.rs
+@@ -0,0 +1,264 @@
++//! The real [`HistoryRecorder`]: statements are queued from the runner's task and written
++//! to the store in batches by a dedicated thread, which also prunes the history and emits
++//! the (debounced) `history-changed` event.
++
++use std::collections::HashMap;
++use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
++use std::sync::{Arc, Mutex};
++use std::thread::JoinHandle;
++use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
++
++use crate::db::config::ConnectionDefinition;
++use crate::events::{BackendEvent, EventSink, HistoryChanged};
++use crate::session::history_hook::{HistoryEntry, HistoryRecorder};
++use crate::store::{HistoryOutcome, HistoryRetention, NewHistoryEntry, Store};
++
++/// At most one `history-changed` per this interval.
++const EMIT_DEBOUNCE: Duration = Duration::from_millis(250);
++const PRUNE_INTERVAL: Duration = Duration::from_secs(3600);
++/// Also prune after this many writes, whatever the clock says.
++const PRUNE_EVERY_WRITES: usize = 1000;
++const MAX_BATCH: usize = 500;
++
++enum Msg {
++    Entry(Box<HistoryEntry>),
++    /// Something else changed the history (delete, clear): tell the panel.
++    Changed,
++    /// Answers once everything queued before it is written.
++    Flush(SyncSender<()>),
++    Shutdown,
++}
++
++pub struct StoreHistory {
++    tx: Sender<Msg>,
++    thread: Mutex<Option<JoinHandle<()>>>,
++}
++
++impl StoreHistory {
++    pub fn new(
++        store: Arc<Store>,
++        sink: Arc<dyn EventSink>,
++        retention: HistoryRetention,
++    ) -> Arc<Self> {
++        let (tx, rx) = mpsc::channel();
++        let thread = std::thread::Builder::new()
++            .name("history-writer".into())
++            .spawn(move || Writer::new(store, sink, retention).run(&rx))
++            .map_err(|err| tracing::error!(error = %err, "cannot start the history writer"))
++            .ok();
++        Arc::new(Self {
++            tx,
++            thread: Mutex::new(thread),
++        })
++    }
++
++    /// Announces a change made outside the writer (an entry deleted, the history cleared).
++    pub fn notify_changed(&self) {
++        let _ = self.tx.send(Msg::Changed);
++    }
++
++    /// Blocks until every statement recorded so far is in the store (tests, shutdown).
++    pub fn flush(&self) {
++        let (ack, done) = mpsc::sync_channel(1);
++        if self.tx.send(Msg::Flush(ack)).is_ok() {
++            let _ = done.recv_timeout(Duration::from_secs(10));
++        }
++    }
++}
++
++impl HistoryRecorder for StoreHistory {
++    fn record(&self, entry: HistoryEntry) {
++        let _ = self.tx.send(Msg::Entry(Box::new(entry)));
++    }
++}
++
++impl Drop for StoreHistory {
++    fn drop(&mut self) {
++        let _ = self.tx.send(Msg::Shutdown);
++        let thread = self
++            .thread
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner)
++            .take();
++        if let Some(thread) = thread {
++            let _ = thread.join();
++        }
++    }
++}
++
++fn unix_ms(time: SystemTime) -> i64 {
++    time.duration_since(UNIX_EPOCH)
++        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
++}
++
++struct Writer {
++    store: Arc<Store>,
++    sink: Arc<dyn EventSink>,
++    retention: HistoryRetention,
++    last_emit: Option<Instant>,
++    emit_at: Option<Instant>,
++    last_prune: Instant,
++    writes_since_prune: usize,
++}
++
++impl Writer {
++    fn new(store: Arc<Store>, sink: Arc<dyn EventSink>, retention: HistoryRetention) -> Self {
++        Self {
++            store,
++            sink,
++            retention,
++            last_emit: None,
++            emit_at: None,
++            last_prune: Instant::now(),
++            writes_since_prune: 0,
++        }
++    }
++
++    fn run(mut self, rx: &Receiver<Msg>) {
++        self.prune();
++        loop {
++            let wait = self.emit_at.map_or(PRUNE_INTERVAL, |at| {
++                at.saturating_duration_since(Instant::now())
++            });
++            let first = match rx.recv_timeout(wait) {
++                Ok(msg) => msg,
++                Err(RecvTimeoutError::Timeout) => {
++                    self.tick();
++                    continue;
++                }
++                Err(RecvTimeoutError::Disconnected) => return,
++            };
++            let mut entries = Vec::new();
++            let mut acks = Vec::new();
++            let mut changed = false;
++            let mut shutdown = false;
++            let mut next = Some(first);
++            while let Some(msg) = next.take() {
++                match msg {
++                    Msg::Entry(entry) => entries.push(*entry),
++                    Msg::Changed => changed = true,
++                    Msg::Flush(ack) => acks.push(ack),
++                    Msg::Shutdown => shutdown = true,
++                }
++                if entries.len() < MAX_BATCH && !shutdown {
++                    next = rx.try_recv().ok();
++                }
++            }
++            if self.write(&entries) || changed {
++                self.schedule_emit();
++            }
++            self.tick();
++            for ack in acks {
++                let _ = ack.send(());
++            }
++            if shutdown {
++                return;
++            }
++        }
++    }
++
++    /// Writes a batch; `true` when something was stored.
++    fn write(&mut self, entries: &[HistoryEntry]) -> bool {
++        let mut definitions: HashMap<&str, Option<ConnectionDefinition>> = HashMap::new();
++        let mut rows = Vec::with_capacity(entries.len());
++        for entry in entries {
++            let definition = definitions
++                .entry(entry.connection_id.as_str())
++                .or_insert_with(|| {
++                    self.store
++                        .connection(&entry.connection_id)
++                        .ok()
++                        .map(|c| c.definition)
++                })
++                .as_ref();
++            // A connection deleted while its statement ran has nothing to attach to.
++            let Some(definition) = definition else {
++                continue;
++            };
++            if !definition.history_enabled {
++                continue;
++            }
++            let (error_code, error_message) = match &entry.outcome {
++                Ok(()) => (None, None),
++                Err(e) => (
++                    Some(e.code),
++                    Some(e.detail.clone().unwrap_or_else(|| e.message.en.clone())),
++                ),
++            };
++            rows.push(NewHistoryEntry {
++                connection_id: entry.connection_id.clone(),
++                connection_name: definition.name.clone(),
++                engine: definition.engine,
++                database: entry
++                    .database
++                    .clone()
++                    .or_else(|| Some(definition.database.clone()))
++                    .filter(|d| !d.is_empty()),
++                sql: entry.sql.clone(),
++                started_at_ms: unix_ms(entry.started_at),
++                duration_ms: (entry.duration.as_secs_f64() * 10_000.0).round() / 10.0,
++                rows: entry.rows.map(|r| i64::try_from(r).unwrap_or(i64::MAX)),
++                outcome: HistoryOutcome::of(&entry.outcome),
++                error_code,
++                error_message,
++            });
++        }
++        if rows.is_empty() {
++            return false;
++        }
++        match self.store.insert_history(&rows) {
++            Ok(()) => {
++                self.writes_since_prune += rows.len();
++                true
++            }
++            Err(err) => {
++                tracing::error!(error = %err, "cannot write the history");
++                false
++            }
++        }
++    }
++
++    /// Prunes when due, then emits when the debounce allows.
++    fn tick(&mut self) {
++        if self.writes_since_prune >= PRUNE_EVERY_WRITES
++            || self.last_prune.elapsed() >= PRUNE_INTERVAL
++        {
++            self.prune();
++        }
++        if self.emit_at.is_some_and(|at| at <= Instant::now()) {
++            self.emit_at = None;
++            self.last_emit = Some(Instant::now());
++            self.sink
++                .emit(BackendEvent::HistoryChanged(HistoryChanged {}));
++        }
++    }
++
++    fn prune(&mut self) {
++        self.last_prune = Instant::now();
++        self.writes_since_prune = 0;
++        match self
++            .store
++            .prune_history(self.retention, unix_ms(SystemTime::now()))
++        {
++            Ok(0) => {}
++            Ok(removed) => {
++                tracing::info!(removed, "pruned the history");
++                self.schedule_emit();
++            }
++            Err(err) => tracing::warn!(error = %err, "cannot prune the history"),
++        }
++    }
++
++    /// The first change after a quiet period is announced at once; the next ones wait for the
++    /// debounce interval and share one event.
++    fn schedule_emit(&mut self) {
++        if self.emit_at.is_some() {
++            return;
++        }
++        let now = Instant::now();
++        self.emit_at = Some(
++            self.last_emit
++                .map_or(now, |at| (at + EMIT_DEBOUNCE).max(now)),
++        );
++    }
++}
+diff --git a/src-tauri/src/session/mod.rs b/src-tauri/src/session/mod.rs
+index 4089e32..1e9256c 100644
+--- a/src-tauri/src/session/mod.rs
++++ b/src-tauri/src/session/mod.rs
+@@ -3,6 +3,7 @@
+ 
+ mod connection;
+ pub mod history_hook;
++pub mod history_writer;
+ mod manager;
+ pub mod meta_cache;
+ mod model;
+diff --git a/src-tauri/src/state.rs b/src-tauri/src/state.rs
+index f50ed81..a099927 100644
+--- a/src-tauri/src/state.rs
++++ b/src-tauri/src/state.rs
+@@ -5,11 +5,11 @@ use std::sync::Arc;
+ 
+ use crate::events::EventSink;
+ use crate::secrets::{KeychainBackend, SecretStore};
+-use crate::session::history_hook::NoHistory;
++use crate::session::history_writer::StoreHistory;
+ use crate::session::meta_cache::{MetaService, ObservingSink};
+ use crate::session::statement_log::StatementLog;
+ use crate::session::{ConnectionManager, QueryRunner};
+-use crate::store::{DB_FILE, Store};
++use crate::store::{DB_FILE, HistoryRetention, Store};
+ 
+ /// Overrides the config folder (tests, isolated `xvfb-run` sessions).
+ pub const CONFIG_DIR_ENV: &str = "YADBE_CONFIG_DIR";
+@@ -21,6 +21,7 @@ pub struct AppState {
+     pub connections: Arc<ConnectionManager>,
+     pub meta: Arc<MetaService>,
+     pub queries: Arc<QueryRunner>,
++    pub history: Arc<StoreHistory>,
+ }
+ 
+ impl AppState {
+@@ -40,10 +41,15 @@ impl AppState {
+             Arc::clone(&log),
+             Arc::clone(&sink),
+         ));
++        let history = StoreHistory::new(
++            Arc::clone(&store),
++            Arc::clone(&sink),
++            HistoryRetention::default(),
++        );
+         let queries = Arc::new(QueryRunner::new(
+             Arc::clone(&connections),
+             sink,
+-            Arc::new(NoHistory),
++            history.clone(),
+         ));
+         Self {
+             store,
+@@ -52,6 +58,7 @@ impl AppState {
+             connections,
+             meta,
+             queries,
++            history,
+         }
+     }
+ }
+diff --git a/src-tauri/src/store/history.rs b/src-tauri/src/store/history.rs
+new file mode 100644
+index 0000000..f4e303e
+--- /dev/null
++++ b/src-tauri/src/store/history.rs
+@@ -0,0 +1,498 @@
++//! History of the statements the user ran (F-100, F-104): SQLite table with an FTS5 index on
++//! the statement text, keyset-paginated search, retention and clearing.
++
++use rusqlite::types::Value as SqlValue;
++use rusqlite::{Row, params, params_from_iter};
++use serde::{Deserialize, Serialize};
++use specta::Type;
++
++use super::Store;
++use crate::db::dialect::Engine;
++use crate::db::errors::{ErrorCode, YadbeError};
++
++/// Rows per page of a search.
++pub const HISTORY_PAGE_SIZE: u32 = 500;
++/// Characters of a statement sent in a list row; `get_history_entry` has the whole text.
++pub const HISTORY_PREVIEW_CHARS: usize = 600;
++const ERROR_PREVIEW_CHARS: usize = 240;
++/// A statement longer than this is stored cut (a multi-megabyte `INSERT` would bloat the
++/// database and the index).
++pub const MAX_STORED_SQL_BYTES: usize = 1024 * 1024;
++const MAX_SEARCH_TERMS: usize = 12;
++const TRUNCATION_MARK: &str = "\n-- … cut by the yadbe history";
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
++#[serde(rename_all = "camelCase")]
++pub enum HistoryOutcome {
++    Ok,
++    Error,
++    Cancelled,
++    /// Not sent: the connection is read-only and the statement may write.
++    Refused,
++}
++
++impl HistoryOutcome {
++    pub fn id(self) -> &'static str {
++        match self {
++            Self::Ok => "ok",
++            Self::Error => "error",
++            Self::Cancelled => "cancelled",
++            Self::Refused => "refused",
++        }
++    }
++
++    pub fn from_id(id: &str) -> Option<Self> {
++        Some(match id {
++            "ok" => Self::Ok,
++            "error" => Self::Error,
++            "cancelled" => Self::Cancelled,
++            "refused" => Self::Refused,
++            _ => return None,
++        })
++    }
++
++    pub fn of(result: &Result<(), YadbeError>) -> Self {
++        match result {
++            Ok(()) => Self::Ok,
++            Err(e) if e.code == ErrorCode::Cancelled => Self::Cancelled,
++            Err(e) if e.code == ErrorCode::ReadOnlyViolation => Self::Refused,
++            Err(_) => Self::Error,
++        }
++    }
++}
++
++/// Entries are identified, and ordered, by `started_at_ms * ID_SLOTS + n`: the id order is
++/// the start-time order even when statements are recorded out of order (a long statement
++/// that ends after later ones), which lets a search stream rows newest first straight from
++/// the full-text index. 1024 statements can start in the same millisecond.
++const ID_SLOTS: i64 = 1024;
++
++/// A statement to record. `started_at_ms` is Unix time in milliseconds.
++#[derive(Debug, Clone)]
++pub struct NewHistoryEntry {
++    pub connection_id: String,
++    pub connection_name: String,
++    pub engine: Engine,
++    pub database: Option<String>,
++    pub sql: String,
++    pub started_at_ms: i64,
++    pub duration_ms: f64,
++    pub rows: Option<i64>,
++    pub outcome: HistoryOutcome,
++    pub error_code: Option<ErrorCode>,
++    pub error_message: Option<String>,
++}
++
++/// One history entry. In a search page `sql` is cut to [`HISTORY_PREVIEW_CHARS`]
++/// (`sqlTruncated`); `get_history_entry` returns it whole.
++#[derive(Debug, Clone, PartialEq, Serialize, Type)]
++#[serde(rename_all = "camelCase")]
++pub struct HistoryRow {
++    pub id: f64,
++    pub connection_id: String,
++    /// The connection's name when the statement ran.
++    pub connection_name: String,
++    pub engine: Engine,
++    /// `null`: the connection's own database was unnamed (SQLite file).
++    pub database: Option<String>,
++    pub sql: String,
++    pub sql_truncated: bool,
++    /// Unix time in milliseconds.
++    pub started_at: f64,
++    pub duration_ms: f64,
++    /// Rows returned or affected, when known.
++    pub rows: Option<f64>,
++    pub outcome: HistoryOutcome,
++    pub error_code: Option<ErrorCode>,
++    /// The server's message (or yadbe's when it never reached the server).
++    pub error_message: Option<String>,
++}
++
++/// Newest first. Every field narrows the result.
++#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
++#[serde(rename_all = "camelCase")]
++pub struct HistoryQuery {
++    /// Words of the statement text; each matches as a prefix, all must match.
++    pub text: Option<String>,
++    pub connection_id: Option<String>,
++    /// Empty: every outcome.
++    pub outcomes: Vec<HistoryOutcome>,
++    /// Unix milliseconds, inclusive.
++    pub from: Option<f64>,
++    /// Unix milliseconds, exclusive.
++    pub to: Option<f64>,
++    pub min_duration_ms: Option<f64>,
++    /// The `next` of the previous page (an entry id: entries are ordered by id).
++    pub after: Option<f64>,
++    /// At most [`HISTORY_PAGE_SIZE`] (the default).
++    pub limit: Option<u32>,
++}
++
++#[derive(Debug, Clone, PartialEq, Serialize, Type)]
++#[serde(rename_all = "camelCase")]
++pub struct HistoryPage {
++    pub rows: Vec<HistoryRow>,
++    /// Pass it as `after` for the following page; `null` on the last page.
++    pub next: Option<f64>,
++}
++
++/// What clearing, or counting before clearing, applies to.
++#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
++#[serde(rename_all = "camelCase")]
++pub struct HistoryScope {
++    pub connection_id: Option<String>,
++    /// Unix milliseconds, inclusive.
++    pub from: Option<f64>,
++    /// Unix milliseconds, exclusive.
++    pub to: Option<f64>,
++}
++
++/// Bounds of the history (F-100): whichever is reached first.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct HistoryRetention {
++    pub max_entries: u32,
++    pub max_age_days: u32,
++}
++
++impl Default for HistoryRetention {
++    fn default() -> Self {
++        Self {
++            max_entries: 50_000,
++            max_age_days: 365,
++        }
++    }
++}
++
++/// The words of `text` as an FTS5 query: every word a quoted prefix term. `None` when there
++/// is no word at all (only punctuation).
++fn fts_query(text: &str) -> Option<String> {
++    let terms: Vec<String> = text
++        .split(|c: char| !c.is_alphanumeric())
++        .filter(|t| !t.is_empty())
++        .take(MAX_SEARCH_TERMS)
++        .map(|t| format!("\"{t}\"*"))
++        .collect();
++    (!terms.is_empty()).then(|| terms.join(" "))
++}
++
++fn cut_chars(text: &str, max: usize) -> (&str, bool) {
++    match text.char_indices().nth(max) {
++        Some((at, _)) => (&text[..at], true),
++        None => (text, false),
++    }
++}
++
++/// `sql` as it is stored: whole, unless it exceeds [`MAX_STORED_SQL_BYTES`].
++pub fn stored_sql(sql: &str) -> String {
++    if sql.len() <= MAX_STORED_SQL_BYTES {
++        return sql.to_owned();
++    }
++    let mut end = MAX_STORED_SQL_BYTES;
++    while !sql.is_char_boundary(end) {
++        end -= 1;
++    }
++    format!("{}{TRUNCATION_MARK}", &sql[..end])
++}
++
++fn error_code_id(code: ErrorCode) -> Option<String> {
++    serde_json::to_value(code)
++        .ok()
++        .and_then(|v| v.as_str().map(str::to_owned))
++}
++
++fn error_code_from_id(id: &str) -> Option<ErrorCode> {
++    serde_json::from_value(serde_json::Value::String(id.to_owned())).ok()
++}
++
++/// Columns of a list row: the text is read one character past the preview so truncation is
++/// detected without measuring the whole statement.
++const ROW_COLUMNS: &str = "h.id, h.connection_id, h.connection_name, h.engine, h.database_name, \
++     substr(h.sql, 1, ?1), h.started_at, h.duration_ms, h.rows, h.outcome, h.error_code, \
++     substr(h.error_message, 1, ?2)";
++
++fn row_to_history(
++    row: &Row<'_>,
++    sql_chars: usize,
++    error_chars: usize,
++) -> rusqlite::Result<HistoryRow> {
++    let engine: String = row.get(3)?;
++    let outcome: String = row.get(9)?;
++    let sql: String = row.get(5)?;
++    let (sql, sql_truncated) = cut_chars(&sql, sql_chars);
++    let error_code: Option<String> = row.get(10)?;
++    let error_message: Option<String> = row.get(11)?;
++    Ok(HistoryRow {
++        id: row.get::<_, i64>(0)? as f64,
++        connection_id: row.get(1)?,
++        connection_name: row.get(2)?,
++        engine: Engine::from_id(&engine).ok_or_else(|| {
++            rusqlite::Error::FromSqlConversionFailure(
++                3,
++                rusqlite::types::Type::Text,
++                format!("unexpected engine `{engine}` in the history").into(),
++            )
++        })?,
++        database: row.get(4)?,
++        sql: sql.to_owned(),
++        sql_truncated,
++        started_at: row.get::<_, i64>(6)? as f64,
++        duration_ms: row.get(7)?,
++        rows: row.get::<_, Option<i64>>(8)?.map(|r| r as f64),
++        outcome: HistoryOutcome::from_id(&outcome).unwrap_or(HistoryOutcome::Error),
++        error_code: error_code.as_deref().and_then(error_code_from_id),
++        error_message: error_message.map(|m| {
++            let (m, _) = cut_chars(&m, error_chars);
++            m.to_owned()
++        }),
++    })
++}
++
++/// A `WHERE` clause under construction, with its positional parameters, numbered from `base`
++/// (a search keeps `?1` and `?2` for the column list).
++struct Filter {
++    base: usize,
++    /// The id column to constrain.
++    id: &'static str,
++    clauses: Vec<String>,
++    params: Vec<SqlValue>,
++}
++
++impl Filter {
++    fn new(base: usize, id: &'static str) -> Self {
++        Self {
++            base,
++            id,
++            clauses: Vec::new(),
++            params: Vec::new(),
++        }
++    }
++
++    fn push(&mut self, clause: impl FnOnce(usize) -> String, value: SqlValue) {
++        let index = self.params.len() + self.base;
++        self.clauses.push(clause(index));
++        self.params.push(value);
++    }
++
++    fn scope(&mut self, scope: &HistoryScope) {
++        let id = self.id;
++        if let Some(id) = &scope.connection_id {
++            self.push(
++                |i| format!("h.connection_id = ?{i}"),
++                SqlValue::Text(id.clone()),
++            );
++        }
++        if let Some(from) = scope.from {
++            self.push(
++                |i| format!("{id} >= ?{i}"),
++                SqlValue::Integer((from as i64).saturating_mul(ID_SLOTS)),
++            );
++        }
++        if let Some(to) = scope.to {
++            self.push(
++                |i| format!("{id} < ?{i}"),
++                SqlValue::Integer((to as i64).saturating_mul(ID_SLOTS)),
++            );
++        }
++    }
++
++    fn where_sql(&self) -> String {
++        if self.clauses.is_empty() {
++            String::new()
++        } else {
++            format!("WHERE {}", self.clauses.join(" AND "))
++        }
++    }
++}
++
++impl Store {
++    /// Records `entries` in one transaction.
++    pub fn insert_history(&self, entries: &[NewHistoryEntry]) -> Result<(), YadbeError> {
++        if entries.is_empty() {
++            return Ok(());
++        }
++        let mut conn = self.conn();
++        let tx = conn.transaction()?;
++        {
++            let mut stmt = tx.prepare_cached(
++                "INSERT INTO history (id, connection_id, connection_name, engine, database_name,
++                    sql, started_at, duration_ms, rows, outcome, error_code, error_message)
++                 VALUES (?12, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
++            )?;
++            let mut last_in_slot =
++                tx.prepare_cached("SELECT MAX(id) FROM history WHERE id >= ?1 AND id < ?1 + ?2")?;
++            let mut newest = tx.prepare_cached("SELECT COALESCE(MAX(id), 0) FROM history")?;
++            for e in entries {
++                let first = e.started_at_ms.saturating_mul(ID_SLOTS);
++                let taken: Option<i64> =
++                    last_in_slot.query_row(params![first, ID_SLOTS], |row| row.get(0))?;
++                let id = match taken {
++                    None => first,
++                    Some(id) if id + 1 < first + ID_SLOTS => id + 1,
++                    // The millisecond is full: still unique, just not in start order.
++                    Some(_) => newest.query_row([], |row| row.get::<_, i64>(0))? + 1,
++                };
++                stmt.execute(params![
++                    e.connection_id,
++                    e.connection_name,
++                    e.engine.id(),
++                    e.database,
++                    stored_sql(&e.sql),
++                    e.started_at_ms,
++                    e.duration_ms,
++                    e.rows,
++                    e.outcome.id(),
++                    e.error_code.and_then(error_code_id),
++                    e.error_message,
++                    id,
++                ])?;
++            }
++        }
++        tx.commit()?;
++        Ok(())
++    }
++
++    /// One page of the history, newest first.
++    pub fn search_history(&self, query: &HistoryQuery) -> Result<HistoryPage, YadbeError> {
++        let limit = query
++            .limit
++            .unwrap_or(HISTORY_PAGE_SIZE)
++            .clamp(1, HISTORY_PAGE_SIZE) as usize;
++        let mut filter = Filter::new(3, "h.id");
++        let mut fts_join = false;
++        if let Some(text) = query
++            .text
++            .as_deref()
++            .map(str::trim)
++            .filter(|t| !t.is_empty())
++        {
++            match fts_query(text) {
++                Some(fts) => {
++                    fts_join = true;
++                    // Reading the index in rowid order streams the newest matches first,
++                    // instead of building the whole match set to sort it.
++                    filter.push(|i| format!("f.history_fts MATCH ?{i}"), SqlValue::Text(fts));
++                }
++                None => filter.push(
++                    |i| format!("instr(h.sql, ?{i}) > 0"),
++                    SqlValue::Text(text.to_owned()),
++                ),
++            }
++        }
++        filter.scope(&HistoryScope {
++            connection_id: query.connection_id.clone(),
++            from: query.from,
++            to: query.to,
++        });
++        if !query.outcomes.is_empty() {
++            let list = query
++                .outcomes
++                .iter()
++                .map(|o| format!("'{}'", o.id()))
++                .collect::<Vec<_>>()
++                .join(", ");
++            filter.clauses.push(format!("h.outcome IN ({list})"));
++        }
++        if let Some(min) = query.min_duration_ms {
++            filter.push(|i| format!("h.duration_ms >= ?{i}"), SqlValue::Real(min));
++        }
++        let (from, order) = if fts_join {
++            ("history_fts f JOIN history h ON h.id = f.rowid", "f.rowid")
++        } else {
++            ("history h", "h.id")
++        };
++        if let Some(after) = query.after {
++            filter.push(
++                |i| format!("{order} < ?{i}"),
++                SqlValue::Integer(after as i64),
++            );
++        }
++        let sql = format!(
++            "SELECT {ROW_COLUMNS} FROM {from} {} ORDER BY {order} DESC LIMIT {}",
++            filter.where_sql(),
++            limit + 1
++        );
++        let mut params = vec![
++            SqlValue::Integer((HISTORY_PREVIEW_CHARS + 1) as i64),
++            SqlValue::Integer(ERROR_PREVIEW_CHARS as i64),
++        ];
++        params.extend(filter.params);
++
++        let conn = self.conn();
++        let mut stmt = conn.prepare(&sql)?;
++        let mut rows = stmt
++            .query_map(params_from_iter(params), |row| {
++                row_to_history(row, HISTORY_PREVIEW_CHARS, ERROR_PREVIEW_CHARS)
++            })?
++            .collect::<Result<Vec<_>, _>>()?;
++        let next = if rows.len() > limit {
++            rows.truncate(limit);
++            rows.last().map(|r| r.id)
++        } else {
++            None
++        };
++        Ok(HistoryPage { rows, next })
++    }
++
++    /// An entry with its whole statement and error message.
++    pub fn history_entry(&self, id: f64) -> Result<Option<HistoryRow>, YadbeError> {
++        let conn = self.conn();
++        let mut stmt = conn.prepare_cached(&format!(
++            "SELECT {ROW_COLUMNS} FROM history h WHERE h.id = ?3"
++        ))?;
++        let mut rows = stmt.query_map(params![i64::MAX / 4, i64::MAX / 4, id as i64], |row| {
++            row_to_history(row, usize::MAX, usize::MAX)
++        })?;
++        Ok(rows.next().transpose()?)
++    }
++
++    /// `true` when the entry existed.
++    pub fn delete_history_entry(&self, id: f64) -> Result<bool, YadbeError> {
++        let changed = self
++            .conn()
++            .execute("DELETE FROM history WHERE id = ?1", [id as i64])?;
++        Ok(changed > 0)
++    }
++
++    /// Entries inside `scope` (for the confirmation before clearing).
++    pub fn count_history(&self, scope: &HistoryScope) -> Result<u32, YadbeError> {
++        let mut filter = Filter::new(1, "h.id");
++        filter.scope(scope);
++        let sql = format!("SELECT COUNT(*) FROM history h {}", filter.where_sql());
++        let count: i64 = self
++            .conn()
++            .query_row(&sql, params_from_iter(filter.params), |row| row.get(0))?;
++        Ok(u32::try_from(count).unwrap_or(u32::MAX))
++    }
++
++    /// Deletes the entries inside `scope`; returns how many.
++    pub fn clear_history(&self, scope: &HistoryScope) -> Result<u32, YadbeError> {
++        let mut filter = Filter::new(1, "h.id");
++        filter.scope(scope);
++        let sql = format!(
++            "DELETE FROM history WHERE id IN (SELECT h.id FROM history h {})",
++            filter.where_sql()
++        );
++        let changed = self.conn().execute(&sql, params_from_iter(filter.params))?;
++        Ok(u32::try_from(changed).unwrap_or(u32::MAX))
++    }
++
++    /// Applies the retention bounds as of `now_ms`; returns how many entries went.
++    pub fn prune_history(
++        &self,
++        retention: HistoryRetention,
++        now_ms: i64,
++    ) -> Result<u32, YadbeError> {
++        let cutoff = now_ms - i64::from(retention.max_age_days) * 86_400_000;
++        let conn = self.conn();
++        let aged = conn.execute(
++            "DELETE FROM history WHERE id < ?1",
++            [cutoff.saturating_mul(ID_SLOTS)],
++        )?;
++        let over = conn.execute(
++            "DELETE FROM history WHERE id IN (
++                SELECT id FROM history ORDER BY id DESC LIMIT -1 OFFSET ?1)",
++            [i64::from(retention.max_entries)],
++        )?;
++        Ok(u32::try_from(aged + over).unwrap_or(u32::MAX))
++    }
++}
+diff --git a/src-tauri/src/store/history_tests.rs b/src-tauri/src/store/history_tests.rs
+new file mode 100644
+index 0000000..85f5cf3
+--- /dev/null
++++ b/src-tauri/src/store/history_tests.rs
+@@ -0,0 +1,376 @@
++use super::*;
++use crate::db::config::sample_definition;
++use crate::db::errors::ErrorCode;
++
++const DAY: i64 = 86_400_000;
++const T0: i64 = 1_700_000_000_000;
++
++fn store() -> Store {
++    Store::open_in_memory().expect("store")
++}
++
++fn entry(sql: &str, at: i64) -> NewHistoryEntry {
++    NewHistoryEntry {
++        connection_id: "c1".into(),
++        connection_name: "shop".into(),
++        engine: Engine::Postgres,
++        database: Some("shop".into()),
++        sql: sql.into(),
++        started_at_ms: at,
++        duration_ms: 5.0,
++        rows: Some(1),
++        outcome: HistoryOutcome::Ok,
++        error_code: None,
++        error_message: None,
++    }
++}
++
++fn texts(page: &HistoryPage) -> Vec<&str> {
++    page.rows.iter().map(|r| r.sql.as_str()).collect()
++}
++
++fn search(store: &Store, query: HistoryQuery) -> HistoryPage {
++    store.search_history(&query).expect("search")
++}
++
++#[test]
++fn the_migration_upgrades_a_v1_database_and_keeps_connections() {
++    let dir = tempfile::tempdir().expect("tempdir");
++    let path = dir.path().join(DB_FILE);
++    {
++        // A database as v1 left it, with a connection in it.
++        let mut conn = Connection::open(&path).expect("open");
++        conn.execute_batch(migrations::first_migration())
++            .expect("v1");
++        conn.pragma_update(None, "user_version", 1)
++            .expect("version");
++        conn.execute(
++            "INSERT INTO connections (id, name, engine, position, auth, tls_mode, created_at, updated_at)
++             VALUES ('c', 'old', 'sqlite', 0, 'none', 'disable', 1, 1)",
++            [],
++        )
++        .expect("insert");
++        migrations::apply(&mut conn).expect("migrate");
++    }
++    let store = Store::open(&path).expect("reopen");
++    assert_eq!(
++        store.schema_version().expect("version"),
++        Store::latest_schema_version()
++    );
++    let old = store.connection("c").expect("connection");
++    assert!(old.definition.history_enabled, "history is on by default");
++    store
++        .insert_history(&[entry("select 1", T0)])
++        .expect("history table exists");
++    assert_eq!(search(&store, HistoryQuery::default()).rows.len(), 1);
++}
++
++#[test]
++fn the_flag_round_trips_and_older_payloads_default_to_enabled() {
++    let store = store();
++    let mut def = sample_definition(Engine::Sqlite);
++    def.history_enabled = false;
++    let saved = store.create_connection(&def).expect("create");
++    assert!(!saved.definition.history_enabled);
++    def.history_enabled = true;
++    let updated = store.update_connection(&saved.id, &def).expect("update");
++    assert!(updated.definition.history_enabled);
++
++    let mut json = serde_json::to_value(&def).expect("json");
++    json.as_object_mut()
++        .expect("object")
++        .remove("historyEnabled");
++    let parsed: ConnectionDefinition = serde_json::from_value(json).expect("parse");
++    assert!(parsed.history_enabled);
++}
++
++#[test]
++fn searches_words_as_prefixes_in_any_order() {
++    let store = store();
++    store
++        .insert_history(&[
++            entry(
++                "SELECT * FROM customers WHERE email LIKE '%@example.com'",
++                T0,
++            ),
++            entry("UPDATE order_items SET qty = 2 WHERE id = 7", T0 + 1),
++            entry("DELETE FROM sessions", T0 + 2),
++        ])
++        .expect("insert");
++    let by = |text: &str| {
++        let page = search(
++            &store,
++            HistoryQuery {
++                text: Some(text.into()),
++                ..HistoryQuery::default()
++            },
++        );
++        page.rows.iter().map(|r| r.sql.clone()).collect::<Vec<_>>()
++    };
++    assert_eq!(by("cust").len(), 1, "prefix");
++    assert_eq!(
++        by("EMAIL customers").len(),
++        1,
++        "any order, case-insensitive"
++    );
++    assert_eq!(
++        by("order_items").len(),
++        1,
++        "an identifier with an underscore"
++    );
++    assert_eq!(by("items").len(), 1, "the part after the underscore");
++    assert_eq!(by("from").len(), 2);
++    assert!(by("nothing").is_empty());
++    assert_eq!(by("   ").len(), 3, "blank text filters nothing");
++    // No word at all: plain substring.
++    assert_eq!(by("%@").len(), 1);
++    // FTS syntax typed by the user is only text.
++    assert!(by("\"unbalanced").is_empty());
++    assert_eq!(
++        by("select OR delete").len(),
++        0,
++        "`OR` is a word, not an operator"
++    );
++}
++
++#[test]
++fn deleted_and_pruned_entries_leave_the_index() {
++    let store = store();
++    store
++        .insert_history(&[
++            entry("select zebra", T0),
++            entry("select zebra again", T0 + 1),
++        ])
++        .expect("insert");
++    let zebra = || {
++        search(
++            &store,
++            HistoryQuery {
++                text: Some("zebra".into()),
++                ..HistoryQuery::default()
++            },
++        )
++    };
++    let page = zebra();
++    assert_eq!(page.rows.len(), 2);
++    assert!(store.delete_history_entry(page.rows[0].id).expect("delete"));
++    assert!(!store.delete_history_entry(page.rows[0].id).expect("again"));
++    assert_eq!(zebra().rows.len(), 1);
++    assert_eq!(
++        store
++            .clear_history(&HistoryScope::default())
++            .expect("clear"),
++        1
++    );
++    assert!(zebra().rows.is_empty());
++}
++
++#[test]
++fn filters_narrow_by_connection_outcome_date_and_duration() {
++    let store = store();
++    let mut a = entry("select 1", T0);
++    a.duration_ms = 2.0;
++    let mut b = entry("select 2", T0 + DAY);
++    b.connection_id = "c2".into();
++    b.connection_name = "blog".into();
++    b.duration_ms = 900.0;
++    let mut c = entry("select broken", T0 + 2 * DAY);
++    c.outcome = HistoryOutcome::Error;
++    c.error_code = Some(ErrorCode::QueryFailed);
++    c.error_message = Some("syntax error at or near \"broken\"".into());
++    c.duration_ms = 40.0;
++    store.insert_history(&[a, b, c]).expect("insert");
++
++    let q = |f: &dyn Fn(&mut HistoryQuery)| {
++        let mut query = HistoryQuery::default();
++        f(&mut query);
++        search(&store, query)
++    };
++    assert_eq!(q(&|_| {}).rows.len(), 3);
++    assert_eq!(
++        texts(&q(&|x| x.connection_id = Some("c2".into()))),
++        ["select 2"]
++    );
++    let errors = q(&|x| x.outcomes = vec![HistoryOutcome::Error]);
++    assert_eq!(texts(&errors), ["select broken"]);
++    assert_eq!(errors.rows[0].error_code, Some(ErrorCode::QueryFailed));
++    assert_eq!(
++        errors.rows[0].error_message.as_deref(),
++        Some("syntax error at or near \"broken\"")
++    );
++    assert_eq!(
++        texts(&q(&|x| {
++            x.from = Some((T0 + DAY) as f64);
++            x.to = Some((T0 + 2 * DAY) as f64);
++        })),
++        ["select 2"],
++        "from is inclusive, to exclusive"
++    );
++    assert_eq!(
++        texts(&q(&|x| x.min_duration_ms = Some(40.0))),
++        ["select broken", "select 2"]
++    );
++    // Filters and text together.
++    assert_eq!(
++        texts(&q(&|x| {
++            x.text = Some("select".into());
++            x.connection_id = Some("c1".into());
++            x.min_duration_ms = Some(30.0);
++        })),
++        ["select broken"]
++    );
++}
++
++#[test]
++fn pages_are_keyset_paginated_even_with_equal_timestamps() {
++    let store = store();
++    let entries: Vec<_> = (0..25)
++        .map(|i| entry(&format!("select {i}"), T0 + i64::from(i / 5)))
++        .collect();
++    store.insert_history(&entries).expect("insert");
++    let mut seen = Vec::new();
++    let mut after = None;
++    let mut pages = 0;
++    loop {
++        let page = search(
++            &store,
++            HistoryQuery {
++                limit: Some(7),
++                after,
++                ..HistoryQuery::default()
++            },
++        );
++        pages += 1;
++        seen.extend(page.rows.iter().map(|r| r.id));
++        match page.next {
++            Some(next) => after = Some(next),
++            None => break,
++        }
++    }
++    assert_eq!(pages, 4);
++    assert_eq!(seen.len(), 25, "no row twice, none missing");
++    let mut sorted = seen.clone();
++    sorted.sort_by(f64::total_cmp);
++    sorted.dedup();
++    assert_eq!(sorted.len(), 25);
++
++    let exact = search(
++        &store,
++        HistoryQuery {
++            limit: Some(25),
++            ..HistoryQuery::default()
++        },
++    );
++    assert!(exact.next.is_none(), "a full last page has no next");
++    let capped = search(
++        &store,
++        HistoryQuery {
++            limit: Some(100_000),
++            ..HistoryQuery::default()
++        },
++    );
++    assert_eq!(capped.rows.len(), 25);
++}
++
++#[test]
++fn list_rows_cut_long_statements_and_get_returns_them_whole() {
++    let store = store();
++    let long = format!("SELECT '{}'", "é".repeat(HISTORY_PREVIEW_CHARS * 2));
++    let mut failed = entry(&long, T0);
++    failed.outcome = HistoryOutcome::Error;
++    failed.error_code = Some(ErrorCode::QueryFailed);
++    failed.error_message = Some("x".repeat(1000));
++    store
++        .insert_history(&[failed, entry("select 1", T0 - 1)])
++        .expect("insert");
++    let page = search(&store, HistoryQuery::default());
++    let row = &page.rows[0];
++    assert!(row.sql_truncated);
++    assert_eq!(row.sql.chars().count(), HISTORY_PREVIEW_CHARS);
++    assert!(long.starts_with(&row.sql));
++    assert!(row.error_message.as_deref().is_some_and(|m| m.len() < 1000));
++    assert!(!page.rows[1].sql_truncated);
++
++    let whole = store.history_entry(row.id).expect("get").expect("exists");
++    assert_eq!(whole.sql, long);
++    assert!(!whole.sql_truncated);
++    assert_eq!(whole.error_message.as_deref().map(str::len), Some(1000));
++    assert!(store.history_entry(999_999.0).expect("get").is_none());
++}
++
++#[test]
++fn a_huge_statement_is_stored_cut_at_a_character_boundary() {
++    let store = store();
++    let huge = "é".repeat(MAX_STORED_SQL_BYTES);
++    store.insert_history(&[entry(&huge, T0)]).expect("insert");
++    let id = search(&store, HistoryQuery::default()).rows[0].id;
++    let stored = store.history_entry(id).expect("get").expect("exists").sql;
++    assert!(stored.len() <= MAX_STORED_SQL_BYTES + 100);
++    assert!(stored.ends_with("cut by the yadbe history"));
++}
++
++#[test]
++fn retention_drops_old_entries_then_the_excess() {
++    let store = store();
++    let now = T0 + 400 * DAY;
++    let mut entries = vec![entry("ancient", T0), entry("a year ago", now - 366 * DAY)];
++    entries.extend((0..10).map(|i| entry(&format!("recent {i}"), now - i64::from(i) * 1000)));
++    store.insert_history(&entries).expect("insert");
++
++    let removed = store
++        .prune_history(
++            HistoryRetention {
++                max_entries: 8,
++                max_age_days: 365,
++            },
++            now,
++        )
++        .expect("prune");
++    assert_eq!(removed, 2 + 2, "two too old, then two over the bound");
++    let page = search(&store, HistoryQuery::default());
++    assert_eq!(page.rows.len(), 8);
++    assert_eq!(page.rows[0].sql, "recent 0", "the newest stay");
++    assert_eq!(page.rows[7].sql, "recent 7");
++    let none = search(
++        &store,
++        HistoryQuery {
++            text: Some("ancient".into()),
++            ..HistoryQuery::default()
++        },
++    );
++    assert!(none.rows.is_empty(), "pruned entries leave the index");
++}
++
++#[test]
++fn clears_all_one_connection_or_a_date_range() {
++    let store = store();
++    let mut other = entry("other", T0 + DAY);
++    other.connection_id = "c2".into();
++    store
++        .insert_history(&[
++            entry("a", T0),
++            entry("b", T0 + DAY),
++            entry("c", T0 + 2 * DAY),
++            other,
++        ])
++        .expect("insert");
++
++    let range = HistoryScope {
++        from: Some((T0 + DAY) as f64),
++        to: Some((T0 + 2 * DAY) as f64),
++        connection_id: None,
++    };
++    assert_eq!(store.count_history(&range).expect("count"), 2);
++    assert_eq!(store.clear_history(&range).expect("clear"), 2);
++
++    let one = HistoryScope {
++        connection_id: Some("c1".into()),
++        ..HistoryScope::default()
++    };
++    assert_eq!(store.count_history(&one).expect("count"), 2);
++    assert_eq!(store.clear_history(&one).expect("clear"), 2);
++    assert_eq!(
++        texts(&search(&store, HistoryQuery::default())),
++        Vec::<&str>::new()
++    );
++}
+diff --git a/src-tauri/src/store/migrations.rs b/src-tauri/src/store/migrations.rs
+index 32e4678..f94918a 100644
+--- a/src-tauri/src/store/migrations.rs
++++ b/src-tauri/src/store/migrations.rs
+@@ -65,6 +65,37 @@ const MIGRATIONS: &[&str] = &[
+         key TEXT PRIMARY KEY,
+         value TEXT NOT NULL
+     );",
++    // v2: history (F-100) with a full-text index on the statement text, and the per-connection
++    // opt-out (F-104). `history` has no foreign key on connections: entries outlive a deleted
++    // connection, with the name it had.
++    // The id of an entry is derived from its start time (see `store::history`), so ordering
++    // and range filters use the primary key.
++    "ALTER TABLE connections ADD COLUMN history_enabled INTEGER NOT NULL DEFAULT 1;
++    CREATE TABLE history (
++        id INTEGER PRIMARY KEY,
++        connection_id TEXT NOT NULL,
++        connection_name TEXT NOT NULL,
++        engine TEXT NOT NULL,
++        database_name TEXT,
++        sql TEXT NOT NULL,
++        started_at INTEGER NOT NULL,
++        duration_ms REAL NOT NULL,
++        rows INTEGER,
++        outcome TEXT NOT NULL,
++        error_code TEXT,
++        error_message TEXT
++    );
++    CREATE INDEX history_by_connection ON history(connection_id, id);
++    CREATE VIRTUAL TABLE history_fts USING fts5(
++        sql, content='history', content_rowid='id',
++        tokenize='unicode61 remove_diacritics 2', prefix='2 3'
++    );
++    CREATE TRIGGER history_after_insert AFTER INSERT ON history BEGIN
++        INSERT INTO history_fts(rowid, sql) VALUES (new.id, new.sql);
++    END;
++    CREATE TRIGGER history_after_delete AFTER DELETE ON history BEGIN
++        INSERT INTO history_fts(history_fts, rowid, sql) VALUES ('delete', old.id, old.sql);
++    END;",
+ ];
+ 
+ pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {
+@@ -86,3 +117,9 @@ pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {
+ pub fn latest_version() -> i64 {
+     i64::try_from(MIGRATIONS.len()).unwrap_or(i64::MAX)
+ }
++
++/// The schema of version 1, to build older databases in tests.
++#[cfg(test)]
++pub fn first_migration() -> &'static str {
++    MIGRATIONS[0]
++}
+diff --git a/src-tauri/src/store/mod.rs b/src-tauri/src/store/mod.rs
+index 9582ab8..c2c1f77 100644
+--- a/src-tauri/src/store/mod.rs
++++ b/src-tauri/src/store/mod.rs
+@@ -1,6 +1,7 @@
+ //! Local SQLite store in the OS config folder: connections (without secrets), groups, tabs,
+ //! preferences (SPEC §8). History, saved queries and the change journal arrive with M1/M3.
+ 
++mod history;
+ mod migrations;
+ mod types;
+ 
+@@ -15,6 +16,7 @@ use crate::db::config::{
+ };
+ use crate::db::dialect::Engine;
+ use crate::db::errors::YadbeError;
++pub use history::*;
+ pub use types::*;
+ 
+ /// File name of the database inside the app config folder.
+@@ -33,7 +35,7 @@ const META_ACTIVE_TAB: &str = "active_tab";
+ const CONNECTION_COLUMNS: &str = "id, name, engine, group_id, position, host, port, database_name, \
+      username, file_path, auth, tls_mode, ca_cert_path, connect_timeout_secs, options, \
+      environment, environment_label, environment_color, favorite, read_only, remember_password, \
+-     created_at, updated_at, last_connected_at";
++     created_at, updated_at, last_connected_at, history_enabled";
+ 
+ /// Thread-safe handle on the app database. Queries are small: one connection behind a
+ /// mutex is enough.
+@@ -96,6 +98,7 @@ fn row_to_connection(row: &Row<'_>) -> rusqlite::Result<SavedConnection> {
+             favorite: row.get("favorite")?,
+             read_only: row.get("read_only")?,
+             remember_password: row.get("remember_password")?,
++            history_enabled: row.get("history_enabled")?,
+         },
+         position: row.get("position")?,
+         created_at: row.get("created_at")?,
+@@ -267,7 +270,7 @@ impl Store {
+                 &format!(
+                     "INSERT INTO connections ({CONNECTION_COLUMNS}) VALUES
+                      (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+-                      ?17, ?18, ?19, ?20, ?21, ?22, ?22, NULL)"
++                      ?17, ?18, ?19, ?20, ?21, ?22, ?22, NULL, ?23)"
+                 ),
+                 params![
+                     id,
+@@ -292,6 +295,7 @@ impl Store {
+                     definition.read_only,
+                     definition.remember_password,
+                     at,
++                    definition.history_enabled,
+                 ],
+             )?;
+         }
+@@ -319,7 +323,7 @@ impl Store {
+                     auth = ?11, tls_mode = ?12, ca_cert_path = ?13, connect_timeout_secs = ?14,
+                     options = ?15, environment = ?16, environment_label = ?17,
+                     environment_color = ?18, favorite = ?19, read_only = ?20,
+-                    remember_password = ?21, updated_at = ?22
++                    remember_password = ?21, updated_at = ?22, history_enabled = ?23
+                  WHERE id = ?1",
+                 params![
+                     id,
+@@ -344,6 +348,7 @@ impl Store {
+                     definition.read_only,
+                     definition.remember_password,
+                     now(),
++                    definition.history_enabled,
+                 ],
+             )?;
+         }
+@@ -736,5 +741,7 @@ fn enum_text<T: serde::Serialize>(value: &T) -> Result<String, YadbeError> {
+     Ok(serde_json::to_string(value)?.trim_matches('"').to_owned())
+ }
+ 
++#[cfg(test)]
++mod history_tests;
+ #[cfg(test)]
+ mod tests;
+diff --git a/src-tauri/tests/common/mod.rs b/src-tauri/tests/common/mod.rs
+index 5a6653c..a64046d 100644
+--- a/src-tauri/tests/common/mod.rs
++++ b/src-tauri/tests/common/mod.rs
+@@ -69,6 +69,7 @@ pub fn blank(engine: Engine, name: &str) -> ConnectionDefinition {
+         favorite: false,
+         read_only: false,
+         remember_password: true,
++        history_enabled: true,
+     }
+ }
+ 
+diff --git a/src-tauri/tests/history.rs b/src-tauri/tests/history.rs
+new file mode 100644
+index 0000000..3ae62c4
+--- /dev/null
++++ b/src-tauri/tests/history.rs
+@@ -0,0 +1,236 @@
++//! History (M1-6) through the real `QueryRunner`: recording of succeeded, failed, cancelled
++//! and refused statements, per-connection opt-out, `history-changed`. SQLite always runs;
++//! PostgreSQL when `YADBE_TEST_PG_URL` is set.
++
++mod common;
++mod query_common;
++
++use std::sync::Arc;
++use std::time::Duration;
++
++use common::{blank, pg_definition, pg_url};
++use query_common::{Bench, bench_with_history};
++use yadbe_lib::db::dialect::Engine;
++use yadbe_lib::events::BackendEvent;
++use yadbe_lib::session::history_writer::StoreHistory;
++use yadbe_lib::session::query_model::ExecuteScope;
++use yadbe_lib::store::{HistoryOutcome, HistoryQuery, HistoryRetention, HistoryScope};
++
++async fn with_history(
++    definition: yadbe_lib::db::config::ConnectionDefinition,
++    password: Option<yadbe_lib::secrets::Secret>,
++) -> (Bench, Arc<StoreHistory>) {
++    let slot = Arc::new(std::sync::Mutex::new(None));
++    let out = Arc::clone(&slot);
++    let bench = bench_with_history(definition, password, move |store, sink| {
++        let history =
++            StoreHistory::new(Arc::clone(store), sink.clone(), HistoryRetention::default());
++        *out.lock().expect("slot") = Some(Arc::clone(&history));
++        history
++    })
++    .await;
++    let history = slot.lock().expect("slot").take().expect("history");
++    (bench, history)
++}
++
++fn sqlite_definition(
++    dir: &tempfile::TempDir,
++    read_only: bool,
++) -> yadbe_lib::db::config::ConnectionDefinition {
++    let path = dir.path().join("app.sqlite");
++    rusqlite::Connection::open(&path)
++        .expect("create")
++        .execute_batch("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);")
++        .expect("fixture");
++    let mut def = blank(Engine::Sqlite, "app.sqlite");
++    def.file_path = path.display().to_string();
++    def.read_only = read_only;
++    def
++}
++
++fn all(b: &Bench) -> Vec<yadbe_lib::store::HistoryRow> {
++    b.store
++        .search_history(&HistoryQuery::default())
++        .expect("search")
++        .rows
++}
++
++const LONG_SQLITE: &str =
++    "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c";
++
++#[tokio::test]
++async fn records_success_failure_and_cancellation_on_sqlite() {
++    let dir = tempfile::tempdir().expect("tempdir");
++    let (b, history) = with_history(sqlite_definition(&dir, false), None).await;
++
++    b.run(
++        "tab",
++        "INSERT INTO items (name) VALUES ('alpha'), ('beta');\nSELECT * FROM items ORDER BY id",
++    )
++    .await;
++    b.run("tab", "SELECT nope FROM items").await;
++    let (id, _) = b
++        .start(b.request("tab2", LONG_SQLITE, ExecuteScope::All))
++        .expect("start");
++    tokio::time::sleep(Duration::from_millis(300)).await;
++    b.runner.cancel("tab2").await;
++    b.wait(id).await;
++    history.flush();
++
++    let rows = all(&b);
++    assert_eq!(rows.len(), 4, "{rows:#?}");
++    // Newest first.
++    let cancelled = &rows[0];
++    assert_eq!(cancelled.outcome, HistoryOutcome::Cancelled);
++    assert_eq!(cancelled.sql, LONG_SQLITE);
++    let failed = &rows[1];
++    assert_eq!(failed.outcome, HistoryOutcome::Error);
++    assert_eq!(failed.sql, "SELECT nope FROM items");
++    assert!(
++        failed
++            .error_message
++            .as_deref()
++            .is_some_and(|m| m.contains("nope")),
++        "{:?}",
++        failed.error_message
++    );
++    let select = &rows[2];
++    assert_eq!(select.outcome, HistoryOutcome::Ok);
++    assert_eq!(select.rows, Some(2.0));
++    assert_eq!(select.connection_name, "app.sqlite");
++    assert_eq!(select.engine, Engine::Sqlite);
++    assert_eq!(select.database, None, "a SQLite file has no database name");
++    let insert = &rows[3];
++    assert_eq!(insert.rows, Some(2.0), "rows affected");
++
++    let found = b
++        .store
++        .search_history(&HistoryQuery {
++            text: Some("ite".into()),
++            ..HistoryQuery::default()
++        })
++        .expect("search");
++    assert_eq!(found.rows.len(), 3, "prefix match on `items`");
++    let errors = b
++        .store
++        .search_history(&HistoryQuery {
++            outcomes: vec![HistoryOutcome::Error, HistoryOutcome::Cancelled],
++            ..HistoryQuery::default()
++        })
++        .expect("search");
++    assert_eq!(errors.rows.len(), 2);
++}
++
++#[tokio::test]
++async fn read_only_refusals_are_recorded_as_refused() {
++    let dir = tempfile::tempdir().expect("tempdir");
++    let (b, history) = with_history(sqlite_definition(&dir, true), None).await;
++    b.run("tab", "DELETE FROM items").await;
++    history.flush();
++    let rows = all(&b);
++    assert_eq!(rows.len(), 1);
++    assert_eq!(rows[0].outcome, HistoryOutcome::Refused);
++    assert_eq!(rows[0].sql, "DELETE FROM items");
++    assert!(rows[0].error_message.is_some());
++}
++
++#[tokio::test]
++async fn a_connection_that_opted_out_leaves_no_history() {
++    let dir = tempfile::tempdir().expect("tempdir");
++    let mut def = sqlite_definition(&dir, false);
++    def.history_enabled = false;
++    let (b, history) = with_history(def.clone(), None).await;
++    b.run("tab", "SELECT 1").await;
++    history.flush();
++    assert!(all(&b).is_empty(), "opted out");
++
++    // Turning it back on takes effect for the next statements, no reconnect needed.
++    def.history_enabled = true;
++    b.store
++        .update_connection(&b.connection_id, &def)
++        .expect("update");
++    b.run("tab", "SELECT 2").await;
++    history.flush();
++    let rows = all(&b);
++    assert_eq!(rows.len(), 1);
++    assert_eq!(rows[0].sql, "SELECT 2");
++}
++
++#[tokio::test]
++async fn history_survives_the_deletion_of_its_connection_and_can_be_cleared() {
++    let dir = tempfile::tempdir().expect("tempdir");
++    let (b, history) = with_history(sqlite_definition(&dir, false), None).await;
++    b.run("tab", "SELECT 1").await;
++    b.run("tab", "SELECT 2").await;
++    history.flush();
++    b.store.delete_connection(&b.connection_id).expect("delete");
++    let rows = all(&b);
++    assert_eq!(rows.len(), 2);
++    assert_eq!(rows[0].connection_name, "app.sqlite", "name snapshot");
++
++    let scope = HistoryScope {
++        connection_id: Some(b.connection_id.clone()),
++        ..HistoryScope::default()
++    };
++    assert_eq!(b.store.count_history(&scope).expect("count"), 2);
++    assert_eq!(b.store.clear_history(&scope).expect("clear"), 2);
++    assert!(all(&b).is_empty());
++}
++
++#[tokio::test]
++async fn announces_changes_once_per_burst() {
++    let dir = tempfile::tempdir().expect("tempdir");
++    let (b, history) = with_history(sqlite_definition(&dir, false), None).await;
++    for i in 0..5 {
++        b.run("tab", &format!("SELECT {i}")).await;
++    }
++    history.flush();
++    tokio::time::sleep(Duration::from_millis(600)).await;
++    let events = b
++        .sink
++        .events()
++        .into_iter()
++        .filter(|e| matches!(e, BackendEvent::HistoryChanged(_)))
++        .count();
++    assert!(
++        (1..=3).contains(&events),
++        "debounced, but announced: {events}"
++    );
++}
++
++#[tokio::test]
++async fn records_on_postgres() {
++    let Some(url) = pg_url("records_on_postgres") else {
++        return;
++    };
++    let (def, password) = pg_definition(&url);
++    let (b, history) = with_history(def, password).await;
++    b.run("tab", "SELECT 1 AS one, 'x' AS two").await;
++    b.run("tab", "SELECT * FROM table_that_does_not_exist")
++        .await;
++    let (id, _) = b
++        .start(b.request("tab2", "SELECT pg_sleep(30)", ExecuteScope::All))
++        .expect("start");
++    tokio::time::sleep(Duration::from_millis(300)).await;
++    b.runner.cancel("tab2").await;
++    b.wait(id).await;
++    history.flush();
++
++    let rows = all(&b);
++    assert_eq!(rows.len(), 3, "{rows:#?}");
++    assert_eq!(rows[0].outcome, HistoryOutcome::Cancelled);
++    assert_eq!(rows[1].outcome, HistoryOutcome::Error);
++    assert!(
++        rows[1]
++            .error_message
++            .as_deref()
++            .is_some_and(|m| m.contains("table_that_does_not_exist"))
++    );
++    assert_eq!(rows[2].outcome, HistoryOutcome::Ok);
++    assert_eq!(rows[2].rows, Some(1.0));
++    assert_eq!(rows[2].engine, Engine::Postgres);
++    assert!(
++        rows[2].database.as_deref().is_some_and(|d| !d.is_empty()),
++        "the connection's own database"
++    );
++}
+diff --git a/src-tauri/tests/history_bench.rs b/src-tauri/tests/history_bench.rs
+new file mode 100644
+index 0000000..13ccb56
+--- /dev/null
++++ b/src-tauri/tests/history_bench.rs
+@@ -0,0 +1,149 @@
++//! P-08: history search over 100 000 entries < 100 ms.
++//! `cargo test --release --test history_bench p08 -- --ignored --nocapture`
++
++use std::time::{Duration, Instant};
++
++use yadbe_lib::db::dialect::Engine;
++use yadbe_lib::db::errors::ErrorCode;
++use yadbe_lib::store::{HistoryOutcome, HistoryQuery, HistoryScope, NewHistoryEntry, Store};
++
++const N: i64 = 100_000;
++const TABLES: [&str; 12] = [
++    "customers",
++    "orders",
++    "order_items",
++    "products",
++    "invoices",
++    "sessions",
++    "audit_log",
++    "payments",
++    "shipments",
++    "categories",
++    "inventory",
++    "employees",
++];
++const COLUMNS: [&str; 8] = [
++    "id",
++    "email",
++    "total",
++    "created_at",
++    "status",
++    "name",
++    "price",
++    "qty",
++];
++
++fn statement(i: i64) -> String {
++    let table = TABLES[(i % 12) as usize];
++    let column = COLUMNS[((i / 7) % 8) as usize];
++    match i % 5 {
++        0 => format!(
++            "SELECT {column}, count(*) FROM {table} WHERE id > {i} GROUP BY {column} ORDER BY 2 DESC"
++        ),
++        1 => format!("UPDATE {table} SET {column} = {i} WHERE id = {}", i % 977),
++        2 => format!(
++            "SELECT * FROM {table} t JOIN {} u ON u.id = t.id WHERE t.{column} IS NOT NULL LIMIT 100",
++            TABLES[((i / 3) % 12) as usize]
++        ),
++        3 => format!("INSERT INTO {table} ({column}) VALUES ({i})"),
++        _ => format!("DELETE FROM {table} WHERE {column} = 'x{i}'"),
++    }
++}
++
++#[test]
++#[ignore = "benchmark"]
++fn p08_search_over_100k_entries() {
++    let dir = tempfile::tempdir().expect("tempdir");
++    let store = Store::open(&dir.path().join("yadbe.db")).expect("store");
++    let end = 1_760_000_000_000_i64;
++    let mut batch = Vec::with_capacity(5000);
++    for i in 0..N {
++        let failed = i % 23 == 0;
++        batch.push(NewHistoryEntry {
++            connection_id: format!("c{}", i % 4),
++            connection_name: format!("connection {}", i % 4),
++            engine: Engine::Postgres,
++            database: Some("shop".into()),
++            sql: statement(i),
++            started_at_ms: end - (N - i) * 60_000,
++            duration_ms: (i % 400) as f64,
++            rows: Some(i % 50),
++            outcome: if failed {
++                HistoryOutcome::Error
++            } else {
++                HistoryOutcome::Ok
++            },
++            error_code: failed.then_some(ErrorCode::QueryFailed),
++            error_message: failed.then(|| "relation does not exist".into()),
++        });
++        if batch.len() == 5000 {
++            store.insert_history(&batch).expect("insert");
++            batch.clear();
++        }
++    }
++    assert_eq!(
++        store
++            .count_history(&HistoryScope::default())
++            .expect("count"),
++        N as u32
++    );
++
++    let mut worst = Duration::ZERO;
++    let mut time = |label: &str, query: HistoryQuery| {
++        let mut slowest = Duration::ZERO;
++        let mut rows = 0;
++        for _ in 0..5 {
++            let started = Instant::now();
++            let page = store.search_history(&query).expect("search");
++            slowest = slowest.max(started.elapsed());
++            rows = page.rows.len();
++        }
++        println!("p08 {label:<42} rows={rows:<4} worst of 5 = {slowest:?}");
++        worst = worst.max(slowest);
++    };
++    let text = |t: &str| HistoryQuery {
++        text: Some(t.into()),
++        ..HistoryQuery::default()
++    };
++    time("no text, first page", HistoryQuery::default());
++    time("rare word (`x99999`)", text("x99999"));
++    time("one table (`customers`)", text("customers"));
++    time("common word (`select`)", text("select"));
++    time("prefix of a common word (`sel`)", text("sel"));
++    time("two words (`orders update`)", text("orders update"));
++    time("one letter prefix (`s`)", text("s"));
++    time(
++        "common word + errors only + connection",
++        HistoryQuery {
++            text: Some("select".into()),
++            outcomes: vec![HistoryOutcome::Error],
++            connection_id: Some("c1".into()),
++            ..HistoryQuery::default()
++        },
++    );
++    time(
++        "common word + min duration 390 ms",
++        HistoryQuery {
++            text: Some("select".into()),
++            min_duration_ms: Some(390.0),
++            ..HistoryQuery::default()
++        },
++    );
++    time(
++        "no text, deep page (after 50 000 rows)",
++        HistoryQuery {
++            after: Some(((end - 50_000 * 60_000) * 1024) as f64),
++            ..HistoryQuery::default()
++        },
++    );
++    time(
++        "no text, one day",
++        HistoryQuery {
++            from: Some((end - 3 * 86_400_000) as f64),
++            to: Some((end - 2 * 86_400_000) as f64),
++            ..HistoryQuery::default()
++        },
++    );
++    println!("p08 worst case overall = {worst:?} (target < 100 ms)");
++    assert!(worst < Duration::from_millis(100), "{worst:?}");
++}
+diff --git a/src-tauri/tests/query_common/mod.rs b/src-tauri/tests/query_common/mod.rs
+index 61633f9..f5fc1b6 100644
+--- a/src-tauri/tests/query_common/mod.rs
++++ b/src-tauri/tests/query_common/mod.rs
+@@ -60,11 +60,33 @@ pub struct Bench {
+     pub sink: Arc<TimedSink>,
+     pub log: Arc<StatementLog>,
+     pub history: Arc<History>,
++    pub store: Arc<Store>,
+     pub connection_id: String,
+ }
+ 
+ /// Saves `definition`, connects it and builds a runner on top.
+ pub async fn bench(definition: ConnectionDefinition, password: Option<Secret>) -> Bench {
++    let history = Arc::new(History::default());
++    let recorder = history.clone();
++    build(definition, password, history, move |_, _| recorder).await
++}
++
++/// Like [`bench`], with the history hook built from the store and the event sink (the real
++/// `StoreHistory`); `Bench::history` stays empty.
++pub async fn bench_with_history(
++    definition: ConnectionDefinition,
++    password: Option<Secret>,
++    recorder: impl FnOnce(&Arc<Store>, &Arc<TimedSink>) -> Arc<dyn HistoryRecorder>,
++) -> Bench {
++    build(definition, password, Arc::default(), recorder).await
++}
++
++async fn build(
++    definition: ConnectionDefinition,
++    password: Option<Secret>,
++    history: Arc<History>,
++    recorder: impl FnOnce(&Arc<Store>, &Arc<TimedSink>) -> Arc<dyn HistoryRecorder>,
++) -> Bench {
+     let store = Arc::new(Store::open_in_memory().expect("store"));
+     let secrets = Arc::new(SecretStore::new(Arc::new(MemoryKeychain::default())));
+     let sink = Arc::new(TimedSink::default());
+@@ -77,11 +99,10 @@ pub async fn bench(definition: ConnectionDefinition, password: Option<Secret>) -
+     ));
+     let saved = store.create_connection(&definition).expect("save");
+     manager.connect(&saved.id, password).await.expect("connect");
+-    let history = Arc::new(History::default());
+     let runner = Arc::new(QueryRunner::new(
+         Arc::clone(&manager),
+         sink.clone(),
+-        history.clone(),
++        recorder(&store, &sink),
+     ));
+     Bench {
+         runner,
+@@ -89,6 +110,7 @@ pub async fn bench(definition: ConnectionDefinition, password: Option<Secret>) -
+         sink,
+         log,
+         history,
++        store,
+         connection_id: saved.id,
+     }
+ }
+-- 
+2.43.0
+

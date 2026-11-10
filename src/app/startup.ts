@@ -1,4 +1,7 @@
 import { startConnectionFeed } from '../features/connections/connectionStore';
+import { startMetaFeed } from '../features/explorer/metaFeed';
+import { restoreAndPersistQueryUi, startQueryFeature } from '../features/query/queryFeature';
+import { useQueryTabStore } from '../features/query/queryTabStore';
 import { startStatementLogFeed } from '../features/statement-log/statementLogStore';
 import { initI18n, translate, useI18nStore } from '../i18n/i18n';
 import { ipc, unwrap } from '../ipc';
@@ -6,7 +9,7 @@ import { initTheme } from '../theme/themeStore';
 import { loadPreferences } from './backendPreferences';
 import { restoreAndPersistLayout } from './layout/layoutStore';
 import { applyStoredPreferences } from './preferences';
-import { fromBackendTabs, toBackendTabs } from './tabs/tabsPersistence';
+import { editorsFromBackendTabs, fromBackendTabs, toBackendTabs } from './tabs/tabsPersistence';
 import { toSavedTabs, useTabsStore } from './tabs/tabsStore';
 
 /**
@@ -18,8 +21,13 @@ let tabsHydrated = false;
 /** Exported for the tests: `startup()` runs it once. */
 export async function restoreTabs(): Promise<void> {
   try {
-    const saved = fromBackendTabs(await unwrap(ipc.commands.loadTabs()));
-    if (saved) useTabsStore.getState().hydrate(saved);
+    const backend = await unwrap(ipc.commands.loadTabs());
+    const saved = fromBackendTabs(backend);
+    if (saved) {
+      // The editors first: a tab never shows before its text is there.
+      useQueryTabStore.getState().hydrate(editorsFromBackendTabs(backend));
+      useTabsStore.getState().hydrate(saved);
+    }
     tabsHydrated = true;
   } catch (error) {
     console.warn('Saved tabs unavailable, starting with a new tab', error);
@@ -34,8 +42,10 @@ function saveTabsNow(): void {
   tabsSaving = tabsSaving
     .then(async () => {
       const { locale } = useI18nStore.getState();
-      const state = toBackendTabs(toSavedTabs(useTabsStore.getState()), (number) =>
-        translate(locale, 'tab.query', { number }),
+      const state = toBackendTabs(
+        toSavedTabs(useTabsStore.getState()),
+        (number) => translate(locale, 'tab.query', { number }),
+        useQueryTabStore.getState().tabs,
       );
       const result = await ipc.commands.saveTabs(state);
       if (result.status === 'error' && !tabsSaveWarned) {
@@ -48,13 +58,47 @@ function saveTabsNow(): void {
     });
 }
 
-/** Saves the tabs after every change (F-122: tabs are restored on restart). */
+/** Typing, cursor moves and scrolling are saved after this much quiet (F-044: autosave). */
+const EDITOR_AUTOSAVE_MS = 1500;
+
+/**
+ * Saves the tabs after every change (F-122: tabs are restored on restart): at once when the tabs
+ * themselves change (opening, closing or switching flushes what was typed), and a moment after
+ * the last keystroke, cursor move or scroll in an editor.
+ */
 export function persistTabs(): () => void {
-  return useTabsStore.subscribe((state, previous) => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const flush = () => {
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    timer = undefined;
+    if (tabsHydrated) saveTabsNow();
+  };
+  const offTabs = useTabsStore.subscribe((state, previous) => {
     if (state.tabs === previous.tabs && state.activeTabId === previous.activeTabId) return;
     if (!tabsHydrated) return;
+    clearTimeout(timer);
+    timer = undefined;
     saveTabsNow();
   });
+  const offEditors = useQueryTabStore.subscribe((state, previous) => {
+    if (state.tabs === previous.tabs || !tabsHydrated) return;
+    clearTimeout(timer);
+    timer = setTimeout(flush, EDITOR_AUTOSAVE_MS);
+  });
+  // A hidden window may be about to close: do not hold the last keystrokes back.
+  const onHidden = () => {
+    if (document.visibilityState === 'hidden') flush();
+  };
+  document.addEventListener('visibilitychange', onHidden);
+  window.addEventListener('pagehide', flush);
+  return () => {
+    offTabs();
+    offEditors();
+    document.removeEventListener('visibilitychange', onHidden);
+    window.removeEventListener('pagehide', flush);
+    clearTimeout(timer);
+  };
 }
 
 /** Tests only: forgets the hydration state. */
@@ -82,8 +126,10 @@ export function startup(): Promise<void> {
   started ??= (async () => {
     void startConnectionFeed();
     void startStatementLogFeed();
+    startMetaFeed();
+    startQueryFeature();
     await restorePreferences();
-    await Promise.all([restoreAndPersistLayout(), restoreTabs()]);
+    await Promise.all([restoreAndPersistLayout(), restoreTabs(), restoreAndPersistQueryUi()]);
     persistTabs();
   })();
   return started;

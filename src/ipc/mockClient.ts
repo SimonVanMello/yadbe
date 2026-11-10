@@ -23,7 +23,9 @@ import {
   MOCK_SERVER_VERSIONS,
 } from './mockData';
 import { mockErrors } from './mockErrors';
+import { createMockFiles } from './mockFiles';
 import { createMockMeta } from './mock/meta';
+import type { LargeCatalogOptions } from './mock/metaCatalog';
 import { createMockQuery } from './mockQuery';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
@@ -280,6 +282,8 @@ function createMockBackend() {
       logStatement(connectionId, connectionName, sql);
     },
   });
+
+  const files = createMockFiles();
 
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
@@ -595,6 +599,8 @@ function createMockBackend() {
 
     ...meta.commands,
     ...query.commands,
+
+    ...files.commands,
   };
 
   function reset(): void {
@@ -613,6 +619,7 @@ function createMockBackend() {
     sessions.clear();
     meta.reset();
     query.reset();
+    files.reset();
     clearReloadState();
     seed();
   }
@@ -678,14 +685,22 @@ function createMockBackend() {
     setMetaLatency(ms: number): void {
       meta.setLatency(ms);
     },
-    /** `large`: PostgreSQL connections opened from now on see a 10 000-object database. */
-    setMetaCatalog(kind: 'shop' | 'large'): void {
-      meta.setCatalog(kind);
+    /**
+     * `large`: PostgreSQL connections opened from now on see a 10 000-object database, or the
+     * synthetic one `options` describe.
+     */
+    setMetaCatalog(kind: 'shop' | 'large', options?: LargeCatalogOptions): void {
+      meta.setCatalog(kind, options);
     },
     /** Time between two streamed batches of a query result, in ms (0 in unit tests). */
     setQueryTick(ms: number): void {
       query.setTick(ms);
     },
+    /** Puts a script on the mock disk, or removes it with `null` (a change behind the app's back). */
+    setFile: (path: string, text: string | null): void => {
+      files.set(path, text);
+    },
+    getFile: (path: string): string | undefined => files.get(path),
     reset,
   };
 }

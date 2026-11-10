@@ -22,6 +22,13 @@ export const DEFAULT_BINDINGS = {
   'connection.new': 'Mod+N',
   'view.toggleSidebar': 'Mod+B',
   'view.toggleStatementLog': 'Mod+J',
+  // SQL editor (F-041, F-042, F-045): `query.run` runs the selection, else the whole script.
+  'query.run': 'Mod+Enter',
+  'query.runStatement': 'Mod+Shift+Enter',
+  'query.cancel': 'Mod+.',
+  'query.open': 'Mod+O',
+  'query.save': 'Mod+S',
+  'query.saveAs': 'Mod+Shift+S',
 } as const;
 
 export type ActionId = keyof typeof DEFAULT_BINDINGS;
