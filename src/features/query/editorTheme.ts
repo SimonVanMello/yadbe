@@ -128,7 +128,118 @@ const chrome = EditorView.theme({
     color: 'var(--fg-primary)',
     border: 'var(--border-width) solid var(--border-strong)',
     borderRadius: 'var(--radius-md)',
+    boxShadow: 'var(--shadow-popover)',
   },
+  // Suggestions (F-043): the list, one row per suggestion with a kind mark, name and detail.
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': {
+    fontFamily: 'var(--font-code)',
+    fontSize: 'var(--text-sm)',
+    maxHeight: 'calc(var(--row-height) * 10)',
+    minWidth: 'var(--menu-min-width)',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li': {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 'var(--space-2)',
+    padding: 'var(--space-0) var(--space-3)',
+    lineHeight: 'var(--leading-normal)',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+    backgroundColor: 'var(--accent)',
+    color: 'var(--accent-fg)',
+  },
+  '.cm-completionLabel': { flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis' },
+  '.cm-completionDetail': {
+    flex: '0 1 auto',
+    marginLeft: 'var(--space-4)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    fontStyle: 'normal',
+    fontSize: 'var(--text-xs)',
+    color: 'var(--fg-muted)',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail': {
+    color: 'inherit',
+    opacity: '0.8',
+  },
+  '.cm-completionMatchedText': { textDecoration: 'none', fontWeight: 'var(--weight-semibold)' },
+  '.cm-yadbe-kind': {
+    flex: 'none',
+    order: '-1',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 'var(--icon-size-md)',
+    height: 'var(--icon-size-md)',
+    borderRadius: 'var(--radius-sm)',
+    border: 'var(--border-width) solid currentColor',
+    fontFamily: 'var(--font-ui)',
+    fontSize: 'var(--text-2xs)',
+    fontWeight: 'var(--weight-semibold)',
+    lineHeight: '1',
+    opacity: '0.9',
+  },
+  '.cm-yadbe-kind[data-kind="table"], .cm-yadbe-kind[data-kind="view"], .cm-yadbe-kind[data-kind="materializedView"]':
+    { color: 'var(--syn-type)' },
+  '.cm-yadbe-kind[data-kind="schema"], .cm-yadbe-kind[data-kind="cte"]': {
+    color: 'var(--syn-special)',
+  },
+  '.cm-yadbe-kind[data-kind="column"], .cm-yadbe-kind[data-kind="alias"], .cm-yadbe-kind[data-kind="join"]':
+    { color: 'var(--syn-string)' },
+  '.cm-yadbe-kind[data-kind="function"], .cm-yadbe-kind[data-kind="procedure"]': {
+    color: 'var(--syn-function)',
+  },
+  '.cm-yadbe-kind[data-kind="keyword"], .cm-yadbe-kind[data-kind="type"]': {
+    color: 'var(--syn-keyword)',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-yadbe-kind': {
+    color: 'inherit',
+  },
+  // The panel next to the list.
+  '.cm-completionInfo': {
+    padding: 'var(--space-3) var(--space-4)',
+    fontFamily: 'var(--font-ui)',
+    fontSize: 'var(--text-sm)',
+    maxWidth: 'var(--card-min-width)',
+    color: 'var(--fg-secondary)',
+  },
+  '.cm-yadbe-info-title': {
+    marginBottom: 'var(--space-2)',
+    fontFamily: 'var(--font-code)',
+    fontWeight: 'var(--weight-semibold)',
+    color: 'var(--fg-primary)',
+    overflowWrap: 'anywhere',
+  },
+  '.cm-yadbe-info-row': {
+    display: 'flex',
+    gap: 'var(--space-3)',
+    justifyContent: 'space-between',
+    marginTop: 'var(--space-1)',
+  },
+  '.cm-yadbe-info-label': { color: 'var(--fg-muted)', flex: 'none' },
+  '.cm-yadbe-info-value': {
+    fontFamily: 'var(--font-code)',
+    fontSize: 'var(--text-xs)',
+    textAlign: 'right',
+    overflowWrap: 'anywhere',
+  },
+  '.cm-yadbe-info-columns': {
+    margin: 'var(--space-2) 0 0',
+    padding: 'var(--space-2) 0 0',
+    listStyle: 'none',
+    borderTop: 'var(--border-width) solid var(--border-subtle)',
+  },
+  '.cm-yadbe-info-column': {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 'var(--space-4)',
+    fontFamily: 'var(--font-code)',
+    fontSize: 'var(--text-xs)',
+  },
+  '.cm-yadbe-info-name': { color: 'var(--fg-primary)' },
+  '.cm-yadbe-info-type': { color: 'var(--syn-type)' },
+  '.cm-yadbe-info-more': { color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' },
+  '.cm-yadbe-info-comment': { marginTop: 'var(--space-2)', color: 'var(--fg-muted)' },
 });
 
 /** Highlighting and chrome of the SQL editor. */

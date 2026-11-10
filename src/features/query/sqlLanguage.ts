@@ -12,6 +12,11 @@ const DIALECTS: Record<Engine, SQLDialect> = {
   sqlite: SQLite,
 };
 
+/** The CodeMirror dialect of an engine (its type names feed the completion vocabulary). */
+export function dialectOf(engine: Engine): SQLDialect {
+  return DIALECTS[engine];
+}
+
 /** The SQL language support for an engine (F-040). */
 export function sqlLanguage(engine: Engine): Extension {
   return sql({ dialect: DIALECTS[engine], upperCaseKeywords: false });

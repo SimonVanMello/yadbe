@@ -22,6 +22,7 @@ const PHRASES: readonly [phrase: string, key: MessageKey][] = [
   ['go', 'editor.phrase.go'],
   ['current match', 'editor.phrase.currentMatch'],
   ['on line', 'editor.phrase.onLine'],
+  ['Completions', 'completion.listbox'],
 ];
 
 /** The phrase table CodeMirror's `EditorState.phrases` takes for a language. */

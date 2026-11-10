@@ -26,6 +26,11 @@ import { useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import type { Engine, TextRange } from '../../ipc';
 import { styleNonce } from '../../ui/cspNonce';
+import { useCatalogLoading } from '../completion/catalogStore';
+import { completionExtension } from '../completion/completionExtension';
+import { createCompletionHost } from '../completion/completionHost';
+import { STANDARD_QUOTING, quotingOf, type Quoting } from '../completion/identifierQuoting';
+import { useEngineInfo } from '../connections/connectionStore';
 import { currentOffset, markRun, queryFields, setErrors } from './editorFields';
 import { editorPhrases } from './editorPhrases';
 import { useEditorCursorStore } from './editorCursorStore';
@@ -82,6 +87,8 @@ interface EditorOptions {
   tabId: string;
   getEngine: () => Engine;
   label: string;
+  /** Schema-aware suggestions (F-043). */
+  completion: Extension;
 }
 
 function editorExtensions(
@@ -112,6 +119,7 @@ function editorExtensions(
     EditorState.tabSize.of(2),
     bracketMatching(),
     closeBrackets(),
+    options.completion,
     highlightActiveLine(),
     highlightSelectionMatches(),
     search({ top: true }),
@@ -155,6 +163,10 @@ interface SqlEditorProps {
   tabId: string;
   /** The engine of the tab's connection: picks the SQL dialect. */
   engine: Engine;
+  /** The tab's connection, whose cached schema feeds the suggestions. */
+  connectionId: string;
+  /** The connection's own database (empty for file engines). */
+  connectionDatabase: string;
 }
 
 /**
@@ -163,7 +175,7 @@ interface SqlEditorProps {
  * saves and restores. The tab's `EditorController` (see `editorRegistry.ts`) lets the rest of the
  * app jump to an error or replace the text.
  */
-export function SqlEditor({ tabId, engine }: SqlEditorProps) {
+export function SqlEditor({ tabId, engine, connectionId, connectionDatabase }: SqlEditorProps) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
   const host = useRef<HTMLDivElement>(null);
@@ -172,6 +184,20 @@ export function SqlEditor({ tabId, engine }: SqlEditorProps) {
   const engineRef = useRef(engine);
   const labelRef = useRef(t('editor.label'));
   const execution = useTabExecution(tabId);
+  const engineInfo = useEngineInfo(engine);
+  const quotingRef = useRef<Quoting>(STANDARD_QUOTING);
+  const databaseRef = useRef(connectionDatabase);
+  const connectionRef = useRef(connectionId);
+  const loadingSchema = useCatalogLoading(connectionId);
+
+  useEffect(() => {
+    quotingRef.current = engineInfo ? quotingOf(engineInfo.capabilities) : STANDARD_QUOTING;
+  }, [engineInfo]);
+
+  useEffect(() => {
+    databaseRef.current = connectionDatabase;
+    connectionRef.current = connectionId;
+  }, [connectionDatabase, connectionId]);
 
   useEffect(() => {
     engineRef.current = engine;
@@ -193,8 +219,17 @@ export function SqlEditor({ tabId, engine }: SqlEditorProps) {
     const parent = host.current;
     if (!parent) return;
     const stored = getQueryTabState(tabId);
+    const completion = completionExtension(
+      createCompletionHost({
+        tabId,
+        connectionId: () => connectionRef.current,
+        connectionDatabase: () => databaseRef.current,
+        engine: () => engineRef.current,
+        quoting: () => quotingRef.current,
+      }),
+    );
     const extensions = editorExtensions(
-      { tabId, getEngine: () => engineRef.current, label: labelRef.current },
+      { tabId, getEngine: () => engineRef.current, label: labelRef.current, completion },
       compartments.current,
       engineRef.current,
       useI18nStore.getState().locale,
@@ -292,5 +327,14 @@ export function SqlEditor({ tabId, engine }: SqlEditorProps) {
     viewRef.current?.dispatch({ effects: setErrors.of(marks) });
   }, [marks]);
 
-  return <div ref={host} className={styles.editor} data-testid="sql-editor" />;
+  return (
+    <div className={styles.frame}>
+      <div ref={host} className={styles.editor} data-testid="sql-editor" />
+      {loadingSchema && (
+        <span className={styles.schemaStatus} role="status">
+          {t('completion.loading')}
+        </span>
+      )}
+    </div>
+  );
 }

@@ -53,7 +53,13 @@ export function QueryView({ tab, connection }: { tab: ShellTab; connection: Conn
       <ConnectionNotice connection={connection} />
       <FileIssueBanner tabId={tab.id} />
       <div className={styles.editor}>
-        <SqlEditor key={tab.id} tabId={tab.id} engine={connection.engine} />
+        <SqlEditor
+          key={tab.id}
+          tabId={tab.id}
+          engine={connection.engine}
+          connectionId={connection.id}
+          connectionDatabase={connection.database}
+        />
       </div>
       <QuerySplit container={container} />
       <div className={styles.results} style={{ flexBasis: `${String(ratio * 100)}%` }}>

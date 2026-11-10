@@ -14,6 +14,7 @@ describe('the saved editor settings', () => {
     expect(DEFAULT_QUERY_UI).toEqual({
       resultsRatio: DEFAULT_RESULTS_RATIO,
       confirmDangerous: true,
+      completeAsYouType: true,
     });
   });
 
@@ -21,7 +22,13 @@ describe('the saved editor settings', () => {
     expect(parseQueryUi({ resultsRatio: 0.6, confirmDangerous: false })).toEqual({
       resultsRatio: 0.6,
       confirmDangerous: false,
+      completeAsYouType: true,
     });
+  });
+
+  it('remembers that suggestions while typing are off', () => {
+    expect(parseQueryUi({ completeAsYouType: false }).completeAsYouType).toBe(false);
+    expect(parseQueryUi({ completeAsYouType: 'off' }).completeAsYouType).toBe(true);
   });
 
   it.each([undefined, null, 'x', 42, [], { resultsRatio: 'wide', confirmDangerous: 'no' }])(
