@@ -167,16 +167,27 @@ async fn pauses_with_server_backpressure_then_resumes() {
     let result = run.results[0].clone();
     assert_eq!(result.row_count, 100_000);
     assert_eq!(result.paused_by, Some(PauseReason::RowLimit));
-    // The statement is still running on the server: it waits for the client to read.
+    // The statement is still running on the server: it waits for the client to read. The
+    // activity view is sampled, so poll for the state rather than read it once.
     let session = b.manager.session(&b.connection_id).expect("session");
-    let activity = session
-        .query(
-            "SELECT state FROM pg_stat_activity WHERE query LIKE '%m13-backpressure%' AND pid <> pg_backend_pid()",
-            5,
-        )
-        .await
-        .expect("activity");
-    assert_eq!(activity.scalar_text().as_deref(), Some("active"));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let activity = session
+            .query(
+                "SELECT state FROM pg_stat_activity WHERE query LIKE '%m13-backpressure%' AND pid <> pg_backend_pid()",
+                5,
+            )
+            .await
+            .expect("activity");
+        if activity.scalar_text().as_deref() == Some("active") {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the statement is still active: {activity:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(
         b.fold(id).0.results[0].row_count,

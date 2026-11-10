@@ -265,22 +265,30 @@ FROM sys.all_columns a CROSS JOIN sys.all_columns b";
     let result = run.results[0].clone();
     assert_eq!(result.row_count, 100_000);
     assert_eq!(result.paused_by, Some(PauseReason::RowLimit));
-    // The request is still on the server, waiting for the client to read.
+    // The request is still on the server, waiting for the client to read. The wait type is
+    // sampled: under load the request can show another wait for a moment, so poll for it.
     let session = b.manager.session(&b.connection_id).expect("session");
-    let activity = session
-        .query(
-            "SELECT r.status, r.wait_type FROM sys.dm_exec_requests r \
-             CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) t \
-             WHERE t.text LIKE '%m17-backpressure%' AND r.session_id <> @@SPID",
-            5,
-        )
-        .await
-        .expect("activity");
-    assert_eq!(
-        activity.rows.first().and_then(|r| r.get(1)),
-        Some(&Value::Text("ASYNC_NETWORK_IO".into())),
-        "the request waits for the client: {activity:?}"
-    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let activity = session
+            .query(
+                "SELECT r.status, r.wait_type FROM sys.dm_exec_requests r \
+                 CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) t \
+                 WHERE t.text LIKE '%m17-backpressure%' AND r.session_id <> @@SPID",
+                5,
+            )
+            .await
+            .expect("activity");
+        let wait = activity.rows.first().and_then(|r| r.get(1));
+        if wait == Some(&Value::Text("ASYNC_NETWORK_IO".into())) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the request waits for the client: {activity:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(
         b.fold(id).0.results[0].row_count,
