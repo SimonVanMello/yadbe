@@ -28,6 +28,14 @@ async fn pg(test: &str, read_only: bool) -> Option<Bench> {
 }
 
 #[tokio::test]
+async fn announces_schema_changes() {
+    let Some(b) = pg("announces_schema_changes", false).await else {
+        return;
+    };
+    b.check_ddl_refresh("tab").await;
+}
+
+#[tokio::test]
 async fn runs_scripts_with_types_notices_and_row_counts() {
     let Some(b) = pg("runs_scripts_with_types_notices_and_row_counts", false).await else {
         return;

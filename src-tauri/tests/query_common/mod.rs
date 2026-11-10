@@ -294,6 +294,62 @@ impl Bench {
         self.runner.tab_info(tab).transaction
     }
 
+    /// How many `meta-refreshed` events with the reason `ddl` were emitted so far.
+    pub fn ddl_events(&self) -> usize {
+        self.sink
+            .events()
+            .iter()
+            .filter(|e| {
+                matches!(e, BackendEvent::MetaRefreshed(m)
+                    if m.reason == yadbe_lib::events::MetaRefreshReason::Ddl)
+            })
+            .count()
+    }
+
+    /// Schema changes announce themselves once per execution, and in manual transaction
+    /// mode only once committed.
+    pub async fn check_ddl_refresh(&self, tab: &str) {
+        use yadbe_lib::session::query_model::TransactionMode;
+        let ok = |run: Run| assert_eq!(run.status, ExecutionStatus::Succeeded, "{run:?}");
+        ok(self.run(tab, "CREATE TABLE m35_a (x int)").await);
+        assert_eq!(self.ddl_events(), 1);
+        ok(self.run(tab, "SELECT 1").await);
+        ok(self.run(tab, "INSERT INTO m35_a VALUES (1)").await);
+        assert_eq!(self.ddl_events(), 1, "no schema change");
+        ok(self
+            .run(
+                tab,
+                "CREATE TABLE m35_b (x int); DROP TABLE m35_b; DROP TABLE m35_a",
+            )
+            .await);
+        assert_eq!(self.ddl_events(), 2, "once per execution");
+        let failed = self.run(tab, "DROP TABLE m35_missing").await;
+        assert_eq!(failed.status, ExecutionStatus::Failed);
+        assert_eq!(self.ddl_events(), 2, "a failed statement changed nothing");
+
+        self.runner
+            .set_mode(tab, TransactionMode::Manual)
+            .expect("manual");
+        ok(self.run(tab, "CREATE TABLE m35_c (x int)").await);
+        assert_eq!(self.ddl_events(), 2, "not committed yet");
+        self.runner
+            .end_transaction(tab, false)
+            .await
+            .expect("rollback");
+        assert_eq!(self.ddl_events(), 2, "rolled back");
+        ok(self.run(tab, "CREATE TABLE m35_c (x int)").await);
+        self.runner
+            .end_transaction(tab, true)
+            .await
+            .expect("commit");
+        assert_eq!(self.ddl_events(), 3, "on commit");
+        self.runner
+            .set_mode(tab, TransactionMode::AutoCommit)
+            .expect("auto");
+        ok(self.run(tab, "DROP TABLE m35_c").await);
+        assert_eq!(self.ddl_events(), 4);
+    }
+
     pub fn logged(&self) -> Vec<String> {
         self.log.entries().into_iter().map(|e| e.sql).collect()
     }

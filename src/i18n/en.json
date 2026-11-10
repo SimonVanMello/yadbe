@@ -965,7 +965,7 @@
   "tableData.count.unknown": "Row count unknown",
   "tableData.count.exactButton": "Count",
   "tableData.count.failed": "Could not count the rows",
-  "tableData.stale": "Changed from another tab: refresh to see it.",
+  "tableData.stale": "Changed elsewhere: refresh to see it.",
   "tableData.filter.label": "Filter",
   "tableData.filter.add": "Filter",
   "tableData.filter.form": "Filter condition",

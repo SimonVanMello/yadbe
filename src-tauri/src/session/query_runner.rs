@@ -20,17 +20,20 @@ use tokio::sync::{Mutex as AsyncMutex, Notify, OwnedMutexGuard, mpsc};
 use tokio::task::JoinHandle;
 
 use crate::db::classify::{
-    TransactionEffect, read_only_refusal, reports_row_count, transaction_effect,
+    TransactionEffect, changes_schema, read_only_refusal, reports_row_count, rolls_back,
+    transaction_effect,
 };
 use crate::db::dialect::Dialect;
 use crate::db::driver::{
     CancelHandle, Connection, ErrorLocation, ExecError, ExecEvent, ExecSummary,
 };
 use crate::db::errors::{ErrorCode, YadbeError};
+use crate::db::meta::MetaNode;
 use crate::db::split::{SqlSyntax, Statement, Utf16Map, split, statement_at};
 use crate::db::value::Value;
 use crate::events::{
-    BackendEvent, EventSink, QueryFinished, QueryProgress, TransactionStateChanged,
+    BackendEvent, EventSink, MetaRefreshReason, MetaRefreshed, QueryFinished, QueryProgress,
+    TransactionStateChanged,
 };
 use crate::session::ConnectionManager;
 use crate::session::connection::ConnectionSession;
@@ -389,6 +392,10 @@ struct TabShared {
     connection_id: Option<String>,
     database: Option<String>,
     execution: Option<Arc<Execution>>,
+    /// Schema changes made in the current transaction, not yet committed.
+    ddl_in_transaction: bool,
+    /// Committed (or autocommitted) schema changes not yet announced.
+    ddl_pending: bool,
 }
 
 struct Tab {
@@ -418,6 +425,30 @@ impl Tab {
 
     fn execution(&self) -> Option<Arc<Execution>> {
         lock(&self.shared).execution.clone()
+    }
+
+    /// A schema-changing statement succeeded: announced once the change is committed.
+    fn note_ddl(&self) {
+        let open = self.transaction().status != TransactionStatus::Idle;
+        let mut shared = lock(&self.shared);
+        if open {
+            shared.ddl_in_transaction = true;
+        } else {
+            shared.ddl_pending = true;
+        }
+    }
+
+    /// The transaction ended: its schema changes now count, or are gone.
+    fn note_transaction_end(&self, committed: bool) {
+        let mut shared = lock(&self.shared);
+        if committed && shared.ddl_in_transaction {
+            shared.ddl_pending = true;
+        }
+        shared.ddl_in_transaction = false;
+    }
+
+    fn take_ddl(&self) -> bool {
+        std::mem::take(&mut lock(&self.shared).ddl_pending)
     }
 
     fn try_conn(&self) -> Result<OwnedMutexGuard<Option<TabConnection>>, YadbeError> {
@@ -633,10 +664,35 @@ impl QueryRunner {
         session: Arc<ConnectionSession>,
     ) {
         let status = self.run_statements(&tab, &exec, &mut guard, &session).await;
+        if tab.take_ddl() {
+            self.announce_ddl(&exec, &session);
+        }
         // Free the tab before announcing the end, so a run started on `query-finished` is
         // accepted.
         drop(guard);
         exec.finish(&*self.sink, status);
+    }
+
+    /// Tells the explorer and the autocomplete that the schema of the execution's database
+    /// changed (coarse: the whole database, the whole connection when it is not named).
+    fn announce_ddl(&self, exec: &Execution, session: &ConnectionSession) {
+        let target = session.target();
+        let multiple = target.engine.dialect().capabilities().multiple_databases;
+        let database = exec
+            .database
+            .clone()
+            .or_else(|| (multiple && !target.database.is_empty()).then(|| target.database.clone()));
+        self.emit_ddl(&exec.connection_id, database);
+    }
+
+    fn emit_ddl(&self, connection_id: &str, database: Option<String>) {
+        self.sink.emit(BackendEvent::MetaRefreshed(MetaRefreshed {
+            connection_id: connection_id.to_owned(),
+            node: database.map_or(MetaNode::Connection, |database| MetaNode::Database {
+                database,
+            }),
+            reason: MetaRefreshReason::Ddl,
+        }));
     }
 
     async fn run_statements(
@@ -733,6 +789,14 @@ impl QueryRunner {
             let outcome = self.run_statement(exec, &conn, index).await;
             let sql = &exec.text[exec.statements[index].range()];
             self.track_transaction(tab, &conn, dialect, sql, &outcome);
+            if matches!(outcome, Outcome::Done) {
+                let syntax = dialect.syntax();
+                if changes_schema(sql, &syntax) {
+                    tab.note_ddl();
+                } else if transaction_effect(sql, &syntax) == TransactionEffect::End {
+                    tab.note_transaction_end(!rolls_back(sql, &syntax));
+                }
+            }
             if let Outcome::Failed(error) = outcome {
                 return if error.code == ErrorCode::Cancelled || exec.cancel.is_raised() {
                     ExecutionStatus::Cancelled
@@ -770,6 +834,7 @@ impl QueryRunner {
             let mut shared = lock(&tab.shared);
             shared.connection_id = None;
             shared.database = None;
+            shared.ddl_in_transaction = false;
         }
         tab.set_transaction(&*self.sink, |t| t.status = TransactionStatus::Idle);
         exec.update(|state| state.status = ExecutionStatus::Connecting);
@@ -1364,7 +1429,19 @@ impl QueryRunner {
                 TransactionStatus::Idle
             };
         });
+        if !open {
+            tab.note_transaction_end(commit && result.is_ok());
+        }
         drop(guard);
+        if tab.take_ddl() {
+            let (connection_id, database) = {
+                let shared = lock(&tab.shared);
+                (shared.connection_id.clone(), shared.database.clone())
+            };
+            if let Some(connection_id) = connection_id {
+                self.emit_ddl(&connection_id, database);
+            }
+        }
         result.map(|_| tab.transaction())
     }
 
@@ -1413,6 +1490,7 @@ fn spawn_watcher(
                 let mut shared = lock(&tab.shared);
                 shared.connection_id = None;
                 shared.database = None;
+                shared.ddl_in_transaction = false;
             }
             tab.set_transaction(&*sink, |t| t.status = TransactionStatus::Idle);
         }

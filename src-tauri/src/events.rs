@@ -42,6 +42,8 @@ pub enum MetaRefreshReason {
     Refresh,
     /// The connection came back after a drop: everything is read again.
     Reconnected,
+    /// A statement run in a query tab changed the schema.
+    Ddl,
 }
 
 /// The cached metadata of `node` and everything below it was dropped: what is displayed

@@ -1167,7 +1167,9 @@ export type MetaRefreshReason =
 /**  The user asked for a refresh (`refresh_meta`). */
 "refresh" | 
 /**  The connection came back after a drop: everything is read again. */
-"reconnected";
+"reconnected" | 
+/**  A statement run in a query tab changed the schema. */
+"ddl";
 
 /**
  *  The cached metadata of `node` and everything below it was dropped: what is displayed

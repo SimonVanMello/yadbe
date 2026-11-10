@@ -423,7 +423,7 @@ for (const { name, colorScheme } of THEMES) {
 
     test('changes applied elsewhere mark the rows as old until a refresh', async ({ page }) => {
       await openOrders(page);
-      await expect(page.getByText('Changed from another tab: refresh to see it.')).toBeHidden();
+      await expect(page.getByText('Changed elsewhere: refresh to see it.')).toBeHidden();
       // One tab per table: the event stands for another tab of the same table (F-087, later).
       await page.evaluate(() => {
         (window as MockWindow).__yadbeMock?.events.emit('tableDataChanged', {
@@ -435,11 +435,28 @@ for (const { name, colorScheme } of THEMES) {
           deleted: 0,
         });
       });
-      const notice = page.getByText('Changed from another tab: refresh to see it.');
+      const notice = page.getByText('Changed elsewhere: refresh to see it.');
       await expect(notice).toBeVisible();
       await capture(page, name, 'stale');
       await page.getByRole('button', { name: 'Refresh rows' }).click();
       await expect(notice).toBeHidden();
+    });
+
+    test('a schema change from a query tab only marks the open table as changed', async ({
+      page,
+    }) => {
+      await openOrders(page);
+      const notice = page.getByText('Changed elsewhere: refresh to see it.');
+      await expect(notice).toBeHidden();
+      await page.evaluate(() => {
+        (window as MockWindow).__yadbeMock?.events.emit('metaRefreshed', {
+          connectionId: 'conn-local-pg',
+          node: { level: 'database', database: 'app_dev' },
+          reason: 'ddl',
+        });
+      });
+      await expect(notice).toBeVisible();
+      await expect(cell(page, 0, 2)).toBeVisible();
     });
 
     test('Export the table writes every row under the filter, not only the page', async ({

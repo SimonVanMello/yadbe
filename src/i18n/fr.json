@@ -965,7 +965,7 @@
   "tableData.count.unknown": "Nombre de lignes inconnu",
   "tableData.count.exactButton": "Compter",
   "tableData.count.failed": "Impossible de compter les lignes",
-  "tableData.stale": "Modifiée depuis un autre onglet : actualisez pour le voir.",
+  "tableData.stale": "Modifiée ailleurs : actualisez pour le voir.",
   "tableData.filter.label": "Filtre",
   "tableData.filter.add": "Filtrer",
   "tableData.filter.form": "Condition de filtre",

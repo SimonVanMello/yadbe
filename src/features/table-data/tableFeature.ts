@@ -98,7 +98,8 @@ export function startTableDataFeature(): void {
     }
   });
 
-  // New metadata (refresh, DDL): the backend describes the table again from it.
+  // New metadata: the backend describes the table again from it. A schema change made in a
+  // query tab only says the rows may be old (the table may be gone): the user refreshes.
   ipc.events.subscribe('metaRefreshed', (event) => {
     for (const tab of useTabsStore.getState().tabs) {
       if (
@@ -108,7 +109,8 @@ export function startTableDataFeature(): void {
         getTableSession(tab.id).phase === 'ready' &&
         tableTabOf(tab.id)
       ) {
-        void openTable(tab.id);
+        if (event.reason === 'ddl') useTableSessionStore.getState().patch(tab.id, { stale: true });
+        else void openTable(tab.id);
       }
     }
   });

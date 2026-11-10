@@ -400,6 +400,28 @@ pub fn reports_row_count(sql: &str, syntax: &SqlSyntax) -> bool {
     }
 }
 
+/// Whether a statement changes the schema (what the explorer and the autocomplete show):
+/// `CREATE`, `ALTER`, `DROP`, `RENAME`, `COMMENT`, and SQL Server's `sp_rename`. `TRUNCATE`
+/// changes data only.
+pub fn changes_schema(sql: &str, syntax: &SqlSyntax) -> bool {
+    const DDL: &[&str] = &["create", "alter", "drop", "rename", "comment"];
+    let tokens = significant(sql, syntax);
+    let mut words = tokens.iter().filter_map(word);
+    match words.next() {
+        Some(first) if DDL.contains(&first) => true,
+        Some("exec" | "execute") => words.take(3).any(|w| w == "sp_rename"),
+        _ => false,
+    }
+}
+
+/// Whether a statement ends a transaction by discarding it (`ROLLBACK`, `ABORT`, without
+/// savepoint).
+pub fn rolls_back(sql: &str, syntax: &SqlSyntax) -> bool {
+    let tokens = significant(sql, syntax);
+    let mut words = tokens.iter().filter_map(word);
+    matches!(words.next(), Some("rollback" | "abort")) && !words.any(|w| w == "to")
+}
+
 fn pragma_refusal(tokens: &[Tok]) -> Option<String> {
     if tokens.contains(&Tok::Punct('=')) {
         return Some("PRAGMA".to_owned());
@@ -425,6 +447,33 @@ mod tests {
 
     fn check(engine: Engine, sql: &str) -> Option<String> {
         read_only_refusal(sql, &engine.dialect().syntax())
+    }
+
+    #[test]
+    fn schema_changes() {
+        let syntax = Engine::Postgres.dialect().syntax();
+        for sql in [
+            "CREATE TABLE t (a int)",
+            "  -- c\n alter table t add b int",
+            "drop index i",
+            "COMMENT ON TABLE t IS 'x'",
+            "RENAME TABLE a TO b",
+            "EXEC sp_rename 'a', 'b'",
+            "execute dbo.sp_rename 'a', 'b'",
+        ] {
+            assert!(changes_schema(sql, &syntax), "{sql}");
+        }
+        for sql in [
+            "select 1",
+            "TRUNCATE t",
+            "insert into t values (1)",
+            "exec sp_who",
+        ] {
+            assert!(!changes_schema(sql, &syntax), "{sql}");
+        }
+        assert!(rolls_back("ROLLBACK", &syntax));
+        assert!(!rolls_back("rollback to savepoint s", &syntax));
+        assert!(!rolls_back("commit", &syntax));
     }
 
     #[test]

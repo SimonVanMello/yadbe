@@ -593,13 +593,17 @@ impl MetaService {
 
     /// Drops `node` and everything below it from the cache, then emits `meta-refreshed`.
     pub fn refresh(&self, connection_id: &str, node: MetaNode) {
+        self.drop_cached(connection_id, &node);
+        self.emit(connection_id, node, MetaRefreshReason::Refresh);
+    }
+
+    fn drop_cached(&self, connection_id: &str, node: &MetaNode) {
         if let Some(cache) = lock(&self.caches).get(connection_id).cloned() {
-            lock(&cache.data).invalidate(&node);
-            if node == MetaNode::Connection {
+            lock(&cache.data).invalidate(node);
+            if *node == MetaNode::Connection {
                 lock(&cache.extra).clear();
             }
         }
-        self.emit(connection_id, node, MetaRefreshReason::Refresh);
     }
 
     /// A "Script as" template for a table, from its (cached) details.
@@ -633,6 +637,15 @@ impl EventSink for ObservingSink {
     fn emit(&self, event: BackendEvent) {
         let state = match &event {
             BackendEvent::ConnectionStateChanged(changed) => Some(changed.session.clone()),
+            // The query runner announces a schema change: drop what the cache holds before
+            // the frontend reads again.
+            BackendEvent::MetaRefreshed(refreshed)
+                if refreshed.reason == MetaRefreshReason::Ddl =>
+            {
+                self.meta
+                    .drop_cached(&refreshed.connection_id, &refreshed.node);
+                None
+            }
             _ => None,
         };
         self.inner.emit(event);

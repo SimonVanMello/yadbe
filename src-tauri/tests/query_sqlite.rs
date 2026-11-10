@@ -368,6 +368,12 @@ async fn cancels_a_long_statement_with_interrupt() {
 }
 
 #[tokio::test]
+async fn announces_schema_changes() {
+    let (_dir, _path, b) = sqlite(false).await;
+    b.check_ddl_refresh("tab").await;
+}
+
+#[tokio::test]
 async fn keeps_the_tab_connection_and_its_transactions() {
     let (_dir, path, b) = sqlite(false).await;
     b.run("tab", "CREATE TEMP TABLE scratch (x)").await;
