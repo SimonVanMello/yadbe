@@ -166,6 +166,11 @@ for (const { name, colorScheme } of THEMES) {
       await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(1);
       await expect(page.getByRole('button', { name: 'Load all' })).toHaveCount(1);
       await expect(resultTabs(page).getByRole('tab', { name: /Result 1/ })).toContainText('+');
+      // Paused, nothing runs: no spinner, and the time stands still.
+      await expect(results(page).getByRole('status').locator('[class*="spinner"]')).toHaveCount(0);
+      const paused = await runStatus(page).textContent();
+      await page.waitForTimeout(400);
+      await expect(runStatus(page)).toHaveText(paused ?? '');
       await capture(page, name, 'results-paused');
       await page.getByRole('button', { name: 'Load more' }).click();
       await expect(results(page).getByText('200,000 rows', { exact: true })).toBeVisible({
@@ -189,6 +194,11 @@ for (const { name, colorScheme } of THEMES) {
       await error.getByRole('button', { name: /Line 2, column 15/ }).click();
       await expect(page.locator('.cm-activeLine')).toContainText('select * from nowhere');
       await expect(editorContent(page)).toBeFocused();
+      // The status bar follows the cursor (SPEC §4).
+      await expect(page.getByTestId('statusbar-cursor')).toHaveText('Ln 2, Col 15');
+      await page.keyboard.press('Shift+End');
+      await expect(page.getByTestId('statusbar-cursor')).toHaveText('Ln 2, Col 22 (7 selected)');
+      await capture(page, name, 'statusbar-cursor');
     });
 
     test('a running query shows its elapsed time and can be cancelled', async ({ page }) => {

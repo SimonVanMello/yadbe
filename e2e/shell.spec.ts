@@ -73,7 +73,11 @@ for (const { name, colorScheme } of THEMES) {
       await newConnection(page);
       const dialog = page.getByRole('dialog', { name: 'New connection' });
       await expect(dialog).toBeVisible();
+      await expect(dialog.getByLabel('TLS')).toHaveValue('prefer');
       await dialog.getByLabel('Host').fill('db-eu.example.com');
+      // A remote host checks the certificate by default (SPEC §9).
+      await expect(dialog.getByLabel('TLS')).toHaveValue('verifyFull');
+      await expect(dialog).toContainText('the default for a remote host');
       await dialog.getByLabel('Database', { exact: true }).fill('shop');
       await dialog.getByLabel('User').fill('shop_ro');
       await dialog.getByRole('textbox', { name: 'Password' }).fill('s3cret');
