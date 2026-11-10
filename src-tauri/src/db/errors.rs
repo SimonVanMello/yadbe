@@ -72,6 +72,10 @@ pub enum ErrorCode {
     ReadOnlyViolation,
     /// The result was freed (the tab ran again or closed).
     ResultNotFound,
+    /// The disk has no room left for the file being written (exports).
+    DiskFull,
+    /// The operating system refused to write the file.
+    PermissionDenied,
 }
 
 /// A message in every supported UI language.
@@ -416,6 +420,36 @@ impl YadbeError {
             "Ce résultat n'est plus disponible. Relancez la requête.",
         )
         .with_detail(format!("result id {result_id}"))
+    }
+
+    /// A file could not be written. `path` is shown as the user knows it.
+    pub fn file_write_failed(path: &str, error: &std::io::Error) -> Self {
+        use std::io::ErrorKind;
+        let failure = match error.kind() {
+            ErrorKind::StorageFull => Self::new(
+                ErrorCode::DiskFull,
+                format!("The disk is full: \"{path}\" could not be written."),
+                format!("Le disque est plein : « {path} » n'a pas pu être écrit."),
+            ),
+            ErrorKind::PermissionDenied => Self::new(
+                ErrorCode::PermissionDenied,
+                format!("Permission denied: \"{path}\" could not be written."),
+                format!("Permission refusée : « {path} » n'a pas pu être écrit."),
+            )
+            .with_action(ErrorAction::ChooseFile),
+            ErrorKind::NotFound => Self::new(
+                ErrorCode::FileNotFound,
+                format!("The folder of \"{path}\" does not exist."),
+                format!("Le dossier de « {path} » n'existe pas."),
+            )
+            .with_action(ErrorAction::ChooseFile),
+            _ => Self::new(
+                ErrorCode::Internal,
+                format!("The file \"{path}\" could not be written."),
+                format!("Le fichier « {path} » n'a pas pu être écrit."),
+            ),
+        };
+        failure.with_detail(error.to_string())
     }
 
     /// Whether the failure is worth retrying automatically when reconnecting: network and

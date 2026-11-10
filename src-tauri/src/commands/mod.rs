@@ -2,6 +2,7 @@
 
 pub mod app;
 pub mod connections;
+pub mod export;
 pub mod files;
 pub mod history;
 pub mod meta;

@@ -23,6 +23,7 @@ import {
   MOCK_SERVER_VERSIONS,
 } from './mockData';
 import { mockErrors } from './mockErrors';
+import { createMockExport } from './mock/export';
 import { createMockFiles } from './mockFiles';
 import { createMockHistory } from './mock/history';
 import { createMockMeta } from './mock/meta';
@@ -288,6 +289,14 @@ function createMockBackend() {
   });
 
   const files = createMockFiles();
+
+  const exporter = createMockExport({
+    events,
+    source: (resultId) => query.resultSource(resultId),
+    writeFile: (path, text) => {
+      files.set(path, text);
+    },
+  });
 
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
@@ -606,6 +615,7 @@ function createMockBackend() {
     ...history.commands,
 
     ...files.commands,
+    ...exporter.commands,
   };
 
   function reset(): void {
@@ -626,6 +636,7 @@ function createMockBackend() {
     query.reset();
     history.reset();
     files.reset();
+    exporter.reset();
     clearReloadState();
     seed();
   }
@@ -701,6 +712,10 @@ function createMockBackend() {
     /** Time between two streamed batches of a query result, in ms (0 in unit tests). */
     setQueryTick(ms: number): void {
       query.setTick(ms);
+    },
+    /** Time between two simulated steps of an export, in ms (0 in unit tests). */
+    setExportTick(ms: number): void {
+      exporter.setTick(ms);
     },
     /** `count` synthetic history entries over the last year (100 000 for the scroll check). */
     seedHistory(count: number): void {

@@ -1,0 +1,123 @@
+import { describe, expect, it } from 'vitest';
+
+import type { ColumnMeta, ExportFinished, ExportFormat, Value } from '../bindings';
+import { EventEmitter } from '../emitter';
+import { createMockExport } from './export';
+
+const columns: ColumnMeta[] = [
+  { name: 'id', typeName: 'int8', kind: 'int' },
+  { name: 'name', typeName: 'text', kind: 'text' },
+];
+
+function setup(total: number) {
+  const events = new EventEmitter();
+  const files = new Map<string, string>();
+  const finished: ExportFinished[] = [];
+  events.subscribe('exportFinished', (payload) => finished.push(payload));
+  const exporter = createMockExport({
+    events,
+    source: (id) =>
+      id === 1
+        ? {
+            columns,
+            loaded: Math.min(total, 10),
+            total,
+            value: (row, column): Value =>
+              column === 0
+                ? { kind: 'int', value: String(row + 1) }
+                : row % 3 === 2
+                  ? { kind: 'null' }
+                  : { kind: 'text', value: `n,${String(row)}` },
+          }
+        : undefined,
+    writeFile: (path, text) => files.set(path, text),
+  });
+  exporter.setTick(0);
+  return { exporter, files, finished };
+}
+
+const csv: ExportFormat = {
+  format: 'csv',
+  options: {
+    delimiter: 'comma',
+    quote: 'minimal',
+    header: true,
+    nullText: '',
+    lineEnding: 'lf',
+    bom: false,
+    binary: 'hex',
+  },
+};
+
+const waitFor = async (check: () => boolean) => {
+  for (let i = 0; i < 200 && !check(); i++) await new Promise((r) => setTimeout(r, 5));
+};
+
+describe('the mock export', () => {
+  it('writes the whole result past its loaded rows and reports the outcome', async () => {
+    const { exporter, files, finished } = setup(50);
+    const started = await exporter.commands.startExport({
+      source: { kind: 'result', resultId: 1, scope: { kind: 'all' } },
+      format: csv,
+      path: '/home/ana/out.csv',
+    });
+    expect(started.status).toBe('ok');
+    await waitFor(() => finished.length > 0);
+    expect(finished[0]).toMatchObject({ status: 'done', rows: 50, path: '/home/ana/out.csv' });
+    const lines = (files.get('/home/ana/out.csv') ?? '').split('\n');
+    expect(lines[0]).toBe('id,name');
+    expect(lines[1]).toBe('1,"n,0"');
+    expect(lines[3]).toBe('3,');
+    expect(lines).toHaveLength(52);
+  });
+
+  it('exports a selection of the loaded rows and previews it', async () => {
+    const { exporter, files, finished } = setup(50);
+    const source = {
+      kind: 'result',
+      resultId: 1,
+      scope: { kind: 'range', rowFrom: 1, rowTo: 99, columns: [1] },
+    } as const;
+    const preview = await exporter.commands.previewExport(source, csv, 2);
+    expect(preview).toEqual({ status: 'ok', data: 'name\n"n,1"\n\n' });
+    await exporter.commands.startExport({ source, format: csv, path: '/home/ana/sel.csv' });
+    await waitFor(() => finished.length > 0);
+    expect(finished[0]?.rows).toBe(9);
+    expect(files.get('/home/ana/sel.csv')?.startsWith('name\n"n,1"\n\n')).toBe(true);
+  });
+
+  it('refuses a relative path, a wrong extension and a freed result', async () => {
+    const { exporter } = setup(5);
+    const request = (resultId: number, path: string) => ({
+      source: { kind: 'result', resultId, scope: { kind: 'all' } } as const,
+      format: csv,
+      path,
+    });
+    for (const [id, path, code] of [
+      [1, 'out.csv', 'invalidArgument'],
+      [1, '/home/ana/out.json', 'invalidArgument'],
+      [2, '/home/ana/out.csv', 'resultNotFound'],
+    ] as const) {
+      expect(await exporter.commands.startExport(request(id, path))).toMatchObject({
+        status: 'error',
+        error: { code },
+      });
+    }
+  });
+
+  it('cancels a running export and leaves no file', async () => {
+    const { exporter, files, finished } = setup(100_000);
+    exporter.setTick(5);
+    const started = await exporter.commands.startExport({
+      source: { kind: 'result', resultId: 1, scope: { kind: 'all' } },
+      format: csv,
+      path: '/home/ana/big.csv',
+    });
+    if (started.status !== 'ok') throw new Error('did not start');
+    await new Promise((r) => setTimeout(r, 20));
+    await exporter.commands.cancelExport(started.data.exportId);
+    await waitFor(() => finished.length > 0);
+    expect(finished[0]?.status).toBe('cancelled');
+    expect(files.has('/home/ana/big.csv')).toBe(false);
+  });
+});

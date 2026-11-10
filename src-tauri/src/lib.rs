@@ -81,6 +81,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::files::read_text_file,
             commands::files::write_text_file,
             commands::value_file::write_value_file,
+            commands::export::start_export,
+            commands::export::cancel_export,
+            commands::export::preview_export,
         ])
         .events(collect_events![
             events::AppReady,
@@ -91,6 +94,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             events::QueryFinished,
             events::TransactionStateChanged,
             events::HistoryChanged,
+            export::model::ExportProgress,
+            export::model::ExportFinished,
         ])
 }
 

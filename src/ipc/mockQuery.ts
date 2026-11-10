@@ -73,6 +73,14 @@ export interface MockQueryHost {
   recordHistory?(statement: MockHistoryRecord): void;
 }
 
+/** A result as an export reads it. */
+export interface MockResultSource {
+  columns: ColumnMeta[];
+  loaded: number;
+  total: number;
+  value(row: number, column: number): Value;
+}
+
 type Result<T> = Promise<{ status: 'ok'; data: T } | { status: 'error'; error: YadbeError }>;
 
 function ok<T>(data: T): Result<T> {
@@ -1113,6 +1121,20 @@ export function createMockQuery(host: MockQueryHost) {
 
   return {
     commands,
+    /**
+     * What an export reads (M2-7): the columns, the rows loaded so far and every row the
+     * "server" would send, which a result paused at its limit does not hold.
+     */
+    resultSource(resultId: number): MockResultSource | undefined {
+      const result = results.get(resultId);
+      if (!result) return undefined;
+      return {
+        columns: result.columns.map((column) => column.meta),
+        loaded: result.rowCount,
+        total: result.total,
+        value: (row, column) => cellValue(result.columns[column]?.cell(row) ?? null),
+      };
+    },
     /** Time between two streamed batches, in ms (0 in unit tests). */
     setTick(ms: number): void {
       tick = ms;

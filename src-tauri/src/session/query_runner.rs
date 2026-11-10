@@ -42,6 +42,7 @@ use crate::session::query_model::{
     StatementError, TextPosition, TextRange, TransactionMode, TransactionState, TransactionStatus,
 };
 use crate::session::result_store::{ResultStore, StoredResult};
+use crate::session::result_tap::{ResultStream, TAP_CAPACITY, TapEnd, TapMsg};
 
 #[derive(Debug, Clone)]
 pub struct RunnerConfig {
@@ -112,6 +113,25 @@ struct ResultEntry {
     bytes: usize,
     limit_rows: u64,
     limit_bytes: u64,
+    /// An export reads the rows as they arrive (M2-7), see `result_tap`.
+    tap: Option<mpsc::Sender<TapMsg>>,
+    /// Rows past the limits went to an export only: the store lacks them.
+    truncated: bool,
+}
+
+/// What a paused result waited for.
+enum Wake {
+    Resume(ResumeMode),
+    /// An export attached: the rest of the stream goes to it instead of waiting.
+    Tapped,
+}
+
+/// What became of a batch offered to the store.
+enum Accepted {
+    Stored,
+    Paused(Vec<Vec<Value>>, PauseReason),
+    /// An export reads this result: the batch goes to it.
+    Tapped(Vec<Vec<Value>>),
 }
 
 impl ResultEntry {
@@ -285,7 +305,7 @@ impl Execution {
         }
     }
 
-    async fn wait_resume(&self, result_id: u32) -> Option<ResumeMode> {
+    async fn wait_resume(&self, result_id: u32) -> Option<Wake> {
         loop {
             let mut notified = pin!(self.resume.notified());
             notified.as_mut().enable();
@@ -295,8 +315,15 @@ impl Execution {
                     && id == result_id
                 {
                     *request = None;
-                    return Some(mode);
+                    return Some(Wake::Resume(mode));
                 }
+            }
+            if lock(&self.state)
+                .results
+                .iter()
+                .any(|r| r.stored.id() == result_id && r.tap.is_some())
+            {
+                return Some(Wake::Tapped);
             }
             tokio::select! {
                 () = notified => {}
@@ -795,37 +822,93 @@ impl QueryRunner {
         });
     }
 
-    /// Stores rows within the result's limits; returns the rows left and why it paused.
-    fn accept_rows(
+    /// Stores rows within the result's limits. The decision and the append happen under the
+    /// state lock, so an export attaching meanwhile sees a consistent row count.
+    fn accept_rows(exec: &Execution, position: usize, mut rows: Vec<Vec<Value>>) -> Accepted {
+        let mut state = lock(&exec.state);
+        let entry = &mut state.results[position];
+        if entry.tap.is_some() {
+            return Accepted::Tapped(rows);
+        }
+        if entry.row_count as u64 >= entry.limit_rows {
+            return Accepted::Paused(rows, PauseReason::RowLimit);
+        }
+        if entry.bytes as u64 >= entry.limit_bytes {
+            return Accepted::Paused(rows, PauseReason::MemoryLimit);
+        }
+        let room = usize::try_from(entry.limit_rows - entry.row_count as u64).unwrap_or(usize::MAX);
+        let rest = rows.split_off(room.min(rows.len()));
+        let (row_count, bytes) = entry.stored.append(rows);
+        if entry.row_count == 0 && row_count > 0 {
+            exec.urgent.notify_one();
+        }
+        entry.row_count = row_count;
+        entry.bytes = bytes;
+        state.dirty.insert(position);
+        drop(state);
+        exec.wake.notify_one();
+        if rest.is_empty() {
+            Accepted::Stored
+        } else {
+            Accepted::Paused(rest, PauseReason::RowLimit)
+        }
+    }
+
+    /// A batch of a result an export reads: sent to the export, and stored while it fits
+    /// under the limits. Gives the rows back when the export is gone and nothing was lost,
+    /// so they take the usual path.
+    async fn feed_tap(
         exec: &Execution,
         position: usize,
-        mut rows: Vec<Vec<Value>>,
-    ) -> Option<(Vec<Vec<Value>>, PauseReason)> {
-        let (stored, take) = {
-            let state = lock(&exec.state);
-            let entry = &state.results[position];
-            if entry.row_count as u64 >= entry.limit_rows {
-                return Some((rows, PauseReason::RowLimit));
+        rows: Vec<Vec<Value>>,
+    ) -> Option<Vec<Vec<Value>>> {
+        let tap = lock(&exec.state).results[position].tap.clone()?;
+        if tap.send(TapMsg::Rows(rows.clone())).await.is_err() {
+            let truncated = exec.update(|state| {
+                let entry = &mut state.results[position];
+                entry.tap = None;
+                entry.truncated
+            });
+            if truncated {
+                // The rows between the limit and here are gone: resuming would leave a gap.
+                exec.cancel.raise();
+                let handle = lock(&exec.cancel_handle).clone();
+                if let Some(handle) = handle
+                    && let Err(err) = handle.cancel().await
+                {
+                    tracing::warn!(error = %err, "cancel request failed");
+                }
+                return None;
             }
-            if entry.bytes as u64 >= entry.limit_bytes {
-                return Some((rows, PauseReason::MemoryLimit));
-            }
-            let room =
-                usize::try_from(entry.limit_rows - entry.row_count as u64).unwrap_or(usize::MAX);
-            (Arc::clone(&entry.stored), room.min(rows.len()))
-        };
-        let rest = rows.split_off(take);
-        let (row_count, bytes) = stored.append(rows);
+            return Some(rows);
+        }
         exec.update(|state| {
             let entry = &mut state.results[position];
-            if entry.row_count == 0 && row_count > 0 {
-                exec.urgent.notify_one();
+            let memory_full = entry.bytes as u64 >= entry.limit_bytes;
+            let room = if memory_full {
+                0
+            } else {
+                usize::try_from(entry.limit_rows.saturating_sub(entry.row_count as u64))
+                    .unwrap_or(usize::MAX)
+            };
+            let mut rows = rows;
+            if room < rows.len() {
+                rows.truncate(room);
+                entry.truncated = true;
+                entry.paused_by.get_or_insert(if memory_full {
+                    PauseReason::MemoryLimit
+                } else {
+                    PauseReason::RowLimit
+                });
             }
-            entry.row_count = row_count;
-            entry.bytes = bytes;
+            if !rows.is_empty() {
+                let (row_count, bytes) = entry.stored.append(rows);
+                entry.row_count = row_count;
+                entry.bytes = bytes;
+            }
             state.dirty.insert(position);
         });
-        (!rest.is_empty()).then_some((rest, PauseReason::RowLimit))
+        None
     }
 
     async fn run_statement(
@@ -850,45 +933,65 @@ impl QueryRunner {
             if let Some(rows) = pending.take()
                 && !cancelling
                 && let Some(position) = result
-                && let Some((rest, reason)) = Self::accept_rows(exec, position, rows)
             {
-                let result_id = exec.update(|state| {
-                    state.status = ExecutionStatus::Paused;
-                    let entry = &mut state.results[position];
-                    entry.status = ResultStatus::Paused;
-                    entry.paused_by = Some(reason);
-                    state.dirty.insert(position);
-                    entry.stored.id()
-                });
-                // Not reading the channel: the driver stops reading the server.
-                match exec.wait_resume(result_id).await {
-                    Some(mode) => {
-                        exec.update(|state| {
-                            state.status = ExecutionStatus::Running;
-                            let entry = &mut state.results[position];
-                            entry.status = ResultStatus::Streaming;
-                            entry.paused_by = None;
-                            match mode {
-                                ResumeMode::More => {
-                                    entry.limit_rows = entry
-                                        .limit_rows
-                                        .saturating_add(u64::from(exec.limits.max_rows));
-                                    entry.limit_bytes = entry
-                                        .limit_bytes
-                                        .saturating_add(u64::from(exec.limits.max_bytes));
-                                }
-                                ResumeMode::All => {
-                                    entry.limit_rows = u64::MAX;
-                                    entry.limit_bytes = u64::MAX;
-                                }
-                            }
-                            state.dirty.insert(position);
-                        });
-                        pending = Some(rest);
+                match Self::accept_rows(exec, position, rows) {
+                    Accepted::Stored => {}
+                    Accepted::Tapped(rows) => {
+                        pending = Self::feed_tap(exec, position, rows).await;
+                        continue;
                     }
-                    None => cancelling = true,
+                    Accepted::Paused(rest, reason) => {
+                        let result_id = exec.update(|state| {
+                            state.status = ExecutionStatus::Paused;
+                            let entry = &mut state.results[position];
+                            entry.status = ResultStatus::Paused;
+                            entry.paused_by = Some(reason);
+                            state.dirty.insert(position);
+                            entry.stored.id()
+                        });
+                        // Not reading the channel: the driver stops reading the server.
+                        match exec.wait_resume(result_id).await {
+                            Some(Wake::Resume(mode)) => {
+                                exec.update(|state| {
+                                    state.status = ExecutionStatus::Running;
+                                    let entry = &mut state.results[position];
+                                    entry.status = ResultStatus::Streaming;
+                                    entry.paused_by = None;
+                                    match mode {
+                                        ResumeMode::More => {
+                                            entry.limit_rows = entry
+                                                .limit_rows
+                                                .saturating_add(u64::from(exec.limits.max_rows));
+                                            entry.limit_bytes = entry
+                                                .limit_bytes
+                                                .saturating_add(u64::from(exec.limits.max_bytes));
+                                        }
+                                        ResumeMode::All => {
+                                            entry.limit_rows = u64::MAX;
+                                            entry.limit_bytes = u64::MAX;
+                                        }
+                                    }
+                                    state.dirty.insert(position);
+                                });
+                                pending = Some(rest);
+                            }
+                            Some(Wake::Tapped) => {
+                                exec.update(|state| {
+                                    state.status = ExecutionStatus::Running;
+                                    let entry = &mut state.results[position];
+                                    entry.status = ResultStatus::Streaming;
+                                    // The batch in hand is past the limit: it goes to the
+                                    // export only, the store stays as it is.
+                                    entry.truncated = true;
+                                    state.dirty.insert(position);
+                                });
+                                pending = Some(rest);
+                            }
+                            None => cancelling = true,
+                        }
+                        continue;
+                    }
                 }
-                continue;
             }
             let event = tokio::select! {
                 biased;
@@ -905,11 +1008,13 @@ impl QueryRunner {
                     let stored = self.store.create(columns);
                     let limits = exec.limits;
                     let previous = result;
+                    let mut ended_tap = None;
                     result = Some(exec.update(|state| {
                         // A batch with several result sets (SQL Server): the previous one
                         // is complete once the next one starts.
                         if let Some(previous) = previous {
                             state.results[previous].status = ResultStatus::Complete;
+                            ended_tap = state.results[previous].tap.take();
                             state.dirty.insert(previous);
                         }
                         state.results.push(ResultEntry {
@@ -921,11 +1026,16 @@ impl QueryRunner {
                             bytes: 0,
                             limit_rows: u64::from(limits.max_rows),
                             limit_bytes: u64::from(limits.max_bytes),
+                            tap: None,
+                            truncated: false,
                         });
                         let position = state.results.len() - 1;
                         state.dirty.insert(position);
                         position
                     }));
+                    if let Some(tap) = ended_tap {
+                        let _ = tap.send(TapMsg::End(TapEnd::Complete)).await;
+                    }
                 }
                 Some(ExecEvent::Rows(rows)) => {
                     if !cancelling {
@@ -947,6 +1057,31 @@ impl QueryRunner {
             let entry = &state.results[position];
             (Some(entry.stored.id()), Some(entry.row_count))
         });
+        // The status and the tap change together, so an export cannot attach to a result
+        // whose stream already ended.
+        let final_status = match &summary {
+            Ok(_) if !cancelling => ResultStatus::Complete,
+            Err(failure) if !cancelling && failure.error.code != ErrorCode::Cancelled => {
+                ResultStatus::Failed
+            }
+            _ => ResultStatus::Cancelled,
+        };
+        let ended_tap = result.and_then(|position| {
+            exec.update(|state| {
+                let entry = &mut state.results[position];
+                entry.status = final_status;
+                state.dirty.insert(position);
+                entry.tap.take()
+            })
+        });
+        if let Some(tap) = ended_tap {
+            let end = match final_status {
+                ResultStatus::Complete => TapEnd::Complete,
+                ResultStatus::Failed => TapEnd::Failed,
+                _ => TapEnd::Cancelled,
+            };
+            let _ = tap.send(TapMsg::End(end)).await;
+        }
         let set_result_status = |status: ResultStatus| {
             if let Some(position) = result {
                 exec.update(|state| {
@@ -1043,6 +1178,53 @@ impl QueryRunner {
         *lock(&exec.resume_request) = Some((result_id, mode));
         exec.resume.notify_waiters();
         Ok(())
+    }
+
+    /// Opens a result for an export (M2-7): its stored rows, then, while the statement is
+    /// still streaming or paused at its limit, the rest of the stream, read from the
+    /// server without growing the stored result.
+    pub fn open_result_stream(&self, result_id: u32) -> Result<ResultStream, YadbeError> {
+        let tabs: Vec<Arc<Tab>> = lock(&self.tabs).values().cloned().collect();
+        let exec = tabs
+            .iter()
+            .filter_map(|t| t.execution())
+            .find(|e| e.result_ids().contains(&result_id))
+            .ok_or_else(|| YadbeError::result_not_found(result_id))?;
+        let mut state = lock(&exec.state);
+        let finished = state.finished_ms.is_some();
+        let entry = state
+            .results
+            .iter_mut()
+            .find(|r| r.stored.id() == result_id)
+            .ok_or_else(|| YadbeError::result_not_found(result_id))?;
+        let live =
+            !finished && matches!(entry.status, ResultStatus::Streaming | ResultStatus::Paused);
+        let stored = Arc::clone(&entry.stored);
+        let stored_rows = entry.row_count;
+        if !live {
+            return Ok(ResultStream {
+                stored,
+                stored_rows,
+                tail: None,
+                truncated: entry.truncated,
+            });
+        }
+        if entry.tap.is_some() {
+            return Err(YadbeError::invalid_argument(
+                "This result is already being exported.",
+                "Ce résultat est déjà en cours d'export.",
+            ));
+        }
+        let (sender, receiver) = mpsc::channel(TAP_CAPACITY);
+        entry.tap = Some(sender);
+        drop(state);
+        exec.resume.notify_waiters();
+        Ok(ResultStream {
+            stored,
+            stored_rows,
+            tail: Some(receiver),
+            truncated: false,
+        })
     }
 
     pub fn window(

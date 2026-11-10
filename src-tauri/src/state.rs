@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::events::EventSink;
+use crate::export::ExportManager;
 use crate::secrets::{KeychainBackend, SecretStore};
 use crate::session::history_writer::StoreHistory;
 use crate::session::meta_cache::{MetaService, ObservingSink};
@@ -22,6 +23,7 @@ pub struct AppState {
     pub meta: Arc<MetaService>,
     pub queries: Arc<QueryRunner>,
     pub history: Arc<StoreHistory>,
+    pub exports: Arc<ExportManager>,
 }
 
 impl AppState {
@@ -48,9 +50,10 @@ impl AppState {
         );
         let queries = Arc::new(QueryRunner::new(
             Arc::clone(&connections),
-            sink,
+            Arc::clone(&sink),
             history.clone(),
         ));
+        let exports = Arc::new(ExportManager::new(Arc::clone(&queries), sink));
         Self {
             store,
             secrets,
@@ -59,6 +62,7 @@ impl AppState {
             meta,
             queries,
             history,
+            exports,
         }
     }
 }

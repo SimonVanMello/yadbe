@@ -279,6 +279,25 @@ impl StoredResult {
         }
     }
 
+    /// Rows `offset .. offset + limit` (fewer at the end) as whole values, for exports.
+    pub fn rows(&self, offset: usize, limit: usize) -> Vec<Vec<Value>> {
+        let data = self.read();
+        let start = offset.min(data.rows);
+        let end = start.saturating_add(limit).min(data.rows);
+        (start..end)
+            .map(|row| {
+                let chunk = &data.chunks[row / CHUNK_ROWS];
+                chunk
+                    .iter()
+                    .map(|column| {
+                        let (code, text) = column.cell(row % CHUNK_ROWS);
+                        decode(code, text)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
     /// One whole cell, `None` outside the result.
     pub fn cell(&self, row: usize, column: usize) -> Option<Value> {
         let data = self.read();

@@ -10,6 +10,7 @@ mod model;
 pub mod query_model;
 pub mod query_runner;
 pub mod result_store;
+pub mod result_tap;
 pub mod statement_log;
 
 pub use connection::{ConnectionSession, SessionConfig};

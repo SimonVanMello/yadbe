@@ -219,12 +219,24 @@ export const commands = {
 	writeTextFile: (path: string, text: string) => typedError<null, YadbeError>(__TAURI_INVOKE("write_text_file", { path, text })),
 	/**  Writes a value shown in the cell viewer to a file picked in the save dialog, replacing it. */
 	writeValueFile: (path: string, contents: string, encoding: ValueFileEncoding) => typedError<null, YadbeError>(__TAURI_INVOKE("write_value_file", { path, contents, encoding })),
+	/**
+	 *  Starts exporting and returns at once. Fails with `invalidArgument` for a relative path or
+	 *  an extension that does not fit the format, `resultNotFound` when the result was freed.
+	 *  Scope `all` follows a paused or streaming result to its end without growing it in memory.
+	 */
+	startExport: (request: ExportRequest) => typedError<ExportStarted, YadbeError>(__TAURI_INVOKE("start_export", { request })),
+	/**  Cancels an export; the partial file is removed. Does nothing for an unknown id. */
+	cancelExport: (exportId: number) => typedError<null, YadbeError>(__TAURI_INVOKE("cancel_export", { exportId })),
+	/**  The first `limit` rows (at most 100) as the file will contain them, for the dialog's preview. */
+	previewExport: (source: ExportSourceSpec, format: ExportFormat, limit: number) => typedError<string, YadbeError>(__TAURI_INVOKE("preview_export", { source, format, limit })),
 };
 
 /** Events */
 export const events = {
 	appReady: makeEvent<AppReady>("app-ready"),
 	connectionStateChanged: makeEvent<ConnectionStateChanged>("connection-state-changed"),
+	exportFinished: makeEvent<ExportFinished>("export-finished"),
+	exportProgress: makeEvent<ExportProgress>("export-progress"),
 	historyChanged: makeEvent<HistoryChanged>("history-changed"),
 	metaRefreshed: makeEvent<MetaRefreshed>("meta-refreshed"),
 	queryFinished: makeEvent<QueryFinished>("query-finished"),
@@ -254,6 +266,9 @@ export type AuthMethod =
 "password" | 
 /**  No secret: trust / peer authentication, SQLite files. */
 "none";
+
+/**  How binary values are written. */
+export type BinaryEncoding = "hex" | "base64";
 
 /**  What an engine supports, as data the services and the UI can branch on. */
 export type Capabilities = {
@@ -453,6 +468,31 @@ export type ConnectionStateChanged = {
 
 export type ConnectionStringFormat = "url" | "adoNet" | "jdbc";
 
+export type CsvDelimiter = "comma" | "semicolon" | "tab";
+
+export type CsvOptions = {
+	delimiter: CsvDelimiter,
+	quote: CsvQuote,
+	header: boolean,
+	/**
+	 *  Written for SQL NULL. When empty, an empty string is quoted (`""`) to stay
+	 *  distinguishable from NULL.
+	 */
+	nullText: string,
+	lineEnding: LineEnding,
+	/**  A UTF-8 byte order mark first, which Excel needs to read accents. */
+	bom: boolean,
+	binary: BinaryEncoding,
+};
+
+export type CsvQuote = 
+/**  Only when the value contains the delimiter, a quote or a line break. */
+"minimal" | 
+/**  Every value that is not NULL. */
+"all" | 
+/**  Every value that is not a number or a boolean. */
+"nonNumeric";
+
 /**  Editor selection, as character offsets into the content. */
 export type CursorPosition = {
 	anchor: number,
@@ -577,7 +617,11 @@ export type ErrorCode =
 /**  The connection is read-only and the statement may change data or the schema. */
 "readOnlyViolation" | 
 /**  The result was freed (the tab ran again or closed). */
-"resultNotFound";
+"resultNotFound" | 
+/**  The disk has no room left for the file being written (exports). */
+"diskFull" | 
+/**  The operating system refused to write the file. */
+"permissionDenied";
 
 export type ExecuteRequest = {
 	/**  The editor tab: it owns a dedicated server connection, opened on its first run. */
@@ -650,6 +694,59 @@ export type ExecutionStatus =
 "paused" | "succeeded" | 
 /**  A statement failed (or was refused); the next ones did not run. */
 "failed" | "cancelled";
+
+/**
+ *  The export ended; always the last event of an export. A failed or cancelled export left
+ *  no file.
+ */
+export type ExportFinished = {
+	exportId: number,
+	status: ExportStatus,
+	rows: number,
+	bytes: number | null,
+	path: string,
+	/**
+	 *  The result was stopped at its limit before an export drained it: the file lacks the
+	 *  rows the limit left out.
+	 */
+	truncated: boolean,
+	error: YadbeError | null,
+};
+
+export type ExportFormat = { format: "csv"; options: CsvOptions } | { format: "json"; options: JsonOptions };
+
+/**  Rows and bytes written so far. Throttled (at most about ten per second). */
+export type ExportProgress = {
+	exportId: number,
+	rows: number,
+	bytes: number | null,
+};
+
+export type ExportRequest = {
+	source: ExportSourceSpec,
+	format: ExportFormat,
+	/**  From the native save dialog: absolute, with an extension that fits the format. */
+	path: string,
+};
+
+/**  Which part of a result is exported. Zero-based. */
+export type ExportScope = 
+/**  Every row the statement returns, including those past the in-memory limit. */
+{ kind: "all" } | 
+/**
+ *  Loaded rows `row_from..=row_to` and the given columns, in this order (the grid's
+ *  selection, whose columns may have been reordered).
+ */
+{ kind: "range"; rowFrom: number; rowTo: number; columns: number[] };
+
+/**  Where the rows come from. A table export (M2-3) adds a variant here. */
+export type ExportSourceSpec = { kind: "result"; resultId: number; scope: ExportScope };
+
+export type ExportStarted = {
+	exportId: number,
+};
+
+export type ExportStatus = "done" | "failed" | "cancelled";
 
 export type ForeignKey = {
 	name: string | null,
@@ -768,6 +865,27 @@ export type IndexInfo = {
 	definition: string | null,
 };
 
+export type JsonLayout = 
+/**  One JSON array of objects, one object per line. */
+"array" | 
+/**  One object per line, no enclosing array. */
+"ndjson";
+
+export type JsonNumbers = 
+/**
+ *  Integers, decimals and floats as JSON numbers when a reader reproduces them exactly
+ *  (at most 15 significant digits, or integers within 2^53), else as strings.
+ */
+"auto" | 
+/**  Every number as a string. */
+"strings";
+
+export type JsonOptions = {
+	layout: JsonLayout,
+	numbers: JsonNumbers,
+	binary: BinaryEncoding,
+};
+
 export type KeyConstraint = {
 	/**  `null` when the engine does not name it (SQLite). */
 	name: string | null,
@@ -780,6 +898,8 @@ export type KeychainStatus = {
 	/**  Why the keychain is unavailable (technical). */
 	detail: string | null,
 };
+
+export type LineEnding = "lf" | "crlf";
 
 export type Locale = "en" | "fr";
 
