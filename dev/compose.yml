@@ -1,0 +1,59 @@
+# Database engines for the integration tests (SPEC §10). Start with:
+#   dev/tls-certs.sh                      # once: CA + server certificate in dev/certs/
+#   docker compose -f dev/compose.yml up -d
+# Then, from src-tauri/:
+#   export YADBE_TEST_PG_URL=postgres://yadbe:yadbe-test-pw@localhost:55432/yadbe_test
+#   export YADBE_TEST_PG_CA=../dev/certs/ca.crt
+#   export YADBE_TEST_MSSQL_URL='sqlserver://localhost:51433;database=master;user=sa;password=Yadbe-test-pw1;trustServerCertificate=true'
+#   export YADBE_TEST_MYSQL_URL=mysql://yadbe:yadbe-test-pw@localhost:53306/yadbe_test
+#   cargo test
+# Ports are offset from the defaults so a local server keeps its own. Throwaway
+# credentials: never reuse them.
+name: yadbe-test-engines
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: yadbe
+      POSTGRES_PASSWORD: yadbe-test-pw
+      POSTGRES_DB: yadbe_test
+    ports:
+      - '55432:5432'
+    volumes:
+      - ./certs/server.crt:/certs/server.crt:ro
+      - ./certs/server.key:/certs/server.key.src:ro
+    # The server refuses a key it does not own: copy it with the right owner first.
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        install -o postgres -g postgres -m 600 /certs/server.key.src /tmp/server.key &&
+        exec docker-entrypoint.sh postgres -c ssl=on
+        -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/tmp/server.key
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U yadbe -d yadbe_test']
+      interval: 2s
+      retries: 30
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_SA_PASSWORD: Yadbe-test-pw1
+    ports:
+      - '51433:1433'
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: yadbe-test-root
+      MYSQL_USER: yadbe
+      MYSQL_PASSWORD: yadbe-test-pw
+      MYSQL_DATABASE: yadbe_test
+    ports:
+      - '53306:3306'
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uyadbe', '-pyadbe-test-pw']
+      interval: 2s
+      retries: 30

@@ -62,3 +62,39 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked --no-fail-fast
+
+  # Integration tests against a real PostgreSQL (the matrix above skips them with a notice).
+  rust-postgres:
+    name: rust (postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: yadbe
+          POSTGRES_PASSWORD: yadbe-test-pw
+          POSTGRES_DB: yadbe_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U yadbe -d yadbe_test"
+          --health-interval 2s
+          --health-retries 30
+    env:
+      YADBE_TEST_PG_URL: postgres://yadbe:yadbe-test-pw@localhost:5432/yadbe_test
+    defaults:
+      run:
+        shell: bash
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: cargo test --locked --test postgres --no-fail-fast

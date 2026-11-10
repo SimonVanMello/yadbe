@@ -41,8 +41,8 @@ pub async fn create_connection(
     blocking(move || store.create_connection(&definition)).await
 }
 
-/// Replaces a connection's definition. An open session keeps its current settings until it
-/// reconnects.
+/// Replaces a connection's definition. An open session keeps the settings it was opened
+/// with (reconnections included) until it is closed and opened again.
 #[tauri::command]
 #[specta::specta]
 pub async fn update_connection(
