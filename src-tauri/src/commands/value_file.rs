@@ -65,7 +65,7 @@ fn decode_hex(hex: &str) -> Result<Vec<u8>, YadbeError> {
             "La valeur binaire n'est pas un hexadécimal valide.",
         )
     };
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return Err(invalid());
     }
     hex.as_bytes()
