@@ -237,11 +237,26 @@ test('scrolling and filtering 10 000 objects', async ({ page }) => {
   const filterNormal = await timeToFilter(page, 'table_01', 'table_0001');
   await page.getByRole('textbox', { name: 'Filter connections' }).fill('');
   await expect(item(page, /^schema_00$/)).toBeVisible();
+  /** Typing the filter a key at a time: every keystroke until its matches are drawn. */
+  const typing = async (text: string, firstMatch: string) => {
+    const durations: number[] = [];
+    for (let length = 1; length <= text.length; length++) {
+      const prefix = text.slice(0, length);
+      durations.push(await timeToFilter(page, prefix, length < 2 ? 'table_' : firstMatch));
+    }
+    await page.getByRole('textbox', { name: 'Filter connections' }).fill('');
+    await expect(item(page, /^schema_00$/)).toBeVisible();
+    return stats(durations);
+  };
+  const typingNormal = await typing('table_03', 'table_0003');
 
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
   const wheelThrottled = await scroll(120, 5600);
   const flingThrottled = await scroll(1200);
   const filterThrottled = await timeToFilter(page, 'table_02', 'table_0002');
+  await page.getByRole('textbox', { name: 'Filter connections' }).fill('');
+  await expect(item(page, /^schema_00$/)).toBeVisible();
+  const typingThrottled = await typing('table_04', 'table_0004');
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
 
   const result = {
@@ -250,6 +265,7 @@ test('scrolling and filtering 10 000 objects', async ({ page }) => {
     wheelFrameMs: { x1: wheelNormal, x4: wheelThrottled },
     flingFrameMs: { x1: flingNormal, x4: flingThrottled },
     filterMs: { x1: Math.round(filterNormal), x4: Math.round(filterThrottled) },
+    filterPerKeystrokeMs: { x1: typingNormal, x4: typingThrottled },
   };
   console.log(`Explorer, 10 000 objects: ${JSON.stringify(result)}`);
   writeFileSync(test.info().outputPath('explorer-10k.json'), JSON.stringify(result, null, 2));

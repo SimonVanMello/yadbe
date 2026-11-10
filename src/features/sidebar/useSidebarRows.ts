@@ -9,6 +9,7 @@ import {
   useEngines,
   useSessions,
 } from '../connections/connectionStore';
+import { pruneNodes, type ExplorerNode } from '../explorer/explorerRows';
 import { useExplorerStore } from '../explorer/explorerStore';
 import { requestKey, type MetaRequest } from '../explorer/metaKeys';
 import { createCacheSource, metaQuery } from '../explorer/metaSource';
@@ -34,6 +35,40 @@ interface Recorded {
   request: MetaRequest;
 }
 
+interface CachedTree {
+  nodes: ExplorerNode[];
+  /** The requests its build recorded: observed as long as the tree is used. */
+  recorded: Recorded[];
+  /** The last filter applied and its result, to narrow from when the next one extends it. */
+  last: { filter: string; nodes: ExplorerNode[] } | null;
+}
+
+/**
+ * One built tree per connection, for as long as the data and the expanded nodes stay. A filter
+ * that extends the previous one (the next keystroke) prunes the previous result rather than the
+ * whole tree: what matches `abc` as a subsequence also matches `ab`, with all its ancestors.
+ */
+function createTreeCache() {
+  const trees = new Map<string, CachedTree>();
+  return {
+    filtered(
+      connectionId: string,
+      filter: string,
+      build: () => Pick<CachedTree, 'nodes' | 'recorded'>,
+    ): { nodes: ExplorerNode[]; recorded: Recorded[] } {
+      let tree = trees.get(connectionId);
+      if (!tree) {
+        tree = { ...build(), last: null };
+        trees.set(connectionId, tree);
+      }
+      const from = tree.last && filter.startsWith(tree.last.filter) ? tree.last.nodes : tree.nodes;
+      const nodes = tree.last?.filter === filter ? tree.last.nodes : pruneNodes(from, filter);
+      tree.last = { filter, nodes };
+      return { nodes, recorded: tree.recorded };
+    },
+  };
+}
+
 /**
  * The rows of the sidebar: connections and their explorer trees (F-020). The tree is a pure
  * function of the expanded nodes and of the query cache; the nodes that are open and not loaded
@@ -54,9 +89,22 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
     [engines],
   );
 
+  // The loaded trees used by the filter, built once per change of the data or of the expanded
+  // nodes rather than once per keystroke, with the requests their build recorded.
+  const trees = useMemo(
+    () => createTreeCache(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [connections, groups, capabilities, sessions, expanded, showSystem, version],
+  );
+
   const { rows, recorded } = useMemo(() => {
     const recorded = new Map<string, Recorded>();
     if (!connections || !groups) return { rows: [] as SidebarTreeRow[], recorded };
+    const remember = (entry: Recorded) => {
+      recorded.set(JSON.stringify(requestKey(entry.connectionId, entry.request)), entry);
+    };
+    // Where the requests of the tree being built go: the rows', or a cached tree's.
+    let sink = remember;
     const rows = composeSidebarRows({
       connections,
       groups,
@@ -67,13 +115,24 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
       showSystem,
       sourceFor: (connectionId) =>
         createCacheSource(queryClient, connectionId, (id, request) => {
-          recorded.set(JSON.stringify(requestKey(id, request)), { connectionId: id, request });
+          sink({ connectionId: id, request });
         }),
+      filteredTree: (connectionId, filter, build) => {
+        const tree = trees.filtered(connectionId, filter, () => {
+          const own: Recorded[] = [];
+          sink = (entry) => own.push(entry);
+          try {
+            return { nodes: build(), recorded: own };
+          } finally {
+            sink = remember;
+          }
+        });
+        tree.recorded.forEach(remember);
+        return tree.nodes;
+      },
     });
     return { rows, recorded };
-    // `version` is not read in the body: the cache changed, the rows must be built again.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connections, groups, query, capabilities, sessions, expanded, showSystem, version]);
+  }, [connections, groups, query, capabilities, sessions, expanded, showSystem, trees]);
 
   // Observing a query loads it, and unobserving it (node collapsed, filter typed) cancels it.
   useQueries({

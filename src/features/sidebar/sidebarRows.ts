@@ -7,6 +7,7 @@ import {
   nodeKeys,
   pruneNodes,
   statusNode,
+  type ExplorerNode,
   type ExplorerRow,
   type MetaSource,
 } from '../explorer/explorerRows';
@@ -45,6 +46,16 @@ export interface SidebarInput {
   showSystem: boolean;
   /** Where the tree of a connection reads its data. */
   sourceFor: (connectionId: string) => MetaSource;
+  /**
+   * The loaded tree of a connection pruned to `filter`, from a cache: the whole tree does not
+   * depend on the query, only on the data and the expanded nodes, so a keystroke only prunes it
+   * again. Absent: built and pruned every time.
+   */
+  filteredTree?: (
+    connectionId: string,
+    filter: string,
+    build: () => ExplorerNode[],
+  ) => ExplorerNode[];
 }
 
 const NO_NODES: ReadonlySet<string> = new Set();
@@ -79,7 +90,10 @@ function explorerRows(
     const nodes = buildNodes({ ...context, exhaustive: false }, fetching);
     return flattenNodes(nodes, { ...options, expanded, open: false });
   }
-  const nodes = pruneNodes(buildNodes({ ...context, exhaustive: true }, fetching), filter);
+  const build = () => buildNodes({ ...context, exhaustive: true }, fetching);
+  const nodes = input.filteredTree
+    ? input.filteredTree(connection.id, filter, build)
+    : pruneNodes(build(), filter);
   return flattenNodes(nodes, { ...options, expanded, open: true });
 }
 

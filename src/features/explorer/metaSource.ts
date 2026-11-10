@@ -43,10 +43,24 @@ export function createCacheSource(
   connectionId: string,
   record: (connectionId: string, request: MetaRequest) => void,
 ): MetaSource {
+  // One pass over the connection's cached queries instead of one `getQueryState` per node,
+  // which resolves the default options and hashes the key each time: a filtered tree reads every
+  // loaded table (10 000 on a large schema). A source serves one build of the tree, during which
+  // the cache does not change.
+  let states: Map<string, QueryState> | null = null;
+  const stateOf = (key: readonly unknown[]): QueryState | undefined => {
+    if (states === null) {
+      states = new Map();
+      for (const query of client.getQueryCache().findAll({ queryKey: ['meta', connectionId] })) {
+        states.set(JSON.stringify(query.queryKey), query.state);
+      }
+    }
+    return states.get(JSON.stringify(key));
+  };
   const read = <T>(request: MetaRequest, fetch: boolean): Loadable<T> => {
     if (fetch) record(connectionId, request);
     return asLoadable(
-      client.getQueryState<T>(requestKey(connectionId, request) as unknown[]),
+      stateOf(requestKey(connectionId, request)) as QueryState<T> | undefined,
       fetch,
     );
   };
