@@ -436,7 +436,12 @@ export function pruneNodes(nodes: readonly ExplorerNode[], query: string): Explo
     const match = name === null ? null : fuzzyMatch(query, name);
     const children = entry.children ? pruneNodes(entry.children, query) : [];
     if (!match && children.length === 0) continue;
-    kept.push({ ...entry, indices: match?.indices ?? [], children });
+    // A match with nothing matching under it shows collapsed, not open on an empty list.
+    kept.push({
+      ...entry,
+      indices: match?.indices ?? [],
+      children: children.length > 0 ? children : null,
+    });
   }
   return kept;
 }

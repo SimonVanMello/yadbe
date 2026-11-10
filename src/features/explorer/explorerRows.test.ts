@@ -323,6 +323,28 @@ describe('filter', () => {
     expect(found?.indices).toEqual([0, 1, 2]);
   });
 
+  it('shows a match with nothing matching under it collapsed', () => {
+    // `top_products` matches, its details are not loaded: no open chevron over nothing.
+    const found = filtered('products').find(
+      (row) => row.type === 'object' && row.object.name === 'top_products',
+    );
+    expect(found).toMatchObject({ expandable: true, expanded: false });
+  });
+
+  it('narrows the previous result as the query grows', () => {
+    const { source } = pg();
+    const set = new Set(open);
+    const whole = buildNodes(
+      { levels: PG_LEVELS, showSystem: false, expanded: set, source, exhaustive: true },
+      false,
+    );
+    const options = { connectionId: 'c', level: 2, expanded: set, open: true };
+    const fromWhole = flattenNodes(pruneNodes(whole, 'orid'), options);
+    const narrowed = flattenNodes(pruneNodes(pruneNodes(whole, 'or'), 'orid'), options);
+    expect(narrowed).toEqual(fromWhole);
+    expect(fromWhole.length).toBeGreaterThan(0);
+  });
+
   it('shows nothing for a query that matches nothing loaded', () => {
     expect(filtered('zzzz')).toEqual([]);
   });
