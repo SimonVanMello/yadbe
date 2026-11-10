@@ -13,6 +13,7 @@ export const MAX_COPY_ROWS = 100_000;
 /** Most cells one copy reads (wide results copy fewer rows). */
 export const MAX_COPY_CELLS = 2_000_000;
 const FULL_VALUE_CONCURRENCY = 6;
+const READ_SLICE_ROWS = 10_000;
 
 export interface GatherOptions {
   signal?: AbortSignal;
@@ -65,7 +66,15 @@ export async function gatherSelection(
   const rows: CopyCell[][] = [];
   const cut: { cell: CopyCell; row: number; col: number }[] = [];
 
-  for (const { start, end } of clipIntervals(intervals, limit)) {
+  // Read in slices so a long copy reports its progress (and can be cancelled) as it goes.
+  const slices = clipIntervals(intervals, limit).flatMap(({ start, end }) => {
+    const parts: Interval[] = [];
+    for (let at = start; at < end; at += READ_SLICE_ROWS) {
+      parts.push({ start: at, end: Math.min(end, at + READ_SLICE_ROWS) });
+    }
+    return parts;
+  });
+  for (const { start, end } of slices) {
     const blocks = await source.read(start, end, options.signal);
     for (const block of blocks) {
       const from = Math.max(start, block.offset);

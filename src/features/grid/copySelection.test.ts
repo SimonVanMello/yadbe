@@ -47,6 +47,24 @@ function fakeSource(rowCount: number) {
 }
 
 describe('gatherSelection', () => {
+  it('reads a long selection in slices, reporting progress', async () => {
+    const { source, read } = fakeSource(25_000);
+    const onProgress = vi.fn();
+    const sel = selectCols(null, 0, 'replace');
+    const result = await gatherSelection(source, sel, [0, 1, 2], { onProgress });
+    expect(result.copiedRows).toBe(25_000);
+    expect(read.mock.calls.map(([start, end]) => [start, end])).toEqual([
+      [0, 10_000],
+      [10_000, 20_000],
+      [20_000, 25_000],
+    ]);
+    expect(onProgress.mock.calls.slice(0, 3)).toEqual([
+      [10_000, 25_000],
+      [20_000, 25_000],
+      [25_000, 25_000],
+    ]);
+  });
+
   it('copies a range in display order, completing cut cells', async () => {
     const { source, fullValue } = fakeSource(10);
     // Display order puts `flag` first.
