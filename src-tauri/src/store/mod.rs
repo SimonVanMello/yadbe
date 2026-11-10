@@ -1,6 +1,7 @@
 //! Local SQLite store in the OS config folder: connections (without secrets), groups, tabs,
 //! preferences (SPEC §8). History, saved queries and the change journal arrive with M1/M3.
 
+mod history;
 mod migrations;
 mod types;
 
@@ -15,6 +16,7 @@ use crate::db::config::{
 };
 use crate::db::dialect::Engine;
 use crate::db::errors::YadbeError;
+pub use history::*;
 pub use types::*;
 
 /// File name of the database inside the app config folder.
@@ -33,7 +35,7 @@ const META_ACTIVE_TAB: &str = "active_tab";
 const CONNECTION_COLUMNS: &str = "id, name, engine, group_id, position, host, port, database_name, \
      username, file_path, auth, tls_mode, ca_cert_path, connect_timeout_secs, options, \
      environment, environment_label, environment_color, favorite, read_only, remember_password, \
-     created_at, updated_at, last_connected_at";
+     created_at, updated_at, last_connected_at, history_enabled";
 
 /// Thread-safe handle on the app database. Queries are small: one connection behind a
 /// mutex is enough.
@@ -96,6 +98,7 @@ fn row_to_connection(row: &Row<'_>) -> rusqlite::Result<SavedConnection> {
             favorite: row.get("favorite")?,
             read_only: row.get("read_only")?,
             remember_password: row.get("remember_password")?,
+            history_enabled: row.get("history_enabled")?,
         },
         position: row.get("position")?,
         created_at: row.get("created_at")?,
@@ -267,7 +270,7 @@ impl Store {
                 &format!(
                     "INSERT INTO connections ({CONNECTION_COLUMNS}) VALUES
                      (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                      ?17, ?18, ?19, ?20, ?21, ?22, ?22, NULL)"
+                      ?17, ?18, ?19, ?20, ?21, ?22, ?22, NULL, ?23)"
                 ),
                 params![
                     id,
@@ -292,6 +295,7 @@ impl Store {
                     definition.read_only,
                     definition.remember_password,
                     at,
+                    definition.history_enabled,
                 ],
             )?;
         }
@@ -319,7 +323,7 @@ impl Store {
                     auth = ?11, tls_mode = ?12, ca_cert_path = ?13, connect_timeout_secs = ?14,
                     options = ?15, environment = ?16, environment_label = ?17,
                     environment_color = ?18, favorite = ?19, read_only = ?20,
-                    remember_password = ?21, updated_at = ?22
+                    remember_password = ?21, updated_at = ?22, history_enabled = ?23
                  WHERE id = ?1",
                 params![
                     id,
@@ -344,6 +348,7 @@ impl Store {
                     definition.read_only,
                     definition.remember_password,
                     now(),
+                    definition.history_enabled,
                 ],
             )?;
         }
@@ -736,5 +741,7 @@ fn enum_text<T: serde::Serialize>(value: &T) -> Result<String, YadbeError> {
     Ok(serde_json::to_string(value)?.trim_matches('"').to_owned())
 }
 
+#[cfg(test)]
+mod history_tests;
 #[cfg(test)]
 mod tests;

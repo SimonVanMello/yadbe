@@ -193,6 +193,14 @@ pub struct ConnectionDefinition {
     /// The password goes to the OS keychain; otherwise it is asked at connect time and kept
     /// in memory for the session.
     pub remember_password: bool,
+    /// Statements run on this connection go to the history (F-104). `true` unless the user
+    /// opts out; absent in older payloads.
+    #[serde(default = "default_true")]
+    pub history_enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl ConnectionDefinition {
@@ -379,6 +387,7 @@ pub(crate) fn sample_definition(engine: Engine) -> ConnectionDefinition {
         favorite: false,
         read_only: false,
         remember_password: true,
+        history_enabled: true,
     }
 }
 

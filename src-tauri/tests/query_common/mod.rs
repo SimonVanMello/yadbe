@@ -60,11 +60,33 @@ pub struct Bench {
     pub sink: Arc<TimedSink>,
     pub log: Arc<StatementLog>,
     pub history: Arc<History>,
+    pub store: Arc<Store>,
     pub connection_id: String,
 }
 
 /// Saves `definition`, connects it and builds a runner on top.
 pub async fn bench(definition: ConnectionDefinition, password: Option<Secret>) -> Bench {
+    let history = Arc::new(History::default());
+    let recorder = history.clone();
+    build(definition, password, history, move |_, _| recorder).await
+}
+
+/// Like [`bench`], with the history hook built from the store and the event sink (the real
+/// `StoreHistory`); `Bench::history` stays empty.
+pub async fn bench_with_history(
+    definition: ConnectionDefinition,
+    password: Option<Secret>,
+    recorder: impl FnOnce(&Arc<Store>, &Arc<TimedSink>) -> Arc<dyn HistoryRecorder>,
+) -> Bench {
+    build(definition, password, Arc::default(), recorder).await
+}
+
+async fn build(
+    definition: ConnectionDefinition,
+    password: Option<Secret>,
+    history: Arc<History>,
+    recorder: impl FnOnce(&Arc<Store>, &Arc<TimedSink>) -> Arc<dyn HistoryRecorder>,
+) -> Bench {
     let store = Arc::new(Store::open_in_memory().expect("store"));
     let secrets = Arc::new(SecretStore::new(Arc::new(MemoryKeychain::default())));
     let sink = Arc::new(TimedSink::default());
@@ -77,11 +99,10 @@ pub async fn bench(definition: ConnectionDefinition, password: Option<Secret>) -
     ));
     let saved = store.create_connection(&definition).expect("save");
     manager.connect(&saved.id, password).await.expect("connect");
-    let history = Arc::new(History::default());
     let runner = Arc::new(QueryRunner::new(
         Arc::clone(&manager),
         sink.clone(),
-        history.clone(),
+        recorder(&store, &sink),
     ));
     Bench {
         runner,
@@ -89,6 +110,7 @@ pub async fn bench(definition: ConnectionDefinition, password: Option<Secret>) -
         sink,
         log,
         history,
+        store,
         connection_id: saved.id,
     }
 }

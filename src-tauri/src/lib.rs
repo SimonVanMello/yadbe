@@ -73,6 +73,11 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::query::commit_transaction,
             commands::query::rollback_transaction,
             commands::query::close_query_tab,
+            commands::history::search_history,
+            commands::history::get_history_entry,
+            commands::history::delete_history_entry,
+            commands::history::count_history,
+            commands::history::clear_history,
             commands::files::read_text_file,
             commands::files::write_text_file,
         ])
@@ -84,6 +89,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             events::QueryProgress,
             events::QueryFinished,
             events::TransactionStateChanged,
+            events::HistoryChanged,
         ])
 }
 

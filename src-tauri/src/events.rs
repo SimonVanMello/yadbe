@@ -82,6 +82,12 @@ pub struct TransactionStateChanged {
     pub transaction: TransactionState,
 }
 
+/// The history changed: statements recorded, an entry deleted, the history cleared or pruned.
+/// Debounced (at most about four per second): query it again.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryChanged {}
+
 /// Every event the services emit, so they can be tested without Tauri.
 #[derive(Debug, Clone)]
 pub enum BackendEvent {
@@ -91,6 +97,7 @@ pub enum BackendEvent {
     QueryProgress(QueryProgress),
     QueryFinished(QueryFinished),
     TransactionStateChanged(TransactionStateChanged),
+    HistoryChanged(HistoryChanged),
 }
 
 pub trait EventSink: Send + Sync {
@@ -142,6 +149,7 @@ impl EventSink for TauriSink {
             BackendEvent::QueryProgress(e) => e.emit(app),
             BackendEvent::QueryFinished(e) => e.emit(app),
             BackendEvent::TransactionStateChanged(e) => e.emit(app),
+            BackendEvent::HistoryChanged(e) => e.emit(app),
         };
         if let Err(err) = result {
             tracing::warn!(error = %err, "failed to emit event");

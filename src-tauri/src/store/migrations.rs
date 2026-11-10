@@ -65,6 +65,37 @@ const MIGRATIONS: &[&str] = &[
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
     );",
+    // v2: history (F-100) with a full-text index on the statement text, and the per-connection
+    // opt-out (F-104). `history` has no foreign key on connections: entries outlive a deleted
+    // connection, with the name it had.
+    // The id of an entry is derived from its start time (see `store::history`), so ordering
+    // and range filters use the primary key.
+    "ALTER TABLE connections ADD COLUMN history_enabled INTEGER NOT NULL DEFAULT 1;
+    CREATE TABLE history (
+        id INTEGER PRIMARY KEY,
+        connection_id TEXT NOT NULL,
+        connection_name TEXT NOT NULL,
+        engine TEXT NOT NULL,
+        database_name TEXT,
+        sql TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        duration_ms REAL NOT NULL,
+        rows INTEGER,
+        outcome TEXT NOT NULL,
+        error_code TEXT,
+        error_message TEXT
+    );
+    CREATE INDEX history_by_connection ON history(connection_id, id);
+    CREATE VIRTUAL TABLE history_fts USING fts5(
+        sql, content='history', content_rowid='id',
+        tokenize='unicode61 remove_diacritics 2', prefix='2 3'
+    );
+    CREATE TRIGGER history_after_insert AFTER INSERT ON history BEGIN
+        INSERT INTO history_fts(rowid, sql) VALUES (new.id, new.sql);
+    END;
+    CREATE TRIGGER history_after_delete AFTER DELETE ON history BEGIN
+        INSERT INTO history_fts(history_fts, rowid, sql) VALUES ('delete', old.id, old.sql);
+    END;",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -85,4 +116,10 @@ pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {
 /// Schema version after all migrations.
 pub fn latest_version() -> i64 {
     i64::try_from(MIGRATIONS.len()).unwrap_or(i64::MAX)
+}
+
+/// The schema of version 1, to build older databases in tests.
+#[cfg(test)]
+pub fn first_migration() -> &'static str {
+    MIGRATIONS[0]
 }
