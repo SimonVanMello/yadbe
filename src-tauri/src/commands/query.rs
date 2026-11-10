@@ -5,6 +5,7 @@ use tauri::State;
 
 use crate::db::dialect::Engine;
 use crate::db::errors::YadbeError;
+use crate::db::split::{Utf16Map, split, statement_at as db_statement_at};
 use crate::db::value::Value;
 use crate::session::query_model::{
     ExecuteRequest, ExecutionStarted, QueryTabInfo, ResultWindow, ResumeMode, TextRange,
@@ -18,8 +19,15 @@ use crate::state::AppState;
 #[tauri::command]
 #[specta::specta]
 pub async fn split_statements(engine: Engine, text: String) -> Result<Vec<TextRange>, YadbeError> {
-    let _ = (engine, text);
-    Err(YadbeError::not_implemented())
+    let syntax = engine.dialect().syntax();
+    let map = Utf16Map::new(&text);
+    Ok(split(&text, &syntax)
+        .into_iter()
+        .map(|s| TextRange {
+            from: map.to_utf16(s.start),
+            to: map.to_utf16(s.end),
+        })
+        .collect())
 }
 
 /// The statement "under the cursor" at `offset` (F-041): the one containing it (its
@@ -32,8 +40,15 @@ pub async fn statement_at(
     text: String,
     offset: u32,
 ) -> Result<Option<TextRange>, YadbeError> {
-    let _ = (engine, text, offset);
-    Err(YadbeError::not_implemented())
+    let syntax = engine.dialect().syntax();
+    let map = Utf16Map::new(&text);
+    let statements = split(&text, &syntax);
+    Ok(
+        db_statement_at(&text, &statements, map.to_byte(offset)).map(|s| TextRange {
+            from: map.to_utf16(s.start),
+            to: map.to_utf16(s.end),
+        }),
+    )
 }
 
 /// Starts running statements in a tab and returns at once; progress, results and messages
@@ -46,8 +61,7 @@ pub async fn execute_query(
     state: State<'_, AppState>,
     request: ExecuteRequest,
 ) -> Result<ExecutionStarted, YadbeError> {
-    let _ = (state, request);
-    Err(YadbeError::not_implemented())
+    state.queries.execute(request)
 }
 
 /// Cancels the tab's running execution with the engine's native mechanism (F-042). Does
@@ -55,8 +69,8 @@ pub async fn execute_query(
 #[tauri::command]
 #[specta::specta]
 pub async fn cancel_query(state: State<'_, AppState>, tab_id: String) -> Result<(), YadbeError> {
-    let _ = (state, tab_id);
-    Err(YadbeError::not_implemented())
+    state.queries.cancel(&tab_id).await;
+    Ok(())
 }
 
 /// Continues a paused result (load more / load all, F-062).
@@ -67,8 +81,7 @@ pub async fn resume_result(
     result_id: u32,
     mode: ResumeMode,
 ) -> Result<(), YadbeError> {
-    let _ = (state, result_id, mode);
-    Err(YadbeError::not_implemented())
+    state.queries.resume(result_id, mode)
 }
 
 /// Rows `offset .. offset + limit` of a result (at most 2 000; the grid asks for 500),
@@ -81,8 +94,7 @@ pub async fn fetch_result_window(
     offset: u32,
     limit: u32,
 ) -> Result<ResultWindow, YadbeError> {
-    let _ = (state, result_id, offset, limit);
-    Err(YadbeError::not_implemented())
+    state.queries.window(result_id, offset, limit)
 }
 
 /// One whole cell (windows cut long values), for the cell viewer (F-064).
@@ -94,8 +106,7 @@ pub async fn fetch_result_cell(
     row: u32,
     column: u32,
 ) -> Result<Value, YadbeError> {
-    let _ = (state, result_id, row, column);
-    Err(YadbeError::not_implemented())
+    state.queries.cell(result_id, row, column)
 }
 
 /// The tab's transaction state, connection and running or last execution.
@@ -105,8 +116,7 @@ pub async fn get_query_tab(
     state: State<'_, AppState>,
     tab_id: String,
 ) -> Result<QueryTabInfo, YadbeError> {
-    let _ = (state, tab_id);
-    Err(YadbeError::not_implemented())
+    Ok(state.queries.tab_info(&tab_id))
 }
 
 /// Switches the tab between auto-commit and manual transactions (F-047). Fails with
@@ -118,8 +128,7 @@ pub async fn set_transaction_mode(
     tab_id: String,
     mode: TransactionMode,
 ) -> Result<TransactionState, YadbeError> {
-    let _ = (state, tab_id, mode);
-    Err(YadbeError::not_implemented())
+    state.queries.set_mode(&tab_id, mode)
 }
 
 /// Commits the tab's open transaction (a failed one is rolled back by the engine). Does
@@ -130,8 +139,7 @@ pub async fn commit_transaction(
     state: State<'_, AppState>,
     tab_id: String,
 ) -> Result<TransactionState, YadbeError> {
-    let _ = (state, tab_id);
-    Err(YadbeError::not_implemented())
+    state.queries.end_transaction(&tab_id, true).await
 }
 
 /// Rolls back the tab's open transaction. Does nothing without a transaction.
@@ -141,8 +149,7 @@ pub async fn rollback_transaction(
     state: State<'_, AppState>,
     tab_id: String,
 ) -> Result<TransactionState, YadbeError> {
-    let _ = (state, tab_id);
-    Err(YadbeError::not_implemented())
+    state.queries.end_transaction(&tab_id, false).await
 }
 
 /// The tab closed: cancels its execution, closes its connection (an open transaction is
@@ -150,6 +157,6 @@ pub async fn rollback_transaction(
 #[tauri::command]
 #[specta::specta]
 pub async fn close_query_tab(state: State<'_, AppState>, tab_id: String) -> Result<(), YadbeError> {
-    let _ = (state, tab_id);
-    Err(YadbeError::not_implemented())
+    state.queries.close_tab(&tab_id).await;
+    Ok(())
 }

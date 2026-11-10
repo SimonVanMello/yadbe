@@ -274,6 +274,44 @@ impl ConnectionSession {
         self.connection()?.ping().await
     }
 
+    /// The settings the session was opened with.
+    pub fn target(&self) -> &ConnectTarget {
+        &self.target
+    }
+
+    /// Records statements yadbe runs on this connection in the statement log.
+    pub fn recorder(&self) -> Arc<dyn StatementRecorder> {
+        Arc::clone(&self.recorder)
+    }
+
+    /// Flips to `true` when the session closes.
+    pub fn closed(&self) -> watch::Receiver<bool> {
+        self.shutdown.subscribe()
+    }
+
+    /// Opens another server connection with the session's settings and password (an editor
+    /// tab's own connection), on `database` when given. Aborted when the session closes.
+    pub async fn open_dedicated(
+        &self,
+        database: Option<&str>,
+    ) -> Result<Box<dyn Connection>, YadbeError> {
+        self.connection()?;
+        let mut target = self.target.clone();
+        if let Some(database) = database {
+            database.clone_into(&mut target.database);
+        }
+        let request = ConnectRequest {
+            target: &target,
+            password: self.password.as_ref(),
+            recorder: Arc::clone(&self.recorder),
+        };
+        let mut shutdown = self.shutdown.subscribe();
+        tokio::select! {
+            result = self.driver.connect(request) => result,
+            _ = shutdown.wait_for(|closed| *closed) => Err(YadbeError::not_connected()),
+        }
+    }
+
     /// Closes the connection and stops reconnecting. `error`: why, when it was not the
     /// user's choice.
     pub async fn close(&self, error: Option<YadbeError>) {

@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use crate::events::EventSink;
 use crate::secrets::{KeychainBackend, SecretStore};
-use crate::session::ConnectionManager;
+use crate::session::history_hook::NoHistory;
 use crate::session::statement_log::StatementLog;
+use crate::session::{ConnectionManager, QueryRunner};
 use crate::store::{DB_FILE, Store};
 
 /// Overrides the config folder (tests, isolated `xvfb-run` sessions).
@@ -17,6 +18,7 @@ pub struct AppState {
     pub secrets: Arc<SecretStore>,
     pub log: Arc<StatementLog>,
     pub connections: Arc<ConnectionManager>,
+    pub queries: Arc<QueryRunner>,
 }
 
 impl AppState {
@@ -28,13 +30,19 @@ impl AppState {
             Arc::clone(&store),
             Arc::clone(&secrets),
             Arc::clone(&log),
+            Arc::clone(&sink),
+        ));
+        let queries = Arc::new(QueryRunner::new(
+            Arc::clone(&connections),
             sink,
+            Arc::new(NoHistory),
         ));
         Self {
             store,
             secrets,
             log,
             connections,
+            queries,
         }
     }
 }
