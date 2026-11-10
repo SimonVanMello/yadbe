@@ -249,7 +249,10 @@ pub use tds::{
     },
     collation::Collation,
     numeric,
-    stream::{CommandReturnValue, CommandStream, QueryStream},
+    stream::{
+        AttentionSignal, BatchDone, BatchItem, BatchMetadata, BatchStream, CommandReturnValue,
+        CommandStream, DoneKind, QueryStream, ServerMessage,
+    },
     time, xml, EncryptionLevel,
 };
 pub use to_sql::{IntoSql, ToSql};

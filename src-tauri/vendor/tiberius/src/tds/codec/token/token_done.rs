@@ -71,6 +71,13 @@ impl TokenDone {
         self.status.contains(DoneStatus::Attention)
     }
 
+    /// The row count, when the server set `DONE_COUNT` (yadbe patch).
+    pub(crate) fn counted_rows(&self) -> Option<u64> {
+        self.status
+            .contains(DoneStatus::Count)
+            .then_some(self.done_rows)
+    }
+
     pub(crate) fn rows(&self) -> u64 {
         // The row count is only meaningful when the DONE_COUNT status bit is
         // set (MS-TDS §2.2.7.6); otherwise the field is not a valid count.

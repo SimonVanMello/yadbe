@@ -21,7 +21,7 @@ use crate::{
     result::ExecuteResult,
     tds::{
         codec::{self, IteratorJoin},
-        stream::{QueryStream, TokenStream},
+        stream::{AttentionSignal, BatchStream, QueryStream, TokenStream},
     },
     BulkLoadRequest, MetaDataColumn, SqlReadBytes, ToSql,
 };
@@ -32,7 +32,7 @@ use codec::{
 use enumflags2::BitFlags;
 use futures_util::io::{AsyncRead, AsyncWrite};
 use futures_util::stream::TryStreamExt;
-use std::{borrow::Cow, fmt::Debug};
+use std::{borrow::Cow, fmt::Debug, sync::Arc};
 
 /// `Client` is the main entry point to the SQL Server, providing query
 /// execution capabilities.
@@ -292,6 +292,32 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Client<S> {
         result.forward_to_metadata().await?;
 
         Ok(result)
+    }
+
+    /// Sends `sql` as one SQL batch, exactly as written, and returns everything the server
+    /// sends back in order (yadbe patch). Raising `attention` cancels the batch with a TDS
+    /// Attention; the stream then ends after the server's acknowledgement.
+    pub async fn batch<'a, 'b>(
+        &'a mut self,
+        sql: impl Into<Cow<'b, str>>,
+        attention: Option<Arc<AttentionSignal>>,
+    ) -> crate::Result<BatchStream<'a>>
+    where
+        'a: 'b,
+    {
+        self.connection.flush_stream().await?;
+        self.connection.arm_attention(attention);
+        let req = BatchRequest::new(sql, self.connection.context().transaction_descriptor());
+        let id = self.connection.context_mut().next_packet_id();
+        self.connection.send(PacketHeader::batch(id), req).await?;
+        let tokens = TokenStream::batch(&mut self.connection).try_unfold();
+        Ok(BatchStream::new(tokens))
+    }
+
+    /// Whether a transaction is open on the connection, as the server last reported it
+    /// with its transaction environment changes (yadbe patch).
+    pub fn in_transaction(&self) -> bool {
+        self.connection.context().transaction_descriptor() != [0; 8]
     }
 
     /// Execute a `BULK INSERT` statement, efficiently storing a large number of

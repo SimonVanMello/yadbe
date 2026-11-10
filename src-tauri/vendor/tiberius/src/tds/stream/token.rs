@@ -174,6 +174,8 @@ pub enum ReceivedToken {
 pub(crate) struct TokenStream<'a, S: AsyncRead + AsyncWrite + Unpin + Send> {
     conn: &'a mut Connection<S>,
     last_error: Option<Error>,
+    /// yadbe patch: server errors are items and the stream ends normally (batch streams).
+    raw_errors: bool,
 }
 
 impl<'a, S> TokenStream<'a, S>
@@ -184,6 +186,16 @@ where
         Self {
             conn,
             last_error: None,
+            raw_errors: false,
+        }
+    }
+
+    /// A stream for [`BatchStream`](super::BatchStream) (yadbe patch).
+    pub(crate) fn batch(conn: &'a mut Connection<S>) -> Self {
+        Self {
+            conn,
+            last_error: None,
+            raw_errors: true,
         }
     }
 
@@ -351,18 +363,27 @@ where
 
     async fn get_done_value(&mut self) -> crate::Result<ReceivedToken> {
         let done = TokenDone::decode(self.conn).await?;
+        if done.is_attention() {
+            self.conn.attention_acknowledged();
+        }
         event!(Level::TRACE, "{}", done);
         Ok(ReceivedToken::Done(done))
     }
 
     async fn get_done_proc_value(&mut self) -> crate::Result<ReceivedToken> {
         let done = TokenDone::decode(self.conn).await?;
+        if done.is_attention() {
+            self.conn.attention_acknowledged();
+        }
         event!(Level::TRACE, "{}", done);
         Ok(ReceivedToken::DoneProc(done))
     }
 
     async fn get_done_in_proc_value(&mut self) -> crate::Result<ReceivedToken> {
         let done = TokenDone::decode(self.conn).await?;
+        if done.is_attention() {
+            self.conn.attention_acknowledged();
+        }
         event!(Level::TRACE, "{}", done);
         Ok(ReceivedToken::DoneInProc(done))
     }
@@ -469,9 +490,15 @@ where
 
         let stream = futures_util::stream::try_unfold(self, |mut this| async move {
             if this.conn.is_eof() {
-                match this.last_error {
-                    None => return Ok(None),
-                    Some(error) => return Err(error),
+                if this.conn.attention_outstanding() {
+                    // yadbe patch: the response ended before the server saw the Attention;
+                    // its acknowledgement comes in a message of its own.
+                    this.conn.expect_next_message();
+                } else {
+                    match this.last_error {
+                        Some(error) if !this.raw_errors => return Err(error),
+                        _ => return Ok(None),
+                    }
                 }
             }
 

@@ -21,7 +21,7 @@ use tokio_rustls::{
             danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
             WantsClientCert,
         },
-        crypto::{aws_lc_rs, CryptoProvider},
+        crypto::{ring, CryptoProvider},
         pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer, ServerName, UnixTime},
         ClientConfig, ConfigBuilder, DigitallySignedStruct, Error as RustlsError, RootCertStore,
         SignatureScheme,
@@ -266,8 +266,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> AsyncWrite for TlsStream<S> {
 }
 
 /// Resolve the rustls `CryptoProvider`: honour a process-installed default
-/// (`CryptoProvider::install_default`) if present, otherwise fall back to
-/// aws-lc-rs.
+/// (`CryptoProvider::install_default`) if present, otherwise fall back to ring (yadbe patch: was
+/// aws-lc-rs).
 fn resolve_crypto_provider(installed: Option<Arc<CryptoProvider>>) -> Arc<CryptoProvider> {
     match installed {
         Some(provider) => {
@@ -280,9 +280,9 @@ fn resolve_crypto_provider(installed: Option<Arc<CryptoProvider>>) -> Arc<Crypto
         None => {
             event!(
                 Level::DEBUG,
-                "No process-installed CryptoProvider; using the aws-lc-rs default"
+                "No process-installed CryptoProvider; using the ring default"
             );
-            Arc::new(aws_lc_rs::default_provider())
+            Arc::new(ring::default_provider())
         }
     }
 }
@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn resolve_crypto_provider_honours_installed() {
-        let installed = Arc::new(aws_lc_rs::default_provider());
+        let installed = Arc::new(ring::default_provider());
         let got = resolve_crypto_provider(Some(installed.clone()));
         assert!(
             Arc::ptr_eq(&got, &installed),
@@ -510,7 +510,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_crypto_provider_falls_back_to_aws_lc_rs() {
+    fn resolve_crypto_provider_falls_back_to_ring() {
         let got = resolve_crypto_provider(None);
         assert!(
             !got.cipher_suites.is_empty(),
@@ -938,7 +938,7 @@ mod tests {
         // deliberately absent, so `leaf` cannot chain to anything trusted.
         roots.add(leaf.clone()).unwrap();
 
-        let provider = Arc::new(aws_lc_rs::default_provider());
+        let provider = Arc::new(ring::default_provider());
         let verifier = tokio_rustls::rustls::client::WebPkiServerVerifier::builder_with_provider(
             Arc::new(roots),
             provider,

@@ -106,69 +106,6 @@ vendored-openssl = [
 name = "tiberius"
 path = "src/lib.rs"
 
-[[example]]
-name = "aad-auth"
-path = "examples/aad-auth.rs"
-
-[[example]]
-name = "bulk"
-path = "examples/bulk.rs"
-
-[[example]]
-name = "named-pipes"
-path = "examples/named-pipes.rs"
-
-[[example]]
-name = "tokio"
-path = "examples/tokio.rs"
-
-[[test]]
-name = "bulk"
-path = "tests/bulk.rs"
-
-[[test]]
-name = "command"
-path = "tests/command.rs"
-
-[[test]]
-name = "custom-cert"
-path = "tests/custom-cert.rs"
-
-[[test]]
-name = "deadlocks"
-path = "tests/deadlocks.rs"
-
-[[test]]
-name = "login_errors"
-path = "tests/login_errors.rs"
-
-[[test]]
-name = "named-instance-smol"
-path = "tests/named-instance-smol.rs"
-required-features = ["sql-browser-smol"]
-
-[[test]]
-name = "named-instance-tokio"
-path = "tests/named-instance-tokio.rs"
-required-features = ["sql-browser-tokio"]
-
-[[test]]
-name = "query"
-path = "tests/query.rs"
-
-[[test]]
-name = "serde"
-path = "tests/serde.rs"
-required-features = ["serde"]
-
-[[test]]
-name = "special_char_password"
-path = "tests/special_char_password.rs"
-
-[[test]]
-name = "transactions"
-path = "tests/transactions.rs"
-
 [dependencies.async-io]
 version = "2"
 optional = true
@@ -296,6 +233,9 @@ optional = true
 [dependencies.tokio-rustls]
 version = "0.26.4"
 optional = true
+# yadbe patch: ring, the provider the rest of yadbe uses (aws-lc-rs needs cmake/NASM).
+default-features = false
+features = ["ring", "tls12", "logging"]
 
 [dependencies.tokio-util]
 version = "0.7"
@@ -315,65 +255,6 @@ optional = true
 
 [dependencies.zeroize]
 version = "1.8.2"
-
-[dev-dependencies.anyhow]
-version = "1"
-
-[dev-dependencies.azure_core]
-version = "1"
-
-[dev-dependencies.azure_identity]
-version = "1.0"
-
-[dev-dependencies.chrono]
-version = "0.4.38"
-
-[dev-dependencies.env_logger]
-version = "0.11"
-
-[dev-dependencies.indicatif]
-version = "0.18"
-
-[dev-dependencies.indoc]
-version = "2"
-
-[dev-dependencies.names]
-version = "0.14"
-
-[dev-dependencies.paste]
-version = "1.0"
-
-[dev-dependencies.reqwest]
-version = "0.13"
-
-[dev-dependencies.serde_json]
-version = "1.0"
-
-[dev-dependencies.smol]
-version = "2"
-
-[dev-dependencies.tokio]
-version = "1.0"
-features = [
-    "macros",
-    "sync",
-    "io-std",
-    "time",
-    "io-util",
-    "net",
-    "rt-multi-thread",
-]
-
-[dev-dependencies.tokio-util]
-version = "0.7"
-features = ["compat"]
-
-[dev-dependencies.url]
-version = "2.5"
-
-[dev-dependencies.uuid]
-version = "1.0"
-features = ["v4"]
 
 [target."cfg(unix)".dependencies.libc]
 version = "0.2"

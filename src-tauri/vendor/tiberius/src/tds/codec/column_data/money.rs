@@ -217,15 +217,16 @@ pub(crate) async fn decode<R>(src: &mut R, len: u8) -> crate::Result<ColumnData<
 where
     R: SqlReadBytes + Unpin,
 {
-    let res = match len {
-        0 => ColumnData::F64(None),
-        4 => ColumnData::F64(Some(src.read_i32_le().await? as f64 / 1e4)),
-        8 => ColumnData::F64(Some({
-            let high = src.read_i32_le().await? as i64;
-            let low = src.read_u32_le().await? as f64;
-
-            ((high << 32) as f64 + low) / 1e4
-        })),
+    // yadbe patch: an exact `Numeric` with money's four decimals, instead of an `f64`
+    // that loses the last digits of large amounts.
+    let scaled = match len {
+        0 => return Ok(ColumnData::Numeric(None)),
+        4 => i64::from(src.read_i32_le().await?),
+        8 => {
+            let high = i64::from(src.read_i32_le().await?);
+            let low = i64::from(src.read_u32_le().await?);
+            (high << 32) | low
+        }
         _ => {
             return Err(Error::Protocol(
                 format!("money: length of {} is invalid", len).into(),
@@ -233,7 +234,9 @@ where
         }
     };
 
-    Ok(res)
+    Ok(ColumnData::Numeric(Some(
+        crate::tds::Numeric::new_with_scale(i128::from(scaled), MONEY_SCALE as u8),
+    )))
 }
 
 #[cfg(test)]
@@ -250,8 +253,8 @@ mod tests {
 
         let data = decode(&mut buf.into_sql_read_bytes(), 4).await.unwrap();
         match data {
-            ColumnData::F64(Some(v)) => assert!((v - 1.2345).abs() < 1e-9, "v={}", v),
-            other => panic!("expected F64, got {:?}", other),
+            ColumnData::Numeric(Some(v)) => assert_eq!(v.to_string(), "1.2345"),
+            other => panic!("expected Numeric, got {:?}", other),
         }
     }
 
@@ -265,8 +268,8 @@ mod tests {
 
         let data = decode(&mut buf.into_sql_read_bytes(), 8).await.unwrap();
         match data {
-            ColumnData::F64(Some(v)) => assert!((v - 429499.7296).abs() < 1e-6, "v={}", v),
-            other => panic!("expected F64, got {:?}", other),
+            ColumnData::Numeric(Some(v)) => assert_eq!(v.to_string(), "429499.7296"),
+            other => panic!("expected Numeric, got {:?}", other),
         }
     }
 

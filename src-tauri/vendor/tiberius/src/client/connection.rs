@@ -11,7 +11,7 @@ use crate::{
             self, Encode, LoginMessage, Packet, PacketCodec, PacketHeader, PacketStatus,
             PreloginMessage, TokenDone,
         },
-        stream::TokenStream,
+        stream::{ArmedAttention, AttentionSignal, TokenStream},
         Context, HEADER_BYTES,
     },
     EncryptionLevel, SqlReadBytes,
@@ -22,7 +22,7 @@ use bytes::BytesMut;
 use codec::TokenSspi;
 use futures_util::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use futures_util::ready;
-use futures_util::sink::SinkExt;
+use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::{Stream, TryStream, TryStreamExt};
 #[cfg(all(unix, feature = "integrated-auth-gssapi"))]
 use libgssapi::{
@@ -83,6 +83,8 @@ where
     ///
     /// [`ensure_not_poisoned`]: Self::ensure_not_poisoned
     command_desync: Arc<AtomicBool>,
+    /// yadbe patch: the Attention of the running batch, sent from the read path.
+    attention: ArmedAttention,
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin + Send> Debug for Connection<S> {
@@ -175,6 +177,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
             buf: BytesMut::new(),
             poisoned: false,
             command_desync: Arc::new(AtomicBool::new(false)),
+            attention: ArmedAttention::default(),
         };
 
         let fed_auth_required = matches!(config.auth, AuthMethod::AADToken(_));
@@ -473,6 +476,16 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
         // top of it.
         self.ensure_not_poisoned()?;
 
+        // yadbe patch: a batch dropped after its Attention went out leaves an
+        // acknowledgement on the wire that no message boundary can locate.
+        if self.attention.outstanding() {
+            self.poisoned = true;
+            return Err(crate::Error::Protocol(
+                "a cancelled batch was dropped before the server acknowledged the cancel".into(),
+            ));
+        }
+        self.attention = ArmedAttention::default();
+
         // Discard any partially-consumed packet payload, then drain whole
         // packets up to the end-of-message marker. Truncating `buf` and
         // re-reading on packet boundaries resynchronises the token stream even
@@ -507,6 +520,56 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
             }
         }
 
+        Ok(())
+    }
+
+    /// yadbe patch: the next request is cancelled when `signal` is raised.
+    pub(crate) fn arm_attention(&mut self, signal: Option<Arc<AttentionSignal>>) {
+        self.attention = ArmedAttention::arm(signal);
+    }
+
+    /// yadbe patch: an Attention went out and its DONE_ATTN was not read yet.
+    pub(crate) fn attention_outstanding(&self) -> bool {
+        self.attention.outstanding()
+    }
+
+    /// yadbe patch: the server acknowledged the Attention.
+    pub(crate) fn attention_acknowledged(&mut self) {
+        self.attention = ArmedAttention::default();
+    }
+
+    /// yadbe patch: keeps reading past the end of the current message, where the server
+    /// acknowledges an Attention that came after its response.
+    pub(crate) fn expect_next_message(&mut self) {
+        self.flushed = false;
+    }
+
+    /// yadbe patch: hands the Attention to the transport as soon as it is requested,
+    /// whatever the reader is doing (between two tokens, or waiting for the rest of
+    /// one), without ever making the reader wait for the write.
+    fn poll_attention(&mut self, cx: &mut task::Context<'_>) -> io::Result<()> {
+        let to_io = |e: crate::Error| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string());
+        if self.attention.due(cx) {
+            match Pin::new(&mut self.transport).poll_ready(cx) {
+                Poll::Ready(Ok(())) => {
+                    let id = self.context.next_packet_id();
+                    let packet = Packet::new(PacketHeader::attention(id), BytesMut::new());
+                    Pin::new(&mut self.transport)
+                        .start_send(packet)
+                        .map_err(to_io)?;
+                    self.attention.set_queued();
+                }
+                Poll::Ready(Err(e)) => return Err(to_io(e)),
+                Poll::Pending => return Ok(()),
+            }
+        }
+        if self.attention.is_queued() {
+            match Pin::new(&mut self.transport).poll_flush(cx) {
+                Poll::Ready(Ok(())) => self.attention.set_sent(),
+                Poll::Ready(Err(e)) => return Err(to_io(e)),
+                Poll::Pending => {}
+            }
+        }
         Ok(())
     }
 
@@ -897,6 +960,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
                     buf: BytesMut::new(),
                     poisoned: false,
                     command_desync,
+                    attention: ArmedAttention::default(),
                 })
             }
         }
@@ -943,6 +1007,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
             buf: BytesMut::new(),
             poisoned,
             command_desync: Arc::new(AtomicBool::new(false)),
+            attention: ArmedAttention::default(),
         }
     }
 }
@@ -1227,6 +1292,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> futures_util::io::AsyncRead for C
     ) -> Poll<io::Result<usize>> {
         let mut this = self.get_mut();
         let size = buf.len();
+
+        if let Err(e) = this.poll_attention(cx) {
+            return Poll::Ready(Err(e));
+        }
 
         if this.buf.len() < size {
             while let Some(item) = ready!(Pin::new(&mut this).try_poll_next(cx)) {
