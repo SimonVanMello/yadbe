@@ -31,8 +31,8 @@ interface ConnectionFormProps {
   keychainAvailable: boolean;
   onChange: (draft: ConnectionDraft) => void;
   onPasteConnectionString: (text: string) => void;
-  /** Picks another database file (file engines); absent when the app cannot open a picker. */
-  onPickFile: (() => void) | undefined;
+  /** Picks another database file with the native picker (file engines). */
+  onPickFile: () => void;
 }
 
 /** The connection form (F-001, F-005 to F-009): engine, engine-specific fields, identity. */

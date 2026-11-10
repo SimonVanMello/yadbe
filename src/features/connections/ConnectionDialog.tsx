@@ -33,7 +33,7 @@ import {
   type DraftErrors,
   type EngineInfo,
 } from './model';
-import { canPickDatabaseFile, pickDatabaseFile } from './pickDatabaseFile';
+import { pickDatabaseFile } from './pickDatabaseFile';
 import { TestResultView, type TestState } from './TestResultView';
 
 function toYadbeError(error: unknown): YadbeError {
@@ -105,6 +105,13 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
     if (Object.keys(errors).length > 0) setErrors(validateDraft(value, infoOf(value)));
   };
 
+  /** A held password that expired is gone for good: the form must stop offering it. */
+  const dropExpiredPending = (error: unknown) => {
+    if (!(error instanceof YadbeIpcError) || error.error.code !== 'pendingSecretExpired') return;
+    pendingId.current = null;
+    setDraft((current) => ({ ...current, pendingPasswordId: null }));
+  };
+
   const fillFrom = (text: string) => {
     if (text.trim() === '' || parsing) return;
     setParsing(true);
@@ -142,6 +149,7 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
         if (testRequest.current === requestId) setTest({ status: 'ok', result });
       })
       .catch((error: unknown) => {
+        dropExpiredPending(error);
         // A test the user cancelled, or replaced by another one, is not worth showing.
         if (testRequest.current !== requestId) return;
         setTest({ status: 'error', error: toYadbeError(error) });
@@ -185,7 +193,13 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
         onClose();
       })
       .catch((error: unknown) => {
-        showError(error, { title: t('connection.saveFailed') });
+        dropExpiredPending(error);
+        showError(error, {
+          title: t('connection.saveFailed'),
+          enterPassword: () => {
+            focusField('password');
+          },
+        });
       })
       .finally(() => {
         setSaving(false);
@@ -218,7 +232,7 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
               enterPassword: () => {
                 focusField('password');
               },
-              chooseFile: canPickDatabaseFile ? pickFile : undefined,
+              chooseFile: pickFile,
             }}
           />
         )
@@ -300,7 +314,7 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
           keychainAvailable={keychainAvailable}
           onChange={update}
           onPasteConnectionString={fillFrom}
-          onPickFile={canPickDatabaseFile ? pickFile : undefined}
+          onPickFile={pickFile}
         />
       </form>
     </Dialog>

@@ -9,6 +9,9 @@ import { App } from './app/App';
 import { loadPreferences } from './app/preferences';
 import { initI18n } from './i18n/i18n';
 import { initTheme } from './theme/themeStore';
+import { shareStyleNonce } from './ui/cspNonce';
+
+shareStyleNonce();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Missing #root element');

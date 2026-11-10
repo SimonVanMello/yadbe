@@ -12,8 +12,8 @@ interface SqliteFieldsProps {
   draft: ConnectionDraft;
   errors: DraftErrors;
   onChange: (patch: Partial<ConnectionDraft>) => void;
-  /** Opens a file picker; absent when the app cannot offer one (the path is then typed). */
-  onPickFile: (() => void) | undefined;
+  /** Opens the native file picker (the path can also be typed, e.g. for a new file). */
+  onPickFile: () => void;
 }
 
 /** Field of a file database (SQLite): the path of the file (F-001, F-002). */
@@ -39,12 +39,10 @@ export function SqliteFields({ draft, errors, onChange, onPickFile }: SqliteFiel
             onChange({ filePath: event.target.value });
           }}
         />
-        {onPickFile && (
-          <Button onClick={onPickFile}>
-            <Icon name="folderOpen" />
-            {t('connection.file.browse')}
-          </Button>
-        )}
+        <Button onClick={onPickFile}>
+          <Icon name="folderOpen" />
+          {t('connection.file.browse')}
+        </Button>
       </div>
     </Field>
   );

@@ -4,6 +4,7 @@ src-tauri/target
 src-tauri/gen
 src-tauri/icons
 dist
+dist-mock
 test-results
 playwright-report
 docs

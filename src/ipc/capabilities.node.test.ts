@@ -12,7 +12,7 @@ const config = JSON.parse(
 ) as { app: { windows: { label: string; decorations?: boolean; visible?: boolean }[] } };
 
 describe('window capabilities', () => {
-  it('grants only the main window the custom title bar needs', () => {
+  it('grants only the main window the custom title bar and the open dialog need', () => {
     expect(capabilities.windows).toEqual(['main']);
     expect(capabilities.permissions).toEqual([
       'core:default',
@@ -24,6 +24,8 @@ describe('window capabilities', () => {
       'core:window:allow-start-dragging',
       'core:window:allow-is-maximized',
       'core:window:allow-set-title',
+      // Open dialog only (SQLite files): no save dialog, no file system access.
+      'dialog:allow-open',
     ]);
   });
 

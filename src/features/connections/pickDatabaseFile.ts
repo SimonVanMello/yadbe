@@ -1,27 +1,18 @@
-import { isMock } from '../../ipc';
+import { showError } from '../../app/errors/presentError';
+import { translate, useI18nStore } from '../../i18n/i18n';
+import { fileDialog } from '../../ipc/fileDialog';
 
-/**
- * Whether the app can open a file picker. The real picker is a native dialog (Tauri dialog
- * plugin or a backend command), not wired yet: until then the path is typed or pasted, and
- * only the browser mock offers a stand-in.
- */
-export const canPickDatabaseFile = isMock;
-
-/** Asks for a database file; `null` when dismissed or unavailable. */
-export function pickDatabaseFile(): Promise<string | null> {
-  if (!canPickDatabaseFile) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.sqlite,.sqlite3,.db,.db3,application/vnd.sqlite3';
-    input.addEventListener('change', () => {
-      const file = input.files?.[0];
-      // A browser never reveals the real path: the mock makes one up from the name.
-      resolve(file ? `/home/ana/data/${file.name}` : null);
+/** Asks for a database file with the native picker; `null` when dismissed (or when it failed, after saying so). */
+export async function pickDatabaseFile(): Promise<string | null> {
+  const { locale } = useI18nStore.getState();
+  try {
+    return await fileDialog.pickDatabaseFile({
+      title: translate(locale, 'connection.file.pick'),
+      sqliteFiles: translate(locale, 'connection.file.sqliteFiles'),
+      allFiles: translate(locale, 'connection.file.allFiles'),
     });
-    input.addEventListener('cancel', () => {
-      resolve(null);
-    });
-    input.click();
-  });
+  } catch (error) {
+    showError(error, { title: translate(locale, 'connection.file.pickFailed') });
+    return null;
+  }
 }

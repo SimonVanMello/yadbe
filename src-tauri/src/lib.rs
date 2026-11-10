@@ -75,11 +75,44 @@ fn init_logging() {
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 
+/// Set to measure the startup (P-01, `scripts/measure-startup.mjs`): prints when the window
+/// becomes visible, then quits.
+pub const PERF_PROBE_ENV: &str = "YADBE_PERF_PROBE";
+
+/// The frontend shows the (initially hidden) window once the restored tabs are rendered:
+/// visible means usable.
+fn perf_probe(app: tauri::AppHandle, started: std::time::Instant) {
+    std::thread::spawn(move || {
+        let deadline = started + std::time::Duration::from_secs(20);
+        while std::time::Instant::now() < deadline {
+            let visible = app
+                .get_webview_window("main")
+                .and_then(|w| w.is_visible().ok())
+                .unwrap_or(false);
+            if visible {
+                println!(
+                    "yadbe-perf window-visible since_run_ms={}",
+                    started.elapsed().as_millis()
+                );
+                // Let pending IPC (tab and preference saves) finish before quitting.
+                std::thread::sleep(std::time::Duration::from_millis(400));
+                app.exit(0);
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        println!("yadbe-perf timeout");
+        app.exit(2);
+    });
+}
+
 pub fn run() {
+    let started = std::time::Instant::now();
     init_logging();
     let builder = specta_builder();
 
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
@@ -100,6 +133,9 @@ pub fn run() {
             };
             if let Err(err) = ready.emit(app.handle()) {
                 tracing::warn!(error = %err, "failed to emit app-ready");
+            }
+            if std::env::var_os(PERF_PROBE_ENV).is_some() {
+                perf_probe(app.handle().clone(), started);
             }
             Ok(())
         })

@@ -7,6 +7,8 @@ const mockPort = process.env.YADBE_MOCK_PORT ?? '1430';
 
 export default defineConfig({
   testDir: './e2e',
+  // Measurements run on a production build (`pnpm perf:tabs`, playwright.perf.config.ts).
+  testIgnore: ['perf*.spec.ts'],
   outputDir: './test-results',
   fullyParallel: true,
   reporter: [['list']],

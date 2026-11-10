@@ -18,6 +18,8 @@
     "test": "vitest run",
     "check": "node scripts/check-case.mjs && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test",
     "test:ui": "playwright test",
+    "perf:startup": "node scripts/measure-startup.mjs",
+    "perf:tabs": "playwright test --config playwright.perf.config.ts perf.spec",
     "bindings": "cargo run --manifest-path src-tauri/Cargo.toml --example export-bindings"
   },
   "dependencies": {
@@ -26,6 +28,8 @@
     "@tanstack/react-query": "^5.104.2",
     "@tanstack/react-virtual": "^3.14.26",
     "@tauri-apps/api": "^2.12.3",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "get-nonce": "1.0.1",
     "radix-ui": "^1.8.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

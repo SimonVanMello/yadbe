@@ -7,6 +7,7 @@ export default tseslint.config(
   {
     ignores: [
       'dist',
+      'dist-mock',
       '.claude',
       'src-tauri',
       'test-results',

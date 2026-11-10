@@ -32,7 +32,8 @@ export const connectionsApi = {
   /**
    * Creates or updates a connection, then hands its password (typed, or held from a pasted
    * string) to the keychain or the session. With "remember" turned off, a password the keychain
-   * still holds is forgotten, so it is asked at connect time as the form says.
+   * still holds is forgotten, so it is asked at connect time as the form says. When the
+   * password cannot be stored, a connection this call created is deleted again.
    */
   async save(
     draft: ConnectionDraft,
@@ -47,9 +48,18 @@ export const connectionsApi = {
     );
     const secret = secretOf(draft);
     if (secret) {
-      await unwrap(
-        ipc.commands.setConnectionSecret(saved.id, 'password', secret, draft.rememberPassword),
-      );
+      try {
+        await unwrap(
+          ipc.commands.setConnectionSecret(saved.id, 'password', secret, draft.rememberPassword),
+        );
+      } catch (error) {
+        // The password held from a pasted string may have expired. A new connection saved
+        // without it would come back as a duplicate on the next Save: undo its creation.
+        if (draft.id === null) {
+          await unwrap(ipc.commands.deleteConnection(saved.id)).catch(() => undefined);
+        }
+        throw error;
+      }
     } else if (!draft.rememberPassword && storedSecret === 'keychain') {
       await unwrap(ipc.commands.deleteConnectionSecret(saved.id, 'password'));
     }

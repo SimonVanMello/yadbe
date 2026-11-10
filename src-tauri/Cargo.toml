@@ -50,6 +50,8 @@ zeroize = "1"
 # Already in the lockfile through Tauri.
 uuid = { version = "1", features = ["v4"] }
 url = "2"
+# Native open dialog for SQLite files (SPEC §9: file access only through explicit dialogs).
+tauri-plugin-dialog = "2"
 
 [dev-dependencies]
 tempfile = "3"

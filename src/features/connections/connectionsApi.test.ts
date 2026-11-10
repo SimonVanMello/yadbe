@@ -52,9 +52,12 @@ describe('connectionsApi.save', () => {
     );
     expect(await connectionsApi.passwordLocation(saved.id)).toBe('keychain');
     // The held password is consumed: the same id cannot be used again.
+    const before = (await connectionsApi.list()).connections.length;
     await expect(
       connectionsApi.save(draft({ pendingPasswordId: parsed.passwordId }), postgres, null),
     ).rejects.toMatchObject({ error: { code: 'pendingSecretExpired' } });
+    // …and the connection created for it is not left behind (Save again would duplicate it).
+    expect((await connectionsApi.list()).connections).toHaveLength(before);
   });
 
   it('updates in place, leaves the stored password alone when none is typed', async () => {
