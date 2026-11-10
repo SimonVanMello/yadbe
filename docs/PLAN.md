@@ -39,7 +39,7 @@ Exit: on PostgreSQL, SQL Server and SQLite, the schema is browsable, queries run
 | M1-4 ✅ | **SQL editor front**: CodeMirror 6 with dialects, run all / selection / statement under cursor with highlight, cancel, tab persistence and autosave, open / save `.sql`, connection and database switcher, transaction controls, dangerous-statement guard | M1-3 (contract) | F-040 to F-042, F-044 to F-047, F-051 | sonnet · high |
 | M1-5 🟦 | **Result grid**: row + column virtualization, sticky header, resize / reorder / auto-fit, type-aware rendering, selection model, copy as TSV / CSV / JSON / Markdown / INSERT, result sub-tabs and Messages, cell viewer panel; P-04 measured on WebKitGTK | M1-3 (contract) | F-060 to F-064, P-04 | opus · high |
 | M1-6 ⬜ | **History**: store table + FTS5, recording from `QueryRunner`, retention, per-connection opt-out, clear; panel with search and filters, open in tab / insert | M1-3 | F-100, F-101, F-104, P-08 | sonnet · high |
-| M1-7 🟦 | **SQL Server driver** (`tiberius`): connect (SQL login, encryption modes), types, `GO` batches, `PRINT` / info messages, attention-based cancel, introspection, conformance suite | M1-1, M1-3 | F-002 (MSSQL) | opus · high |
+| M1-7 ✅ | **SQL Server driver** (`tiberius`): connect (SQL login, encryption modes), types, `GO` batches, `PRINT` / info messages, attention-based cancel, introspection, conformance suite | M1-1, M1-3 | F-002 (MSSQL) | opus · high |
 | M1-8 ⬜ | **Integration**: mock / real gaps, P-02 to P-04 measured, `docs/validation/M1.md` | all of M1 | — | opus · medium |
 
 Order: M1-1 ∥ M1-3 first (contracts pushed early); M1-2, M1-4, M1-5 on the mock as soon as the contracts exist; M1-6 and M1-7 when M1-3 is done; then M1-8.
