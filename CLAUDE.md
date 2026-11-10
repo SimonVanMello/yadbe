@@ -78,6 +78,8 @@ pnpm tauri build --debug --no-bundle   # Built front + CSP with nonces (absent u
 cd src-tauri && cargo test --release --test history_bench p08 -- --ignored --nocapture   # P-08: history search over 100k entries
 pnpm perf:startup   # P-01 on the release binary (`pnpm tauri build --no-bundle` first; headless Linux: xvfb-run -a pnpm perf:startup)
 pnpm perf:tabs      # P-07 on a production build of the front (mock), CPU ×1 and ×4
+pnpm perf:grid      # P-04 on Chromium: scrolling 100k × 50 on the mock (production build), CPU ×1 and ×4
+YADBE_TEST_PG_URL=… pnpm perf:grid:webkit [--binary …]   # P-04 in the real app through tauri-driver (start it with WEBKIT_DISABLE_COMPOSITING_MODE=1 under Xvfb)
 pnpm perf:explorer  # Explorer tree on the mock: first level with 500 tables, scroll and filter on 10k objects (YADBE_PERF_PORT / YADBE_MOCK_PORT when the default port is taken)
 cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test query_postgres p03 -- --ignored --nocapture   # P-03: query sent → first 500-row window readable, 1M rows
 ```
