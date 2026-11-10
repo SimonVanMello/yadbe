@@ -212,6 +212,12 @@ function MessageRow({
           {body.durationMs !== null && (
             <span className={styles.duration}> · {formatDuration(body.durationMs)}</span>
           )}
+          {body.pausedMs > 0 && (
+            <span className={styles.duration}>
+              {' '}
+              · {t('query.messages.paused', { time: formatDuration(body.pausedMs) })}
+            </span>
+          )}
         </p>
         {statementText && <code className={styles.statement}>{statementText}</code>}
       </div>

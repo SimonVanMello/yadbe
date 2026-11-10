@@ -124,6 +124,9 @@ pub struct Run {
     pub results: Vec<ResultSummary>,
     pub messages: Vec<QueryMessage>,
     pub progress_events: usize,
+    /// From the last event: active run time and time spent paused.
+    pub elapsed_ms: u32,
+    pub paused_ms: u32,
 }
 
 impl Run {
@@ -187,6 +190,7 @@ impl Bench {
         let mut status = ExecutionStatus::Connecting;
         let mut finished = false;
         let mut progress_events = 0;
+        let (mut elapsed_ms, mut paused_ms) = (0, 0);
         for event in self.sink.events() {
             let (delta, last) = match event {
                 BackendEvent::QueryProgress(e) if e.execution_id == execution_id => {
@@ -198,6 +202,8 @@ impl Bench {
             };
             assert!(!finished, "an event after query-finished");
             status = delta.status;
+            elapsed_ms = delta.elapsed_ms;
+            paused_ms = delta.paused_ms;
             for result in delta.results {
                 results.insert(result.result_id, result);
             }
@@ -215,6 +221,8 @@ impl Bench {
                 results: results.into_values().collect(),
                 messages,
                 progress_events,
+                elapsed_ms,
+                paused_ms,
             },
             finished,
         )

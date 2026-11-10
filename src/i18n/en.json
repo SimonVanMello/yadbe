@@ -473,6 +473,8 @@
   "query.status.statementCount": "{count} statements",
   "query.status.statementCount.one": "{count} statement",
   "query.status.cancelled": "Cancelled · {time}",
+  "query.status.wallTime": "Run time without the pauses at a result limit. Wall time: {total}, of which {paused} paused.",
+  "query.messages.paused": "{time} paused",
   "query.status.failed": "Failed · {time}",
   "query.result.rows": "{count} rows",
   "query.result.rows.one": "{count} row",

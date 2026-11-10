@@ -69,6 +69,7 @@ describe('errorMarks and jumpTarget', () => {
         body: {
           kind: 'statementCompleted',
           durationMs: 1,
+          pausedMs: 0,
           rowsAffected: null,
           rowsReturned: 1,
           resultId: 1,

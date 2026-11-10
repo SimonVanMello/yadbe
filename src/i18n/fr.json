@@ -473,6 +473,8 @@
   "query.status.statementCount": "{count} instructions",
   "query.status.statementCount.one": "{count} instruction",
   "query.status.cancelled": "Annulée · {time}",
+  "query.status.wallTime": "Durée sans les pauses à une limite de résultat. Durée réelle : {total}, dont {paused} en pause.",
+  "query.messages.paused": "{time} en pause",
   "query.status.failed": "Échec · {time}",
   "query.result.rows": "{count} lignes",
   "query.result.rows.one": "{count} ligne",

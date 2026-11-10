@@ -135,6 +135,9 @@ interface MockExecution {
   startedAt: number;
   startedPerf: number;
   finishedPerf: number | null;
+  /** Time spent paused at a result cap, and since when when it is paused now. */
+  pausedTotal: number;
+  pausedSince: number | null;
   status: ExecutionStatus;
   currentStatement: number | null;
   results: number[];
@@ -470,14 +473,22 @@ export function createMockQuery(host: MockQueryHost) {
     };
   }
 
+  function pausedFor(exec: MockExecution): number {
+    const now = exec.finishedPerf ?? performance.now();
+    return exec.pausedTotal + (exec.pausedSince === null ? 0 : now - exec.pausedSince);
+  }
+
   function elapsed(exec: MockExecution): number {
-    return Math.round((exec.finishedPerf ?? performance.now()) - exec.startedPerf);
+    return Math.round(
+      (exec.finishedPerf ?? performance.now()) - exec.startedPerf - pausedFor(exec),
+    );
   }
 
   function takeDelta(exec: MockExecution): ExecutionDelta {
     const delta: ExecutionDelta = {
       status: exec.status,
       elapsedMs: elapsed(exec),
+      pausedMs: Math.round(pausedFor(exec)),
       currentStatement: exec.currentStatement,
       results: [...exec.dirtyResults].flatMap((id) => {
         const result = results.get(id);
@@ -577,8 +588,10 @@ export function createMockQuery(host: MockQueryHost) {
         result.status = 'paused';
         result.pausedBy = cap === result.limitRows ? 'rowLimit' : 'memoryLimit';
         exec.status = 'paused';
+        exec.pausedSince = performance.now();
         exec.dirtyResults.add(result.id);
         changed(exec);
+        const pausedAt = performance.now();
         const mode = await new Promise<'more' | 'all' | null>((resolve) => {
           result.resume = resolve;
           signal.addEventListener('abort', () => {
@@ -586,6 +599,8 @@ export function createMockQuery(host: MockQueryHost) {
           });
         });
         result.resume = null;
+        exec.pausedTotal += performance.now() - pausedAt;
+        exec.pausedSince = null;
         if (!mode) return false;
         if (mode === 'all') {
           result.limitRows = Infinity;
@@ -635,11 +650,14 @@ export function createMockQuery(host: MockQueryHost) {
     const lower = words.toLowerCase();
     const verb = /^\w+/.exec(lower)?.[0] ?? '';
     const started = performance.now();
+    const pausedBefore = exec.pausedTotal;
     const signal = exec.controller.signal;
     const completed = (extra: { rowsAffected?: number; result?: MockResult }) => {
       message(exec, index, {
         kind: 'statementCompleted',
-        durationMs: Math.round((performance.now() - started) * 10) / 10,
+        durationMs:
+          Math.round((performance.now() - started - (exec.pausedTotal - pausedBefore)) * 10) / 10,
+        pausedMs: Math.round(exec.pausedTotal - pausedBefore),
         rowsAffected: extra.rowsAffected ?? null,
         rowsReturned: extra.result ? extra.result.rowCount : null,
         resultId: extra.result ? extra.result.id : null,
@@ -900,6 +918,7 @@ export function createMockQuery(host: MockQueryHost) {
       startedAt: exec.startedAt,
       status: exec.status,
       elapsedMs: elapsed(exec),
+      pausedMs: Math.round(pausedFor(exec)),
       currentStatement: exec.currentStatement,
       results: exec.results.flatMap((id) => {
         const result = results.get(id);
@@ -1009,6 +1028,8 @@ export function createMockQuery(host: MockQueryHost) {
         startedAt: Date.now(),
         startedPerf: performance.now(),
         finishedPerf: null,
+        pausedTotal: 0,
+        pausedSince: null,
         status: sameTarget ? 'running' : 'connecting',
         currentStatement: null,
         results: [],

@@ -155,7 +155,27 @@ struct ExecState {
     messages: Vec<QueryMessage>,
     dirty: BTreeSet<usize>,
     sent_messages: usize,
+    /// Run time, pauses excluded; set once the run ends.
     finished_ms: Option<u32>,
+    /// Time spent paused at a result cap, waiting for the user.
+    paused_total: Duration,
+    pause_started: Option<Instant>,
+}
+
+impl ExecState {
+    fn begin_pause(&mut self) {
+        self.pause_started.get_or_insert_with(Instant::now);
+    }
+
+    fn end_pause(&mut self) {
+        if let Some(at) = self.pause_started.take() {
+            self.paused_total += at.elapsed();
+        }
+    }
+
+    fn paused(&self) -> Duration {
+        self.paused_total + self.pause_started.map_or(Duration::ZERO, |at| at.elapsed())
+    }
 }
 
 struct Execution {
@@ -182,10 +202,15 @@ struct Execution {
 }
 
 impl Execution {
+    /// Active time: the pauses, which wait for the user, do not count.
+    fn active(&self, state: &ExecState) -> Duration {
+        self.started.elapsed().saturating_sub(state.paused())
+    }
+
     fn elapsed_ms(&self, state: &ExecState) -> u32 {
         state
             .finished_ms
-            .unwrap_or_else(|| millis(self.started.elapsed()))
+            .unwrap_or_else(|| millis(self.active(state)))
     }
 
     fn delta(&self, state: &mut ExecState) -> ExecutionDelta {
@@ -198,6 +223,7 @@ impl Execution {
         ExecutionDelta {
             status: state.status,
             elapsed_ms: self.elapsed_ms(state),
+            paused_ms: millis(state.paused()),
             current_statement: state.current_statement,
             results,
             messages,
@@ -242,7 +268,8 @@ impl Execution {
         let mut state = lock(&self.state);
         state.status = status;
         state.current_statement = None;
-        state.finished_ms = Some(millis(self.started.elapsed()));
+        state.end_pause();
+        state.finished_ms = Some(millis(self.active(&state)));
         let delta = self.delta(&mut state);
         sink.emit(BackendEvent::QueryFinished(QueryFinished {
             tab_id: self.tab_id.clone(),
@@ -278,6 +305,7 @@ impl Execution {
                 .map_or(0.0, |d| (d.as_secs_f64() * 1000.0).floor()),
             status: state.status,
             elapsed_ms: self.elapsed_ms(&state),
+            paused_ms: millis(state.paused()),
             current_statement: state.current_statement,
             results: state.results.iter().map(ResultEntry::summary).collect(),
             messages: state.messages.clone(),
@@ -557,6 +585,8 @@ impl QueryRunner {
                 dirty: BTreeSet::new(),
                 sent_messages: 0,
                 finished_ms: None,
+                paused_total: Duration::ZERO,
+                pause_started: None,
             }),
             wake: Notify::new(),
             urgent: Notify::new(),
@@ -934,6 +964,7 @@ impl QueryRunner {
         let mut result: Option<usize> = None;
         let mut pending: Option<Vec<Vec<Value>>> = None;
         let mut cancelling = false;
+        let mut paused_for = Duration::ZERO;
         loop {
             if let Some(rows) = pending.take()
                 && !cancelling
@@ -946,8 +977,10 @@ impl QueryRunner {
                         continue;
                     }
                     Accepted::Paused(rest, reason) => {
+                        let pause_began = Instant::now();
                         let result_id = exec.update(|state| {
                             state.status = ExecutionStatus::Paused;
+                            state.begin_pause();
                             let entry = &mut state.results[position];
                             entry.status = ResultStatus::Paused;
                             entry.paused_by = Some(reason);
@@ -955,7 +988,10 @@ impl QueryRunner {
                             entry.stored.id()
                         });
                         // Not reading the channel: the driver stops reading the server.
-                        match exec.wait_resume(result_id).await {
+                        let wake = exec.wait_resume(result_id).await;
+                        paused_for += pause_began.elapsed();
+                        exec.update(ExecState::end_pause);
+                        match wake {
                             Some(Wake::Resume(mode)) => {
                                 exec.update(|state| {
                                     state.status = ExecutionStatus::Running;
@@ -1056,7 +1092,8 @@ impl QueryRunner {
             Ok(summary) => summary,
             Err(err) => Err(YadbeError::internal(format!("statement task failed: {err}")).into()),
         };
-        let duration = started.elapsed();
+        // What the statement itself took: the time it waited for the user is not its own.
+        let duration = started.elapsed().saturating_sub(paused_for);
         let (result_id, rows_returned) = result.map_or((None, None), |position| {
             let state = lock(&exec.state);
             let entry = &state.results[position];
@@ -1110,6 +1147,7 @@ impl QueryRunner {
                     Some(index),
                     MessageBody::StatementCompleted(StatementCompleted {
                         duration_ms: (duration.as_secs_f64() * 10_000.0).round() / 10.0,
+                        paused_ms: millis(paused_for),
                         rows_affected: summary.rows_affected.map(|r| r as f64),
                         rows_returned: rows_returned.map(to_u32),
                         result_id,
