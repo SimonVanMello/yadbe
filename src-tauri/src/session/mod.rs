@@ -13,6 +13,8 @@ pub mod result_store;
 pub mod statement_log;
 pub mod table_data;
 pub mod table_model;
+pub mod table_shape;
+pub mod table_sql;
 
 pub use connection::{ConnectionSession, SessionConfig};
 pub use manager::ConnectionManager;

@@ -1,5 +1,6 @@
 //! SQLite driver: `rusqlite` (bundled SQLite) on blocking threads.
 
+mod bound;
 mod ddl;
 mod execute;
 mod introspect;
@@ -13,8 +14,9 @@ use rusqlite::{InterruptHandle, OpenFlags};
 
 use crate::db::dialect::Engine;
 use crate::db::driver::{
-    BoxFuture, CancelHandle, ConnectRequest, Connection, Driver, ExecError, ExecSender,
-    ExecSummary, LinkWatch, StatementRecorder, recorded_sync,
+    BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Connection, Driver,
+    ExecError, ExecSender, ExecSummary, LinkWatch, StatementRecorder, recorded_bound_sync,
+    recorded_sync,
 };
 use crate::db::errors::YadbeError;
 use crate::db::value::{ColumnMeta, QueryResult, Value, ValueKind};
@@ -263,6 +265,29 @@ impl Connection for SqliteConnection {
         events: ExecSender,
     ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
         Box::pin(execute::execute(self, sql, events))
+    }
+
+    fn query_bound<'a>(
+        &'a self,
+        statement: &'a BoundStatement,
+        max_rows: usize,
+    ) -> BoxFuture<'a, Result<QueryResult, BoundFailure>> {
+        let conn = Arc::clone(&self.conn);
+        let recorder = Arc::clone(&self.recorder);
+        let path = self.path.clone();
+        let statement = statement.clone();
+        Box::pin(async move {
+            let result = blocking(move || {
+                let conn = conn
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                Ok(recorded_bound_sync(&*recorder, &statement, || {
+                    bound::run(&conn, &statement, max_rows, &path)
+                }))
+            })
+            .await;
+            result.map_err(BoundFailure::from)?
+        })
     }
 
     fn in_transaction(&self) -> Option<bool> {
