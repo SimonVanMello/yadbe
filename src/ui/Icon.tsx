@@ -77,6 +77,7 @@ const PATHS = {
   arrowDown: 'M12 5v14m0 0-6-6m6 6 6-6',
   chevronLeft: 'm15 6-6 6 6 6',
   filter: 'M4 5h16l-6 7.5V19l-4 1v-7.5L4 5Z',
+  download: 'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',
 } as const;
 
 export type IconName = keyof typeof PATHS;

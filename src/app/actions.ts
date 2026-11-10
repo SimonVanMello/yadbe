@@ -83,6 +83,7 @@ export const UNBOUND_ACTIONS = [
   'table.revertAll',
   'table.countExact',
   'table.pasteRows',
+  'table.export',
 ] as const;
 
 export type BoundActionId = keyof typeof DEFAULT_BINDINGS;
@@ -150,6 +151,7 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'table.revertAll': 'action.table.revertAll',
   'table.countExact': 'action.table.countExact',
   'table.pasteRows': 'action.table.pasteRows',
+  'table.export': 'action.table.export',
 };
 
 /** Shortcut of an action that has one, as written in `DEFAULT_BINDINGS` (`Mod+T`). */

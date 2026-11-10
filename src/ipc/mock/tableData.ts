@@ -1375,6 +1375,25 @@ export function createMockTableData(deps: TableDataDeps) {
      * Deletes a row "behind the app's back" (another session), so that the next update or
      * delete of it fails the one-row check (`rowNotFound`). Returns whether it existed.
      */
+    /**
+     * Every row of a table tab's table under a filter and sort, for a table export (the
+     * backend reads it in pages, each one logged; here, one statement).
+     */
+    exportRows(
+      tabId: string,
+      filter: TableFilter,
+      sort: SortKey[],
+    ): { columns: ColumnMeta[]; rows: Cell[][] } | YadbeError {
+      const tab = tabOf(tabId);
+      if (isError(tab)) return tab;
+      const test = validateFilter(tab, filter);
+      if (isError(test)) return test;
+      const keys = order(tab, sort);
+      if (isError(keys)) return keys;
+      const rows = sorted(tab, rowsOf(tab).rows.filter(test), keys);
+      deps.logStatement(tab.connectionId, selectSql(tab, filter, keys, 0, rows.length));
+      return { columns: columnsMeta(tab), rows };
+    },
     deleteRowElsewhere(connectionId: string, table: ObjectRef, key: Value[]): boolean {
       const tab = [...tabs.values()].find(
         (t) => tableKey(t.connectionId, t.details.table) === tableKey(connectionId, table),

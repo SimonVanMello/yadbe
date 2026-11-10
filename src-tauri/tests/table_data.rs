@@ -19,8 +19,12 @@ use yadbe_lib::edit::model::{
     StatementFailure,
 };
 use yadbe_lib::events::{BackendEvent, RecordingSink};
+use yadbe_lib::export::ExportManager;
+use yadbe_lib::export::model::{
+    CsvOptions, ExportFormat, ExportRequest, ExportSourceSpec, ExportStatus, JsonOptions,
+};
 use yadbe_lib::secrets::{MemoryKeychain, Secret, SecretStore};
-use yadbe_lib::session::ConnectionManager;
+use yadbe_lib::session::history_hook::NoHistory;
 use yadbe_lib::session::meta_cache::MetaService;
 use yadbe_lib::session::result_store::ResultStore;
 use yadbe_lib::session::statement_log::{StatementLog, StatementOutcome};
@@ -29,6 +33,7 @@ use yadbe_lib::session::table_model::{
     ColumnFilter, ColumnReadOnlyReason, CountMode, FilterOp, SortDirection, SortKey, TableDataInfo,
     TableFilter, TablePageRequest, TableReadOnlyReason,
 };
+use yadbe_lib::session::{ConnectionManager, QueryRunner};
 use yadbe_lib::store::Store;
 
 // --- Harness ---------------------------------------------------------------------------------
@@ -37,7 +42,8 @@ struct Bench {
     manager: Arc<ConnectionManager>,
     meta: MetaService,
     store: Arc<ResultStore>,
-    tables: TableDataService,
+    tables: Arc<TableDataService>,
+    exports: Arc<ExportManager>,
     log: Arc<StatementLog>,
     sink: Arc<RecordingSink>,
     db: Arc<Store>,
@@ -55,8 +61,23 @@ fn bench() -> Bench {
         sink.clone(),
     ));
     let store = Arc::new(ResultStore::default());
-    let tables = TableDataService::new(Arc::clone(&manager), Arc::clone(&store), sink.clone());
+    // Small export pages: a table export of a few rows reads several pages.
+    let tables = Arc::new(
+        TableDataService::new(Arc::clone(&manager), Arc::clone(&store), sink.clone())
+            .with_export_batch_rows(5),
+    );
+    let runner = Arc::new(QueryRunner::new(
+        Arc::clone(&manager),
+        sink.clone(),
+        Arc::new(NoHistory),
+    ));
+    let exports = Arc::new(ExportManager::new(
+        runner,
+        Arc::clone(&tables),
+        sink.clone(),
+    ));
     Bench {
+        exports,
         meta: MetaService::new(sink.clone()),
         manager,
         store,
@@ -415,6 +436,7 @@ async fn suite(fx: &Fixture) {
     one_row_check(&b, &conn, fx).await;
     constraints(&b, &conn, fx).await;
     browsing(&b, &conn, fx).await;
+    exporting(&b, &conn, fx).await;
     cancellation(&b, &conn, fx).await;
     if engine == Engine::Mssql {
         triggers(&b, &conn, fx).await;
@@ -1031,6 +1053,114 @@ async fn browsing(b: &Bench, conn: &str, fx: &Fixture) {
     let bad = tab.page(TableFilter::default(), vec![], 0, 0).await;
     assert_eq!(bad.expect_err("limit").code, ErrorCode::InvalidArgument);
     b.tables.close("browse").await;
+}
+
+/// A table export: every row under the tab's filter and sort, read in several pages (bound
+/// values, statements logged), not only the page on screen.
+async fn exporting(b: &Bench, conn: &str, fx: &Fixture) {
+    let tab = open(b, conn, fx.table("items"), "export").await;
+    let rows: Vec<RowInsert> = (1..=23)
+        .map(|n| insert(&[("sku", text(&format!("exp-{n:02}"))), ("qty", int(n % 4))]))
+        .collect();
+    tab.applied(inserts(rows)).await;
+    let mine = filter(
+        vec![("sku", FilterOp::StartsWith, vec![text("exp-")])],
+        Some("qty > 0"),
+    );
+    let sort = vec![SortKey {
+        column: "qty".into(),
+        direction: SortDirection::Desc,
+    }];
+    let source = ExportSourceSpec::Table {
+        tab_id: "export".into(),
+        filter: mine,
+        sort,
+    };
+    let out = tempfile::tempdir().expect("tempdir");
+    let path = out.path().join("items.csv");
+    let logged_before = b.log.entries().len();
+    let started = b
+        .exports
+        .start(ExportRequest {
+            source: source.clone(),
+            format: ExportFormat::Csv {
+                options: CsvOptions::default(),
+            },
+            path: path.display().to_string(),
+        })
+        .await
+        .expect("start");
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    let done = loop {
+        let found = b.sink.events().into_iter().find_map(|e| match e {
+            BackendEvent::ExportFinished(done) if done.export_id == started.export_id => Some(done),
+            _ => None,
+        });
+        if let Some(done) = found {
+            break done;
+        }
+        assert!(std::time::Instant::now() < deadline, "export not finished");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    assert_eq!(done.status, ExportStatus::Done, "{done:?}");
+    assert_eq!(done.rows, 18, "qty 0 left out by the raw WHERE");
+    let text = std::fs::read_to_string(&path).expect("read export");
+    let mut lines = text.lines();
+    let header: Vec<&str> = tab.info.columns.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(lines.next(), Some(header.join(",").as_str()));
+    let sku = tab.col("sku");
+    let skus: Vec<String> = lines
+        .map(|line| line.split(',').nth(sku).unwrap_or_default().to_owned())
+        .collect();
+    let expected: Vec<String> = [
+        3, 7, 11, 15, 19, 23, 2, 6, 10, 14, 18, 22, 1, 5, 9, 13, 17, 21,
+    ]
+    .iter()
+    .map(|n| format!("exp-{n:02}"))
+    .collect();
+    assert_eq!(skus, expected, "qty descending, the key breaks ties");
+    // Pages of 5 (+1 to see whether more follow): four reads, values bound and logged.
+    let pages: Vec<String> = b.log.entries()[logged_before..]
+        .iter()
+        .map(|e| e.sql.clone())
+        .filter(|sql| sql.starts_with("SELECT ") && sql.contains("'exp-%'"))
+        .collect();
+    assert_eq!(pages.len(), 4, "{pages:?}");
+
+    let preview = b
+        .exports
+        .preview(
+            &source,
+            &ExportFormat::Json {
+                options: JsonOptions::default(),
+            },
+            2,
+        )
+        .await
+        .expect("preview");
+    assert!(preview.contains("\"exp-07\""), "{preview}");
+    assert!(!preview.contains("\"exp-11\""), "{preview}");
+
+    let unknown = ExportSourceSpec::Table {
+        tab_id: "export".into(),
+        filter: TableFilter::default(),
+        sort: vec![SortKey {
+            column: "nope".into(),
+            direction: SortDirection::Asc,
+        }],
+    };
+    let refused = b
+        .exports
+        .start(ExportRequest {
+            source: unknown,
+            format: ExportFormat::Csv {
+                options: CsvOptions::default(),
+            },
+            path: out.path().join("nope.csv").display().to_string(),
+        })
+        .await;
+    assert!(refused.is_err());
+    b.tables.close("export").await;
 }
 
 async fn cancellation(b: &Bench, conn: &str, fx: &Fixture) {

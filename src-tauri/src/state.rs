@@ -51,11 +51,15 @@ impl AppState {
             Arc::clone(&sink),
             history.clone(),
         ));
-        let exports = Arc::new(ExportManager::new(Arc::clone(&queries), Arc::clone(&sink)));
         // Table pages live in the query results' store: `fetch_result_window` reads both.
         let tables = Arc::new(TableDataService::new(
             Arc::clone(&connections),
             queries.shared_store(),
+            Arc::clone(&sink),
+        ));
+        let exports = Arc::new(ExportManager::new(
+            Arc::clone(&queries),
+            Arc::clone(&tables),
             sink,
         ));
         Self {

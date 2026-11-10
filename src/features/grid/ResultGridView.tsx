@@ -54,11 +54,8 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
   const { status, pausedBy } = summary;
   const openExport = () => {
     useExportStore.getState().open({
-      resultId,
       label: label ?? t('grid.label', { number: summary.statementIndex + 1 }),
-      rowCount: summary.rowCount,
-      status,
-      pausedBy,
+      source: { kind: 'result', resultId, rowCount: summary.rowCount, status, pausedBy },
     });
   };
 

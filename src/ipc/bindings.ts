@@ -222,7 +222,8 @@ export const commands = {
 	/**
 	 *  Starts exporting and returns at once. Fails with `invalidArgument` for a relative path or
 	 *  an extension that does not fit the format, `resultNotFound` when the result was freed.
-	 *  Scope `all` follows a paused or streaming result to its end without growing it in memory.
+	 *  Scope `all` follows a paused or streaming result to its end without growing it in memory;
+	 *  a table source reads every row of the tab's table under the given filter and sort.
 	 */
 	startExport: (request: ExportRequest) => typedError<ExportStarted, YadbeError>(__TAURI_INVOKE("start_export", { request })),
 	/**  Cancels an export; the partial file is removed. Does nothing for an unknown id. */
@@ -929,8 +930,13 @@ export type ExportScope =
  */
 { kind: "range"; rowFrom: number; rowTo: number; columns: number[] };
 
-/**  Where the rows come from. A table export (M2-3) adds a variant here. */
-export type ExportSourceSpec = { kind: "result"; resultId: number; scope: ExportScope };
+/**  Where the rows come from. */
+export type ExportSourceSpec = { kind: "result"; resultId: number; scope: ExportScope } | 
+/**
+ *  Every row of an open table tab's table under this filter and sort (the tab's own, not
+ *  only its current page), read from the server in pages.
+ */
+{ kind: "table"; tabId: string; filter: TableFilter; sort: SortKey[] };
 
 export type ExportStarted = {
 	exportId: number,

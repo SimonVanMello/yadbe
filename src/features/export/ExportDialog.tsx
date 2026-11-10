@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from 'react';
 
 import { useI18nStore, type MessageKey } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
-import { ipc, unwrap, type ExportFormat } from '../../ipc';
+import { ipc, unwrap, type ExportFormat, type ExportSourceSpec } from '../../ipc';
 import { Button } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { Field } from '../../ui/Field';
@@ -36,7 +36,20 @@ type Preview = { kind: 'text'; text: string } | { kind: 'failed' };
 export function ExportDialog() {
   const request = useExportStore((state) => state.request);
   const close = useExportStore((state) => state.close);
-  return request && <ExportForm key={request.resultId} request={request} onClose={close} />;
+  return request && <ExportForm key={keyOf(request.source)} request={request} onClose={close} />;
+}
+
+function keyOf(source: ExportDialogRequest['source']): string {
+  return source.kind === 'result' ? `result:${source.resultId}` : `table:${source.tabId}`;
+}
+
+function sourceSpec(
+  source: ExportDialogRequest['source'],
+  scope: ReturnType<typeof exportScope>,
+): ExportSourceSpec {
+  return source.kind === 'result'
+    ? { kind: 'result', resultId: source.resultId, scope }
+    : { kind: 'table', tabId: source.tabId, filter: source.filter, sort: source.sort };
 }
 
 function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClose: () => void }) {
@@ -46,13 +59,20 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
   const id = useId();
   const prefs = useExportStore((state) => state.prefs);
   const setPrefs = useExportStore((state) => state.setPrefs);
-  const range = useExportStore((state) => state.ranges[request.resultId] ?? null);
+  const { source } = request;
+  const range = useExportStore((state) =>
+    source.kind === 'result' ? (state.ranges[source.resultId] ?? null) : null,
+  );
   const [selectionOnly, setSelectionOnly] = useState(range !== null);
   const format = toExportFormat(prefs);
   const scope = exportScope(range, selectionOnly);
 
   const number = new Intl.NumberFormat(locale);
-  const live = request.status === 'streaming' || request.status === 'paused';
+  const live =
+    source.kind === 'result' && (source.status === 'streaming' || source.status === 'paused');
+  const filtered =
+    source.kind === 'table' &&
+    (source.filter.conditions.length > 0 || (source.filter.rawWhere ?? '').trim() !== '');
 
   const setCsv = (patch: Partial<typeof prefs.csv>) => {
     setPrefs((current) => ({ ...current, csv: { ...current.csv, ...patch } }));
@@ -62,22 +82,13 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
   };
 
   // The preview follows the options as they are typed, a moment later.
-  const previewKey = JSON.stringify([format, scope]);
+  const previewKey = JSON.stringify([format, sourceSpec(source, scope)]);
   const settled = useDebouncedValue(previewKey, 150);
   const [preview, setPreview] = useState<Preview | null>(null);
   useEffect(() => {
     let current = true;
-    const [settledFormat, settledScope] = JSON.parse(settled) as [
-      ExportFormat,
-      ReturnType<typeof exportScope>,
-    ];
-    unwrap(
-      ipc.commands.previewExport(
-        { kind: 'result', resultId: request.resultId, scope: settledScope },
-        settledFormat,
-        PREVIEW_ROWS,
-      ),
-    ).then(
+    const [settledFormat, settledSource] = JSON.parse(settled) as [ExportFormat, ExportSourceSpec];
+    unwrap(ipc.commands.previewExport(settledSource, settledFormat, PREVIEW_ROWS)).then(
       (text) => {
         if (current) setPreview({ kind: 'text', text });
       },
@@ -88,16 +99,11 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
     return () => {
       current = false;
     };
-  }, [settled, request.resultId]);
+  }, [settled]);
 
   const start = () => {
     onClose();
-    void runExport({
-      resultId: request.resultId,
-      name: request.label,
-      format,
-      scope,
-    });
+    void runExport({ source: sourceSpec(source, scope), name: request.label, format });
   };
 
   const labelled = <T extends string>(prefix: string, values: readonly T[]) =>
@@ -110,8 +116,8 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
         if (!open) onClose();
       }}
       wide
-      title={t('export.title')}
-      description={t('export.description')}
+      title={t(source.kind === 'table' ? 'export.table.title' : 'export.title')}
+      description={t(source.kind === 'table' ? 'export.table.description' : 'export.description')}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -152,9 +158,19 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
         )}
         {live && !selectionOnly && (
           <p className={styles.note} role="note">
-            {request.status === 'paused'
-              ? t('export.live.paused', { count: number.format(request.rowCount) })
+            {source.status === 'paused'
+              ? t('export.live.paused', { count: number.format(source.rowCount) })
               : t('export.live.streaming')}
+          </p>
+        )}
+        {filtered && (
+          <p className={styles.note} role="note">
+            {t('export.table.filtered')}
+          </p>
+        )}
+        {source.kind === 'table' && source.pending && (
+          <p className={styles.note} role="note">
+            {t('export.table.pending')}
           </p>
         )}
 

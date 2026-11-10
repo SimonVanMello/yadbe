@@ -6,7 +6,7 @@ import {
   type ExportFinished,
   type ExportFormat,
   type ExportProgress,
-  type ExportScope,
+  type ExportSourceSpec,
 } from '../../ipc';
 import { exportDialog } from '../../ipc/exportDialog';
 import { toast, useToastStore } from '../../ui/toastStore';
@@ -30,17 +30,16 @@ const jobs = new Map<number, Job>();
 const early = new Map<number, ExportFinished>();
 
 export interface ExportCommand {
-  resultId: number;
+  source: ExportSourceSpec;
   /** Base of the default file name. */
   name: string;
   format: ExportFormat;
-  scope: ExportScope;
 }
 
 /** The file the dialog asks for, then the job: progress and the outcome arrive as toasts. */
 export async function runExport(command: ExportCommand): Promise<void> {
   const picked = await exportDialog.pickPath({
-    title: t('export.saveTitle'),
+    title: t(command.source.kind === 'table' ? 'export.table.title' : 'export.saveTitle'),
     defaultName: defaultFileName(command.name, command.format),
     filterName: t(command.format.format === 'csv' ? 'export.filter.csv' : 'export.filter.json'),
     allFiles: t('export.filter.all'),
@@ -64,7 +63,7 @@ export async function runExport(command: ExportCommand): Promise<void> {
   try {
     const started = await unwrap(
       ipc.commands.startExport({
-        source: { kind: 'result', resultId: command.resultId, scope: command.scope },
+        source: command.source,
         format: command.format,
         path,
       }),

@@ -7,6 +7,7 @@ import { IconButton } from '../../ui/IconButton';
 import { Select } from '../../ui/Select';
 import { Spinner } from '../../ui/Spinner';
 import { cancelTableWork, countRows, goToPage, refreshTable, setPageSize } from './tableActions';
+import { openTableExport } from './tableExport';
 import { useTableSession } from './tableSessionStore';
 import styles from './TableView.module.css';
 import { PAGE_SIZES, useTableTabState } from './tableTabStore';
@@ -150,6 +151,15 @@ export function TableStrip({ tabId }: { tabId: string }) {
           {t('tableData.stale')}
         </span>
       )}
+      <IconButton
+        icon="download"
+        size="sm"
+        label={t('action.table.export')}
+        shortcut={shortcutOf('result.export')}
+        onClick={() => {
+          openTableExport(tabId);
+        }}
+      />
       <IconButton
         icon="retry"
         size="sm"

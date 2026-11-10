@@ -19,6 +19,7 @@ use super::source::{ExportSource, QueryResultSource};
 use crate::db::errors::{ErrorCode, YadbeError};
 use crate::events::{BackendEvent, EventSink};
 use crate::session::QueryRunner;
+use crate::session::table_data::TableDataService;
 
 /// Extensions each format may be saved as.
 const CSV_EXTENSIONS: &[&str] = &["csv", "tsv", "txt"];
@@ -64,6 +65,7 @@ pub fn checked_path<'a>(path: &'a str, format: &ExportFormat) -> Result<&'a Path
 
 pub struct ExportManager {
     runner: Arc<QueryRunner>,
+    tables: Arc<TableDataService>,
     sink: Arc<dyn EventSink>,
     jobs: Mutex<HashMap<u32, CancellationToken>>,
     next_id: AtomicU32,
@@ -71,9 +73,14 @@ pub struct ExportManager {
 }
 
 impl ExportManager {
-    pub fn new(runner: Arc<QueryRunner>, sink: Arc<dyn EventSink>) -> Self {
+    pub fn new(
+        runner: Arc<QueryRunner>,
+        tables: Arc<TableDataService>,
+        sink: Arc<dyn EventSink>,
+    ) -> Self {
         Self {
             runner,
+            tables,
             sink,
             jobs: Mutex::new(HashMap::new()),
             next_id: AtomicU32::new(0),
@@ -92,12 +99,24 @@ impl ExportManager {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Starts an export and returns at once; progress and the outcome arrive as events.
-    pub fn start(self: &Arc<Self>, request: ExportRequest) -> Result<ExportStarted, YadbeError> {
+    /// Starts an export and returns once its source is open (a table export opens a server
+    /// connection); progress and the outcome arrive as events.
+    pub async fn start(
+        self: &Arc<Self>,
+        request: ExportRequest,
+    ) -> Result<ExportStarted, YadbeError> {
         checked_path(&request.path, &request.format)?;
         match request.source {
             ExportSourceSpec::Result { result_id, scope } => {
                 let source = QueryResultSource::open(&self.runner, result_id, scope)?;
+                Ok(self.spawn(source, request.format, request.path))
+            }
+            ExportSourceSpec::Table {
+                tab_id,
+                filter,
+                sort,
+            } => {
+                let source = self.tables.export_rows(&tab_id, filter, sort).await?;
                 Ok(self.spawn(source, request.format, request.path))
             }
         }
@@ -173,16 +192,25 @@ impl ExportManager {
 
     /// The first rows of an export, exactly as they will be written (byte order mark left
     /// out).
-    pub fn preview(
+    pub async fn preview(
         &self,
         source: &ExportSourceSpec,
         format: &ExportFormat,
         limit: u32,
     ) -> Result<String, YadbeError> {
-        let limit = limit.min(MAX_PREVIEW_ROWS) as usize;
+        let limit = limit.min(MAX_PREVIEW_ROWS);
         let (columns, rows) = match source {
             ExportSourceSpec::Result { result_id, scope } => {
-                QueryResultSource::preview(&self.runner, *result_id, scope.clone(), limit)?
+                QueryResultSource::preview(&self.runner, *result_id, scope.clone(), limit as usize)?
+            }
+            ExportSourceSpec::Table {
+                tab_id,
+                filter,
+                sort,
+            } => {
+                self.tables
+                    .export_preview(tab_id, filter, sort, limit)
+                    .await?
             }
         };
         let mut encoder = encoder(format);

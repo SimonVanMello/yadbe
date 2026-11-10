@@ -5,10 +5,20 @@ import { translate, useI18nStore } from '../../i18n/i18n';
 import { effectiveSelection } from '../query/executionModel';
 import { getTabExecution, useExecutionStore } from '../query/executionStore';
 import { activeQueryTabId } from '../query/queryActions';
+import { activeTableTabId } from '../table-data/tableActions';
+import { openTableExport } from '../table-data/tableExport';
 import { useExportStore } from './exportStore';
 
-/** Opens the export dialog on the result shown in the active query tab (F-066). */
+/**
+ * Opens the export dialog on the result shown in the active query tab (F-066), or on the
+ * table of the active table tab.
+ */
 export function openExportForActiveTab(): void {
+  const tableTabId = activeTableTabId();
+  if (tableTabId !== null) {
+    openTableExport(tableTabId);
+    return;
+  }
   const tabId = activeQueryTabId();
   if (tabId === null) return;
   const execution = getTabExecution(tabId);
@@ -17,14 +27,17 @@ export function openExportForActiveTab(): void {
   const result = execution.results.find((candidate) => candidate.resultId === selection.resultId);
   if (!result) return;
   useExportStore.getState().open({
-    resultId: result.resultId,
     label: translate(useI18nStore.getState().locale, 'query.results.result', {
       number: execution.results.indexOf(result) + 1,
     }),
     connectionId: execution.connectionId,
-    rowCount: result.rowCount,
-    status: result.status,
-    pausedBy: result.pausedBy,
+    source: {
+      kind: 'result',
+      resultId: result.resultId,
+      rowCount: result.rowCount,
+      status: result.status,
+      pausedBy: result.pausedBy,
+    },
   });
 }
 

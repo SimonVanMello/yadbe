@@ -1,10 +1,8 @@
 //! Where an export reads its rows from.
 //!
 //! `ExportSource` is the seam: the writer only sees batches of rows. The query-result
-//! implementation reads the `ResultStore` first, then the live tail of the statement. A
-//! table export (all rows of a table under its filter) implements the same trait on top of a
-//! driver stream and plugs into `ExportManager::start` through a new `ExportSourceSpec`
-//! variant.
+//! implementation reads the `ResultStore` first, then the live tail of the statement; the
+//! table implementation reads pages of a table tab's table (`TableExportRows`).
 
 use std::future::Future;
 
@@ -16,6 +14,7 @@ use crate::db::value::{ColumnMeta, Value};
 use crate::session::QueryRunner;
 use crate::session::result_store::StoredResult;
 use crate::session::result_tap::{ResultStream, TapEnd, TapMsg};
+use crate::session::table_data::TableExportRows;
 
 /// Rows read from the store per batch.
 const STORE_BATCH: usize = 500;
@@ -205,5 +204,15 @@ impl ExportSource for QueryResultSource {
 
     fn truncated(&self) -> bool {
         self.truncated
+    }
+}
+
+impl ExportSource for TableExportRows {
+    fn columns(&self) -> &[ColumnMeta] {
+        TableExportRows::columns(self)
+    }
+
+    async fn next_batch(&mut self) -> Result<Option<Vec<Vec<Value>>>, YadbeError> {
+        TableExportRows::next_batch(self).await
     }
 }

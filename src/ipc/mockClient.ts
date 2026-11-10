@@ -30,7 +30,7 @@ import { createMockFiles } from './mockFiles';
 import { createMockHistory } from './mock/history';
 import { createMockMeta } from './mock/meta';
 import type { LargeCatalogOptions } from './mock/metaCatalog';
-import { createMockQuery } from './mockQuery';
+import { cellValue, createMockQuery } from './mockQuery';
 import { createMockTableData } from './mock/tableData';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
@@ -304,6 +304,16 @@ function createMockBackend() {
   const exporter = createMockExport({
     events,
     source: (resultId) => query.resultSource(resultId),
+    table: (tabId, filter, sort) => {
+      const found = tableData.exportRows(tabId, filter, sort);
+      if ('code' in found) return found;
+      return {
+        columns: found.columns,
+        loaded: found.rows.length,
+        total: found.rows.length,
+        value: (row, column) => cellValue(found.rows[row]?.[column] ?? null),
+      };
+    },
     writeFile: (path, text) => {
       files.set(path, text);
     },

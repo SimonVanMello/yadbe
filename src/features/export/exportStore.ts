@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 import { loadUiSlice, saveUiSlice } from '../../app/backendPreferences';
-import type { PauseReason, ResultStatus } from '../../ipc';
+import type { PauseReason, ResultStatus, SortKey, TableFilter } from '../../ipc';
 import {
   DEFAULT_EXPORT_PREFS,
   parseExportPrefs,
@@ -9,16 +9,32 @@ import {
   type ExportPrefs,
 } from './exportOptions';
 
-/** What the export dialog needs to know of the result it was opened on. */
-export interface ExportDialogRequest {
+/** A query result on screen. */
+export interface ResultExportSource {
+  kind: 'result';
   resultId: number;
-  /** Used for the default file name and the dialog's accessible context. */
-  label: string;
   rowCount: number;
-  /** Connection the result comes from: its environment is shown in the dialog. */
-  connectionId?: string | null;
   status: ResultStatus;
   pausedBy: PauseReason | null;
+}
+
+/** Every row of a table tab's table under the tab's filter and sort, read from the server. */
+export interface TableExportSource {
+  kind: 'table';
+  tabId: string;
+  filter: TableFilter;
+  sort: SortKey[];
+  /** The tab has changes not applied yet: the file holds the stored rows, not them. */
+  pending: boolean;
+}
+
+/** What the export dialog needs to know of what it exports. */
+export interface ExportDialogRequest {
+  /** Used for the default file name and the dialog's accessible context. */
+  label: string;
+  /** Connection the rows come from: its environment is shown in the dialog. */
+  connectionId?: string | null;
+  source: ResultExportSource | TableExportSource;
 }
 
 interface ExportStore {

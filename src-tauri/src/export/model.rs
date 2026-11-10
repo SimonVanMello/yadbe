@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::db::errors::YadbeError;
+use crate::session::table_model::{SortKey, TableFilter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -151,18 +152,28 @@ pub enum ExportScope {
     },
 }
 
-/// Where the rows come from. A table export (M2-3) adds a variant here.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+/// Where the rows come from.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
 pub enum ExportSourceSpec {
-    Result { result_id: u32, scope: ExportScope },
+    Result {
+        result_id: u32,
+        scope: ExportScope,
+    },
+    /// Every row of an open table tab's table under this filter and sort (the tab's own, not
+    /// only its current page), read from the server in pages.
+    Table {
+        tab_id: String,
+        filter: TableFilter,
+        sort: Vec<SortKey>,
+    },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportRequest {
     pub source: ExportSourceSpec,

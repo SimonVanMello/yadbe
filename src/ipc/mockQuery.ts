@@ -330,7 +330,8 @@ function literalColumns(sql: string): MockColumn[] {
   });
 }
 
-function cellValue(cell: Cell): Value {
+/** A mock cell as the backend would send it. */
+export function cellValue(cell: Cell): Value {
   if (!cell) return { kind: 'null' };
   const [kind, text] = cell;
   switch (kind) {

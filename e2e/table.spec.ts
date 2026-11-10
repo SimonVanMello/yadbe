@@ -8,6 +8,9 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 interface MockControls {
   setTableDataLatency: (ms: number) => void;
+  setExportTick: (ms: number) => void;
+  getFile: (path: string) => string | undefined;
+  events: { emit: (name: string, payload: unknown) => void };
   deleteRowElsewhere: (
     connectionId: string,
     table: { database: string; schema: string | null; name: string },
@@ -401,6 +404,76 @@ for (const { name, colorScheme } of THEMES) {
       await expect(page.getByText('The connection is read-only.').last()).toBeVisible();
       await expect(page.getByRole('button', { name: 'Insert row' })).toBeDisabled();
       await capture(page, name, 'read-only-connection');
+    });
+
+    test('Mod+F opens the filter form on the grid, not the browser search', async ({ page }) => {
+      await openOrders(page);
+      await grid(page).focus();
+      await page.keyboard.press('ControlOrMeta+f');
+      const form = page.getByRole('form', { name: 'Filter condition' });
+      await expect(form).toBeVisible();
+      await form.getByLabel('Column').selectOption('status');
+      await form.getByLabel('Condition').selectOption('eq');
+      await form.getByLabel('Value').selectOption('paid');
+      await form.getByRole('button', { name: 'Apply' }).click();
+      await expect(page.getByRole('button', { name: 'status = paid', exact: true })).toBeVisible();
+      await expect(cell(page, 0, 2)).toHaveText('paid');
+    });
+
+    test('changes applied elsewhere mark the rows as old until a refresh', async ({ page }) => {
+      await openOrders(page);
+      await expect(page.getByText('Changed from another tab: refresh to see it.')).toBeHidden();
+      // One tab per table: the event stands for another tab of the same table (F-087, later).
+      await page.evaluate(() => {
+        (window as MockWindow).__yadbeMock?.events.emit('tableDataChanged', {
+          connectionId: 'conn-local-pg',
+          table: { database: 'app_dev', schema: 'shop', name: 'orders' },
+          tabId: 'another-tab',
+          updated: 1,
+          inserted: 0,
+          deleted: 0,
+        });
+      });
+      const notice = page.getByText('Changed from another tab: refresh to see it.');
+      await expect(notice).toBeVisible();
+      await capture(page, name, 'stale');
+      await page.getByRole('button', { name: 'Refresh rows' }).click();
+      await expect(notice).toBeHidden();
+    });
+
+    test('Export the table writes every row under the filter, not only the page', async ({
+      page,
+    }) => {
+      await page.evaluate(() => (window as MockWindow).__yadbeMock?.setExportTick(0));
+      await openOrders(page);
+      const where = page.getByRole('textbox', { name: /WHERE condition/ });
+      await where.fill("status = 'paid'");
+      await where.press('Enter');
+      await expect(cell(page, 0, 2)).toHaveText('paid');
+      await page.getByRole('button', { name: 'Export the table…' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Export the table' });
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByText(/Only the rows matching the tab/)).toBeVisible();
+      await expect(dialog.getByLabel('Preview of the file')).toContainText('paid');
+      await capture(page, name, 'export-dialog');
+      await dialog.getByRole('button', { name: 'Export…' }).click();
+      const done = page.getByText(/^Exported [\d,]+ rows$/);
+      await expect(done).toBeVisible();
+      const path = await page
+        .getByText(/\/home\/ana\/Downloads\/[^ ]+\.csv/)
+        .first()
+        .textContent();
+      const file = await page.evaluate(
+        (p) => (window as MockWindow).__yadbeMock?.getFile(p),
+        /\/home\/ana\/Downloads\/[^ ]+\.csv/.exec(path ?? '')?.[0] ?? '',
+      );
+      const lines = (file ?? '').trim().split('\n');
+      const rows = Number(
+        /Exported ([\d,]+) rows/.exec((await done.textContent()) ?? '')?.[1]?.replace(/,/g, ''),
+      );
+      expect(lines.length - 1).toBe(rows);
+      expect(rows).toBeGreaterThan(0);
+      expect(lines.slice(1).every((line) => line.includes(',paid,'))).toBe(true);
     });
 
     test('a restored table tab keeps its filter and sort, and waits to connect', async ({

@@ -24,6 +24,7 @@ import {
   sortBy,
   writeCells,
 } from './tableActions';
+import { openTableExport } from './tableExport';
 import { TableMenu } from './TableMenu';
 import type { TableRowSource } from './tableRowSource';
 import { useTableSelectionStore, useTableSessionStore } from './tableSessionStore';
@@ -238,6 +239,10 @@ export const TableGrid = memo(function TableGrid({ tabId, info, source, label }:
     </>
   );
 
+  const onExport = useCallback(() => {
+    openTableExport(tabId);
+  }, [tabId]);
+
   return (
     <DataGrid
       source={source}
@@ -249,6 +254,7 @@ export const TableGrid = memo(function TableGrid({ tabId, info, source, label }:
       editing={editingProps}
       apiRef={setApi}
       menuExtras={<TableMenu tabId={tabId} editable={editable} />}
+      onExport={onExport}
       initialLayout={initialLayout}
       onLayoutChange={onLayoutChange}
       onSelectionSize={onSelectionSize}

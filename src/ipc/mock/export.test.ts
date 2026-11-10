@@ -8,6 +8,7 @@ import type {
   Value,
 } from '../bindings';
 import { EventEmitter } from '../emitter';
+import { mockErrors } from '../mockErrors';
 import { createMockExport } from './export';
 
 const columns: ColumnMeta[] = [
@@ -36,6 +37,19 @@ function setup(total: number) {
                   : { kind: 'text', value: `n,${String(row)}` },
           }
         : undefined,
+    // A table tab `t` of `total` rows; the filter and sort are the mock table data's business.
+    table: (tabId) =>
+      tabId === 't'
+        ? {
+            columns,
+            loaded: total,
+            total,
+            value: (row, column): Value =>
+              column === 0
+                ? { kind: 'int', value: String(row + 1) }
+                : { kind: 'text', value: `t${String(row)}` },
+          }
+        : mockErrors.invalidArgument('This table tab is not open.', 'Onglet pas ouvert.'),
     writeFile: (path, text) => files.set(path, text),
   });
   exporter.setTick(0);
@@ -90,6 +104,29 @@ describe('the mock export', () => {
     await waitFor(() => finished.length > 0);
     expect(finished[0]?.rows).toBe(9);
     expect(files.get('/home/ana/sel.csv')?.startsWith('name\n"n,1"\n\n')).toBe(true);
+  });
+
+  it('exports every row of a table tab, not a page, and previews it', async () => {
+    const { exporter, files, finished } = setup(1200);
+    const source: ExportSourceSpec = {
+      kind: 'table',
+      tabId: 't',
+      filter: { conditions: [], rawWhere: null },
+      sort: [],
+    };
+    const preview = await exporter.commands.previewExport(source, csv, 2);
+    expect(preview).toEqual({ status: 'ok', data: 'id,name\n1,t0\n2,t1\n' });
+    await exporter.commands.startExport({ source, format: csv, path: '/home/ana/table.csv' });
+    await waitFor(() => finished.length > 0);
+    expect(finished[0]).toMatchObject({ status: 'done', rows: 1200 });
+    expect(files.get('/home/ana/table.csv')?.split('\n')).toHaveLength(1202);
+    expect(
+      await exporter.commands.startExport({
+        source: { ...source, tabId: 'closed' },
+        format: csv,
+        path: '/home/ana/x.csv',
+      }),
+    ).toMatchObject({ status: 'error', error: { code: 'invalidArgument' } });
   });
 
   it('refuses a relative path, a wrong extension and a freed result', async () => {

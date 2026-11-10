@@ -3,6 +3,8 @@ import type {
   ExportFormat,
   ExportScope,
   ExportSourceSpec,
+  SortKey,
+  TableFilter,
   Value,
   YadbeError,
 } from '../bindings';
@@ -36,6 +38,8 @@ const MAX_PREVIEW_ROWS = 100;
 export interface MockExportHost {
   events: EventEmitter;
   source(resultId: number): MockResultSource | undefined;
+  /** Every row of a table tab's table under a filter and sort (`ExportSourceSpec::Table`). */
+  table(tabId: string, filter: TableFilter, sort: SortKey[]): MockResultSource | YadbeError;
   /** Puts the finished file on the mock disk. */
   writeFile(path: string, text: string): void;
 }
@@ -84,7 +88,24 @@ function selection(source: MockResultSource, scope: ExportScope): Selection | Ya
   return { rows: [Math.min(scope.rowFrom, end), end], columns: scope.columns, total: end };
 }
 
-const isError = (value: Selection | YadbeError): value is YadbeError => 'code' in value;
+const isError = (value: object): value is YadbeError => 'code' in value && 'message' in value;
+
+/** The rows a source spec stands for, and which of them an export writes. */
+function resolve(
+  host: MockExportHost,
+  spec: ExportSourceSpec,
+): { source: MockResultSource; picked: Selection } | YadbeError {
+  if (spec.kind === 'table') {
+    const source = host.table(spec.tabId, spec.filter, spec.sort);
+    if (isError(source)) return source;
+    return { source, picked: { rows: [0, source.total], columns: null, total: source.total } };
+  }
+  const source = host.source(spec.resultId);
+  if (!source) return mockErrors.resultNotFound(spec.resultId);
+  const picked = selection(source, spec.scope);
+  if (isError(picked)) return picked;
+  return { source, picked };
+}
 
 function rowOf(source: MockResultSource, row: number, columns: number[] | null): Value[] {
   const indexes = columns ?? source.columns.map((_, i) => i);
@@ -160,11 +181,9 @@ export function createMockExport(host: MockExportHost) {
     startExport: (request) => {
       const problem = pathProblem(request.path, request.format);
       if (problem) return fail(problem);
-      const spec = request.source;
-      const source = host.source(spec.resultId);
-      if (!source) return fail(mockErrors.resultNotFound(spec.resultId));
-      const picked = selection(source, spec.scope);
-      if (isError(picked)) return fail(picked);
+      const resolved = resolve(host, request.source);
+      if (isError(resolved)) return fail(resolved);
+      const { source, picked } = resolved;
       const exportId = nextId++;
       const controller = new AbortController();
       jobs.set(exportId, controller);
@@ -181,10 +200,9 @@ export function createMockExport(host: MockExportHost) {
     },
 
     previewExport: (spec: ExportSourceSpec, format, limit) => {
-      const source = host.source(spec.resultId);
-      if (!source) return fail(mockErrors.resultNotFound(spec.resultId));
-      const picked = selection(source, spec.scope);
-      if (isError(picked)) return fail(picked);
+      const resolved = resolve(host, spec);
+      if (isError(resolved)) return fail(resolved);
+      const { source, picked } = resolved;
       const encoder = mockEncoder(format);
       const [from, to] = picked.rows;
       const end = Math.min(to, source.loaded, from + Math.min(limit, MAX_PREVIEW_ROWS));

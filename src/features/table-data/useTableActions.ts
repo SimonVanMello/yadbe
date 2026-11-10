@@ -4,6 +4,7 @@ import { registerActions } from '../../app/actions';
 import { showError } from '../../app/errors/presentError';
 import { translate, useI18nStore } from '../../i18n/i18n';
 import { useFilterRequests } from './filterRequests';
+import { openTableExport } from './tableExport';
 import {
   activeTableTabId,
   countRows,
@@ -69,6 +70,7 @@ export function useTableActions(): void {
       'table.previousPage': onTable((tabId) => {
         void goToPage(tabId, 'previous');
       }),
+      'table.export': onTable(openTableExport),
       'table.countExact': onTable((tabId) => {
         void countRows(tabId, 'exact');
       }),

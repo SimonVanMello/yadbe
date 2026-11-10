@@ -20,6 +20,7 @@ use yadbe_lib::export::model::{
     ExportStatus, JsonLayout, JsonOptions,
 };
 use yadbe_lib::session::query_model::{ExecutionStatus, ResultLimits, ResultStatus};
+use yadbe_lib::session::table_data::TableDataService;
 
 const MILLION_SQLITE: &str = "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 1000000) SELECT n, 'row ' || n AS label FROM c";
 const MILLION_PG: &str = "SELECT g AS n, 'row ' || g AS label FROM generate_series(1, 1000000) g";
@@ -36,10 +37,13 @@ async fn sqlite_bench() -> (tempfile::TempDir, Bench) {
 }
 
 fn manager(b: &Bench) -> Arc<ExportManager> {
-    Arc::new(ExportManager::new(
-        Arc::clone(&b.runner),
-        Arc::clone(&b.sink) as Arc<dyn EventSink>,
-    ))
+    let sink = Arc::clone(&b.sink) as Arc<dyn EventSink>;
+    let tables = Arc::new(TableDataService::new(
+        Arc::clone(&b.manager),
+        b.runner.shared_store(),
+        Arc::clone(&sink),
+    ));
+    Arc::new(ExportManager::new(Arc::clone(&b.runner), tables, sink))
 }
 
 fn csv() -> ExportFormat {
@@ -103,6 +107,7 @@ async fn exports_a_small_result_as_csv_and_json(b: &Bench, sql: &str) {
     let path = out.path().join("small.csv");
     let started = exports
         .start(request(id, ExportScope::All, csv(), &path))
+        .await
         .expect("start");
     let done = finished(b, started.export_id).await;
     assert_eq!(done.status, ExportStatus::Done, "{done:?}");
@@ -122,6 +127,7 @@ async fn exports_a_small_result_as_csv_and_json(b: &Bench, sql: &str) {
     };
     let started = exports
         .start(request(id, ExportScope::All, format.clone(), &path))
+        .await
         .expect("start");
     assert_eq!(
         finished(b, started.export_id).await.status,
@@ -141,6 +147,7 @@ async fn exports_a_small_result_as_csv_and_json(b: &Bench, sql: &str) {
     };
     let started = exports
         .start(request(id, scope, csv(), &path))
+        .await
         .expect("start");
     assert_eq!(finished(b, started.export_id).await.rows, 2);
     assert_eq!(
@@ -156,6 +163,7 @@ async fn exports_a_small_result_as_csv_and_json(b: &Bench, sql: &str) {
             &csv(),
             2,
         )
+        .await
         .expect("preview");
     assert_eq!(preview, "id,name\n1,\"a,b\"\n2,\n");
     let outside = ExportScope::Range {
@@ -165,6 +173,7 @@ async fn exports_a_small_result_as_csv_and_json(b: &Bench, sql: &str) {
     };
     let error = exports
         .start(request(id, outside, csv(), &path))
+        .await
         .expect_err("outside");
     assert_eq!(error.code, ErrorCode::InvalidArgument);
 }
@@ -193,6 +202,7 @@ async fn exports_a_paused_result_without_growing_it(b: &Bench, sql: &str) {
     let path = out.path().join("million.csv");
     let started = exports
         .start(request(id, ExportScope::All, csv(), &path))
+        .await
         .expect("start");
     let done = finished(b, started.export_id).await;
     assert_eq!(done.status, ExportStatus::Done, "{done:?}");
@@ -210,6 +220,7 @@ async fn exports_a_paused_result_without_growing_it(b: &Bench, sql: &str) {
     let again = out.path().join("again.csv");
     let started = exports
         .start(request(id, ExportScope::All, csv(), &again))
+        .await
         .expect("start");
     let done = finished(b, started.export_id).await;
     assert_eq!(done.rows, 1_000);
@@ -230,6 +241,7 @@ async fn exports_a_result_that_is_still_streaming(b: &Bench, sql: &str) {
     let path = out.path().join("million.csv");
     let started = exports
         .start(request(id, ExportScope::All, csv(), &path))
+        .await
         .expect("start");
     let done = finished(b, started.export_id).await;
     assert_eq!(done.status, ExportStatus::Done, "{done:?}");
@@ -261,6 +273,7 @@ async fn cancelling_removes_the_partial_file(b: &Bench, sql: &str) {
     std::fs::write(&path, "old").expect("seed");
     let started = exports
         .start(request(id, ExportScope::All, csv(), &path))
+        .await
         .expect("start");
     tokio::time::sleep(Duration::from_millis(50)).await;
     exports.cancel(started.export_id);
@@ -313,6 +326,7 @@ async fn a_freed_result_cannot_be_exported() {
             csv(),
             &out.path().join("x.csv"),
         ))
+        .await
         .expect_err("unknown result");
     assert_eq!(error.code, ErrorCode::ResultNotFound);
 }

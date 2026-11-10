@@ -26,7 +26,7 @@ use crate::db::driver::{BoundFailure, BoundStatement, CancelHandle, Connection};
 use crate::db::edit_dialect::{RowEstimateSource, plain_text};
 use crate::db::errors::YadbeError;
 use crate::db::meta::ObjectRef;
-use crate::db::value::{QueryResult, Value, ValueKind};
+use crate::db::value::{ColumnMeta, QueryResult, Value, ValueKind};
 use crate::edit::model::{
     AppliedStatement, ApplyOutcome, ChangeSet, EditPreview, InsertedRows, PlannedChange,
     StatementFailure,
@@ -39,11 +39,15 @@ use crate::session::meta_cache::MetaService;
 use crate::session::query_model::ResultWindow;
 use crate::session::result_store::ResultStore;
 use crate::session::table_model::{
-    CountMode, MAX_PAGE_ROWS, PAGE_WINDOW_ROWS, RefreshedRows, RowKey, TableDataInfo, TableFilter,
-    TablePage, TablePageRequest, TableRowCount,
+    CountMode, MAX_PAGE_ROWS, PAGE_WINDOW_ROWS, RefreshedRows, RowKey, SortKey, TableDataInfo,
+    TableFilter, TablePage, TablePageRequest, TableRowCount,
 };
 use crate::session::table_shape::TableShape;
 use crate::session::table_sql;
+
+/// Rows per statement of a table export: big enough that the paging overhead stays small, small
+/// enough that one batch is a modest amount of memory.
+const EXPORT_BATCH_ROWS: u32 = 10_000;
 
 /// Rows read back at most by one statement of `refresh_table_rows` (SQL Server binds at most
 /// 2 100 parameters).
@@ -110,6 +114,7 @@ pub struct TableDataService {
     store: Arc<ResultStore>,
     sink: Arc<dyn EventSink>,
     tabs: Mutex<HashMap<String, Arc<TableTab>>>,
+    export_batch_rows: u32,
 }
 
 impl TableDataService {
@@ -123,7 +128,15 @@ impl TableDataService {
             store,
             sink,
             tabs: Mutex::new(HashMap::new()),
+            export_batch_rows: EXPORT_BATCH_ROWS,
         }
+    }
+
+    /// Rows per statement of a table export (tests use small pages).
+    #[must_use]
+    pub fn with_export_batch_rows(mut self, rows: u32) -> Self {
+        self.export_batch_rows = rows.clamp(1, MAX_PAGE_ROWS);
+        self
     }
 
     fn tab(&self, tab_id: &str) -> Result<Arc<TableTab>, YadbeError> {
@@ -449,6 +462,68 @@ impl TableDataService {
         Ok(RefreshedRows { window, positions })
     }
 
+    /// The checked filter and order of an export of the tab's table.
+    fn export_plan(
+        &self,
+        tab_id: &str,
+        filter: &TableFilter,
+        sort: &[SortKey],
+    ) -> Result<(Arc<TableTab>, Vec<SortKey>), YadbeError> {
+        let tab = self.tab(tab_id)?;
+        if tab.read_only {
+            table_sql::check_read_only(tab.dialect, filter)?;
+        }
+        table_sql::check_filter(tab.dialect, &tab.shape, filter)?;
+        let order = table_sql::resolve_order(&tab.shape, sort)?;
+        Ok((tab, order))
+    }
+
+    /// Every row of the tab's table under `filter` and `sort`, read in pages on a server
+    /// connection of the export's own, so that the tab stays usable meanwhile (F-066).
+    pub async fn export_rows(
+        &self,
+        tab_id: &str,
+        filter: TableFilter,
+        sort: Vec<SortKey>,
+    ) -> Result<TableExportRows, YadbeError> {
+        let (tab, order) = self.export_plan(tab_id, &filter, &sort)?;
+        let session = self.manager.session(&tab.connection_id)?;
+        let conn: Arc<dyn Connection> =
+            Arc::from(session.open_dedicated(tab.database.as_deref()).await?);
+        Ok(TableExportRows {
+            columns: tab.shape.column_meta(),
+            tab,
+            conn,
+            filter,
+            order,
+            batch: self.export_batch_rows,
+            offset: 0,
+            done: false,
+        })
+    }
+
+    /// The first `limit` rows of an export, read on the tab's connection, for the preview.
+    pub async fn export_preview(
+        &self,
+        tab_id: &str,
+        filter: &TableFilter,
+        sort: &[SortKey],
+        limit: u32,
+    ) -> Result<(Vec<ColumnMeta>, Vec<Vec<Value>>), YadbeError> {
+        let (tab, order) = self.export_plan(tab_id, filter, sort)?;
+        let statement = table_sql::page(tab.dialect, &tab.shape, filter, &order, 0, limit.max(1))?;
+        let (_guard, conn) = self.connection(&tab).await?;
+        tab.cancel_requested.store(false, Ordering::SeqCst);
+        let result = self
+            .run(&tab, &conn, &statement, usize::MAX)
+            .await
+            .map_err(|f| f.error)?;
+        let mut rows = result.rows;
+        rows.truncate(limit as usize);
+        tab.shape.normalize(&mut rows);
+        Ok((tab.shape.column_meta(), rows))
+    }
+
     /// Cancels the tab's running statement; the call running it fails with `cancelled`.
     pub async fn cancel(&self, tab_id: &str) {
         let tab = lock(&self.tabs).get(tab_id).cloned();
@@ -623,6 +698,72 @@ fn rolled_back(
             #[allow(clippy::cast_precision_loss)]
             rows_affected: rows.map(|n| n as f64),
         }),
+    }
+}
+
+/// The rows of a table export: pages of `EXPORT_BATCH_ROWS` (by default) in the export's order, each one a
+/// bound statement recorded in the statement log. Pages are read one after the other, not in
+/// one snapshot: rows changed meanwhile by others can be missed or read twice, as when paging
+/// in the grid.
+pub struct TableExportRows {
+    tab: Arc<TableTab>,
+    conn: Arc<dyn Connection>,
+    columns: Vec<ColumnMeta>,
+    filter: TableFilter,
+    order: Vec<SortKey>,
+    batch: u32,
+    offset: u32,
+    done: bool,
+}
+
+impl TableExportRows {
+    pub fn columns(&self) -> &[ColumnMeta] {
+        &self.columns
+    }
+
+    /// The next page, `None` at the end. Cancel-safe: a dropped call reads the same page again.
+    pub async fn next_batch(&mut self) -> Result<Option<Vec<Vec<Value>>>, YadbeError> {
+        if self.done {
+            return Ok(None);
+        }
+        let tab = &self.tab;
+        let statement = table_sql::page(
+            tab.dialect,
+            &tab.shape,
+            &self.filter,
+            &self.order,
+            self.offset,
+            self.batch,
+        )?;
+        let result = self
+            .conn
+            .query_bound(&statement, usize::MAX)
+            .await
+            .map_err(|f| f.error)?;
+        let mut rows = result.rows;
+        if rows.len() <= self.batch as usize {
+            self.done = true;
+        }
+        rows.truncate(self.batch as usize);
+        self.offset = self.offset.saturating_add(to_u32(rows.len()));
+        tab.shape.normalize(&mut rows);
+        Ok((!rows.is_empty()).then_some(rows))
+    }
+}
+
+impl Drop for TableExportRows {
+    /// A cancelled export stops the statement on the server, then closes its connection.
+    fn drop(&mut self) {
+        let conn = Arc::clone(&self.conn);
+        let running = !self.done;
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                if running && let Err(err) = conn.cancel_handle().cancel().await {
+                    tracing::debug!(error = %err, "table export cancel failed");
+                }
+                conn.close().await;
+            });
+        }
     }
 }
 

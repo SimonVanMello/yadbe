@@ -1,4 +1,4 @@
-//! Exports (M2-7): a result written to CSV or JSON. The path comes from the native save
+//! Exports (M2-7): a result or a table written to CSV or JSON. The path comes from the native save
 //! dialog; progress and the outcome arrive as `export-progress` / `export-finished`.
 
 use tauri::State;
@@ -9,14 +9,15 @@ use crate::state::AppState;
 
 /// Starts exporting and returns at once. Fails with `invalidArgument` for a relative path or
 /// an extension that does not fit the format, `resultNotFound` when the result was freed.
-/// Scope `all` follows a paused or streaming result to its end without growing it in memory.
+/// Scope `all` follows a paused or streaming result to its end without growing it in memory;
+/// a table source reads every row of the tab's table under the given filter and sort.
 #[tauri::command]
 #[specta::specta]
 pub async fn start_export(
     state: State<'_, AppState>,
     request: ExportRequest,
 ) -> Result<ExportStarted, YadbeError> {
-    state.exports.start(request)
+    state.exports.start(request).await
 }
 
 /// Cancels an export; the partial file is removed. Does nothing for an unknown id.
@@ -36,5 +37,5 @@ pub async fn preview_export(
     format: ExportFormat,
     limit: u32,
 ) -> Result<String, YadbeError> {
-    state.exports.preview(&source, &format, limit)
+    state.exports.preview(&source, &format, limit).await
 }
