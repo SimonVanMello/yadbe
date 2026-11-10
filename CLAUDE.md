@@ -75,6 +75,7 @@ xvfb-run pnpm tauri dev   # Run the real app in a headless container
 pnpm tauri build --debug --no-bundle   # Built front + CSP with nonces (absent under `tauri dev`): check every new screen with this binary. A lib that injects <style> must receive the page nonce (src/ui/cspNonce.ts).
 pnpm perf:startup   # P-01 on the release binary (`pnpm tauri build --no-bundle` first; headless Linux: xvfb-run -a pnpm perf:startup)
 pnpm perf:tabs      # P-07 on a production build of the front (mock), CPU ×1 and ×4
+pnpm perf:explorer  # Explorer tree on the mock: first level with 500 tables, scroll and filter on 10k objects (YADBE_PERF_PORT / YADBE_MOCK_PORT when the default port is taken)
 cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test query_postgres p03 -- --ignored --nocapture   # P-03: query sent → first 500-row window readable, 1M rows
 ```
 
