@@ -53,13 +53,13 @@ Exit: table data is browsed, filtered and edited safely with a SQL preview; prod
 |---|---|---|---|---|
 | M2-1 ✅ | **Table data backend**: paged browsing with parameterized filter / sort built by the dialect, key detection and editability reasons, count estimate / exact | M1 | F-080, F-081, F-086 (back) | opus · high |
 | M2-2 ✅ | **Edit backend**: change set (update cells, insert, delete) → `EditPlanner` → parameterized DML, SQL preview, single transaction, one-row checks, typed per-statement failures, defaults and generated columns; conformance tests on the three engines | M2-1 | F-082 to F-086 (back) | opus · high |
-| M2-3 🟦 | **Table tab + editable grid front**: filter bar, header sort, cell editors per type, NULL toggle, insert / duplicate / paste / delete rows, pending-change rendering, revert, preview dialog, apply | M2-1, M2-2 (contracts), M1-5 | F-080 to F-086 (front) | opus · high |
+| M2-3 ✅ | **Table tab + editable grid front**: filter bar, header sort, cell editors per type, NULL toggle, insert / duplicate / paste / delete rows, pending-change rendering, revert, preview dialog, apply | M2-1, M2-2 (contracts), M1-5 | F-080 to F-086 (front) | opus · high |
 | M2-4 ✅ | **Safety and M1 follow-ups** (read-only enforcement delivered by M1-3, transaction prompts and the dangerous-statement guard by M1-4): environment tinting checked on every surface (tabs, toolbar, dialogs, history, table tabs), SQLSTATE 25006 as a read-only catalog entry, grid column widths that follow later rows, run time excluding the pause, guard listing a statement once, failed history entries without a row count | M1 | F-008, F-047, F-051 | sonnet · medium |
 | M2-5 ✅ | **Autocomplete**: CodeMirror completion source on the cached schema (keywords, schemas, tables, columns, functions), P-05 measured | M1-1, M1-4 | F-043 (MVP part), P-05 | sonnet · high |
 | M2-6 ✅ | **Palette**: action registry with stable IDs, fuzzy search over actions / connections / objects / tabs / history, default keybindings | M1 | F-120, F-121, P-06 | sonnet · high |
 | M2-7 ✅ | **Export**: result or table streamed to CSV / JSON with options, progress and cancellation | M1-3 | F-066 (MVP part) | sonnet · medium |
 | M2-8 ✅ | **Preferences** screen and store | M1 | F-125 | sonnet · medium |
-| M2-9 ⬜ | **Integration and validation**: end-to-end editing scenarios on the three engines, `docs/validation/M2.md`, README with screenshots | all of M2 | — | opus · medium |
+| M2-9 🟦 | **Integration and validation**: end-to-end editing scenarios on the three engines, `docs/validation/M2.md`, README with screenshots | all of M2 | — | opus · medium |
 
 Order: wave 1 = M2-1 + M2-2 (one backend session, contracts first) ∥ M2-5 ∥ M2-6 ∥ M2-7; wave 2 = M2-3 ∥ M2-4 ∥ M2-8; then M2-9.
 
