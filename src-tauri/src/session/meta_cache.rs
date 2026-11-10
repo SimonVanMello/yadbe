@@ -285,7 +285,7 @@ impl MetaService {
         let Some(database) = database else {
             return Ok(main);
         };
-        let caps = session.engine().dialect().meta_capabilities();
+        let caps = session.target().engine.dialect().meta_capabilities();
         if !caps.connection_per_database {
             return Ok(main);
         }
@@ -314,7 +314,7 @@ impl MetaService {
             return Ok(Arc::clone(conn));
         }
         let epoch = lock(&cache.data).epoch;
-        let conn = session.open_for_database(database).await?;
+        let conn: Arc<dyn Connection> = session.open_dedicated(Some(database)).await?.into();
         if lock(&cache.data).epoch == epoch {
             lock(&cache.extra).insert(database.to_owned(), Arc::clone(&conn));
         }
@@ -361,7 +361,7 @@ impl MetaService {
 
     /// Checks that `schema` is given exactly when the engine has schemas.
     fn check_schema(session: &ConnectionSession, schema: Option<&str>) -> Result<(), YadbeError> {
-        let has_schemas = session.engine().dialect().capabilities().schemas;
+        let has_schemas = session.target().engine.dialect().capabilities().schemas;
         match (has_schemas, schema) {
             (true, Some(s)) if !s.is_empty() => Ok(()),
             (false, None) => Ok(()),
@@ -489,7 +489,7 @@ impl MetaService {
         Self::check_database(database)?;
         let session = Self::session(manager, connection_id)?;
         Self::check_schema(&session, schema)?;
-        let caps = session.engine().dialect().meta_capabilities();
+        let caps = session.target().engine.dialect().meta_capabilities();
         if !caps.object_kinds.contains(&kind) {
             return Ok(Vec::new());
         }
@@ -610,7 +610,7 @@ impl MetaService {
         table: &ObjectRef,
         kind: ScriptKind,
     ) -> Result<String, YadbeError> {
-        let engine = Self::session(manager, connection_id)?.engine();
+        let engine = Self::session(manager, connection_id)?.target().engine;
         let dialect = engine.dialect();
         if kind == ScriptKind::QualifiedName {
             return Ok(crate::db::meta::qualified_name(dialect, table));

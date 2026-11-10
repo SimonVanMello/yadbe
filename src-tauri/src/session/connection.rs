@@ -330,34 +330,3 @@ impl ConnectionSession {
         }
     }
 }
-
-/// Metadata connections (M1-1).
-impl ConnectionSession {
-    pub fn engine(&self) -> crate::db::dialect::Engine {
-        self.target.engine
-    }
-
-    /// Opens another connection with the session's settings and password, on `database`:
-    /// metadata of a database the main connection cannot see. Closing the session does not
-    /// close it: its owner does.
-    pub async fn open_for_database(
-        &self,
-        database: &str,
-    ) -> Result<Arc<dyn Connection>, YadbeError> {
-        if self.is_closed() {
-            return Err(YadbeError::not_connected());
-        }
-        let mut target = self.target.clone();
-        target.database = database.to_owned();
-        let request = ConnectRequest {
-            target: &target,
-            password: self.password.as_ref(),
-            recorder: Arc::clone(&self.recorder),
-        };
-        let mut shutdown = self.shutdown.subscribe();
-        tokio::select! {
-            result = self.driver.connect(request) => result.map(Arc::from),
-            _ = shutdown.wait_for(|closed| *closed) => Err(YadbeError::cancelled()),
-        }
-    }
-}
