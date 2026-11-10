@@ -74,6 +74,9 @@ export const POSTGRES: Capabilities = {
   schemas: true,
   nativeCancel: true,
   readOnlySession: true,
+  identifierQuoteOpen: '"',
+  identifierQuoteClose: '"',
+  foldsUnquotedToLower: true,
 };
 
 export const SQLITE: Capabilities = {
@@ -84,6 +87,9 @@ export const SQLITE: Capabilities = {
   schemas: false,
   nativeCancel: false,
   readOnlySession: false,
+  identifierQuoteOpen: '"',
+  identifierQuoteClose: '"',
+  foldsUnquotedToLower: false,
 };
 
 export const MYSQL: Capabilities = {

@@ -271,6 +271,15 @@ export type Capabilities = {
 	nativeCancel: boolean,
 	/**  The session can be put in read-only mode by the engine itself. */
 	readOnlySession: boolean,
+	/**  The character that opens a quoted identifier (`"`, `[` or a backtick). */
+	identifierQuoteOpen: string,
+	/**  The character that closes a quoted identifier; inside one it is written twice. */
+	identifierQuoteClose: string,
+	/**
+	 *  The engine reads an unquoted identifier in lower case (PostgreSQL), so a name with
+	 *  capitals needs its quotes to be found again.
+	 */
+	foldsUnquotedToLower: boolean,
 };
 
 /**  A foreign key between two relations of the catalog (join suggestions). */

@@ -66,6 +66,13 @@ pub struct Capabilities {
     pub native_cancel: bool,
     /// The session can be put in read-only mode by the engine itself.
     pub read_only_session: bool,
+    /// The character that opens a quoted identifier (`"`, `[` or a backtick).
+    pub identifier_quote_open: char,
+    /// The character that closes a quoted identifier; inside one it is written twice.
+    pub identifier_quote_close: char,
+    /// The engine reads an unquoted identifier in lower case (PostgreSQL), so a name with
+    /// capitals needs its quotes to be found again.
+    pub folds_unquoted_to_lower: bool,
 }
 
 pub trait Dialect: Send + Sync + crate::db::meta::MetaDialect {
@@ -133,6 +140,9 @@ impl Dialect for PostgresDialect {
             schemas: true,
             native_cancel: true,
             read_only_session: true,
+            identifier_quote_open: '"',
+            identifier_quote_close: '"',
+            folds_unquoted_to_lower: true,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -182,6 +192,9 @@ impl Dialect for MssqlDialect {
             schemas: true,
             native_cancel: true,
             read_only_session: false,
+            identifier_quote_open: '[',
+            identifier_quote_close: ']',
+            folds_unquoted_to_lower: false,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -231,6 +244,9 @@ impl Dialect for MysqlDialect {
             schemas: false,
             native_cancel: true,
             read_only_session: true,
+            identifier_quote_open: '`',
+            identifier_quote_close: '`',
+            folds_unquoted_to_lower: false,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -280,6 +296,9 @@ impl Dialect for SqliteDialect {
             schemas: false,
             native_cancel: true,
             read_only_session: true,
+            identifier_quote_open: '"',
+            identifier_quote_close: '"',
+            folds_unquoted_to_lower: false,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -334,6 +353,27 @@ mod tests {
             Engine::Sqlite.dialect().quote_identifier("Order"),
             "\"Order\""
         );
+    }
+
+    #[test]
+    fn capabilities_describe_the_quoting_the_dialect_does() {
+        for engine in [
+            Engine::Postgres,
+            Engine::Mssql,
+            Engine::Mysql,
+            Engine::Sqlite,
+        ] {
+            let dialect = engine.dialect();
+            let caps = dialect.capabilities();
+            assert_eq!(
+                dialect.quote_identifier("x"),
+                format!(
+                    "{}x{}",
+                    caps.identifier_quote_open, caps.identifier_quote_close
+                ),
+                "{engine:?}"
+            );
+        }
     }
 
     #[test]
