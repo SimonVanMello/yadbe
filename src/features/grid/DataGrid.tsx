@@ -68,8 +68,11 @@ import {
 } from './selection';
 import { useGridCopy, type CopyExtras } from './useGridCopy';
 
-/** Rows drawn above and below the viewport (absorbs a fast flick between two frames). */
-const OVERSCAN_ROWS = 8;
+/**
+ * Rows drawn above and below the viewport: about one wheel notch, so a compositor that scrolls
+ * ahead of the main thread (WebView2) shows rows; more makes every column entering cost more.
+ */
+const OVERSCAN_ROWS = 4;
 /** Columns drawn past each side of the viewport when the drawn ones move (`holdRange`). */
 const COLUMN_BATCH = 1;
 /** Rows auto-fit reads at most. */
