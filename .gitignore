@@ -7,3 +7,6 @@ playwright-report/
 *.log
 .DS_Store
 docs/progress/
+
+# Sub-session worktrees
+.claude/worktrees/
