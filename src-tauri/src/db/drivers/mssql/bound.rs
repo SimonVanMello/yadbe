@@ -88,7 +88,7 @@ fn failure(message: &TdsMessage) -> BoundFailure {
             YadbeError::invalid_value(&detail)
         }
         // The database is read-only.
-        None if message.number == 3906 => YadbeError::read_only_violation("").with_detail(&detail),
+        None if message.number == 3906 => YadbeError::database_read_only().with_detail(&detail),
         None => YadbeError::query_failed(&detail),
     };
     BoundFailure {

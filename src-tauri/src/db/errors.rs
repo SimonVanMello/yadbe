@@ -438,6 +438,16 @@ impl YadbeError {
         .with_action(ErrorAction::EditConnection)
     }
 
+    /// The database itself is read-only (SQL Server `READ_ONLY`), whatever the connection's
+    /// setting: editing the connection would not help.
+    pub fn database_read_only() -> Self {
+        Self::new(
+            ErrorCode::ReadOnlyViolation,
+            "The database is read-only: it refused this statement because it changes data. Nothing was changed.",
+            "La base de données est en lecture seule : elle a refusé cette instruction car elle modifie des données. Rien n'a été modifié.",
+        )
+    }
+
     pub fn result_not_found(result_id: u32) -> Self {
         Self::new(
             ErrorCode::ResultNotFound,
@@ -621,7 +631,7 @@ pub fn from_query_sqlstate(sqlstate: &str, message: &str) -> Option<YadbeError> 
 pub fn from_mssql_query_error(number: u32, message: &str) -> Option<YadbeError> {
     match number {
         // Failed to update the database because it is read-only.
-        3906 => Some(YadbeError::read_only_refused_by_engine().with_detail(message)),
+        3906 => Some(YadbeError::database_read_only().with_detail(message)),
         _ => None,
     }
 }
@@ -799,7 +809,10 @@ mod tests {
             3906,
             "Failed to update database \"x\" because the database is read-only.",
         );
-        assert_eq!(ms.map(|e| e.code), Some(ErrorCode::ReadOnlyViolation));
+        let ms = ms.expect("3906 is mapped");
+        assert_eq!(ms.code, ErrorCode::ReadOnlyViolation);
+        assert!(ms.message.en.starts_with("The database is read-only"));
+        assert_eq!(ms.action, None, "the connection's setting is not the cause");
         assert!(from_mssql_query_error(208, "Invalid object name").is_none());
     }
 
