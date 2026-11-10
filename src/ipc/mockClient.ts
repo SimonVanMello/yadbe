@@ -39,6 +39,7 @@ const DEFAULT_LATENCY_MS = 600;
 /** The mock keeps a parsed password this long, like the backend (15 min). */
 const PENDING_TTL_MS = 15 * 60 * 1000;
 const STATEMENT_LOG_CAPACITY = 1000;
+const RELOAD_KEY = 'yadbe.mock.reload';
 
 type Result<T> = Promise<{ status: 'ok'; data: T } | { status: 'error'; error: YadbeError }>;
 
@@ -538,6 +539,7 @@ function createMockBackend() {
 
     setPreferences: (prefs) => {
       preferences = clone(prefs);
+      persistForReload();
       return ok(clone(preferences));
     },
 
@@ -553,6 +555,7 @@ function createMockBackend() {
             tab.connectionId !== null && known.has(tab.connectionId) ? tab.connectionId : null,
         })),
       };
+      persistForReload();
       return ok(null);
     },
 
@@ -578,10 +581,45 @@ function createMockBackend() {
     nextId = 1;
     pending.clear();
     sessions.clear();
+    clearReloadState();
     seed();
   }
 
+  /**
+   * The real store survives a restart, so the mock keeps the tabs and the preferences across a
+   * page reload (session storage: gone with the browser tab), which is how `pnpm dev` and
+   * Playwright check that the shell restores them.
+   */
+  function persistForReload(): void {
+    try {
+      sessionStorage.setItem(RELOAD_KEY, JSON.stringify({ tabs, preferences }));
+    } catch {
+      // Storage unavailable: the mock then forgets them on reload, like before.
+    }
+  }
+
+  function restoreAfterReload(): void {
+    try {
+      const raw = sessionStorage.getItem(RELOAD_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { tabs?: TabsState; preferences?: Preferences };
+      if (saved.tabs) tabs = saved.tabs;
+      if (saved.preferences) preferences = saved.preferences;
+    } catch {
+      // Unreadable: start from the defaults.
+    }
+  }
+
+  function clearReloadState(): void {
+    try {
+      sessionStorage.removeItem(RELOAD_KEY);
+    } catch {
+      // Nothing to clear.
+    }
+  }
+
   seed();
+  restoreAfterReload();
 
   return {
     commands,
