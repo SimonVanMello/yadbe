@@ -5,6 +5,7 @@
 #   export YADBE_TEST_PG_URL=postgres://yadbe:yadbe-test-pw@localhost:55432/yadbe_test
 #   export YADBE_TEST_PG_CA=../dev/certs/ca.crt
 #   export YADBE_TEST_MSSQL_URL='sqlserver://localhost:51433;database=master;user=sa;password=Yadbe-test-pw1;trustServerCertificate=true'
+#   export YADBE_TEST_MSSQL_CA=../dev/certs/ca.crt
 #   export YADBE_TEST_MYSQL_URL=mysql://yadbe:yadbe-test-pw@localhost:53306/yadbe_test
 #   cargo test
 # Ports are offset from the defaults so a local server keeps its own. Throwaway
@@ -38,11 +39,25 @@ services:
 
   mssql:
     image: mcr.microsoft.com/mssql/server:2022-latest
+    # Root, so the server reads the key dev/tls-certs.sh keeps private to its owner.
+    user: root
     environment:
       ACCEPT_EULA: 'Y'
       MSSQL_SA_PASSWORD: Yadbe-test-pw1
     ports:
       - '51433:1433'
+    volumes:
+      - ./certs/server.crt:/var/opt/mssql/certs/server.crt:ro
+      - ./certs/server.key:/var/opt/mssql/certs/server.key:ro
+      - ./mssql.conf:/var/opt/mssql/mssql.conf:ro
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Yadbe-test-pw1 -C -Q 'SELECT 1'",
+        ]
+      interval: 5s
+      retries: 30
 
   mysql:
     image: mysql:8.4

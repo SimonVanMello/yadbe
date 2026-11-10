@@ -463,6 +463,7 @@ impl QueryRunner {
                         start: s.start + from,
                         end: s.end + from,
                         delimiter_end: s.delimiter_end + from,
+                        repeat: s.repeat,
                     })
                     .collect()
             }
@@ -633,7 +634,14 @@ impl QueryRunner {
             return ExecutionStatus::Cancelled;
         }
 
-        for index in 0..exec.statements.len() {
+        // `GO n` runs its batch n times, each run with its own results and history entry.
+        let runs: Vec<usize> = exec
+            .statements
+            .iter()
+            .enumerate()
+            .flat_map(|(index, s)| std::iter::repeat_n(index, s.repeat as usize))
+            .collect();
+        for index in runs {
             if exec.cancel.is_raised() {
                 return ExecutionStatus::Cancelled;
             }
@@ -896,7 +904,14 @@ impl QueryRunner {
                 Some(ExecEvent::Columns(columns)) => {
                     let stored = self.store.create(columns);
                     let limits = exec.limits;
+                    let previous = result;
                     result = Some(exec.update(|state| {
+                        // A batch with several result sets (SQL Server): the previous one
+                        // is complete once the next one starts.
+                        if let Some(previous) = previous {
+                            state.results[previous].status = ResultStatus::Complete;
+                            state.dirty.insert(previous);
+                        }
                         state.results.push(ResultEntry {
                             stored,
                             statement_index: to_u32(index),

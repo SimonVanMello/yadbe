@@ -241,7 +241,10 @@ async fn engines_without_driver_are_refused() {
         .filter(|e| e.available)
         .map(|e| e.engine)
         .collect();
-    assert_eq!(available, vec![Engine::Postgres, Engine::Sqlite]);
+    assert_eq!(
+        available,
+        vec![Engine::Postgres, Engine::Mssql, Engine::Sqlite]
+    );
     let mut def = blank(Engine::Mysql, "wp");
     def.host = "localhost".into();
     let error = h

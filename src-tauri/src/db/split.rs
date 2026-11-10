@@ -258,6 +258,8 @@ pub struct Statement {
     pub end: usize,
     /// End of the delimiter (or `GO` line) that closed it; `end` without one.
     pub delimiter_end: usize,
+    /// How many times it runs: `GO 3` repeats its batch (SQL Server tools); 1 otherwise.
+    pub repeat: u32,
 }
 
 impl Statement {
@@ -316,8 +318,8 @@ impl Blocks {
 }
 
 /// `GO` alone on its line (optionally `GO 3` and a trailing `--` comment); returns the end
-/// of the line.
-fn go_line(bytes: &[u8], start: usize) -> Option<usize> {
+/// of the line and the repeat count (1 without one, `GO 0` included).
+fn go_line(bytes: &[u8], start: usize) -> Option<(usize, u32)> {
     let end = line_end(bytes, start);
     let line = std::str::from_utf8(&bytes[start..end]).ok()?.trim();
     let rest = line
@@ -325,7 +327,11 @@ fn go_line(bytes: &[u8], start: usize) -> Option<usize> {
         .filter(|go| go.eq_ignore_ascii_case("go"))
         .map(|_| &line[2..])?;
     let rest = rest.split("--").next().unwrap_or_default().trim();
-    rest.bytes().all(|b| b.is_ascii_digit()).then_some(end)
+    if !rest.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let repeat = rest.parse::<u32>().unwrap_or(1).max(1);
+    Some((end, repeat))
 }
 
 /// `DELIMITER xx` line: the new delimiter and the end of the line.
@@ -354,25 +360,29 @@ pub fn split(text: &str, syntax: &SqlSyntax) -> Vec<Statement> {
     let mut blocks = Blocks::default();
     let mut pos = 0;
 
-    let mut close =
-        |start: &mut Option<usize>, code_end: usize, delimiter_end: usize, blocks: &mut Blocks| {
-            if let Some(begin) = start.take() {
-                out.push(Statement {
-                    start: begin,
-                    end: code_end,
-                    delimiter_end: delimiter_end.max(code_end),
-                });
-            }
-            *blocks = Blocks::default();
-        };
+    let mut close = |start: &mut Option<usize>,
+                     code_end: usize,
+                     delimiter_end: usize,
+                     repeat: u32,
+                     blocks: &mut Blocks| {
+        if let Some(begin) = start.take() {
+            out.push(Statement {
+                start: begin,
+                end: code_end,
+                delimiter_end: delimiter_end.max(code_end),
+                repeat,
+            });
+        }
+        *blocks = Blocks::default();
+    };
 
     while pos < bytes.len() {
         let line_start = pos == 0 || bytes[pos - 1] == b'\n';
         if line_start {
             match syntax.separator {
                 Separator::GoBatches => {
-                    if let Some(end) = go_line(bytes, pos) {
-                        close(&mut start, code_end, end, &mut blocks);
+                    if let Some((end, repeat)) = go_line(bytes, pos) {
+                        close(&mut start, code_end, end, repeat, &mut blocks);
                         pos = end;
                         continue;
                     }
@@ -392,7 +402,7 @@ pub fn split(text: &str, syntax: &SqlSyntax) -> Vec<Statement> {
             && text[pos..].starts_with(delimiter.as_str())
         {
             let end = pos + delimiter.len();
-            close(&mut start, code_end, end, &mut blocks);
+            close(&mut start, code_end, end, 1, &mut blocks);
             pos = end;
             continue;
         }
@@ -406,7 +416,7 @@ pub fn split(text: &str, syntax: &SqlSyntax) -> Vec<Statement> {
         }
         pos = token.end;
     }
-    close(&mut start, code_end, bytes.len(), &mut blocks);
+    close(&mut start, code_end, bytes.len(), 1, &mut blocks);
     out
 }
 
@@ -624,6 +634,15 @@ mod tests {
             ]
         );
         assert_eq!(texts(Engine::Mssql, "/* GO\n*/ select 1"), ["select 1"]);
+        // `GO 3` repeats the batch it closes (an empty one: nothing).
+        let repeats = |text: &str| -> Vec<u32> {
+            split(text, &Engine::Mssql.dialect().syntax())
+                .iter()
+                .map(|s| s.repeat)
+                .collect()
+        };
+        assert_eq!(repeats(text), [1, 1, 1]);
+        assert_eq!(repeats("select 1\nGO 3\nselect 2\ngo 0"), [3, 1]);
     }
 
     #[test]

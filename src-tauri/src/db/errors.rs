@@ -453,6 +453,24 @@ pub fn from_connect_sqlstate(
     Some(error.with_detail(message))
 }
 
+/// Classification of a SQL Server error number returned while logging in.
+pub fn from_mssql_login_error(
+    number: u32,
+    user: &str,
+    database: &str,
+    message: &str,
+) -> Option<YadbeError> {
+    let error = match number {
+        // Login failed; untrusted domain; password expired, must change or locked out;
+        // login disabled; Azure SQL: login or server unknown.
+        18456 | 18452 | 18486 | 18487 | 18488 | 18470 | 40532 => YadbeError::auth_failed(user),
+        // Cannot open the database requested by the login.
+        4060 => YadbeError::unknown_database(database),
+        _ => return None,
+    };
+    Some(error.with_detail(message))
+}
+
 /// Removes secrets from a technical message: the password of URLs
 /// (`scheme://user:secret@host`) and the value of `password=` / `pwd=` pairs.
 pub fn redact(text: &str) -> String {
@@ -584,6 +602,15 @@ mod tests {
         let db = from_connect_sqlstate("3D000", "app", "shop", "database \"shop\" does not exist");
         assert_eq!(db.map(|e| e.code), Some(ErrorCode::UnknownDatabase));
         assert!(from_connect_sqlstate("42601", "app", "shop", "syntax error").is_none());
+    }
+
+    #[test]
+    fn maps_sql_server_login_errors() {
+        let auth = from_mssql_login_error(18456, "sa", "master", "Login failed for user 'sa'.");
+        assert_eq!(auth.map(|e| e.code), Some(ErrorCode::AuthFailed));
+        let db = from_mssql_login_error(4060, "sa", "shop", "Cannot open database \"shop\"");
+        assert_eq!(db.map(|e| e.code), Some(ErrorCode::UnknownDatabase));
+        assert!(from_mssql_login_error(208, "sa", "shop", "Invalid object name").is_none());
     }
 
     #[test]

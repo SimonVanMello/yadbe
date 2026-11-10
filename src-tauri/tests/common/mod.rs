@@ -21,6 +21,8 @@ use yadbe_lib::store::Store;
 
 pub const PG_URL_ENV: &str = "YADBE_TEST_PG_URL";
 pub const PG_CA_ENV: &str = "YADBE_TEST_PG_CA";
+pub const MSSQL_URL_ENV: &str = "YADBE_TEST_MSSQL_URL";
+pub const MSSQL_CA_ENV: &str = "YADBE_TEST_MSSQL_CA";
 
 /// Prints a skip notice that `cargo test` does not capture (it only captures the print
 /// macros), so a skipped test is visible, never silently passed.
@@ -34,6 +36,29 @@ pub fn pg_url(test: &str) -> Option<String> {
         Ok(url) if !url.trim().is_empty() => Some(url),
         _ => {
             skip(test, &format!("{PG_URL_ENV} is not set"));
+            None
+        }
+    }
+}
+
+/// The SQL Server test URL, or `None` after printing a skip notice.
+pub fn mssql_url(test: &str) -> Option<String> {
+    match std::env::var(MSSQL_URL_ENV) {
+        Ok(url) if !url.trim().is_empty() => Some(url),
+        _ => {
+            skip(test, &format!("{MSSQL_URL_ENV} is not set"));
+            None
+        }
+    }
+}
+
+/// The CA that signs the SQL Server test instance's `localhost` certificate
+/// (`dev/compose.yml` installs the one of `dev/tls-certs.sh`).
+pub fn mssql_ca(test: &str) -> Option<String> {
+    match std::env::var(MSSQL_CA_ENV) {
+        Ok(path) if !path.trim().is_empty() => Some(path),
+        _ => {
+            skip(test, &format!("{MSSQL_CA_ENV} is not set"));
             None
         }
     }

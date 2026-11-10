@@ -70,6 +70,16 @@ fn column<'a>(table: &'a TableDetails, name: &str) -> &'a yadbe_lib::db::meta::C
         .unwrap_or_else(|| panic!("column {name} of {:?}", table.table))
 }
 
+/// An expression as the engines print it, without quotes, brackets, parentheses or spaces:
+/// `([price]>=(0))` (SQL Server) and `price >= (0)::numeric` (PostgreSQL) both contain
+/// `price>=0`.
+fn bare(expression: &str) -> String {
+    expression
+        .chars()
+        .filter(|c| !c.is_whitespace() && !matches!(c, '[' | ']' | '(' | ')' | '"' | '`'))
+        .collect()
+}
+
 fn names<T>(items: &[T], name: impl Fn(&T) -> String) -> Vec<String> {
     items.iter().map(name).collect()
 }
@@ -177,14 +187,16 @@ pub async fn check(ctx: &Ctx<'_>, shop: &Shop) {
         names(&customers.unique_keys, |k| k.columns.join(",")),
         ["email"]
     );
-    let lower = customers
-        .indexes
-        .iter()
-        .find(|i| i.name == "customers_lower_email_idx")
-        .expect("expression index");
-    assert_eq!(lower.columns.len(), 1);
-    assert!(lower.columns[0].contains("lower(email)"), "{lower:?}");
-    assert!(!lower.unique);
+    if meta_caps.expression_indexes {
+        let lower = customers
+            .indexes
+            .iter()
+            .find(|i| i.name == "customers_lower_email_idx")
+            .expect("expression index");
+        assert_eq!(lower.columns.len(), 1);
+        assert!(lower.columns[0].contains("lower(email)"), "{lower:?}");
+        assert!(!lower.unique);
+    }
 
     // Composite unique key, named check.
     let products = ctx.table(&shop.shop("products")).await;
@@ -195,7 +207,7 @@ pub async fn check(ctx: &Ctx<'_>, shop: &Shop) {
         products
             .checks
             .iter()
-            .any(|c| c.expression.contains("price >= 0")),
+            .any(|c| bare(&c.expression).contains("price>=0")),
         "{:?}",
         products.checks
     );
@@ -228,15 +240,21 @@ pub async fn check(ctx: &Ctx<'_>, shop: &Shop) {
         partial
             .predicate
             .as_deref()
-            .is_some_and(|p| p.contains("total > ")),
+            .is_some_and(|p| bare(p).contains("total>0")),
         "{partial:?}"
     );
     assert_eq!(orders.triggers.len(), 1);
     let trigger = &orders.triggers[0];
     assert_eq!(trigger.name, "orders_touch");
-    assert_eq!(trigger.timing, TriggerTiming::Before);
     assert_eq!(trigger.events, [TriggerEvent::Update]);
-    assert!(trigger.for_each_row && trigger.enabled);
+    assert!(trigger.enabled);
+    if meta_caps.row_triggers {
+        assert_eq!(trigger.timing, TriggerTiming::Before);
+        assert!(trigger.for_each_row);
+    } else {
+        assert_eq!(trigger.timing, TriggerTiming::After);
+        assert!(!trigger.for_each_row);
+    }
 
     // Composite primary key, two foreign keys with their actions.
     let items = ctx.table(&shop.shop("order_items")).await;
@@ -273,7 +291,11 @@ pub async fn check(ctx: &Ctx<'_>, shop: &Shop) {
                 "products".into(),
                 "id".into(),
                 ForeignKeyAction::Cascade,
-                ForeignKeyAction::Restrict
+                if meta_caps.restrict_action {
+                    ForeignKeyAction::Restrict
+                } else {
+                    ForeignKeyAction::NoAction
+                }
             ),
         ]
     );
@@ -281,7 +303,7 @@ pub async fn check(ctx: &Ctx<'_>, shop: &Shop) {
         items
             .checks
             .iter()
-            .any(|c| c.expression.contains("quantity > 0"))
+            .any(|c| bare(&c.expression).contains("quantity>0"))
     );
     assert!(items.columns.iter().all(|c| c.identity.is_none()));
 

@@ -461,6 +461,13 @@ pub struct MetaCapabilities {
     /// connection (SQL Server, MySQL).
     pub connection_per_database: bool,
     pub row_limit: RowLimitSyntax,
+    /// Indexes can be built on expressions (`lower(email)`), not only on columns.
+    pub expression_indexes: bool,
+    /// Triggers can run `BEFORE` the change and `FOR EACH ROW` (SQL Server: `AFTER` /
+    /// `INSTEAD OF`, per statement).
+    pub row_triggers: bool,
+    /// Foreign keys have a `RESTRICT` action distinct from `NO ACTION`.
+    pub restrict_action: bool,
 }
 
 /// How object names are qualified in generated SQL.
@@ -508,6 +515,9 @@ impl MetaDialect for PostgresDialect {
             object_kinds: ALL_KINDS,
             connection_per_database: true,
             row_limit: RowLimitSyntax::Limit,
+            expression_indexes: true,
+            row_triggers: true,
+            restrict_action: true,
         }
     }
 }
@@ -525,6 +535,9 @@ impl MetaDialect for MssqlDialect {
             ],
             connection_per_database: false,
             row_limit: RowLimitSyntax::Top,
+            expression_indexes: false,
+            row_triggers: false,
+            restrict_action: false,
         }
     }
 }
@@ -540,6 +553,9 @@ impl MetaDialect for MysqlDialect {
             ],
             connection_per_database: false,
             row_limit: RowLimitSyntax::Limit,
+            expression_indexes: true,
+            row_triggers: true,
+            restrict_action: true,
         }
     }
 }
@@ -550,6 +566,9 @@ impl MetaDialect for SqliteDialect {
             object_kinds: &[ObjectKind::Table, ObjectKind::View],
             connection_per_database: false,
             row_limit: RowLimitSyntax::Limit,
+            expression_indexes: true,
+            row_triggers: true,
+            restrict_action: true,
         }
     }
 }

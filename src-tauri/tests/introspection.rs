@@ -779,3 +779,272 @@ async fn p02_postgres() {
         );
     }
 }
+
+// --- SQL Server -----------------------------------------------------------------------------
+
+/// A database created for one run, dropped when the guard goes.
+struct MssqlDatabase {
+    url: String,
+    name: String,
+}
+
+impl Drop for MssqlDatabase {
+    fn drop(&mut self) {
+        let url = self.url.clone();
+        let name = self.name.clone();
+        // A runtime of its own: the test's runtime may be shutting down.
+        let _ = std::thread::spawn(move || {
+            let Ok(rt) = tokio::runtime::Runtime::new() else {
+                return;
+            };
+            rt.block_on(async {
+                let (def, password) = common::from_url(&url);
+                if let Ok(conn) = common::open(&def, password.as_ref()).await {
+                    let sql = format!(
+                        "ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}]"
+                    );
+                    if let Err(err) = conn.query(&sql, 0).await {
+                        common::skip("dropping the fixture database", &format!("{name}: {err:?}"));
+                    }
+                    conn.close().await;
+                }
+            });
+        })
+        .join();
+    }
+}
+
+/// Creates the fixture database and loads `meta_mssql.sql` into it, batch by batch.
+async fn mssql_fixture(url: &str) -> (MssqlDatabase, Shop, ConnectionDefinition, Option<Secret>) {
+    let name = unique_prefix().replace("m11", "m17");
+    let (mut def, password) = common::from_url(url);
+    let master = common::open(&def, password.as_ref())
+        .await
+        .expect("connect");
+    master
+        .query(&format!("CREATE DATABASE [{name}]"), 0)
+        .await
+        .expect("create database");
+    master.close().await;
+    let guard = MssqlDatabase {
+        url: url.to_owned(),
+        name: name.clone(),
+    };
+    def.database = name.clone();
+    let conn = common::open(&def, password.as_ref())
+        .await
+        .expect("connect to the fixture database");
+    let script = include_str!("fixtures/meta_mssql.sql");
+    let syntax = Engine::Mssql.dialect().syntax();
+    for batch in yadbe_lib::db::split::split(script, &syntax) {
+        let sql = &script[batch.range()];
+        conn.query(sql, 0)
+            .await
+            .unwrap_or_else(|e| panic!("{sql}: {e:?}"));
+    }
+    conn.close().await;
+    (
+        guard,
+        Shop {
+            engine: Engine::Mssql,
+            database: name,
+            shop: Some("shop".into()),
+            sales: Some("sales".into()),
+            odd: Some("Odd Schema".into()),
+        },
+        def,
+        password,
+    )
+}
+
+#[tokio::test]
+async fn mssql_conformance_and_specifics() {
+    let Some(url) = common::mssql_url("mssql_conformance_and_specifics") else {
+        return;
+    };
+    let (_guard, shop, def, password) = mssql_fixture(&url).await;
+    let h = harness();
+    let id = h.open(&def, password).await;
+    conformance::check(&h.ctx(&id), &shop).await;
+
+    let meta: &MetaService = &h.meta;
+    let manager = &h.manager;
+    let db = shop.database.as_str();
+    let connection = id.as_str();
+    let list = |schema: &Option<String>, kind| {
+        let schema = schema.clone();
+        async move {
+            meta.objects(manager, None, connection, db, schema.as_deref(), kind)
+                .await
+                .expect("objects")
+        }
+    };
+
+    // Comments, exact types, identity, alias types mapped to their family.
+    let customers = h.ctx(&id).table(&shop.shop("customers")).await;
+    assert_eq!(customers.comment.as_deref(), Some("People who ordered"));
+    assert_eq!(customers.columns[0].identity, Some(Identity::Always));
+    assert_eq!(customers.columns[1].comment.as_deref(), Some("Lower-cased"));
+    assert_eq!(customers.columns[2].type_name, "nvarchar(200)");
+    assert_eq!(customers.columns[3].type_name, "datetime2(3)");
+    assert_eq!(customers.columns[3].kind, ValueKind::Timestamp);
+    assert_eq!(customers.row_estimate, Some(0.0));
+    let orders = h.ctx(&id).table(&shop.shop("orders")).await;
+    assert_eq!(orders.columns[2].type_name, "positive_amount");
+    assert_eq!(
+        orders.columns[2].kind,
+        ValueKind::Decimal,
+        "alias of decimal"
+    );
+    let total = &orders.columns[4];
+    assert_eq!(
+        total
+            .generated
+            .as_ref()
+            .and_then(|g| g.expression.as_deref()),
+        Some("([subtotal]+[shipping])")
+    );
+    assert!(total.default.is_none());
+    assert_eq!(
+        orders.triggers[0].events,
+        [yadbe_lib::db::meta::TriggerEvent::Update]
+    );
+    assert!(
+        orders.triggers[0]
+            .definition
+            .as_deref()
+            .is_some_and(|d| d.contains("CREATE TRIGGER")),
+        "{:?}",
+        orders.triggers
+    );
+    let index = orders
+        .indexes
+        .iter()
+        .find(|i| i.name == "orders_created_at_idx")
+        .expect("filtered index");
+    assert_eq!(index.columns, ["created_at DESC"]);
+    assert_eq!(index.method.as_deref(), Some("nonclustered"));
+
+    // Functions (scalar and table-valued) apart from procedures, with their signatures.
+    let functions = list(&shop.shop, ObjectKind::Function).await;
+    let signature = |name: &str| {
+        functions
+            .iter()
+            .chain(&[])
+            .find(|f| f.name == name)
+            .and_then(|f| match &f.detail {
+                ObjectDetail::Routine(r) => Some((f.comment.clone(), r.clone())),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{name} in {functions:?}"))
+    };
+    let (comment, total_fn) = signature("order_total");
+    assert_eq!(comment.as_deref(), Some("Total of an order"));
+    assert_eq!(total_fn.arguments, "@order_id int");
+    assert_eq!(total_fn.return_type.as_deref(), Some("decimal(13,2)"));
+    assert_eq!(
+        signature("orders_of").1.return_type.as_deref(),
+        Some("TABLE")
+    );
+    let procedures = list(&shop.sales, ObjectKind::Procedure).await;
+    assert_eq!(procedures.len(), 1);
+    let Some(ObjectDetail::Routine(procedure)) = procedures.first().map(|p| &p.detail) else {
+        panic!("procedure detail");
+    };
+    assert_eq!(procedure.arguments, "@before date, @archived int OUTPUT");
+    assert_eq!(procedure.identity_arguments, "date, int");
+    assert!(procedure.return_type.is_none());
+
+    // Sequences and user-defined types (alias, table type).
+    let sequences = list(&shop.sales, ObjectKind::Sequence).await;
+    let Some(ObjectDetail::Sequence(seq)) = sequences
+        .iter()
+        .find(|s| s.name == "invoice_number_seq")
+        .map(|s| &s.detail)
+    else {
+        panic!("sequence in {sequences:?}");
+    };
+    assert_eq!(
+        (seq.start.as_str(), seq.data_type.as_str()),
+        ("1000", "bigint")
+    );
+    let types = list(&shop.shop, ObjectKind::Type).await;
+    let type_detail = |name: &str| {
+        types
+            .iter()
+            .find(|t| t.name == name)
+            .and_then(|t| match &t.detail {
+                ObjectDetail::Type(detail) => Some(detail.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("type {name} in {types:?}"))
+    };
+    let amount = type_detail("positive_amount");
+    assert_eq!(amount.category, TypeCategory::Domain);
+    assert_eq!(amount.base_type.as_deref(), Some("decimal(12,2)"));
+    let lines = type_detail("order_lines");
+    assert_eq!(lines.category, TypeCategory::Composite);
+    assert_eq!(
+        lines
+            .attributes
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>(),
+        ["product_id", "quantity"]
+    );
+    let counts = meta
+        .object_counts(manager, None, &id, db, shop.shop.as_deref())
+        .await
+        .expect("counts");
+    let count_of = |kind| counts.iter().find(|c| c.kind == kind).map(|c| c.count);
+    assert_eq!(count_of(ObjectKind::Type), Some(2));
+    assert_eq!(count_of(ObjectKind::Function), Some(2));
+    let missing = meta
+        .object_counts(manager, None, &id, db, Some("no_such_schema_m17"))
+        .await
+        .expect_err("missing schema");
+    assert_eq!(missing.code, ErrorCode::ObjectNotFound);
+
+    // System schemas and databases are flagged; other databases are read on the same
+    // connection.
+    let schemas = meta.schemas(manager, None, &id, db).await.expect("schemas");
+    assert!(schemas.iter().any(|s| s.name == "sys" && s.system));
+    assert!(schemas.iter().any(|s| s.name == "dbo" && !s.system));
+    assert!(schemas.iter().any(|s| s.name == "db_owner" && s.system));
+    let databases = meta.databases(manager, None, &id).await.expect("databases");
+    assert!(
+        databases
+            .iter()
+            .any(|d| d.name == "master" && d.system && !d.current)
+    );
+    let before = h.log.entries().len();
+    let master_schemas = meta
+        .schemas(manager, None, &id, "master")
+        .await
+        .expect("master schemas");
+    assert!(master_schemas.iter().any(|s| s.name == "dbo"));
+    assert!(
+        h.log.entries()[before..]
+            .iter()
+            .any(|e| e.sql.contains("[master].sys.schemas")),
+        "qualified with the database"
+    );
+    let error = meta
+        .schemas(manager, None, &id, "no_such_db_m17")
+        .await
+        .expect_err("unknown database");
+    assert_eq!(error.code, ErrorCode::UnknownDatabase);
+    let catalog = meta
+        .completion_catalog(manager, None, &id, db, true)
+        .await
+        .expect("catalog with system objects");
+    assert!(catalog.schemas.iter().any(|s| s.name == "sys"));
+    assert!(catalog.relations.iter().any(|r| r.name == "objects"));
+    assert_eq!(catalog.search_path, ["dbo"]);
+    assert!(
+        catalog
+            .routines
+            .iter()
+            .any(|r| r.name == "archive_invoices" && r.kind == ObjectKind::Procedure)
+    );
+}

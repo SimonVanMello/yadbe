@@ -50,6 +50,7 @@ src-tauri/
     store/                SQLite: connections, tabs, history, saved queries, preferences
     export/               Streaming exports
   tests/                  Integration tests + fixture schema scripts
+  vendor/tiberius/        tiberius 0.13.0, pristine commit then yadbe's patches (PATCHES.md says which and why)
 dev/                      compose.yml (test engines), helper scripts
 docs/
 ```
@@ -69,6 +70,7 @@ cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings &
 dev/tls-certs.sh    # Throwaway CA + `localhost` server certificate in dev/certs/ (git-ignored), for the TLS tests and compose
 docker compose -f dev/compose.yml up -d   # PostgreSQL (TLS on), SQL Server, MySQL for integration tests; URLs to export in the file's header
 cd src-tauri && YADBE_TEST_PG_URL=postgres://user:pw@localhost:5432/db YADBE_TEST_PG_CA=../dev/certs/ca.crt cargo test --test postgres   # unset: tests print SKIPPED
+cd src-tauri && YADBE_TEST_MSSQL_URL='sqlserver://localhost:51433;database=master;user=sa;password=Yadbe-test-pw1;trustServerCertificate=true' YADBE_TEST_MSSQL_CA=../dev/certs/ca.crt cargo test --test query_mssql --test introspection   # SQL Server (compose service); the CA test needs the compose TLS certificate, unset: SKIPPED
 YADBE_CONFIG_DIR=<dir> pnpm tauri dev   # App database (yadbe.db) in another folder than the OS config one
 cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test introspection p02 -- --ignored --nocapture   # P-02: introspection on a 500-table and a 10k-object schema
 xvfb-run pnpm tauri dev   # Run the real app in a headless container
