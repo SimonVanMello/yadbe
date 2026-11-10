@@ -1,5 +1,5 @@
 import { showError } from '../../app/errors/presentError';
-import { openQueryTabWith } from '../../app/tabs/tabsStore';
+import { openQueryTab } from '../query/openQueryTab';
 import { translate, useI18nStore, type MessageKey, type MessageParams } from '../../i18n/i18n';
 import { ipc, unwrap, type MetaNode, type ObjectRef, type ScriptKind } from '../../ipc';
 import { toast } from '../../ui/toastStore';
@@ -11,7 +11,7 @@ function t(key: MessageKey, params?: MessageParams): string {
 
 /** "New query" on a connection, a database or any object of it. */
 export function newQuery(connectionId: string, database: string | null): void {
-  openQueryTabWith({ connectionId, database });
+  openQueryTab({ connectionId, database });
 }
 
 /** Opens a new query tab holding the script of a table (F-023). */
@@ -22,7 +22,7 @@ export async function scriptAs(
 ): Promise<void> {
   try {
     const text = await unwrap(ipc.commands.scriptTable(connectionId, table, script));
-    openQueryTabWith({ connectionId, database: table.database, initialText: text });
+    openQueryTab({ connectionId, database: table.database, initialText: text });
   } catch (error) {
     showError(error, { title: t('explorer.scriptFailed', { name: table.name }) });
   }

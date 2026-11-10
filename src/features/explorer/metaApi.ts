@@ -21,6 +21,11 @@ async function read<T>(signal: AbortSignal, call: (requestId: string) => Promise
   }
 }
 
+/** The databases of a connection (the same read as the explorer's root, typed). */
+export function fetchDatabases(connectionId: string, signal: AbortSignal) {
+  return read(signal, (id) => ipc.commands.listDatabases(id, connectionId));
+}
+
 /** Reads one node of the explorer. Rejects with a `YadbeIpcError`. */
 export function fetchMeta(connectionId: string, request: MetaRequest, signal: AbortSignal) {
   const { commands } = ipc;

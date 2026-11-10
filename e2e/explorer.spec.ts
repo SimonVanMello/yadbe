@@ -202,7 +202,7 @@ for (const { name, colorScheme } of THEMES) {
       await connect(page, /^local postgres,/);
       await expand(item(page, /^shop$/));
       await expand(item(page, /^Tables \(/));
-      const tabs = page.getByRole('tablist').getByRole('tab');
+      const tabs = page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab');
       await expect(tabs).toHaveCount(1);
       await item(page, /^orders$/).click({ button: 'right' });
       await expect(page.getByRole('menuitem', { name: /Open data/ })).toHaveAttribute(
@@ -214,6 +214,10 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'menu');
       await page.getByRole('menuitem', { name: 'SELECT' }).click();
       await expect(tabs).toHaveCount(2);
+      // The script lands in the new tab's editor, which runs in the table's database.
+      await expect(page.getByRole('textbox', { name: 'SQL editor' })).toContainText(/SELECT/);
+      await expect(page.getByRole('textbox', { name: 'SQL editor' })).toContainText(/orders/);
+      await capture(page, name, 'script');
     });
   });
 }

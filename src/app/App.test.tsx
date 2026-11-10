@@ -46,7 +46,8 @@ describe('App', () => {
     expect(await screen.findByTestId('sql-editor')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
-  });
+    // Renders the whole shell and connects: about 3 s alone, which a loaded machine doubles.
+  }, 15_000);
 
   it('filters the sidebar with the fuzzy search', async () => {
     const user = userEvent.setup();

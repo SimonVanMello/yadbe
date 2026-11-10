@@ -20,6 +20,7 @@
     "test:ui": "playwright test",
     "perf:startup": "node scripts/measure-startup.mjs",
     "perf:tabs": "playwright test --config playwright.perf.config.ts perf.spec",
+    "perf:explorer": "playwright test --config playwright.perf.config.ts perf.explorer",
     "bindings": "cargo run --manifest-path src-tauri/Cargo.toml --example export-bindings"
   },
   "dependencies": {
