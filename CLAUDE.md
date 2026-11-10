@@ -66,7 +66,10 @@ pnpm check          # file name casing + ESLint + Prettier + typecheck + Vitest 
 pnpm test:ui        # Playwright on `pnpm dev` (mocked backend), captures in test-results/ (set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to reuse a preinstalled Chromium)
 pnpm bindings       # Regenerates src/ipc/bindings.ts from Rust
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-docker compose -f dev/compose.yml up -d   # PostgreSQL, SQL Server, MySQL for integration tests (YADBE_TEST_*_URL)
+dev/tls-certs.sh    # Throwaway CA + `localhost` server certificate in dev/certs/ (git-ignored), for the TLS tests and compose
+docker compose -f dev/compose.yml up -d   # PostgreSQL (TLS on), SQL Server, MySQL for integration tests; URLs to export in the file's header
+cd src-tauri && YADBE_TEST_PG_URL=postgres://user:pw@localhost:5432/db YADBE_TEST_PG_CA=../dev/certs/ca.crt cargo test --test postgres   # unset: tests print SKIPPED
+YADBE_CONFIG_DIR=<dir> pnpm tauri dev   # App database (yadbe.db) in another folder than the OS config one
 xvfb-run pnpm tauri dev   # Run the real app in a headless container
 ```
 
