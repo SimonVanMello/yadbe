@@ -133,7 +133,7 @@
   "connection.state.lost": "Connection lost",
   "connection.new": "New connection",
   "connection.readOnly": "Read-only",
-  "connection.readOnly.hint": "Not enforced yet: this version cannot run statements. Once it can, yadbe will refuse writes on this connection, whatever the statement.",
+  "connection.readOnly.hint": "yadbe refuses any statement that could change data or the schema on this connection, and the session itself is read-only where the engine allows it (PostgreSQL, SQLite).",
   "connection.menu.connect": "Connect",
   "connection.menu.disconnect": "Disconnect",
   "connection.menu.newQuery": "New query tab",

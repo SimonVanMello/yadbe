@@ -24,6 +24,7 @@ import {
 } from './mockData';
 import { mockErrors } from './mockErrors';
 import { createMockMeta } from './mock/meta';
+import { createMockQuery } from './mockQuery';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
 const MOCK_APP_INFO: AppInfo = { appVersion: '0.1.0', os: 'linux', arch: 'x86_64' };
@@ -270,6 +271,15 @@ function createMockBackend() {
     setSession({ ...current, state: 'connected', error: null, reconnectAttempt: null });
     meta.reconnected(connectionId);
   }
+
+  const query = createMockQuery({
+    events,
+    connection: findConnection,
+    session: (id) => sessions.get(id),
+    logStatement: (connectionId, connectionName, sql) => {
+      logStatement(connectionId, connectionName, sql);
+    },
+  });
 
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
@@ -584,6 +594,7 @@ function createMockBackend() {
     },
 
     ...meta.commands,
+    ...query.commands,
   };
 
   function reset(): void {
@@ -601,6 +612,7 @@ function createMockBackend() {
     pending.clear();
     sessions.clear();
     meta.reset();
+    query.reset();
     clearReloadState();
     seed();
   }
@@ -669,6 +681,10 @@ function createMockBackend() {
     /** `large`: PostgreSQL connections opened from now on see a 10 000-object database. */
     setMetaCatalog(kind: 'shop' | 'large'): void {
       meta.setCatalog(kind);
+    },
+    /** Time between two streamed batches of a query result, in ms (0 in unit tests). */
+    setQueryTick(ms: number): void {
+      query.setTick(ms);
     },
     reset,
   };

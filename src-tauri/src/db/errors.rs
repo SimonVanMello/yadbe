@@ -64,6 +64,14 @@ pub enum ErrorCode {
     Cancelled,
     /// A database object (table, schema…) no longer exists, or was renamed.
     ObjectNotFound,
+    /// A query is already running in this tab.
+    ExecutionRunning,
+    /// A transaction is open in this tab: commit or roll it back first.
+    TransactionOpen,
+    /// The connection is read-only and the statement may change data or the schema.
+    ReadOnlyViolation,
+    /// The result was freed (the tab ran again or closed).
+    ResultNotFound,
 }
 
 /// A message in every supported UI language.
@@ -365,6 +373,51 @@ impl YadbeError {
         )
     }
 
+    pub fn execution_running() -> Self {
+        Self::new(
+            ErrorCode::ExecutionRunning,
+            "A query is already running in this tab. Wait for it or cancel it.",
+            "Une requête est déjà en cours dans cet onglet. Attendez-la ou annulez-la.",
+        )
+    }
+
+    pub fn transaction_open() -> Self {
+        Self::new(
+            ErrorCode::TransactionOpen,
+            "A transaction is open in this tab. Commit or roll it back first.",
+            "Une transaction est ouverte dans cet onglet. Validez-la ou annulez-la d'abord.",
+        )
+    }
+
+    /// `statement`: what was recognized (`UPDATE`, `CREATE`…), or empty when unknown.
+    pub fn read_only_violation(statement: &str) -> Self {
+        let (en, fr) = if statement.is_empty() {
+            (
+                "This connection is read-only and yadbe cannot prove this statement only reads. Nothing was run.".to_owned(),
+                "Cette connexion est en lecture seule et yadbe ne peut pas garantir que cette instruction ne fait que lire. Rien n'a été exécuté.".to_owned(),
+            )
+        } else {
+            (
+                format!(
+                    "This connection is read-only: {statement} may change data or the schema. Nothing was run."
+                ),
+                format!(
+                    "Cette connexion est en lecture seule : {statement} peut modifier des données ou le schéma. Rien n'a été exécuté."
+                ),
+            )
+        };
+        Self::new(ErrorCode::ReadOnlyViolation, en, fr).with_action(ErrorAction::EditConnection)
+    }
+
+    pub fn result_not_found(result_id: u32) -> Self {
+        Self::new(
+            ErrorCode::ResultNotFound,
+            "This result is no longer available. Run the query again.",
+            "Ce résultat n'est plus disponible. Relancez la requête.",
+        )
+        .with_detail(format!("result id {result_id}"))
+    }
+
     /// Whether the failure is worth retrying automatically when reconnecting: network and
     /// server-side transient failures, not wrong settings or credentials.
     pub fn is_transient(&self) -> bool {
@@ -512,6 +565,11 @@ mod tests {
             YadbeError::password_required(),
             YadbeError::engine_not_supported("MySQL"),
             YadbeError::object_not_found("shop.orders"),
+            YadbeError::execution_running(),
+            YadbeError::transaction_open(),
+            YadbeError::read_only_violation("UPDATE"),
+            YadbeError::read_only_violation(""),
+            YadbeError::result_not_found(1),
         ];
         for error in all {
             assert!(!error.message.en.is_empty() && !error.message.fr.is_empty());

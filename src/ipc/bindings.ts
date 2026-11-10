@@ -124,6 +124,61 @@ export const commands = {
 	 *  by the dialect; values are `<column, type>` placeholders to fill in.
 	 */
 	scriptTable: (connectionId: string, table: ObjectRef, script: ScriptKind) => typedError<string, YadbeError>(__TAURI_INVOKE("script_table", { connectionId, table, script })),
+	/**
+	 *  The statements of `text`, split the way `engine` reads them (dollar quoting, `GO`
+	 *  batches, `DELIMITER`…), as ranges without their delimiter. Comment-only parts are
+	 *  skipped.
+	 */
+	splitStatements: (engine: Engine, text: string) => typedError<TextRange[], YadbeError>(__TAURI_INVOKE("split_statements", { engine, text })),
+	/**
+	 *  The statement "under the cursor" at `offset` (F-041): the one containing it (its
+	 *  delimiter included), else the closest one on an adjacent line, `null` when the cursor
+	 *  sits between paragraphs.
+	 */
+	statementAt: (engine: Engine, text: string, offset: number) => typedError<{
+	from: number,
+	to: number,
+} | null, YadbeError>(__TAURI_INVOKE("statement_at", { engine, text, offset })),
+	/**
+	 *  Starts running statements in a tab and returns at once; progress, results and messages
+	 *  arrive as events. Fails with `executionRunning` while the tab runs, `transactionOpen`
+	 *  when switching connection or database with a transaction open, `notConnected` when the
+	 *  connection is not open. Frees the tab's previous results.
+	 */
+	executeQuery: (request: ExecuteRequest) => typedError<ExecutionStarted, YadbeError>(__TAURI_INVOKE("execute_query", { request })),
+	/**
+	 *  Cancels the tab's running execution with the engine's native mechanism (F-042). Does
+	 *  nothing when nothing runs.
+	 */
+	cancelQuery: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("cancel_query", { tabId })),
+	/**  Continues a paused result (load more / load all, F-062). */
+	resumeResult: (resultId: number, mode: ResumeMode) => typedError<null, YadbeError>(__TAURI_INVOKE("resume_result", { resultId, mode })),
+	/**
+	 *  Rows `offset .. offset + limit` of a result (at most 2 000; the grid asks for 500),
+	 *  fewer at the end. Readable while the result streams.
+	 */
+	fetchResultWindow: (resultId: number, offset: number, limit: number) => typedError<ResultWindow, YadbeError>(__TAURI_INVOKE("fetch_result_window", { resultId, offset, limit })),
+	/**  One whole cell (windows cut long values), for the cell viewer (F-064). */
+	fetchResultCell: (resultId: number, row: number, column: number) => typedError<Value, YadbeError>(__TAURI_INVOKE("fetch_result_cell", { resultId, row, column })),
+	/**  The tab's transaction state, connection and running or last execution. */
+	getQueryTab: (tabId: string) => typedError<QueryTabInfo, YadbeError>(__TAURI_INVOKE("get_query_tab", { tabId })),
+	/**
+	 *  Switches the tab between auto-commit and manual transactions (F-047). Fails with
+	 *  `transactionOpen` while a transaction is open, `executionRunning` while the tab runs.
+	 */
+	setTransactionMode: (tabId: string, mode: TransactionMode) => typedError<TransactionState, YadbeError>(__TAURI_INVOKE("set_transaction_mode", { tabId, mode })),
+	/**
+	 *  Commits the tab's open transaction (a failed one is rolled back by the engine). Does
+	 *  nothing without a transaction.
+	 */
+	commitTransaction: (tabId: string) => typedError<TransactionState, YadbeError>(__TAURI_INVOKE("commit_transaction", { tabId })),
+	/**  Rolls back the tab's open transaction. Does nothing without a transaction. */
+	rollbackTransaction: (tabId: string) => typedError<TransactionState, YadbeError>(__TAURI_INVOKE("rollback_transaction", { tabId })),
+	/**
+	 *  The tab closed: cancels its execution, closes its connection (an open transaction is
+	 *  rolled back by the server) and frees its results.
+	 */
+	closeQueryTab: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("close_query_tab", { tabId })),
 };
 
 /** Events */
@@ -131,7 +186,10 @@ export const events = {
 	appReady: makeEvent<AppReady>("app-ready"),
 	connectionStateChanged: makeEvent<ConnectionStateChanged>("connection-state-changed"),
 	metaRefreshed: makeEvent<MetaRefreshed>("meta-refreshed"),
+	queryFinished: makeEvent<QueryFinished>("query-finished"),
+	queryProgress: makeEvent<QueryProgress>("query-progress"),
 	statementLogged: makeEvent<StatementLogged>("statement-logged"),
+	transactionStateChanged: makeEvent<TransactionStateChanged>("transaction-state-changed"),
 };
 
 /* Types */
@@ -241,6 +299,14 @@ export type ColumnInfo = {
 	foreignKey: boolean,
 };
 
+/**  A column of a result. */
+export type ColumnMeta = {
+	name: string,
+	/**  The engine's type name (`int8`, `varchar`, `numeric`…); empty when unknown. */
+	typeName: string,
+	kind: ValueKind,
+};
+
 export type ColumnRef = {
 	table: ObjectRef,
 	column: string,
@@ -288,7 +354,10 @@ export type ConnectionDefinition = {
 	groupId: string | null,
 	environment: Environment,
 	favorite: boolean,
-	/**  Stored now, enforced by the backend from M2 (F-008). */
+	/**
+	 *  Enforced by the backend (F-008): the engine's read-only session where it has one,
+	 *  and a statement classifier that refuses anything not provably read-only.
+	 */
 	readOnly: boolean,
 	/**
 	 *  The password goes to the OS keychain; otherwise it is asked at connect time and kept
@@ -454,7 +523,87 @@ export type ErrorCode =
 /**  The operation was cancelled by the user. */
 "cancelled" | 
 /**  A database object (table, schema…) no longer exists, or was renamed. */
-"objectNotFound";
+"objectNotFound" | 
+/**  A query is already running in this tab. */
+"executionRunning" | 
+/**  A transaction is open in this tab: commit or roll it back first. */
+"transactionOpen" | 
+/**  The connection is read-only and the statement may change data or the schema. */
+"readOnlyViolation" | 
+/**  The result was freed (the tab ran again or closed). */
+"resultNotFound";
+
+export type ExecuteRequest = {
+	/**  The editor tab: it owns a dedicated server connection, opened on its first run. */
+	tabId: string,
+	connectionId: string,
+	/**
+	 *  Database to run in; `null`: the connection's. Ignored by engines without several
+	 *  databases. Changing it (or the connection) reopens the tab's connection.
+	 */
+	database: string | null,
+	/**  The whole editor text: ranges and error positions refer to it. */
+	text: string,
+	scope: ExecuteScope,
+	/**  `null`: 100 000 rows / 256 MB per result. */
+	limits: ResultLimits | null,
+};
+
+/**  Which statements of the text run (F-041). */
+export type ExecuteScope = 
+/**  Every statement of the text. */
+{ kind: "all" } | 
+/**
+ *  The statements of a selection, split like a whole text; ranges stay relative to the
+ *  whole text.
+ */
+{ kind: "range"; from: number; to: number } | 
+/**  The statement under the cursor (same rule as `statement_at`). */
+{ kind: "statementAt"; offset: number };
+
+/**  What changed in an execution since its previous event. */
+export type ExecutionDelta = {
+	status: ExecutionStatus,
+	/**  Milliseconds since the execution started (until it finished). */
+	elapsedMs: number,
+	/**  The statement running (or paused), `null` once finished. */
+	currentStatement: number | null,
+	/**  Results created or changed since the previous event: replace them by `resultId`. */
+	results: ResultSummary[],
+	/**  Messages added since the previous event, in order. */
+	messages: QueryMessage[],
+};
+
+/**  Everything known about an execution, for a view that (re)mounts. */
+export type ExecutionSnapshot = {
+	executionId: number,
+	connectionId: string,
+	database: string | null,
+	statements: TextRange[],
+	/**  Unix time in milliseconds. */
+	startedAt: number | null,
+	status: ExecutionStatus,
+	elapsedMs: number,
+	currentStatement: number | null,
+	results: ResultSummary[],
+	messages: QueryMessage[],
+};
+
+/**  Returned as soon as an execution is accepted; everything else arrives as events. */
+export type ExecutionStarted = {
+	/**  Unique for the app's lifetime. */
+	executionId: number,
+	/**  The statements that will run, in order (`statementIndex` indexes this list). */
+	statements: TextRange[],
+};
+
+export type ExecutionStatus = 
+/**  Opening the tab's connection. */
+"connecting" | "running" | 
+/**  A result reached its limit: fetching waits for `resume_result` (or a cancel). */
+"paused" | "succeeded" | 
+/**  A statement failed (or was refused); the next ones did not run. */
+"failed" | "cancelled";
 
 export type ForeignKey = {
 	name: string | null,
@@ -525,6 +674,16 @@ export type LocalizedText = {
 	en: string,
 	fr: string,
 };
+
+export type MessageBody = {
+	kind: "statementCompleted",
+} & StatementCompleted | 
+/**  Notice, warning or info sent by the server (`RAISE NOTICE`, `PRINT`…). */
+{
+	kind: "notice",
+} & ServerMessage | {
+	kind: "error",
+} & StatementError;
 
 /**
  *  A node of the explorer tree, for refreshes and `meta-refreshed` events. A node covers
@@ -633,6 +792,8 @@ export type ParsedConnectionString = {
 	ignoredKeys: string[],
 };
 
+export type PauseReason = "rowLimit" | "memoryLimit";
+
 /**  App preferences (F-125). More fields arrive with the preferences screen (M2-8). */
 export type Preferences = {
 	theme: ThemePreference,
@@ -643,6 +804,50 @@ export type Preferences = {
 	uiState: string | null,
 };
 
+/**
+ *  An execution ended (`delta.status`: succeeded, failed or cancelled). Always the last
+ *  event of an execution; carries what changed since the last `query-progress`.
+ */
+export type QueryFinished = {
+	tabId: string,
+	executionId: number,
+	delta: ExecutionDelta,
+};
+
+/**  A line of the Messages tab (F-061). */
+export type QueryMessage = {
+	/**  0, 1, 2… in the execution. */
+	seq: number,
+	/**  The statement it belongs to, when there is one. */
+	statementIndex: number | null,
+	/**  Milliseconds since the execution started. */
+	atMs: number,
+	body: MessageBody,
+};
+
+/**
+ *  An execution progressed: rows streamed, a result set or a message appeared, a statement
+ *  started. Throttled (at most about ten per second per execution); apply `delta` in order.
+ */
+export type QueryProgress = {
+	tabId: string,
+	executionId: number,
+	delta: ExecutionDelta,
+};
+
+export type QueryTabInfo = {
+	tabId: string,
+	transaction: TransactionState,
+	/**
+	 *  The connection and database the tab's own server connection is open on, `null`
+	 *  before its first run or once closed.
+	 */
+	connectionId: string | null,
+	database: string | null,
+	/**  The running or last execution. */
+	execution: ExecutionSnapshot | null,
+};
+
 export type RelationSummary = {
 	/**  The planner's estimate (statistics), when the engine has one. */
 	rowEstimate: number | null,
@@ -651,6 +856,55 @@ export type RelationSummary = {
 	/**  Foreign table (data lives elsewhere). */
 	foreign: boolean,
 };
+
+/**  When fetching pauses for one result (SPEC §2.2: memory-capped result store). */
+export type ResultLimits = {
+	maxRows: number,
+	maxBytes: number,
+};
+
+export type ResultStatus = 
+/**  Rows are arriving. */
+"streaming" | 
+/**  Limit reached; more rows may follow (`resume_result`). */
+"paused" | 
+/**  Every row was read. */
+"complete" | 
+/**  Stopped by a cancel; the rows read so far stay readable. */
+"cancelled" | 
+/**  The statement failed while streaming; the rows read so far stay readable. */
+"failed";
+
+/**  One result set of an execution (one per statement that returns rows). */
+export type ResultSummary = {
+	/**  Unique for the app's lifetime; valid until the tab runs again or closes. */
+	resultId: number,
+	statementIndex: number,
+	columns: ColumnMeta[],
+	/**  Rows readable with `fetch_result_window`. */
+	rowCount: number,
+	status: ResultStatus,
+	/**  Set while `paused`. */
+	pausedBy: PauseReason | null,
+	/**  Memory the rows take in the backend, approximately, in bytes (saturates at 4 GiB). */
+	bytes: number,
+};
+
+/**  Rows `offset .. offset + rowCount` of a result, column by column. */
+export type ResultWindow = {
+	resultId: number,
+	offset: number,
+	rowCount: number,
+	/**  One entry per column of the result, in order. */
+	columns: WindowColumn[],
+};
+
+/**  How much more to read from a paused result. */
+export type ResumeMode = 
+/**  One more batch of the limits (rows and memory). */
+"more" | 
+/**  Everything, without limit. */
+"all";
 
 export type RoutineSignature = {
 	/**  Full argument list as the engine prints it (`p_id integer, p_note text DEFAULT ''`). */
@@ -750,6 +1004,17 @@ export type SequenceSummary = {
 	ownedBy: ColumnRef | null,
 };
 
+/**  A message from the server, never translated. */
+export type ServerMessage = {
+	/**  As sent by the server: `ERROR`, `WARNING`, `NOTICE`, `INFO`… */
+	severity: string,
+	/**  SQLSTATE or the engine's error number. */
+	code: string | null,
+	message: string,
+	detail: string | null,
+	hint: string | null,
+};
+
 export type SessionInfo = {
 	connectionId: string,
 	state: ConnectionState,
@@ -759,6 +1024,27 @@ export type SessionInfo = {
 	error: YadbeError | null,
 	/**  1-based, while `reconnecting` (and on the `lost` state that ends the attempts). */
 	reconnectAttempt: number | null,
+};
+
+export type StatementCompleted = {
+	durationMs: number | null,
+	/**  Rows changed by a DML statement, when the engine says. */
+	rowsAffected: number | null,
+	/**  Rows read, for a statement that returned a result set. */
+	rowsReturned: number | null,
+	resultId: number | null,
+};
+
+export type StatementError = {
+	/**
+	 *  Typed error: `queryFailed` (see `server`), `readOnlyViolation`, `connectionLost`,
+	 *  `cancelled`…
+	 */
+	error: YadbeError,
+	/**  The server's own message, for errors the server raised. */
+	server: ServerMessage | null,
+	/**  Where the server located the error, in the editor text (F-061). */
+	position: TextPosition | null,
 };
 
 export type StatementLogEntry = {
@@ -827,6 +1113,22 @@ export type TestConnectionResult = {
 	durationMs: number | null,
 };
 
+/**  A position in the editor text. */
+export type TextPosition = {
+	/**  UTF-16 code units from the start of the text. */
+	offset: number,
+	/**  1-based. */
+	line: number,
+	/**  1-based, in UTF-16 code units. */
+	column: number,
+};
+
+/**  A span of the editor text, `from` inclusive, `to` exclusive, in UTF-16 code units. */
+export type TextRange = {
+	from: number,
+	to: number,
+};
+
 export type ThemePreference = "light" | "dark" | "system";
 
 /**  How the transport is protected. `verifyFull` is the default for non-local hosts. */
@@ -842,6 +1144,38 @@ export type TlsMode =
 "require" | 
 /**  TLS mandatory, certificate chain and host name verified. */
 "verifyFull";
+
+/**  Transaction handling of a tab (F-047). */
+export type TransactionMode = 
+/**  Every statement commits on its own (an explicit `BEGIN` still opens a transaction). */
+"autoCommit" | 
+/**  yadbe opens a transaction before the first statement; Commit / Rollback end it. */
+"manual";
+
+export type TransactionState = {
+	mode: TransactionMode,
+	status: TransactionStatus,
+};
+
+/**
+ *  A tab's transaction mode or status changed (statement run, commit, rollback, mode switch,
+ *  connection lost).
+ */
+export type TransactionStateChanged = {
+	tabId: string,
+	transaction: TransactionState,
+};
+
+export type TransactionStatus = 
+/**  No transaction open. */
+"idle" | 
+/**  A transaction is open: changes are not committed yet. */
+"open" | 
+/**
+ *  A statement failed inside the transaction; the engine refuses further statements
+ *  until Rollback (PostgreSQL).
+ */
+"failed";
 
 export type TriggerEvent = "insert" | "update" | "delete" | "truncate";
 
@@ -878,10 +1212,59 @@ export type TypeSummary = {
 };
 
 /**
+ *  A cell value. Serialized as `{ "kind": "int", "value": "42" }` (`{ "kind": "null" }`
+ *  for `NULL`).
+ */
+export type Value = { kind: "null" } | { kind: "bool"; value: boolean } | 
+/**  Any integer width, in decimal (64-bit values exceed JavaScript's safe integers). */
+{ kind: "int"; value: string } | 
+/**  Exact numeric, as written by the engine (`NaN`, `Infinity` included). */
+{ kind: "decimal"; value: string } | 
+/**  Floating point in shortest round-trip form; `NaN`, `Infinity`, `-Infinity`. */
+{ kind: "float"; value: string } | { kind: "text"; value: string } | 
+/**  Binary data as lowercase hexadecimal. */
+{ kind: "bytes"; value: string } | 
+/**  `YYYY-MM-DD` (with ` BC` for negative years), or `infinity` / `-infinity`. */
+{ kind: "date"; value: string } | 
+/**  `HH:MM:SS[.ffffff]`, with an offset for `time with time zone`. */
+{ kind: "time"; value: string } | 
+/**  `YYYY-MM-DD HH:MM:SS[.ffffff]`, without zone. */
+{ kind: "timestamp"; value: string } | 
+/**  `YYYY-MM-DD HH:MM:SS[.ffffff]+00` (UTC). */
+{ kind: "timestampTz"; value: string } | 
+/**  The engine's interval text (`1 year 2 mons 3 days 04:05:06`). */
+{ kind: "interval"; value: string } | { kind: "uuid"; value: string } | 
+/**  JSON text exactly as stored (numbers keep their precision). */
+{ kind: "json"; value: string } | { kind: "array"; value: Value[] } | 
+/**  A type yadbe does not decode, in its text form (read-only in the grid). */
+{ kind: "other"; value: string };
+
+/**
  *  Logical family of a column, for alignment, formatting and editors. Per-cell values may
  *  still differ (SQLite columns are dynamically typed).
  */
 export type ValueKind = "bool" | "int" | "decimal" | "float" | "text" | "bytes" | "date" | "time" | "timestamp" | "timestampTz" | "interval" | "uuid" | "json" | "array" | "other";
+
+/**
+ *  The cells of one column in a window. Each cell is its lossless text, `null` for SQL
+ *  `NULL`: `true` / `false` for booleans, digits for numbers (`NaN`, `Infinity` included),
+ *  lowercase hexadecimal for bytes, the JSON of the nested values (`Value[]`) for arrays,
+ *  and the forms documented on `Value` for the other kinds.
+ */
+export type WindowColumn = {
+	values: (string | null)[],
+	/**
+	 *  The kind of each cell, only when a cell's kind differs from the column's (SQLite's
+	 *  dynamic typing, expressions); `null` otherwise. Entries of `NULL` cells are the
+	 *  column's kind.
+	 */
+	kinds: ValueKind[] | null,
+	/**
+	 *  Indices in the window of the cells cut at 2 000 characters; `fetch_result_cell`
+	 *  returns the whole value.
+	 */
+	truncated: number[],
+};
 
 /**  Error returned by every fallible command. */
 export type YadbeError = {

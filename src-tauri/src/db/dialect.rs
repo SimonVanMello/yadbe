@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::db::split::{BlockRule, Separator, SqlSyntax};
+
 /// Database engines yadbe knows. Every engine has a dialect; drivers arrive one by one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -84,6 +86,19 @@ pub trait Dialect: Send + Sync + crate::db::meta::MetaDialect {
     fn default_username(&self) -> Option<&'static str> {
         None
     }
+
+    /// Lexical rules for splitting scripts and classifying statements.
+    fn syntax(&self) -> SqlSyntax;
+
+    /// The statement that opens a transaction (manual transaction mode, F-047).
+    fn begin_transaction(&self) -> &'static str {
+        "BEGIN"
+    }
+
+    /// A failed statement leaves the open transaction failed: only a rollback ends it.
+    fn error_aborts_transaction(&self) -> bool {
+        false
+    }
 }
 
 /// Doubles the closing quote inside the identifier, then wraps it.
@@ -129,6 +144,24 @@ impl Dialect for PostgresDialect {
     fn default_username(&self) -> Option<&'static str> {
         Some("postgres")
     }
+    fn syntax(&self) -> SqlSyntax {
+        SqlSyntax {
+            dollar_quotes: true,
+            e_strings: true,
+            backslash_strings: false,
+            nested_comments: true,
+            hash_comments: false,
+            dash_comment_needs_space: false,
+            backtick_idents: false,
+            bracket_idents: false,
+            executable_comments: false,
+            separator: Separator::Semicolon,
+            blocks: BlockRule::BeginAtomic,
+        }
+    }
+    fn error_aborts_transaction(&self) -> bool {
+        true
+    }
 }
 
 pub struct MssqlDialect;
@@ -159,6 +192,24 @@ impl Dialect for MssqlDialect {
     }
     fn default_username(&self) -> Option<&'static str> {
         Some("sa")
+    }
+    fn syntax(&self) -> SqlSyntax {
+        SqlSyntax {
+            dollar_quotes: false,
+            e_strings: false,
+            backslash_strings: false,
+            nested_comments: true,
+            hash_comments: false,
+            dash_comment_needs_space: false,
+            backtick_idents: false,
+            bracket_idents: true,
+            executable_comments: false,
+            separator: Separator::GoBatches,
+            blocks: BlockRule::None,
+        }
+    }
+    fn begin_transaction(&self) -> &'static str {
+        "BEGIN TRANSACTION"
     }
 }
 
@@ -191,6 +242,24 @@ impl Dialect for MysqlDialect {
     fn default_username(&self) -> Option<&'static str> {
         Some("root")
     }
+    fn syntax(&self) -> SqlSyntax {
+        SqlSyntax {
+            dollar_quotes: false,
+            e_strings: false,
+            backslash_strings: true,
+            nested_comments: false,
+            hash_comments: true,
+            dash_comment_needs_space: true,
+            backtick_idents: true,
+            bracket_idents: false,
+            executable_comments: true,
+            separator: Separator::MysqlDelimiter,
+            blocks: BlockRule::None,
+        }
+    }
+    fn begin_transaction(&self) -> &'static str {
+        "START TRANSACTION"
+    }
 }
 
 pub struct SqliteDialect;
@@ -218,6 +287,21 @@ impl Dialect for SqliteDialect {
     }
     fn placeholder(&self, index: usize) -> String {
         format!("?{index}")
+    }
+    fn syntax(&self) -> SqlSyntax {
+        SqlSyntax {
+            dollar_quotes: false,
+            e_strings: false,
+            backslash_strings: false,
+            nested_comments: false,
+            hash_comments: false,
+            dash_comment_needs_space: false,
+            backtick_idents: true,
+            bracket_idents: true,
+            executable_comments: false,
+            separator: Separator::Semicolon,
+            blocks: BlockRule::SqliteTrigger,
+        }
     }
 }
 

@@ -133,7 +133,7 @@
   "connection.state.lost": "Connexion perdue",
   "connection.new": "Nouvelle connexion",
   "connection.readOnly": "Lecture seule",
-  "connection.readOnly.hint": "Pas encore appliqué : cette version ne peut pas exécuter d’instructions. Dès qu’elle le pourra, yadbe refusera les écritures sur cette connexion, quelle que soit l’instruction.",
+  "connection.readOnly.hint": "yadbe refuse sur cette connexion toute instruction qui pourrait modifier des données ou le schéma, et la session elle-même est en lecture seule quand le moteur le permet (PostgreSQL, SQLite).",
   "connection.menu.connect": "Se connecter",
   "connection.menu.disconnect": "Se déconnecter",
   "connection.menu.newQuery": "Nouvel onglet de requête",

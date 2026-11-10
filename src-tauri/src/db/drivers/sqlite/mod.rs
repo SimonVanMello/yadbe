@@ -1,6 +1,7 @@
 //! SQLite driver: `rusqlite` (bundled SQLite) on blocking threads.
 
 mod ddl;
+mod execute;
 mod introspect;
 
 use std::path::Path;
@@ -12,8 +13,8 @@ use rusqlite::{InterruptHandle, OpenFlags};
 
 use crate::db::dialect::Engine;
 use crate::db::driver::{
-    BoxFuture, CancelHandle, ConnectRequest, Connection, Driver, LinkWatch, StatementRecorder,
-    recorded_sync,
+    BoxFuture, CancelHandle, ConnectRequest, Connection, Driver, ExecError, ExecSender,
+    ExecSummary, LinkWatch, StatementRecorder, recorded_sync,
 };
 use crate::db::errors::YadbeError;
 use crate::db::value::{ColumnMeta, QueryResult, Value, ValueKind};
@@ -22,6 +23,9 @@ const VERSION_SQL: &str = "SELECT sqlite_version()";
 /// Reads the database header: fails on a file that is not a database.
 const CHECK_SQL: &str = "PRAGMA schema_version";
 const PING_SQL: &str = "SELECT 1";
+/// Second lock of a read-only connection, after the read-only open: also covers the
+/// temporary database.
+const QUERY_ONLY_SQL: &str = "PRAGMA query_only = ON";
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct SqliteDriver;
@@ -58,6 +62,7 @@ impl Driver for SqliteDriver {
         request: ConnectRequest<'a>,
     ) -> BoxFuture<'a, Result<Box<dyn Connection>, YadbeError>> {
         let path = request.target.file_path.clone();
+        let read_only = request.target.read_only;
         let recorder = request.recorder;
         Box::pin(async move {
             let opened = blocking(move || {
@@ -65,7 +70,11 @@ impl Driver for SqliteDriver {
                     return Err(YadbeError::file_not_found(&path.display().to_string()));
                 }
                 // Never create a file: a typo must not leave an empty database behind.
-                let flags = OpenFlags::default() - OpenFlags::SQLITE_OPEN_CREATE;
+                let mut flags = OpenFlags::default() - OpenFlags::SQLITE_OPEN_CREATE;
+                if read_only {
+                    flags = (flags - OpenFlags::SQLITE_OPEN_READ_WRITE)
+                        | OpenFlags::SQLITE_OPEN_READ_ONLY;
+                }
                 let conn = rusqlite::Connection::open_with_flags(&path, flags)
                     .map_err(|e| classify(&e, &path))?;
                 conn.busy_timeout(BUSY_TIMEOUT)
@@ -79,6 +88,17 @@ impl Driver for SqliteDriver {
                             .map_err(|e| classify(&e, &path))
                     },
                 )?;
+                if read_only {
+                    recorded_sync(
+                        &*recorder,
+                        QUERY_ONLY_SQL,
+                        |_| None,
+                        || {
+                            conn.execute_batch(QUERY_ONLY_SQL)
+                                .map_err(|e| classify(&e, &path))
+                        },
+                    )?;
+                }
                 let version = recorded_sync(
                     &*recorder,
                     VERSION_SQL,
@@ -94,6 +114,7 @@ impl Driver for SqliteDriver {
                     path,
                     server_version: format!("SQLite {version}"),
                     recorder,
+                    read_only,
                 })
             })
             .await?;
@@ -108,6 +129,7 @@ struct SqliteConnection {
     path: std::path::PathBuf,
     server_version: String,
     recorder: Arc<dyn StatementRecorder>,
+    read_only: bool,
 }
 
 /// The column family from its declared type, following SQLite's affinity rules.
@@ -233,6 +255,20 @@ impl Connection for SqliteConnection {
     fn close(&self) -> BoxFuture<'_, ()> {
         self.interrupt.interrupt();
         Box::pin(async {})
+    }
+
+    fn execute<'a>(
+        &'a self,
+        sql: &'a str,
+        events: ExecSender,
+    ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
+        Box::pin(execute::execute(self, sql, events))
+    }
+
+    fn in_transaction(&self) -> Option<bool> {
+        // Busy means a statement runs: the caller asks again once it is done.
+        let conn = self.conn.try_lock().ok()?;
+        Some(!conn.is_autocommit())
     }
 
     fn introspector(&self) -> Option<&dyn crate::db::introspect::Introspector> {
