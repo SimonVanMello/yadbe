@@ -19,8 +19,15 @@ export function createExtents(columns: number): ColumnExtents {
   return { chars: new Array<number>(columns).fill(0), seen: new WeakSet() };
 }
 
-/** Measures the loaded blocks not seen yet; `true` when a column's longest value grew. */
-export function measureLoaded(source: RowSource, extents: ColumnExtents): boolean {
+/**
+ * Measures the loaded blocks not seen yet; `true` when a column's longest value grew. NULL cells
+ * count as `nullText`, the text the grid shows for them (a preference).
+ */
+export function measureLoaded(
+  source: RowSource,
+  extents: ColumnExtents,
+  nullText: string,
+): boolean {
   let grew = false;
   for (const block of source.loaded()) {
     if (extents.seen.has(block)) continue;
@@ -31,7 +38,7 @@ export function measureLoaded(source: RowSource, extents: ColumnExtents): boolea
       let longest = extents.chars[dataCol] ?? 0;
       for (let i = 0; i < block.rowCount; i++) {
         const kind = values.kinds?.[i] ?? column.kind;
-        longest = Math.max(longest, displayLength(values.values[i] ?? null, kind, 'NULL'));
+        longest = Math.max(longest, displayLength(values.values[i] ?? null, kind, nullText));
       }
       if (longest > (extents.chars[dataCol] ?? 0)) {
         extents.chars[dataCol] = longest;

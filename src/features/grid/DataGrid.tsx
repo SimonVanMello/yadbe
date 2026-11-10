@@ -318,24 +318,27 @@ export function DataGrid({
   );
 
   /** Widens the columns a newly loaded window does not fit in; leaves the user's widths alone. */
-  const widenToLoaded = useCallback((s: Snapshot) => {
-    if (!measureLoaded(s.source, extents.current)) return;
-    const current = widthsRef.current;
-    const headers = s.source.columns.map((c) =>
-      s.metrics.headerWidth(c.name, c.typeName, c.readOnlyReason ? 1 : 0),
-    );
-    const next = widenColumns(current, extents.current, headers, resized.current, s.metrics);
-    if (next === current) return;
-    // Columns wholly left of the viewport push the rest to the right: scroll by as much.
-    const left = scrollerRef.current?.scrollLeft ?? 0;
-    let shift = 0;
-    s.layout.order.forEach((dataCol, i) => {
-      if ((s.layout.lefts[i + 1] ?? 0) <= left)
-        shift += (next[dataCol] ?? 0) - (current[dataCol] ?? 0);
-    });
-    scrollShift.current = shift;
-    setWidths(next);
-  }, []);
+  const widenToLoaded = useCallback(
+    (s: Snapshot) => {
+      if (!measureLoaded(s.source, extents.current, nullText)) return;
+      const current = widthsRef.current;
+      const headers = s.source.columns.map((c) =>
+        s.metrics.headerWidth(c.name, c.typeName, c.readOnlyReason ? 1 : 0),
+      );
+      const next = widenColumns(current, extents.current, headers, resized.current, s.metrics);
+      if (next === current) return;
+      // Columns wholly left of the viewport push the rest to the right: scroll by as much.
+      const left = scrollerRef.current?.scrollLeft ?? 0;
+      let shift = 0;
+      s.layout.order.forEach((dataCol, i) => {
+        if ((s.layout.lefts[i + 1] ?? 0) <= left)
+          shift += (next[dataCol] ?? 0) - (current[dataCol] ?? 0);
+      });
+      scrollShift.current = shift;
+      setWidths(next);
+    },
+    [nullText],
+  );
 
   const schedulePaint = useCallback(() => {
     if (frameRef.current !== null) return;
@@ -346,7 +349,7 @@ export function DataGrid({
       const s = snapshot.current;
       if (!fitted.current && s?.source.block(0)) {
         fitted.current = true;
-        measureLoaded(s.source, extents.current);
+        measureLoaded(s.source, extents.current, nullText);
         const m = s.metrics;
         setWidths((all) =>
           all.map((w, dataCol) => (resized.current.has(dataCol) ? w : fittedWidth(dataCol, m))),
@@ -356,7 +359,7 @@ export function DataGrid({
       }
       paint();
     });
-  }, [paint, fittedWidth, widenToLoaded]);
+  }, [paint, fittedWidth, widenToLoaded, nullText]);
 
   // Sizes come from the theme's tokens and the loaded fonts: read them from the DOM.
   useLayoutEffect(() => {

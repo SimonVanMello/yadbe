@@ -31,12 +31,22 @@ describe('column growth', () => {
     const blocks = [block(0, ['1', '22'])];
     const source = sourceOf(blocks);
     const extents = createExtents(1);
-    expect(measureLoaded(source, extents)).toBe(true);
+    expect(measureLoaded(source, extents, 'NULL')).toBe(true);
     expect(extents.chars).toEqual([2]);
-    expect(measureLoaded(source, extents)).toBe(false);
+    expect(measureLoaded(source, extents, 'NULL')).toBe(false);
     blocks.push(block(500, ['999999999999']));
-    expect(measureLoaded(source, extents)).toBe(true);
+    expect(measureLoaded(source, extents, 'NULL')).toBe(true);
     expect(extents.chars).toEqual([12]);
+  });
+
+  it('measures NULL cells as the NULL text the grid shows', () => {
+    const source = sourceOf([block(0, ['ab', null])]);
+    const short = createExtents(1);
+    measureLoaded(source, short, '∅');
+    expect(short.chars).toEqual([2]);
+    const long = createExtents(1);
+    measureLoaded(source, long, '<missing>');
+    expect(long.chars).toEqual([9]);
   });
 
   it('widens a column when a later window needs more, never narrows it', () => {
