@@ -54,6 +54,9 @@
   --dialog-width: 440px;
   --dialog-width-wide: 720px;
   --palette-width: 600px;
+  --palette-row-height: 34px;
+  --palette-header-height: 26px;
+  --palette-list-max-height: 408px;
   --toast-width: 360px;
   --card-min-width: 360px;
   --tooltip-max-width: 280px;

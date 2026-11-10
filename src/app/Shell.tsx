@@ -5,13 +5,20 @@ import { useConnection } from '../features/connections/connectionStore';
 import { GroupDialog } from '../features/connections/GroupDialog';
 import { tintOf } from '../features/connections/model';
 import { PasswordPromptDialog } from '../features/connections/PasswordPromptDialog';
+import { refreshNode } from '../features/explorer/explorerActions';
+import { useExplorerStore } from '../features/explorer/explorerStore';
 import { useHistoryActions } from '../features/history/useHistoryActions';
+import { CommandPalette } from '../features/palette/CommandPalette';
+import { usePaletteActions } from '../features/palette/usePaletteActions';
+import { useSidebarView } from '../features/sidebar/sidebarViewStore';
 import { useQueryActions } from '../features/query/useQueryActions';
 import { SidebarViews } from '../features/sidebar/SidebarViews';
 import { StatementLogPanel } from '../features/statement-log/StatementLogPanel';
 import { StatusBar } from '../features/statusbar/StatusBar';
 import { Toolbar } from '../features/toolbar/Toolbar';
+import { useI18nStore } from '../i18n/i18n';
 import { nativeWindow } from '../ipc/nativeWindow';
+import { useThemeStore } from '../theme/themeStore';
 import { registerActions } from './actions';
 import { useLayoutStore } from './layout/layoutStore';
 import { PanelResizer } from './layout/PanelResizer';
@@ -91,6 +98,38 @@ function useShellActions(): void {
         'view.toggleStatementLog': () => {
           useLayoutStore.getState().togglePanel('bottom');
         },
+        'view.connections': () => {
+          useSidebarView.getState().setView('connections');
+          useLayoutStore.getState().setCollapsed('sidebar', false);
+        },
+        'explorer.refresh': () => {
+          const { connectionId } = selectActiveTab(useTabsStore.getState());
+          if (connectionId !== null) void refreshNode(connectionId, { level: 'connection' });
+        },
+        'explorer.toggleSystem': () => {
+          const explorer = useExplorerStore.getState();
+          explorer.setShowSystem(!explorer.showSystem);
+        },
+        'tab.togglePin': () => {
+          const { activeTabId, tabs, setPinned } = useTabsStore.getState();
+          const tab = tabs.find((candidate) => candidate.id === activeTabId);
+          if (tab && tab.connectionId !== null) setPinned(tab.id, !tab.pinned);
+        },
+        'theme.light': () => {
+          useThemeStore.getState().setPreference('light');
+        },
+        'theme.dark': () => {
+          useThemeStore.getState().setPreference('dark');
+        },
+        'theme.system': () => {
+          useThemeStore.getState().setPreference('system');
+        },
+        'language.en': () => {
+          useI18nStore.getState().setLocale('en');
+        },
+        'language.fr': () => {
+          useI18nStore.getState().setLocale('fr');
+        },
       }),
     [],
   );
@@ -102,6 +141,7 @@ export function Shell() {
   useShellActions();
   useQueryActions();
   useHistoryActions();
+  usePaletteActions();
   useWindowTitle();
   const ready = useStartup();
   const tab = useTabsStore(selectActiveTab);
@@ -150,6 +190,7 @@ export function Shell() {
       <ConnectionDialog />
       <PasswordPromptDialog />
       <GroupDialog />
+      <CommandPalette />
     </div>
   );
 }

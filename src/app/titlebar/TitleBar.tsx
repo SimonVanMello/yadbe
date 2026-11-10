@@ -1,3 +1,4 @@
+import { PaletteButton } from '../../features/palette/PaletteButton';
 import { nativeWindow } from '../../ipc/nativeWindow';
 import { platform } from '../../ui/platform';
 import { AppearanceMenu } from './AppearanceMenu';
@@ -19,6 +20,7 @@ export function TitleBar() {
       <TabStrip />
       <div className={styles.spacer} data-tauri-drag-region />
       <div className={styles.actions}>
+        <PaletteButton />
         <AppearanceMenu />
       </div>
       {drawControls && <WindowControls />}
