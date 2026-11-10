@@ -3,8 +3,8 @@ import { writeFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * P-07 (spec §3): tab switch < 50 ms. Measured from the keydown to the next painted frame, on
- * the mock backend with a production build. A switch calls no backend command for its content
+ * P-07 (spec §3): tab switch < 50 ms, over three query tabs and two table tabs (M2). Measured
+ * from the keydown to the next painted frame, on the mock backend with a production build. A switch calls no backend command for its content
  * (connection states are pushed by events); it saves the tab state (`save_tabs`), asynchronously.
  */
 
@@ -33,38 +33,56 @@ async function openThreeTabs(page: Page) {
   );
 }
 
-/** Switches tabs `count` times with ⌃1/⌃2/⌃3 and returns each duration in ms. */
+/** Two table tabs of `local postgres` (connected by `openThreeTabs`), from the palette. */
+async function openTwoTableTabs(page: Page) {
+  for (const table of ['shop.orders', 'shop.customers']) {
+    await page.keyboard.press('Control+K');
+    await page.keyboard.insertText(table);
+    await expect(page.getByRole('option').first()).toContainText(table);
+    await page.keyboard.press('Shift+Enter');
+    await expect(page.getByRole('grid', { name: `Rows of ${table}` })).toBeVisible();
+    await expect(page.getByTestId('table-range')).toContainText('Rows 1–');
+  }
+  await expect(page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab')).toHaveCount(TABS);
+}
+
+const TABS = 5;
+
+/** Switches tabs `count` times with ⌃1 to ⌃5 and returns each duration in ms. */
 function measureSwitches(page: Page, count: number): Promise<number[]> {
-  return page.evaluate(async (count) => {
-    const nextFrame = () =>
-      new Promise<void>((resolve) => {
-        // rAF runs before the paint; the message after it runs once the frame is painted.
-        requestAnimationFrame(() => {
-          const channel = new MessageChannel();
-          channel.port1.onmessage = () => {
-            resolve();
-          };
-          channel.port2.postMessage(null);
+  return page.evaluate(
+    async ([count, tabs]) => {
+      const nextFrame = () =>
+        new Promise<void>((resolve) => {
+          // rAF runs before the paint; the message after it runs once the frame is painted.
+          requestAnimationFrame(() => {
+            const channel = new MessageChannel();
+            channel.port1.onmessage = () => {
+              resolve();
+            };
+            channel.port2.postMessage(null);
+          });
         });
-      });
-    const durations: number[] = [];
-    for (let i = 0; i < count; i++) {
-      const digit = String((i % 3) + 1);
-      await nextFrame();
-      const start = performance.now();
-      window.dispatchEvent(
-        new KeyboardEvent('keydown', { key: digit, code: `Digit${digit}`, ctrlKey: true }),
-      );
-      await nextFrame();
-      durations.push(performance.now() - start);
-      const selected = document.querySelector('[role="tab"][aria-selected="true"]');
-      const panel = document.getElementById('tab-panel');
-      if (!selected || panel?.getAttribute('aria-labelledby') !== selected.id) {
-        throw new Error(`tab ${digit} not shown after the switch`);
+      const durations: number[] = [];
+      for (let i = 0; i < count; i++) {
+        const digit = String((i % tabs) + 1);
+        await nextFrame();
+        const start = performance.now();
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: digit, code: `Digit${digit}`, ctrlKey: true }),
+        );
+        await nextFrame();
+        durations.push(performance.now() - start);
+        const selected = document.querySelector('[role="tab"][aria-selected="true"]');
+        const panel = document.getElementById('tab-panel');
+        if (!selected || panel?.getAttribute('aria-labelledby') !== selected.id) {
+          throw new Error(`tab ${digit} not shown after the switch`);
+        }
       }
-    }
-    return durations;
-  }, count);
+      return durations;
+    },
+    [count, TABS] as const,
+  );
 }
 
 function stats(durations: number[]) {
@@ -79,9 +97,10 @@ test.use({ colorScheme: 'dark', locale: 'en-US' });
 test('P-07 tab switch stays under 50 ms', async ({ page }) => {
   await page.goto('/');
   await openThreeTabs(page);
+  await openTwoTableTabs(page);
   await page.screenshot({ path: test.info().outputPath('tabs.png') });
   // Warm-up: first mounts of each view.
-  await measureSwitches(page, 6);
+  await measureSwitches(page, 10);
 
   const normal = stats(await measureSwitches(page, SWITCHES));
 
