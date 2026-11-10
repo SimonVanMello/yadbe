@@ -361,11 +361,34 @@ export function DataGrid({
     });
   }, [paint, fittedWidth, widenToLoaded, nullText]);
 
+  // A font preference changed under a grid on screen: the columns the user did not size follow.
+  const refit = useRef<(m: GridMetrics) => void>(() => undefined);
+  useEffect(() => {
+    refit.current = (m) => {
+      setWidths((all) =>
+        all.map((width, dataCol) => {
+          const column = source.columns[dataCol];
+          if (resized.current.has(dataCol) || !column) return width;
+          return fitted.current
+            ? fittedWidth(dataCol, m)
+            : initialWidth(
+                column.kind,
+                m.headerWidth(column.name, column.typeName, column.readOnlyReason ? 1 : 0),
+                m,
+              );
+        }),
+      );
+    };
+  }, [source, fittedWidth]);
+
   // Sizes come from the theme's tokens and the loaded fonts: read them from the DOM.
   useLayoutEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
     const read = readGridMetrics(el);
+    const fontsOf = (m: GridMetrics) =>
+      `${String(m.charWidth)} ${String(m.headerWidth('id', 'int'))}`;
+    let fonts = fontsOf(read);
     extents.current = createExtents(source.columns.length);
     setMetrics(read);
     const saved = initialLayoutRef.current;
@@ -392,13 +415,19 @@ export function DataGrid({
       setOrder([...known, ...rest]);
     }
     let live = true;
-    void document.fonts.ready.then(() => {
-      if (live && scrollerRef.current) setMetrics(readGridMetrics(scrollerRef.current));
-    });
-    // The density preference changes the row height tokens.
-    const observer = new MutationObserver(() => {
-      if (scrollerRef.current) setMetrics(readGridMetrics(scrollerRef.current));
-    });
+    const reread = () => {
+      if (!live || !scrollerRef.current) return;
+      const next = readGridMetrics(scrollerRef.current);
+      setMetrics(next);
+      const nextFonts = fontsOf(next);
+      if (nextFonts !== fonts) {
+        fonts = nextFonts;
+        refit.current(next);
+      }
+    };
+    void document.fonts.ready.then(reread);
+    // The density and font preferences change the row height and font tokens.
+    const observer = new MutationObserver(reread);
     observer.observe(document.documentElement, { attributeFilter: ['data-density', 'style'] });
     return () => {
       live = false;

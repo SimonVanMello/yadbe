@@ -475,6 +475,11 @@ fn classify_connect(err: &TdsError, target: &ConnectTarget) -> YadbeError {
         .unwrap_or_else(|| YadbeError::query_failed(token.to_string())),
         TdsError::Tls(message) => YadbeError::tls_failed().with_detail(message),
         TdsError::Io { kind, message } => {
+            // The handshake bound's message names TLS and the handshake: a timeout first.
+            if *kind == std::io::ErrorKind::TimedOut {
+                return YadbeError::connection_timeout(&target.host, timeout_secs(target))
+                    .with_detail(message);
+            }
             let lower = message.to_ascii_lowercase();
             if lower.contains("certificate") || lower.contains("tls") || lower.contains("handshake")
             {
@@ -538,5 +543,43 @@ mod tests {
         assert_eq!(split_instance("sql\\PROD"), ("sql", Some("PROD")));
         assert_eq!(split_instance("sql"), ("sql", None));
         assert_eq!(split_instance("sql\\"), ("sql", None));
+    }
+
+    #[test]
+    fn a_stalled_handshake_is_a_timeout_not_a_tls_failure() {
+        use crate::db::config::{AuthMethod, ConnectionDefinition, Environment, TlsMode};
+        use crate::db::errors::ErrorCode;
+        let target = ConnectionDefinition {
+            name: "silent".into(),
+            engine: Engine::Mssql,
+            host: "127.0.0.1".into(),
+            port: Some(55999),
+            database: String::new(),
+            username: "sa".into(),
+            file_path: String::new(),
+            auth: AuthMethod::Password,
+            tls_mode: TlsMode::Prefer,
+            ca_cert_path: None,
+            connect_timeout_secs: Some(3),
+            options: Vec::new(),
+            group_id: None,
+            environment: Environment::default(),
+            favorite: false,
+            read_only: false,
+            remember_password: false,
+            history_enabled: true,
+        }
+        .target();
+        // tiberius' handshake bound names "TLS negotiation" and "handshake" in its message.
+        let err = TdsError::Io {
+            kind: std::io::ErrorKind::TimedOut,
+            message: "the connection handshake (prelogin, TLS negotiation and login) did not \
+                      complete within 3s"
+                .into(),
+        };
+        assert_eq!(
+            classify_connect(&err, &target).code,
+            ErrorCode::ConnectionTimeout
+        );
     }
 }
