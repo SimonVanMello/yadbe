@@ -28,6 +28,9 @@ const PING_SQL: &str = "SELECT 1";
 /// Second lock of a read-only connection, after the read-only open: also covers the
 /// temporary database.
 const QUERY_ONLY_SQL: &str = "PRAGMA query_only = ON";
+/// SQLite leaves foreign keys unenforced unless each connection asks: an editor must keep the
+/// constraints the schema declares, as the other engines do.
+const FOREIGN_KEYS_SQL: &str = "PRAGMA foreign_keys = ON";
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct SqliteDriver;
@@ -87,6 +90,15 @@ impl Driver for SqliteDriver {
                     |_| Some(1),
                     || {
                         conn.query_row(CHECK_SQL, [], |row| row.get::<_, i64>(0))
+                            .map_err(|e| classify(&e, &path))
+                    },
+                )?;
+                recorded_sync(
+                    &*recorder,
+                    FOREIGN_KEYS_SQL,
+                    |_| None,
+                    || {
+                        conn.execute_batch(FOREIGN_KEYS_SQL)
                             .map_err(|e| classify(&e, &path))
                     },
                 )?;

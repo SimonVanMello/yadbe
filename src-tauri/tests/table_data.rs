@@ -858,20 +858,21 @@ async fn constraints(b: &Bench, conn: &str, fx: &Fixture) {
     assert_eq!(violation.kind, ConstraintKind::NotNull);
     assert_eq!(violation.column.as_deref(), Some("sku"));
 
-    // Foreign keys are enforced by the server engines (SQLite only with a pragma).
+    // Enforced on SQLite too: the driver turns `foreign_keys` on for every connection.
+    let child = open(b, conn, fx.table("child"), "child").await;
+    let fk = child
+        .failed(inserts(vec![insert(&[
+            ("id", int(1)),
+            ("item_id", int(999_999)),
+        ])]))
+        .await;
+    let violation = fk.violation.expect("violation");
+    assert_eq!(violation.kind, ConstraintKind::ForeignKey);
     if fx.engine != Engine::Sqlite {
-        let child = open(b, conn, fx.table("child"), "child").await;
-        let fk = child
-            .failed(inserts(vec![insert(&[
-                ("id", int(1)),
-                ("item_id", int(999_999)),
-            ])]))
-            .await;
-        let violation = fk.violation.expect("violation");
-        assert_eq!(violation.kind, ConstraintKind::ForeignKey);
+        // SQLite's message does not name the constraint.
         assert_eq!(violation.name.as_deref(), Some("child_item_fkey"));
-        b.tables.close("child").await;
     }
+    b.tables.close("child").await;
     let row = tab.row(vec![id]).await.expect("row");
     assert_eq!(row[tab.col("qty")], int(1));
     b.tables.close("items").await;

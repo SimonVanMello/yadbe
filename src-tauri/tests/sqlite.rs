@@ -167,6 +167,7 @@ async fn manager_opens_logs_and_closes_a_saved_connection() {
         sqls,
         vec![
             "PRAGMA schema_version",
+            "PRAGMA foreign_keys = ON",
             "SELECT sqlite_version()",
             "SELECT count(*) FROM items"
         ]
@@ -176,7 +177,7 @@ async fn manager_opens_logs_and_closes_a_saved_connection() {
             .all(|e| e.connection_id.as_deref() == Some(saved.id.as_str()))
     );
     assert!(matches!(
-        log[2].outcome,
+        log[3].outcome,
         StatementOutcome::Ok { rows: Some(1.0) }
     ));
     assert!(
