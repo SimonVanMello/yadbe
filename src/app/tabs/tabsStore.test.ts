@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   CLOSED_TABS_KEPT,
   createTabsStore,
+  setCloseGuard,
   selectActiveTab,
   toSavedTabs,
   type SavedTabs,
@@ -192,5 +193,78 @@ describe('persistence', () => {
     const before = ids();
     state().hydrate({ tabs: [], activeTabId: null });
     expect(ids()).toEqual(before);
+  });
+});
+
+describe('the close guard', () => {
+  afterEach(() => {
+    setCloseGuard(null);
+  });
+
+  it('keeps the tabs when it says no, and closes them when it says yes', () => {
+    const a = state().openQueryTab('c1');
+    setCloseGuard(() => false);
+    state().closeTab(a);
+    expect(ids()).toContain(a);
+    setCloseGuard(() => true);
+    state().closeTab(a);
+    expect(ids()).not.toContain(a);
+  });
+
+  it('is asked about every tab of a group close', () => {
+    const asked: string[][] = [];
+    const a = state().openQueryTab('c1');
+    const b = state().openQueryTab('c1');
+    setCloseGuard((closing) => {
+      asked.push([...closing]);
+      return true;
+    });
+    state().closeOtherTabs(a);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain(b);
+  });
+
+  it('waits for the user when it answers later', async () => {
+    const a = state().openQueryTab('c1');
+    let answer: (allowed: boolean) => void = () => undefined;
+    setCloseGuard(
+      () =>
+        new Promise<boolean>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    state().closeTab(a);
+    expect(ids()).toContain(a);
+    answer(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ids()).not.toContain(a);
+  });
+
+  it('does not stop the closing of tabs whose connection was deleted', () => {
+    const a = state().openQueryTab('c1');
+    setCloseGuard(() => false);
+    state().closeConnectionTabs('c1');
+    expect(ids()).not.toContain(a);
+  });
+});
+
+describe('reopening a closed tab', () => {
+  it('brings it back under its own id, so what the editor kept for it is found again', () => {
+    const a = state().openQueryTab('c1');
+    state().closeTab(a);
+    expect(state().reopenClosedTab()).toBe(a);
+  });
+
+  it('takes a new id when the old one is in use', () => {
+    const a = state().openQueryTab('c1');
+    state().closeTab(a);
+    state().hydrate({
+      tabs: [{ id: a, connectionId: 'c2', ordinal: 5, pinned: false }],
+      activeTabId: a,
+    });
+    const reopened = state().reopenClosedTab();
+    expect(reopened).not.toBeNull();
+    expect(reopened).not.toBe(a);
   });
 });

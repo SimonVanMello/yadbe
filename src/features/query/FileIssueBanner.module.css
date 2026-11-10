@@ -1,0 +1,21 @@
+.banner {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--bg-panel);
+  color: var(--fg-primary);
+  font-size: var(--text-sm);
+}
+
+.banner svg {
+  color: var(--warning);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

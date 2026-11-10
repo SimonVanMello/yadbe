@@ -24,6 +24,8 @@ async function openFromSidebar(page: Page, name: string) {
 }
 
 const tab = (page: Page, name: string | RegExp) => page.getByRole('tab', { name });
+// The tabs of the title bar only: a query tab's results area has sub-tabs of its own.
+const strip = (page: Page) => page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab');
 const newConnection = (page: Page) =>
   page.getByRole('button', { name: 'New connection' }).first().click();
 
@@ -275,12 +277,12 @@ test.describe('tabs', () => {
     await page.mouse.down();
     await page.mouse.move(first.x + 8, first.y + first.height / 2, { steps: 8 });
     await page.mouse.up();
-    await expect(page.getByRole('tab').first()).toContainText('Query 2');
+    await expect(strip(page).first()).toContainText('Query 2');
     // Cmd/Ctrl+W closes the active tab, and Cmd/Ctrl+Shift+T brings it back.
     await page.keyboard.press('Control+w');
-    await expect(page.getByRole('tab')).toHaveCount(1);
+    await expect(strip(page)).toHaveCount(1);
     await page.keyboard.press('Control+Shift+t');
-    await expect(page.getByRole('tab')).toHaveCount(2);
+    await expect(strip(page)).toHaveCount(2);
     await expect(tab(page, /Query 2/)).toHaveAttribute('aria-selected', 'true');
     // The close button of a tab.
     await tab(page, /Query 1/)
@@ -306,7 +308,7 @@ test.describe('tabs', () => {
     await tab(page, /Query 1/).click();
     await expect(tab(page, /Query 1/)).toHaveAttribute('aria-selected', 'true');
     await page.reload();
-    await expect(page.getByRole('tab')).toHaveCount(2);
+    await expect(strip(page)).toHaveCount(2);
     await expect(tab(page, /Query 1/)).toHaveAttribute('aria-selected', 'true');
     await expect(tab(page, /Query 2/)).toBeVisible();
     // The restored tab shows its connection, which reconnects on demand.
