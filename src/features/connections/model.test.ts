@@ -4,9 +4,11 @@ import type { EngineInfo, ParsedConnectionString, SavedConnection } from '../../
 import { MOCK_CONNECTIONS, MOCK_ENGINES, blankDefinition } from '../../ipc/mockData';
 import {
   applyParsed,
+  defaultTlsMode,
   draftFromSaved,
   emptyDraft,
   looksLikeConnectionString,
+  patchDraft,
   secretOf,
   suggestedName,
   summarize,
@@ -72,6 +74,59 @@ describe('withEngine', () => {
   it('is the identity for the same engine', () => {
     const draft = emptyDraft(postgres);
     expect(withEngine(draft, postgres, postgres)).toBe(draft);
+  });
+});
+
+describe('TLS mode of a new connection (SPEC §9)', () => {
+  it('is verify-full for a remote host and prefer on this machine', () => {
+    expect(defaultTlsMode('localhost')).toBe('prefer');
+    expect(defaultTlsMode('127.0.0.1')).toBe('prefer');
+    expect(defaultTlsMode('[::1]')).toBe('prefer');
+    expect(defaultTlsMode('/var/run/postgresql')).toBe('prefer');
+    expect(defaultTlsMode('db.example.com')).toBe('verifyFull');
+    expect(defaultTlsMode('10.0.0.5')).toBe('verifyFull');
+  });
+
+  it('follows the host while the user has not chosen a mode', () => {
+    const draft = emptyDraft(postgres);
+    expect(draft.tlsMode).toBe('prefer');
+    const remote = patchDraft(draft, { host: 'db.example.com' });
+    expect(remote.tlsMode).toBe('verifyFull');
+    expect(patchDraft(remote, { host: 'localhost' }).tlsMode).toBe('prefer');
+  });
+
+  it('stays as chosen once the user picks a mode', () => {
+    const chosen = patchDraft(emptyDraft(postgres), { tlsMode: 'require' });
+    expect(patchDraft(chosen, { host: 'db.example.com' })).toMatchObject({
+      tlsMode: 'require',
+      tlsModeAuto: false,
+    });
+  });
+
+  it('never changes the mode of a saved connection', () => {
+    const saved = draftFromSaved(MOCK_CONNECTIONS[0] as SavedConnection);
+    const moved = patchDraft(saved, { host: 'db.example.com' });
+    expect(moved.tlsMode).toBe(saved.tlsMode);
+  });
+
+  it('follows the host of a pasted string unless the string states a mode', () => {
+    const remote = applyParsed(
+      emptyDraft(postgres),
+      { ...NOTHING, host: 'db.example.com' },
+      MOCK_ENGINES,
+    );
+    expect(remote).toMatchObject({ tlsMode: 'verifyFull', tlsModeAuto: true });
+    const stated = applyParsed(
+      emptyDraft(postgres),
+      { ...NOTHING, host: 'db.example.com', tlsMode: 'disable' },
+      MOCK_ENGINES,
+    );
+    expect(stated).toMatchObject({ tlsMode: 'disable', tlsModeAuto: false });
+  });
+
+  it('follows the host when the engine changes', () => {
+    const remote = patchDraft(emptyDraft(postgres), { host: 'db.example.com' });
+    expect(withEngine(remote, mssql, postgres).tlsMode).toBe('verifyFull');
   });
 });
 

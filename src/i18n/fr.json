@@ -203,6 +203,7 @@
   "connection.tls.prefer.hint": "Chiffre si le serveur le permet, sans vérifier son certificat.",
   "connection.tls.require.hint": "Refuse de se connecter sans chiffrement, sans vérifier le certificat.",
   "connection.tls.verifyFull.hint": "Chiffre et vérifie le certificat et le nom du serveur.",
+  "connection.tls.remoteDefault.hint": "Chiffre et vérifie le certificat et le nom du serveur : le mode par défaut pour un hôte distant. N’en choisissez un autre que sur un réseau de confiance.",
   "connection.file": "Fichier de base de données",
   "connection.file.hint": "Chemin d’un fichier SQLite existant. yadbe n’en crée jamais, pour qu’une faute de frappe ne laisse pas de base vide derrière elle.",
   "connection.file.browse": "Parcourir…",

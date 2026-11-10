@@ -15,6 +15,7 @@ import { SqliteFields } from './SqliteFields';
 import {
   ENVIRONMENTS,
   suggestedName,
+  patchDraft,
   withEngine,
   type ConnectionDraft,
   type ConnectionGroup,
@@ -50,7 +51,7 @@ export function ConnectionForm({
   const t = useT();
   const id = useId();
   const patch = (changes: Partial<ConnectionDraft>) => {
-    onChange({ ...draft, ...changes });
+    onChange(patchDraft(draft, changes));
   };
   const info = engines.find((candidate) => candidate.engine === draft.engine);
 

@@ -203,6 +203,7 @@
   "connection.tls.prefer.hint": "Encrypts when the server supports it, without checking its certificate.",
   "connection.tls.require.hint": "Refuses to connect without encryption, without checking the certificate.",
   "connection.tls.verifyFull.hint": "Encrypts and checks the certificate and the server name.",
+  "connection.tls.remoteDefault.hint": "Encrypts and checks the certificate and the server name: the default for a remote host. Choose another mode only if you trust the network.",
   "connection.file": "Database file",
   "connection.file.hint": "Path of an existing SQLite file. yadbe never creates one, so a typo cannot leave an empty database behind.",
   "connection.file.browse": "Browse…",

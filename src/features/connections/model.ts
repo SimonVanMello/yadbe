@@ -122,6 +122,11 @@ export interface ConnectionDraft {
   pendingPasswordId: string | null;
   rememberPassword: boolean;
   tlsMode: TlsMode;
+  /**
+   * The TLS mode still follows the host (new connection, mode not chosen by the user nor stated
+   * by a pasted string): `verifyFull` for a remote host, `prefer` on this machine (SPEC §9).
+   */
+  tlsModeAuto: boolean;
   groupId: string | null;
   environment: EnvironmentKind;
   environmentLabel: string;
@@ -152,6 +157,7 @@ export function emptyDraft(info: EngineInfo): ConnectionDraft {
     pendingPasswordId: null,
     rememberPassword: true,
     tlsMode: 'prefer',
+    tlsModeAuto: true,
     groupId: null,
     environment: 'none',
     environmentLabel: '',
@@ -181,6 +187,8 @@ export function draftFromSaved(saved: SavedConnection): ConnectionDraft {
     pendingPasswordId: null,
     rememberPassword: definition.rememberPassword,
     tlsMode: definition.tlsMode,
+    // A saved connection keeps the mode it was saved with, whatever its host.
+    tlsModeAuto: false,
     groupId: definition.groupId,
     environment: definition.environment.kind,
     environmentLabel: definition.environment.label ?? '',
@@ -192,6 +200,39 @@ export function draftFromSaved(saved: SavedConnection): ConnectionDraft {
     connectTimeoutSecs: definition.connectTimeoutSecs,
     options: definition.options,
   };
+}
+
+/** Same rule as the backend's `TlsMode::default_for_host` (SPEC §9). */
+export function isLocalHost(host: string): boolean {
+  const value = host.trim().replace(/^\[/, '').replace(/\]$/, '');
+  return (
+    value === '' ||
+    value.toLowerCase() === 'localhost' ||
+    value.startsWith('/') ||
+    value === '::1' ||
+    value.startsWith('127.')
+  );
+}
+
+/** The TLS mode a new connection to `host` starts with: certificate checks for a remote host. */
+export function defaultTlsMode(host: string): TlsMode {
+  return isLocalHost(host) ? 'prefer' : 'verifyFull';
+}
+
+/**
+ * Applies a change made in the form. Choosing a TLS mode fixes it; changing the host of a draft
+ * whose mode still follows the host moves the mode along.
+ */
+export function patchDraft(
+  draft: ConnectionDraft,
+  changes: Partial<ConnectionDraft>,
+): ConnectionDraft {
+  const next = { ...draft, ...changes };
+  if (changes.tlsMode !== undefined) return { ...next, tlsModeAuto: false };
+  if (changes.host !== undefined && next.tlsModeAuto) {
+    return { ...next, tlsMode: defaultTlsMode(next.host) };
+  }
+  return next;
 }
 
 /** Name suggested when the user left the field empty. */
@@ -257,16 +298,17 @@ export function withEngine(
   const portIsDefault =
     draft.port === '' || (from?.defaultPort !== null && draft.port === String(from?.defaultPort));
   const userIsDefault = draft.username === '' || draft.username === previous?.defaultUsername;
+  const host = to.usesFile ? '' : draft.host === '' ? 'localhost' : draft.host;
   return {
     ...draft,
     engine: next.engine,
     port: to.defaultPort === null ? '' : portIsDefault ? String(to.defaultPort) : draft.port,
-    host: to.usesFile ? '' : draft.host === '' ? 'localhost' : draft.host,
+    host,
     filePath: to.usesFile ? draft.filePath : '',
     username: to.usesFile ? '' : userIsDefault ? (next.defaultUsername ?? '') : draft.username,
     password: to.usesFile ? '' : draft.password,
     pendingPasswordId: to.usesFile ? null : draft.pendingPasswordId,
-    tlsMode: to.supportsTls ? draft.tlsMode : 'prefer',
+    tlsMode: !to.supportsTls ? 'prefer' : draft.tlsModeAuto ? defaultTlsMode(host) : draft.tlsMode,
   };
 }
 
@@ -284,14 +326,17 @@ export function applyParsed(
   const next = engines.find((info) => info.engine === (parsed.engine ?? draft.engine));
   const base = next ? withEngine(draft, next, previous) : draft;
   const file = next?.capabilities.usesFile ?? false;
+  const host = parsed.host ?? base.host;
+  const tlsModeAuto = base.tlsModeAuto && parsed.tlsMode === null;
   return {
     ...base,
-    host: parsed.host ?? base.host,
+    host,
     port: file ? '' : parsed.port === null ? base.port : String(parsed.port),
     database: parsed.database ?? base.database,
     username: parsed.username ?? base.username,
     filePath: parsed.filePath ?? base.filePath,
-    tlsMode: parsed.tlsMode ?? base.tlsMode,
+    tlsMode: parsed.tlsMode ?? (tlsModeAuto && !file ? defaultTlsMode(host) : base.tlsMode),
+    tlsModeAuto,
     caCertPath: parsed.caCertPath ?? base.caCertPath,
     options: parsed.options.length > 0 ? parsed.options : base.options,
     // A password in the string is held by the backend; a password typed before is replaced.

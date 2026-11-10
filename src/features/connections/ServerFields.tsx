@@ -161,7 +161,11 @@ export function ServerFields({
         <Field
           label={t('connection.tls')}
           htmlFor={`${id}-tls`}
-          hint={t(`connection.tls.${draft.tlsMode}.hint`)}
+          hint={
+            draft.tlsModeAuto && draft.tlsMode === 'verifyFull'
+              ? t('connection.tls.remoteDefault.hint')
+              : t(`connection.tls.${draft.tlsMode}.hint`)
+          }
         >
           <Select
             id={`${id}-tls`}
