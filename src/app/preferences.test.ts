@@ -48,11 +48,9 @@ describe('frontend-owned ui state', () => {
   });
 
   it('survives writes that overlap', async () => {
-    await Promise.all([
-      saveUiSlice('a', 1),
-      saveUiSlice('b', 2),
-      Promise.resolve(savePreferences({ locale: 'en' })),
-    ]);
+    const slices = Promise.all([saveUiSlice('a', 1), saveUiSlice('b', 2)]);
+    savePreferences({ locale: 'en' });
+    await slices;
     expect(await loadUiSlice('a')).toBe(1);
     expect(await loadUiSlice('b')).toBe(2);
     await expect.poll(async () => (await stored()).locale).toBe('en');
