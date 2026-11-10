@@ -7,9 +7,11 @@ import {
   ALIAS_BINDINGS,
   DEFAULT_BINDINGS,
   findAction,
+  findActions,
   registerActions,
   runAction,
   shortcutFor,
+  TAB_SCOPES,
   type ActionId,
 } from './actions';
 
@@ -34,16 +36,31 @@ describe('shortcut table', () => {
     [DEFAULT_BINDINGS[id], ...(ALIAS_BINDINGS[id] ?? [])].map((shortcut) => ({ id, shortcut })),
   );
 
-  it('gives no combination to two actions, aliases included', () => {
-    const seen = new Map<string, string>();
+  it('gives no combination to two actions, aliases included, but across tab kinds', () => {
+    const scopeOf = (id: string) => TAB_SCOPES.find((scope) => id.startsWith(scope)) ?? null;
+    const seen = new Map<string, string[]>();
     for (const { id, shortcut } of bound) {
       const normalized = shortcut.toLowerCase();
-      expect(
-        seen.has(normalized),
-        `${shortcut} (${id}) is also ${seen.get(normalized) ?? ''}`,
-      ).toBe(false);
-      seen.set(normalized, id);
+      const others = seen.get(normalized) ?? [];
+      // `query.save` and `table.apply` share `Mod+S`: only one kind of tab is active at a time.
+      const clash = others.find(
+        (other) => scopeOf(other) === null || scopeOf(other) === scopeOf(id),
+      );
+      expect(clash, `${shortcut} (${id}) is also ${clash ?? ''}`).toBeUndefined();
+      seen.set(normalized, [...others, id]);
     }
+  });
+
+  it('runs the next action bound to a key when the first does not apply', () => {
+    const save = vi.fn(() => false);
+    const apply = vi.fn();
+    const off = registerActions({ 'query.save': save, 'table.apply': apply });
+    const event = key({ key: 's', code: 'KeyS', ctrlKey: true });
+    expect(findActions(event)).toEqual(['query.save', 'table.apply']);
+    expect(runAction('query.save')).toBe(false);
+    expect(runAction('table.apply')).toBe(true);
+    expect(apply).toHaveBeenCalledOnce();
+    off();
   });
 
   it('avoids the combinations an OS keeps for itself', () => {
@@ -85,9 +102,12 @@ describe('action labels', () => {
 });
 
 describe('default bindings', () => {
-  it('never give two actions the same shortcut', () => {
-    const shortcuts = Object.values(DEFAULT_BINDINGS);
+  it('never give two actions the same shortcut, but Save and Apply (query and table tabs)', () => {
+    const shortcuts = Object.entries(DEFAULT_BINDINGS)
+      .filter(([id]) => id !== 'table.apply')
+      .map(([, shortcut]) => shortcut);
     expect(new Set(shortcuts).size).toBe(shortcuts.length);
+    expect(DEFAULT_BINDINGS['table.apply']).toBe(DEFAULT_BINDINGS['query.save']);
   });
 
   it('cover the tab shortcuts of F-122: ⌘T, ⌘W, ⌘1…9 and ⌃Tab', () => {

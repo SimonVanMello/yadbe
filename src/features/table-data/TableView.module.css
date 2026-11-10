@@ -1,0 +1,241 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-panel);
+}
+
+.gridArea {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.gridArea > :last-child {
+  flex: 1;
+  min-height: 0;
+}
+
+.placeholder {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  height: 100%;
+  padding: var(--space-6);
+  overflow: auto;
+  background: var(--bg-app);
+  color: var(--fg-primary);
+  text-align: center;
+}
+
+.placeholderTitle {
+  margin: 0;
+  font-family: var(--font-code);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.placeholderText {
+  margin: 0;
+  color: var(--fg-secondary);
+  font-size: var(--text-md);
+}
+
+.warning {
+  color: var(--warning);
+}
+
+.errorIcon {
+  color: var(--danger);
+}
+
+.errorStrip {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--danger-soft);
+  font-size: var(--text-sm);
+}
+
+/* Why the rows cannot be changed (F-086). */
+.readOnly {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+}
+
+.readOnly svg {
+  color: var(--warning);
+}
+
+.readOnlyText strong {
+  color: var(--fg-primary);
+  font-weight: var(--weight-semibold);
+}
+
+/* Pages, count and refresh, above the rows. */
+.strip {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--grid-footer-height);
+  padding: var(--space-1) var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--fg-secondary);
+  font-size: var(--text-xs);
+}
+
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.range {
+  min-width: var(--progress-width);
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.pageSize {
+  width: auto;
+}
+
+.pageSize select {
+  height: var(--control-height-sm);
+  font-size: var(--text-xs);
+}
+
+.separator {
+  align-self: center;
+  width: var(--border-width);
+  height: var(--space-5);
+  background: var(--border-subtle);
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.loading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.stale {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--info);
+}
+
+.muted {
+  color: var(--fg-muted);
+}
+
+.pendingBadge {
+  display: inline-flex;
+  align-items: center;
+  height: var(--badge-size);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--cell-modified-bg);
+  color: var(--cell-modified);
+  font-weight: var(--weight-semibold);
+}
+
+/* A rolled-back apply: what failed, and what to do. */
+.failure {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: var(--space-3);
+  max-height: var(--palette-list-max-height);
+  padding: var(--space-3) var(--space-4);
+  overflow: auto;
+  border-top: var(--border-width) solid var(--danger);
+  background: var(--danger-soft);
+  color: var(--fg-primary);
+  font-size: var(--text-sm);
+}
+
+.failureIcon {
+  margin-top: var(--space-0);
+  color: var(--danger);
+}
+
+.failureText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.failureText p {
+  margin: 0;
+}
+
+.failureTitle {
+  font-weight: var(--weight-semibold);
+}
+
+.failureMessage {
+  overflow-wrap: anywhere;
+}
+
+.failureDetail {
+  color: var(--fg-secondary);
+}
+
+.failureDetail code,
+.failureSql {
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+}
+
+.failureSql {
+  display: block;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.failureActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

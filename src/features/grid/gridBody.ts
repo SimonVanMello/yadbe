@@ -2,7 +2,7 @@ import type { ValueKind } from '../../ipc';
 import { describeCell } from './cellDisplay';
 import { isNumericKind } from './cellJson';
 import type { Range } from './gridMath';
-import type { RowBlock, RowSource } from './rowSource';
+import type { EditState, RowBlock, RowSource } from './rowSource';
 import { isCellSelected, rowTouched, type Selection } from './selection';
 
 /**
@@ -46,6 +46,8 @@ export interface BodyClasses {
 export interface BodyLabels {
   null: string;
   empty: string;
+  /** Shown instead of NULL in a cell the server will fill in (a new row's default). */
+  default?: string;
 }
 
 interface CellView {
@@ -61,6 +63,9 @@ interface CellView {
   truncated: boolean;
   selected: boolean | null;
   focused: boolean;
+  /** Pending-change state shown (`data-state`) and hover text, for table editing. */
+  state: EditState | null;
+  title: string | null;
 }
 
 interface RowView {
@@ -72,6 +77,8 @@ interface RowView {
   block: RowBlock | undefined | null;
   loading: boolean | null;
   touched: boolean | null;
+  /** Pending-change state of the row (`data-state` on the row and its number). */
+  state: EditState | null;
   layout: BodyLayout | null;
   cells: Map<number, CellView>;
   spare: CellView[];
@@ -113,7 +120,13 @@ export class GridBody {
   }
 
   setLabels(labels: BodyLabels): void {
-    if (labels.null === this.labels.null && labels.empty === this.labels.empty) return;
+    if (
+      labels.null === this.labels.null &&
+      labels.empty === this.labels.empty &&
+      labels.default === this.labels.default
+    ) {
+      return;
+    }
     this.labels = labels;
     // Repaint the NULL / empty markers in the new language.
     for (const view of this.active.values()) view.block = null;
@@ -220,6 +233,7 @@ export class GridBody {
       block: null,
       loading: null,
       touched: null,
+      state: null,
       layout: null,
       cells: new Map(),
       spare: [],
@@ -252,6 +266,17 @@ export class GridBody {
     if (loading !== view.loading) {
       view.loading = loading;
       view.el.toggleAttribute('data-loading', loading);
+    }
+    const rowState = block?.rowStates?.[view.row - block.offset] ?? null;
+    if (rowState !== view.state) {
+      view.state = rowState;
+      if (rowState) {
+        view.el.setAttribute('data-state', rowState);
+        view.gutter.setAttribute('data-state', rowState);
+      } else {
+        view.el.removeAttribute('data-state');
+        view.gutter.removeAttribute('data-state');
+      }
     }
     const touched = rowTouched(selection, view.row);
     if (touched !== view.touched) {
@@ -333,6 +358,8 @@ export class GridBody {
       truncated: false,
       selected: null,
       focused: false,
+      state: null,
+      title: null,
     };
   }
 
@@ -349,6 +376,7 @@ export class GridBody {
         cell.truncated = false;
         el.removeAttribute('data-truncated');
       }
+      this.paintState(cell, null, null);
       return;
     }
     const column = block.columns[cell.dataCol];
@@ -360,6 +388,12 @@ export class GridBody {
       cell.truncated = truncated;
       el.toggleAttribute('data-truncated', truncated);
     }
+    if (column?.states || cell.state !== null) {
+      const wasDefault = cell.state === 'default';
+      this.paintState(cell, column?.states?.[index] ?? null, column?.titles?.[index] ?? null);
+      // The default marker is drawn like NULL with another word.
+      if (wasDefault !== (cell.state === 'default')) cell.text = undefined;
+    }
     if (text === cell.text && kind === cell.kind) return;
     cell.text = text;
     cell.kind = kind;
@@ -369,7 +403,8 @@ export class GridBody {
     switch (display.type) {
       case 'null':
         el.className = `${base} ${classes.null}`;
-        el.textContent = this.labels.null;
+        el.textContent =
+          cell.state === 'default' ? (this.labels.default ?? this.labels.null) : this.labels.null;
         return;
       case 'empty':
         el.className = `${base} ${classes.empty}`;
@@ -391,6 +426,20 @@ export class GridBody {
         el.replaceChildren(...nodes);
         return;
       }
+    }
+  }
+
+  /** The pending-change mark of a cell (only sources that overlay edits have one). */
+  private paintState(cell: CellView, state: EditState | null, title: string | null): void {
+    if (state !== cell.state) {
+      cell.state = state;
+      if (state) cell.el.setAttribute('data-state', state);
+      else cell.el.removeAttribute('data-state');
+    }
+    if (title !== cell.title) {
+      cell.title = title;
+      if (title === null) cell.el.removeAttribute('title');
+      else cell.el.title = title;
     }
   }
 

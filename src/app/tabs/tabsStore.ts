@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import type { ObjectRef } from '../../ipc';
+
 /** A tab of the title bar. Query tabs are placeholders until the editor lands (M1-4). */
 export interface ShellTab {
   id: string;
@@ -9,11 +11,31 @@ export interface ShellTab {
   ordinal: number;
   /** Pinned tabs come first in the strip, in their own order; welcome tabs are never pinned. */
   pinned: boolean;
+  /** Set for a table tab (F-080): the table or view whose rows it shows. */
+  table?: ObjectRef;
+}
+
+/** A table tab: bound to a connection and a table. */
+export function isTableTab(
+  tab: ShellTab,
+): tab is ShellTab & { connectionId: string; table: ObjectRef } {
+  return tab.connectionId !== null && tab.table !== undefined;
+}
+
+/** A query tab: bound to a connection, with a SQL editor. */
+export function isQueryTab(tab: ShellTab): tab is ShellTab & { connectionId: string } {
+  return tab.connectionId !== null && tab.table === undefined;
 }
 
 /** Shape written to the store and read back at startup. */
 export interface SavedTabs {
-  tabs: { id: string; connectionId: string | null; ordinal: number; pinned: boolean }[];
+  tabs: {
+    id: string;
+    connectionId: string | null;
+    ordinal: number;
+    pinned: boolean;
+    table?: ObjectRef | null;
+  }[];
   activeTabId: string | null;
 }
 
@@ -26,6 +48,7 @@ export interface ClosedTab {
   /** Position in the strip when it was closed. */
   index: number;
   pinned: boolean;
+  table?: ObjectRef;
 }
 
 /** Closed tabs remembered for "Reopen closed tab" (session only, never saved). */
@@ -43,6 +66,39 @@ export function setCloseGuard(guard: CloseGuard | null): void {
   closeGuard = guard;
 }
 
+const extraGuards = new Set<CloseGuard>();
+
+/** Another feature's guard, asked after `setCloseGuard`'s one; returns what removes it. */
+export function addCloseGuard(guard: CloseGuard): () => void {
+  extraGuards.add(guard);
+  return () => {
+    extraGuards.delete(guard);
+  };
+}
+
+/** Every guard in turn; the first refusal keeps the tabs. */
+function askGuards(ids: readonly string[]): boolean | Promise<boolean> {
+  const guards = [...(closeGuard ? [closeGuard] : []), ...extraGuards];
+  const ask = async (from: number): Promise<boolean> => {
+    for (let i = from; i < guards.length; i++) {
+      const guard = guards[i];
+      if (guard && !(await guard(ids))) return false;
+    }
+    return true;
+  };
+  // Synchronous answers stay synchronous (tabs close in the same tick when nothing asks).
+  for (const [index, guard] of guards.entries()) {
+    const verdict = guard(ids);
+    if (verdict === false) return false;
+    if (verdict !== true) {
+      // The last guard's answer is the answer (no extra wait for the tabs to close).
+      if (index === guards.length - 1) return verdict;
+      return verdict.then((allowed) => (allowed ? ask(index + 1) : false));
+    }
+  }
+  return true;
+}
+
 interface TabsStore {
   tabs: ShellTab[];
   activeTabId: string;
@@ -56,6 +112,11 @@ interface TabsStore {
   newTab: () => string;
   /** Opens a query tab bound to a connection at the end and activates it. Returns its id. */
   openQueryTab: (connectionId: string) => string;
+  /**
+   * Shows a table's rows: activates the tab already showing it, else opens a table tab (in the
+   * active tab when it is still a welcome tab). Returns its id.
+   */
+  openTableTab: (connectionId: string, table: ObjectRef) => string;
   closeTab: (id: string) => void;
   /**
    * Closes several tabs at once, remembered so that reopening brings them back in place. The
@@ -121,6 +182,7 @@ function remember(
         ordinal: tab.ordinal,
         index,
         pinned: tab.pinned,
+        ...(tab.table ? { table: tab.table } : {}),
       });
     }
   });
@@ -151,6 +213,7 @@ export function createTabsStore() {
           connectionId: tab.connectionId,
           ordinal: tab.connectionId === null ? 0 : tab.ordinal,
           pinned: tab.connectionId !== null && tab.pinned,
+          ...(tab.table && tab.connectionId !== null ? { table: tab.table } : {}),
         });
       }
       if (tabs.length === 0) return;
@@ -180,12 +243,36 @@ export function createTabsStore() {
       return tab.id;
     },
 
+    openTableTab: (connectionId, table) => {
+      const { tabs, activeTabId } = get();
+      const same = (other: ObjectRef | undefined) =>
+        !!other &&
+        other.database === table.database &&
+        other.schema === table.schema &&
+        other.name === table.name;
+      const open = tabs.find((tab) => tab.connectionId === connectionId && same(tab.table));
+      if (open) {
+        set({ activeTabId: open.id });
+        return open.id;
+      }
+      const active = tabs.find((tab) => tab.id === activeTabId);
+      if (active && active.connectionId === null) {
+        set({
+          tabs: tabs.map((tab) => (tab.id === active.id ? { ...tab, connectionId, table } : tab)),
+        });
+        return active.id;
+      }
+      const tab: ShellTab = { id: newTabId(), connectionId, ordinal: 0, pinned: false, table };
+      set({ tabs: [...tabs, tab], activeTabId: tab.id });
+      return tab.id;
+    },
+
     closeTab: (id) => {
       get().closeTabs([id]);
     },
 
     closeTabs: (ids, activateId) => {
-      const verdict = closeGuard?.(ids) ?? true;
+      const verdict = askGuards(ids);
       if (verdict === true) get().closeTabsNow(ids, activateId);
       else if (verdict !== false) {
         void verdict.then((allowed) => {
@@ -260,6 +347,7 @@ export function createTabsStore() {
         connectionId: closed.connectionId,
         ordinal: closed.ordinal,
         pinned: closed.pinned,
+        ...(closed.table ? { table: closed.table } : {}),
       };
       const pinned = pinnedCount(tabs);
       const [first, last] = closed.pinned ? [0, pinned] : [pinned, tabs.length];
@@ -334,6 +422,7 @@ export function toSavedTabs(state: Pick<TabsStore, 'tabs' | 'activeTabId'>): Sav
       connectionId: tab.connectionId,
       ordinal: tab.ordinal,
       pinned: tab.pinned,
+      ...(tab.table ? { table: tab.table } : {}),
     })),
     activeTabId: state.activeTabId,
   };

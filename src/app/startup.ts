@@ -5,13 +5,21 @@ import { startMetaFeed } from '../features/explorer/metaFeed';
 import { restoreAndPersistQueryUi, startQueryFeature } from '../features/query/queryFeature';
 import { useQueryTabStore } from '../features/query/queryTabStore';
 import { startStatementLogFeed } from '../features/statement-log/statementLogStore';
+import { startTableDataFeature } from '../features/table-data/tableFeature';
+import { useTableTabStore } from '../features/table-data/tableTabStore';
+import { restoreAndPersistTableUi } from '../features/table-data/tableUiStore';
 import { initI18n, translate, useI18nStore } from '../i18n/i18n';
 import { ipc, unwrap } from '../ipc';
 import { initTheme } from '../theme/themeStore';
 import { loadPreferences } from './backendPreferences';
 import { restoreAndPersistLayout } from './layout/layoutStore';
 import { applyStoredPreferences } from './preferences';
-import { editorsFromBackendTabs, fromBackendTabs, toBackendTabs } from './tabs/tabsPersistence';
+import {
+  editorsFromBackendTabs,
+  fromBackendTabs,
+  tablesFromBackendTabs,
+  toBackendTabs,
+} from './tabs/tabsPersistence';
 import { toSavedTabs, useTabsStore } from './tabs/tabsStore';
 
 /**
@@ -28,6 +36,7 @@ export async function restoreTabs(): Promise<void> {
     if (saved) {
       // The editors first: a tab never shows before its text is there.
       useQueryTabStore.getState().hydrate(editorsFromBackendTabs(backend));
+      useTableTabStore.getState().hydrate(tablesFromBackendTabs(backend));
       useTabsStore.getState().hydrate(saved);
     }
     tabsHydrated = true;
@@ -48,6 +57,7 @@ function saveTabsNow(): void {
         toSavedTabs(useTabsStore.getState()),
         (number) => translate(locale, 'tab.query', { number }),
         useQueryTabStore.getState().tabs,
+        useTableTabStore.getState().tabs,
       );
       const result = await ipc.commands.saveTabs(state);
       if (result.status === 'error' && !tabsSaveWarned) {
@@ -88,6 +98,12 @@ export function persistTabs(): () => void {
     clearTimeout(timer);
     timer = setTimeout(flush, EDITOR_AUTOSAVE_MS);
   });
+  // A table tab's filter, sort, page size and column widths.
+  const offTables = useTableTabStore.subscribe((state, previous) => {
+    if (state.tabs === previous.tabs || !tabsHydrated) return;
+    clearTimeout(timer);
+    timer = setTimeout(flush, EDITOR_AUTOSAVE_MS);
+  });
   // A hidden window may be about to close: do not hold the last keystrokes back.
   const onHidden = () => {
     if (document.visibilityState === 'hidden') flush();
@@ -97,6 +113,7 @@ export function persistTabs(): () => void {
   return () => {
     offTabs();
     offEditors();
+    offTables();
     document.removeEventListener('visibilitychange', onHidden);
     window.removeEventListener('pagehide', flush);
     clearTimeout(timer);
@@ -130,12 +147,14 @@ export function startup(): Promise<void> {
     void startStatementLogFeed();
     startMetaFeed();
     startQueryFeature();
+    startTableDataFeature();
     startExportFeed();
     await restorePreferences();
     await Promise.all([
       restoreAndPersistLayout(),
       restoreTabs(),
       restoreAndPersistQueryUi(),
+      restoreAndPersistTableUi(),
       restoreAndPersistExportPrefs(),
     ]);
     persistTabs();

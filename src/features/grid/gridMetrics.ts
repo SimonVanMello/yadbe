@@ -5,8 +5,8 @@ export interface GridMetrics extends WidthMetrics {
   rowHeight: number;
   headerHeight: number;
   gutterMinWidth: number;
-  /** Width a header needs to show its column name and type. */
-  headerWidth: (name: string, typeName: string) => number;
+  /** Width a header needs to show its column name and type (and `marks` icons: a lock…). */
+  headerWidth: (name: string, typeName: string, marks?: number) => number;
 }
 
 const MAX_COLUMN_WIDTH = 400;
@@ -52,12 +52,13 @@ export function readGridMetrics(el: HTMLElement): GridMetrics {
     maxWidth: MAX_COLUMN_WIDTH,
     padding,
     charWidth,
-    headerWidth: (name, typeName) => {
+    headerWidth: (name, typeName, marks = 0) => {
       const nameWidth = measure ? measure(name, headerFont) : name.length * fontSize * 0.62;
       const typeWidth = !typeName
         ? 0
         : gap + (measure ? measure(typeName, typeFont) : typeName.length * typeSize * 0.6);
-      return Math.ceil(nameWidth + typeWidth + padding);
+      const markWidth = marks * (pixels(style, '--icon-size-sm', 14) + gap);
+      return Math.ceil(nameWidth + typeWidth + markWidth + padding);
     },
   };
 }

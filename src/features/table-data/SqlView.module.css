@@ -1,0 +1,16 @@
+.view {
+  max-height: var(--palette-list-max-height);
+  overflow: auto;
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  font-size: var(--text-sm);
+}
+
+.view :global(.cm-editor) {
+  max-height: var(--palette-list-max-height);
+}
+
+.view :global(.cm-scroller) {
+  font-family: var(--font-code);
+}

@@ -1,6 +1,6 @@
 import { setCloseGuard, useTabsStore } from '../../app/tabs/tabsStore';
+import { addWindowCloseGuard } from '../../app/windowCloseGuards';
 import { ipc } from '../../ipc';
-import { nativeWindow } from '../../ipc/nativeWindow';
 import { forgetEditorState } from './SqlEditor';
 import { confirmAbandonTransaction, hasOpenTransaction } from './queryActions';
 import { useExecutionStore, startQueryFeed } from './executionStore';
@@ -59,7 +59,7 @@ export function startQueryFeature(): void {
   setCloseGuard((ids) =>
     ids.some(hasOpenTransaction) ? confirmAbandonTransaction(ids, 'close') : true,
   );
-  nativeWindow.setCloseGuard({
+  addWindowCloseGuard({
     hasWork: () => useTabsStore.getState().tabs.some((tab) => hasOpenTransaction(tab.id)),
     confirm: () =>
       confirmAbandonTransaction(

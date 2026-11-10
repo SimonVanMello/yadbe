@@ -10,6 +10,11 @@ export interface GridColumn {
   /** The engine's type name, shown in the header (may be empty). */
   typeName: string;
   kind: ValueKind;
+  /**
+   * Why the column's cells cannot be changed, shown on its header (table editing); absent:
+   * nothing to say (a result grid, or an editable column).
+   */
+  readOnlyReason?: string | null;
 }
 
 /**
@@ -21,7 +26,15 @@ export interface RowBlock {
   offset: number;
   rowCount: number;
   columns: readonly BlockColumn[];
+  /** Pending-change state of each row, when a source overlays edits (F-084). */
+  rowStates?: readonly (EditState | null)[];
 }
+
+/**
+ * How a row or a cell differs from what the server holds (table editing, F-084); `default`: a
+ * cell of a new row the server fills in.
+ */
+export type EditState = 'modified' | 'inserted' | 'deleted' | 'failed' | 'default';
 
 export interface BlockColumn {
   values: readonly (string | null)[];
@@ -29,6 +42,10 @@ export interface BlockColumn {
   kinds: readonly ValueKind[] | null;
   /** Indices (in the block) of the cells cut short: the full value needs `fullValue`. */
   truncated: readonly number[];
+  /** Pending-change state of each cell, when a source overlays edits (F-084). */
+  states?: readonly (EditState | null)[] | null;
+  /** Hover text of each cell (the value an edited cell had), when a source overlays edits. */
+  titles?: readonly (string | null)[] | null;
 }
 
 export interface RowSource {

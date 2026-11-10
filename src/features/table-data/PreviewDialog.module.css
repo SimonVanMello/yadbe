@@ -1,0 +1,44 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.target {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.targetLabel {
+  color: var(--fg-secondary);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+.prod {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--env-prod);
+  font-weight: var(--weight-semibold);
+}
+
+/* The preference sits at the start of the button row. */
+.preference {
+  margin-right: auto;
+  font-size: var(--text-sm);
+}

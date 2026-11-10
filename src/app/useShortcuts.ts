@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 
-import { findAction, runAction } from './actions';
+import { findActions, runAction } from './actions';
 
 /** True while a modal dialog is open: global shortcuts must not act behind it. */
 export function modalOpen(): boolean {
@@ -13,9 +13,13 @@ export function useShortcuts(): void {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || (event.repeat && event.key !== 'Tab')) return;
       if (modalOpen()) return;
-      const id = findAction(event);
-      if (id === null) return;
-      if (runAction(id)) event.preventDefault();
+      // Actions of different tab kinds can share a key: the first that applies runs.
+      for (const id of findActions(event)) {
+        if (runAction(id)) {
+          event.preventDefault();
+          return;
+        }
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => {

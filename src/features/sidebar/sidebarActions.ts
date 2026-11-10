@@ -33,8 +33,8 @@ export function toggleRow(row: SidebarTreeRow): void {
 }
 
 /**
- * What a double click or Enter does on a row, `false` when it does nothing there. A table opens
- * as a script for now (table tabs come with table editing).
+ * What a double click or Enter does on a row, `false` when it does nothing there. A table or a
+ * view opens its rows in a table tab.
  */
 export function openRow(row: SidebarTreeRow): boolean {
   switch (row.type) {

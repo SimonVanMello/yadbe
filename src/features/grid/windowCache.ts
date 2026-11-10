@@ -85,6 +85,12 @@ export class WindowCache {
     return this.blockMap.get(index);
   }
 
+  /** Adds a window that arrived another way (a table page comes with its first window). */
+  put(block: RowBlock): void {
+    this.blockMap.set(Math.floor(block.offset / this.windowSize), block);
+    this.notify();
+  }
+
   /** Every block in memory. */
   blocks(): IterableIterator<RowBlock> {
     return this.blockMap.values();

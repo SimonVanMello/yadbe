@@ -14,9 +14,12 @@ import {
 /** Registers what the query shortcuts do (F-041, F-042, F-045) on the active query tab. */
 export function useQueryActions(): void {
   useEffect(() => {
+    // `false` outside a query tab: a table tab's action bound to the same key runs instead.
     const onActive = (act: (tabId: string) => void) => () => {
       const tabId = activeQueryTabId();
-      if (tabId !== null) act(tabId);
+      if (tabId === null) return false;
+      act(tabId);
+      return true;
     };
     return registerActions({
       'query.run': onActive((tabId) => {

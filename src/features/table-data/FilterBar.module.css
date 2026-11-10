@@ -1,0 +1,200 @@
+.bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--bg-panel);
+  font-size: var(--text-sm);
+}
+
+.icon {
+  color: var(--fg-muted);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: var(--tab-max-width);
+  height: var(--control-height-sm);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  color: var(--fg-primary);
+}
+
+.chip[data-unknown] {
+  border-style: dashed;
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.chipText {
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-1) 0 var(--space-3);
+  overflow: hidden;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chipRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 var(--space-2) 0 var(--space-1);
+  border: none;
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.chipRemove:hover {
+  color: var(--fg-primary);
+}
+
+.chipText:focus-visible,
+.chipRemove:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+.add {
+  color: var(--fg-secondary);
+}
+
+.where {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: var(--card-min-width);
+  height: var(--control-height-sm);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+}
+
+.where:focus-within {
+  border-color: var(--accent);
+}
+
+.where:has([aria-invalid='true']) {
+  border-color: var(--danger);
+}
+
+.whereLabel {
+  padding: 0 var(--space-2);
+  border-right: var(--border-width) solid var(--border-subtle);
+  color: var(--syn-keyword);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.whereInput {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-2);
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg-primary);
+  font-family: var(--font-code);
+  font-size: var(--text-sm);
+}
+
+.whereInput::placeholder {
+  color: var(--fg-muted);
+}
+
+/* What the engine said about the WHERE condition, under the field. */
+.whereError {
+  position: absolute;
+  top: calc(100% + var(--space-0));
+  left: 0;
+  right: 0;
+  z-index: var(--z-dropdown);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--danger);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  box-shadow: var(--shadow-popover);
+}
+
+.form {
+  display: grid;
+  grid-template-columns: auto minmax(var(--menu-min-width), 1fr);
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.formLabel {
+  color: var(--fg-secondary);
+  font-size: var(--text-xs);
+}
+
+.form > :not(.formLabel) {
+  grid-column: 2;
+}
+
+.list {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  outline: none;
+  background: var(--bg-input);
+  color: var(--fg-primary);
+  font-family: var(--font-code);
+  font-size: var(--text-sm);
+  resize: vertical;
+}
+
+.list:focus {
+  border-color: var(--accent);
+}
+
+.list[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.between {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.and {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.formError {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-xs);
+}
+
+.formButtons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

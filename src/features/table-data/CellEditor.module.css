@@ -1,0 +1,144 @@
+/* Drawn over the cell by the grid (its editor layer): as wide as the cell, taller when needed. */
+.editor {
+  position: relative;
+  width: 100%;
+  min-width: var(--grid-col-min-width);
+}
+
+.expanded {
+  width: max(100%, var(--grid-viewer-min-width));
+}
+
+.input,
+.area,
+.list {
+  display: block;
+  width: 100%;
+  margin: 0;
+  border: var(--border-width) solid var(--accent);
+  border-radius: 0;
+  outline: none;
+  background: var(--bg-input);
+  color: var(--fg-primary);
+  font-family: var(--font-code);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-popover);
+}
+
+.input {
+  height: var(--grid-row-height);
+  padding: 0 calc(var(--grid-cell-padding-x) - var(--border-width));
+}
+
+.area {
+  padding: var(--space-1) calc(var(--grid-cell-padding-x) - var(--border-width));
+  line-height: var(--leading-normal);
+  resize: none;
+  white-space: pre;
+}
+
+.list {
+  padding: var(--space-0) 0;
+}
+
+.list option {
+  padding: var(--space-0) var(--grid-cell-padding-x);
+}
+
+.input[aria-invalid='true'],
+.area[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.input[data-null]::placeholder,
+.area[data-null]::placeholder {
+  color: var(--cell-null);
+  font-style: italic;
+  letter-spacing: var(--tracking-caps);
+}
+
+.input::placeholder,
+.area::placeholder {
+  color: var(--fg-muted);
+}
+
+/* Under the editor: NULL / empty string / type, the keys, or what is wrong with the value. */
+.hint {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 100%;
+  padding: var(--space-0) var(--space-2);
+  border: var(--border-width) solid var(--border-strong);
+  border-top: none;
+  background: var(--bg-elevated);
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+  box-shadow: var(--shadow-popover);
+}
+
+.state {
+  color: var(--fg-secondary);
+  font-family: var(--font-code);
+}
+
+.state[data-null] {
+  color: var(--cell-null);
+  font-style: italic;
+  letter-spacing: var(--tracking-caps);
+}
+
+.keys {
+  margin-left: auto;
+}
+
+.error {
+  color: var(--danger);
+  white-space: normal;
+}
+
+.choices {
+  display: flex;
+  height: var(--grid-row-height);
+  border: var(--border-width) solid var(--accent);
+  background: var(--bg-input);
+  box-shadow: var(--shadow-popover);
+}
+
+.choice {
+  flex: 1;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: none;
+  border-right: var(--border-width) solid var(--border-subtle);
+  background: transparent;
+  color: var(--fg-primary);
+  font-family: var(--font-code);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.choice:last-child {
+  border-right: none;
+}
+
+.choice[data-null] {
+  color: var(--cell-null);
+  font-size: var(--text-xs);
+  font-style: italic;
+}
+
+.choice[aria-checked='true'] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.choice:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}

@@ -8,6 +8,8 @@ import type {
 
 import { useConnection, useConnectionState } from '../../features/connections/connectionStore';
 import { useIsDirty, useTabFileName } from '../../features/query/queryTabStore';
+import { tableLabel } from '../../features/table-data/tableNames';
+import { usePendingCount } from '../../features/table-data/tableSessionStore';
 import { EnvTag } from '../../features/connections/EnvTag';
 import { StateDot } from '../../features/connections/StateDot';
 import { tintOf } from '../../features/connections/model';
@@ -42,18 +44,27 @@ export function TabItem({
   const connection = useConnection(tab.connectionId);
   const state = useConnectionState(tab.connectionId);
   const fileName = useTabFileName(tab.id);
-  const dirty = useIsDirty(tab.id);
+  const edited = useIsDirty(tab.id);
+  const pending = usePendingCount(tab.id);
 
   const isWelcome = tab.connectionId === null;
   const pinned = tab.pinned && !isWelcome;
-  const name = isWelcome ? t('tab.new') : (fileName ?? t('tab.query', { number: tab.ordinal }));
+  const { table } = tab;
+  // A table tab's mark is its pending changes, never saved with the tab.
+  const dirty = table ? pending > 0 : edited;
+  const name = isWelcome
+    ? t('tab.new')
+    : table
+      ? table.name
+      : (fileName ?? t('tab.query', { number: tab.ordinal }));
   const tint = connection ? tintOf(connection) : null;
 
   const tooltip = isWelcome ? (
     t('tab.new')
   ) : (
     <span className={styles.tooltip}>
-      <span className={styles.tooltipName}>{name}</span>
+      <span className={styles.tooltipName}>{table ? tableLabel(table) : name}</span>
+      {table && pending > 0 && <span>{t('tableData.pending', { count: pending })}</span>}
       <span className={styles.tooltipConnection}>
         {connection ? connection.name : t('tab.unknownConnection')}
         {connection?.database && (
@@ -87,7 +98,9 @@ export function TabItem({
         aria-controls="tab-panel"
         aria-label={[
           name,
-          ...(dirty && !isWelcome ? [t('tab.unsaved')] : []),
+          ...(dirty && !isWelcome
+            ? [table ? t('tableData.pending', { count: pending }) : t('tab.unsaved')]
+            : []),
           ...(connection ? [connection.name] : []),
           ...(pinned ? [t('tab.pinned')] : []),
         ].join(', ')}
@@ -95,6 +108,7 @@ export function TabItem({
         data-tab-id={tab.id}
         data-dragging={dragging || undefined}
         data-pinned={pinned || undefined}
+        data-kind={table ? 'table' : undefined}
         data-environment={connection?.environment ?? undefined}
         className={styles.tab}
         style={tint ? ({ '--tab-tint': tint } as CSSProperties) : undefined}
@@ -109,9 +123,14 @@ export function TabItem({
         }}
       >
         {!isWelcome && <StateDot state={state} decorative />}
+        {table && <Icon name="table" className={styles.kind} />}
         <span className={styles.label}>{name}</span>
         {dirty && !isWelcome && (
-          <span className={styles.dirty} role="img" aria-label={t('tab.unsaved')} />
+          <span
+            className={styles.dirty}
+            role="img"
+            aria-label={table ? t('tableData.pending', { count: pending }) : t('tab.unsaved')}
+          />
         )}
         {!isWelcome && connection && <span className={styles.connection}>{connection.name}</span>}
         {/* A pinned tab closes only on purpose: ⌘W, middle click or its menu. */}

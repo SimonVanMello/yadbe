@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -12,6 +13,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type Ref,
 } from 'react';
 
 import { useI18nStore } from '../../i18n/i18n';
@@ -40,7 +42,7 @@ import {
   visibleRows,
   type Range,
 } from './gridMath';
-import { GridHeader } from './GridHeader';
+import { GridHeader, type HeaderSort } from './GridHeader';
 import { GridMenu } from './GridMenu';
 import { readGridMetrics, type GridMetrics } from './gridMetrics';
 import { modKey, selectModeOf } from './modifiers';
@@ -80,6 +82,10 @@ const AUTO_FIT_ROWS = 20_000;
 /** Speed of the scroll while a drag selection is held past an edge (fraction of the overshoot). */
 const AUTO_SCROLL_RATE = 0.35;
 
+function inEditor(target: EventTarget): boolean {
+  return target instanceof Element && target.closest('[data-grid-editor]') !== null;
+}
+
 export interface DataGridProps {
   source: RowSource;
   /** Identifies the source in caches (e.g. `result-42`). */
@@ -100,6 +106,57 @@ export interface DataGridProps {
   onSelectionRange?: (range: { rowFrom: number; rowTo: number; columns: number[] } | null) => void;
   /** Adds "Export…" to the context menu. */
   onExport?: () => void;
+  /** Header sorting (table tabs): a click sorts instead of selecting the column. */
+  sort?: HeaderSort;
+  /** Cell editing (table tabs): keys, double click and paste go there first. */
+  editing?: GridEditing;
+  /** Imperative access for an editing layer (selection, focus). */
+  apiRef?: Ref<DataGridApi | null>;
+  /** More context menu entries, after the grid's own. */
+  menuExtras?: ReactNode;
+  /** Column widths and order to start with, by column name (a restored table tab). */
+  initialLayout?: ColumnLayout;
+  /** The widths or the order of the columns changed (resize, move, auto-fit). */
+  onLayoutChange?: (layout: ColumnLayout) => void;
+  /** No cell can be changed (`aria-readonly`). */
+  readOnly?: boolean;
+}
+
+/** A cell by row and data column (not display column). */
+export interface GridCellRef {
+  row: number;
+  dataCol: number;
+}
+
+export interface GridEditing {
+  /** A key pressed on the grid itself (not in an editor), before the grid's own: `true` if handled. */
+  onKeyDown?: (event: ReactKeyboardEvent<HTMLElement>, focus: GridCellRef | null) => boolean;
+  /** A double click on a cell: `true` when handled (the cell viewer then stays closed). */
+  onCellDoubleClick?: (cell: GridCellRef) => boolean;
+  /** Text pasted while the grid has the focus. */
+  onPaste?: (text: string, focus: GridCellRef | null) => void;
+  /** The open editor, drawn over its cell. */
+  editor?: { row: number; dataCol: number; node: ReactNode } | null;
+}
+
+export interface DataGridApi {
+  /** The selection (display columns), `null` when there is none. */
+  selection: () => Selection | null;
+  /** Display index → data column. */
+  order: () => readonly number[];
+  /** Selects one cell and scrolls it into view (after the next render, so new rows count). */
+  focusCell: (cell: GridCellRef) => void;
+  /** Selects whole rows `[from, to]`. */
+  selectRows: (from: number, to: number) => void;
+  /** Gives the keyboard focus back to the grid. */
+  focus: () => void;
+}
+
+export interface ColumnLayout {
+  /** Width of each column the user sized (or auto-fit), by name. */
+  widths: Record<string, number>;
+  /** Column names in display order. */
+  order: string[];
 }
 
 type Hit =
@@ -140,6 +197,13 @@ export function DataGrid({
   onSelectionSize,
   onSelectionRange,
   onExport,
+  sort,
+  editing,
+  apiRef,
+  menuExtras,
+  initialLayout,
+  onLayoutChange,
+  readOnly,
 }: DataGridProps) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
@@ -154,6 +218,8 @@ export function DataGrid({
   const drawnCols = useRef<Range>({ start: 0, end: 0 });
   const fitted = useRef(false);
   const resized = useRef(new Set<number>());
+  const revealRef = useRef<CellPos | null>(null);
+  const initialLayoutRef = useRef(initialLayout);
 
   const [metrics, setMetrics] = useState<GridMetrics | null>(null);
   const [order, setOrder] = useState<number[]>(() => source.columns.map((_, i) => i));
@@ -226,7 +292,11 @@ export function DataGrid({
           longest = Math.max(longest, displayLength(values.values[i] ?? null, kind, 'NULL'));
         }
       }
-      return fitWidth(longest, m.headerWidth(column.name, column.typeName), m);
+      return fitWidth(
+        longest,
+        m.headerWidth(column.name, column.typeName, column.readOnlyReason ? 1 : 0),
+        m,
+      );
     },
     [source],
   );
@@ -255,9 +325,29 @@ export function DataGrid({
     if (!el) return;
     const read = readGridMetrics(el);
     setMetrics(read);
+    const saved = initialLayoutRef.current;
     setWidths(
-      source.columns.map((c) => initialWidth(c.kind, read.headerWidth(c.name, c.typeName), read)),
+      source.columns.map((c, dataCol) => {
+        const width = saved?.widths[c.name];
+        if (width !== undefined && Number.isFinite(width)) {
+          resized.current.add(dataCol);
+          return Math.max(read.minWidth, Math.round(width));
+        }
+        return initialWidth(
+          c.kind,
+          read.headerWidth(c.name, c.typeName, c.readOnlyReason ? 1 : 0),
+          read,
+        );
+      }),
     );
+    if (saved && saved.order.length > 0) {
+      const byName = new Map(source.columns.map((c, i) => [c.name, i]));
+      const known = saved.order
+        .map((name) => byName.get(name))
+        .filter((i): i is number => i !== undefined);
+      const rest = source.columns.map((_, i) => i).filter((i) => !known.includes(i));
+      setOrder([...known, ...rest]);
+    }
     let live = true;
     void document.fonts.ready.then(() => {
       if (live && scrollerRef.current) setMetrics(readGridMetrics(scrollerRef.current));
@@ -305,7 +395,11 @@ export function DataGrid({
 
   // Every render: hand the latest state to the scroll path, then draw.
   useLayoutEffect(() => {
-    rendererRef.current?.setLabels({ null: 'NULL', empty: t('grid.empty') });
+    rendererRef.current?.setLabels({
+      null: 'NULL',
+      empty: t('grid.empty'),
+      default: t('grid.default'),
+    });
     if (!metrics || !layout) {
       snapshot.current = null;
       return;
@@ -319,6 +413,11 @@ export function DataGrid({
       viewport,
     };
     paint();
+    const pending = revealRef.current;
+    if (pending && pending.row < rowCount) {
+      revealRef.current = null;
+      reveal(pending);
+    }
   });
 
   useEffect(() => {
@@ -439,7 +538,7 @@ export function DataGrid({
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     const el = scrollerRef.current;
-    if (!el || event.button !== 0) return;
+    if (!el || event.button !== 0 || inEditor(event.target)) return;
     const hit = hitTest(event.clientX, event.clientY, false);
     if (hit.area === 'none') return;
     el.focus({ preventScroll: true });
@@ -523,9 +622,17 @@ export function DataGrid({
     };
   }, [viewerOpen, reveal]);
 
+  const focusRef = (): GridCellRef | null =>
+    selection && rowCount > 0
+      ? { row: selection.focus.row, dataCol: order[selection.focus.col] ?? selection.focus.col }
+      : null;
+
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const s = snapshot.current;
-    if (!s || event.altKey) return;
+    // Keys typed in an editor over a cell are the editor's.
+    if (!s || event.target !== event.currentTarget) return;
+    if (editing?.onKeyDown?.(event, focusRef())) return;
+    if (event.altKey) return;
     const bounds = { rowCount, colCount };
     const mod = modKey(event);
     if (matchShortcut(event, 'Mod+C') || matchShortcut(event, 'Mod+Shift+C')) {
@@ -620,6 +727,7 @@ export function DataGrid({
   };
 
   const onContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (inEditor(event.target)) return;
     const hit = hitTest(event.clientX, event.clientY, false);
     setMenuColumn(hit.area === 'header' ? hit.col : null);
     if (hit.area === 'cell' && !isCellSelected(selection, hit.row, hit.col)) {
@@ -632,8 +740,53 @@ export function DataGrid({
   };
 
   const onDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (hitTest(event.clientX, event.clientY, false).area === 'cell') setViewerOpen(true);
+    if (inEditor(event.target)) return;
+    const hit = hitTest(event.clientX, event.clientY, false);
+    if (hit.area !== 'cell') return;
+    if (editing?.onCellDoubleClick?.({ row: hit.row, dataCol: order[hit.col] ?? hit.col })) return;
+    setViewerOpen(true);
   };
+
+  useImperativeHandle(
+    apiRef,
+    (): DataGridApi => ({
+      selection: () => snapshot.current?.selection ?? null,
+      order: () => order,
+      focusCell: ({ row, dataCol }) => {
+        const pos = { row, col: Math.max(0, order.indexOf(dataCol)) };
+        setSelection(cellSelection(pos));
+        revealRef.current = pos;
+      },
+      selectRows: (from, to) => {
+        setSelection(selectRows(selectRows(null, from, 'replace'), to, 'extend'));
+        revealRef.current = { row: from, col: 0 };
+      },
+      focus: () => {
+        scrollerRef.current?.focus({ preventScroll: true });
+      },
+    }),
+    [order],
+  );
+
+  useEffect(() => {
+    if (!onLayoutChange || widths.length !== source.columns.length) return;
+    const named: Record<string, number> = {};
+    source.columns.forEach((column, dataCol) => {
+      const width = widths[dataCol];
+      if (width !== undefined && resized.current.has(dataCol)) named[column.name] = width;
+    });
+    onLayoutChange({
+      widths: named,
+      order: order.map((dataCol) => source.columns[dataCol]?.name ?? ''),
+    });
+  }, [onLayoutChange, widths, order, source]);
+
+  const editor = editing?.editor ?? null;
+  const editorCol = editor ? order.indexOf(editor.dataCol) : -1;
+  const editorRow = editor?.row ?? -1;
+  useEffect(() => {
+    if (editorRow >= 0 && editorCol >= 0) reveal({ row: editorRow, col: editorCol });
+  }, [editorRow, editorCol, reveal]);
 
   const rowsSelected = countRows(selectedRowIntervals(selection, rowCount));
   const colsSelected = selectedColumns(selection, colCount).length;
@@ -678,6 +831,7 @@ export function DataGrid({
               }}
               onViewCell={toggleViewer}
               onExport={onExport}
+              extras={menuExtras}
               onAutoFit={
                 menuColumn === null
                   ? null
@@ -696,6 +850,7 @@ export function DataGrid({
             aria-rowcount={rowCount + 1}
             aria-colcount={colCount}
             aria-multiselectable="true"
+            aria-readonly={readOnly || undefined}
             tabIndex={0}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
@@ -715,6 +870,11 @@ export function DataGrid({
             }}
             onContextMenu={onContextMenu}
             onDoubleClick={onDoubleClick}
+            onPaste={(event) => {
+              if (!editing?.onPaste || event.target !== event.currentTarget) return;
+              event.preventDefault();
+              editing.onPaste(event.clipboardData.getData('text/plain'), focusRef());
+            }}
           >
             <div className={styles.sizer} style={{ width: totalWidth }}>
               {layout && metrics && (
@@ -737,6 +897,7 @@ export function DataGrid({
                   }}
                   onAutoFit={autoFit}
                   onMove={moveColumn}
+                  sort={sort}
                 />
               )}
               <div
@@ -751,6 +912,21 @@ export function DataGrid({
               >
                 <div ref={guttersRef} className={styles.gutters} aria-hidden="true" />
                 <div ref={bodyRef} role="rowgroup" className={styles.rows} />
+                {editor && metrics && editorCol >= 0 && (
+                  // Rows past the scroll height cap are shifted; a page (≤ 50 000 rows) never is.
+                  <div
+                    data-grid-editor=""
+                    className={styles.editorLayer}
+                    style={{
+                      top: editor.row * metrics.rowHeight,
+                      left: gutter + (lefts[editorCol] ?? 0),
+                      width: (lefts[editorCol + 1] ?? 0) - (lefts[editorCol] ?? 0),
+                      minHeight: metrics.rowHeight,
+                    }}
+                  >
+                    {editor.node}
+                  </div>
+                )}
               </div>
             </div>
             {rowCount === 0 && emptyText && <div className={styles.emptyRows}>{emptyText}</div>}

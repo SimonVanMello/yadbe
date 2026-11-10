@@ -1,12 +1,17 @@
 import { shortcutOf } from '../../app/actions';
 import { useLayoutStore } from '../../app/layout/layoutStore';
+import { useTabsStore } from '../../app/tabs/tabsStore';
 import { useT } from '../../i18n/useT';
 import { IconButton } from '../../ui/IconButton';
 import type { ConnectionSummary } from '../connections/model';
 import { QueryControls } from '../query/QueryControls';
+import { TableControls } from '../table-data/TableControls';
 import styles from './Toolbar.module.css';
 
-/** Toolbar of a query tab: panels, the query controls (run, transactions, files), the chip. */
+/**
+ * Toolbar of a bound tab: panels, then the query controls (run, transactions, files) or the
+ * table controls (rows, pending changes, apply), and the chip.
+ */
 export function Toolbar({
   connection,
   tabId,
@@ -17,6 +22,7 @@ export function Toolbar({
   const t = useT();
   const sidebarCollapsed = useLayoutStore((store) => store.panels.sidebar.collapsed);
   const bottomCollapsed = useLayoutStore((store) => store.panels.bottom.collapsed);
+  const table = useTabsStore((store) => store.tabs.some((tab) => tab.id === tabId && !!tab.table));
 
   return (
     <div className={styles.toolbar} role="toolbar" aria-label={t('toolbar.label')}>
@@ -30,7 +36,9 @@ export function Toolbar({
         }}
       />
       <span className={styles.separator} aria-hidden="true" />
-      {connection ? (
+      {connection && table ? (
+        <TableControls tabId={tabId} connection={connection} />
+      ) : connection ? (
         <QueryControls tabId={tabId} connection={connection} />
       ) : (
         <span className={styles.noConnection}>{t('toolbar.noConnection')}</span>

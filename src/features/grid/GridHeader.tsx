@@ -6,12 +6,20 @@ import {
 } from 'react';
 
 import { useT } from '../../i18n/useT';
+import { Icon } from '../../ui/Icon';
 import { dropIndex, gapAt } from './gridMath';
 import styles from './DataGrid.module.css';
 import type { GridColumn } from './rowSource';
 import { selectModeOf } from './modifiers';
 import type { RangeStore } from './rangeStore';
 import { colTouched, isColSelected, type Selection, type SelectMode } from './selection';
+
+/** Header sorting (table tabs, F-081): a click sorts by a column, `Shift`+click adds it. */
+export interface HeaderSort {
+  /** The sort, first key first (data columns). */
+  keys: readonly { dataCol: number; direction: 'asc' | 'desc' }[];
+  onSort: (dataCol: number, additive: boolean) => void;
+}
 
 /** Pointer travel before a press on a header becomes a column drag. */
 const DRAG_THRESHOLD_PX = 4;
@@ -31,6 +39,8 @@ interface GridHeaderProps {
   onResize: (dataCol: number, width: number) => void;
   onAutoFit: (col: number) => void;
   onMove: (from: number, to: number) => void;
+  /** Present: a click sorts (`Mod`+click still selects the column). */
+  sort?: HeaderSort;
 }
 
 /**
@@ -52,6 +62,7 @@ export function GridHeader({
   onResize,
   onAutoFit,
   onMove,
+  sort,
 }: GridHeaderProps) {
   const t = useT();
   const cols = useSyncExternalStore(colsStore.subscribe, colsStore.get);
@@ -94,15 +105,31 @@ export function GridHeader({
     const width = (lefts[col + 1] ?? 0) - (lefts[col] ?? 0);
     const selected = isColSelected(selection, col);
     const touched = !selected && colTouched(selection, col);
+    const sortIndex = sort ? sort.keys.findIndex((key) => key.dataCol === dataCol) : -1;
+    const sortKey = sort?.keys[sortIndex];
+    const readOnly = !!column.readOnlyReason;
     cells.push(
       <div
         key={dataCol}
         role="columnheader"
         aria-colindex={col + 1}
         aria-selected={selected}
-        title={column.typeName ? `${column.name} · ${column.typeName}` : column.name}
+        aria-sort={
+          sort && sortIndex === 0 && sortKey
+            ? sortKey.direction === 'asc'
+              ? 'ascending'
+              : 'descending'
+            : undefined
+        }
+        aria-readonly={readOnly || undefined}
+        title={[
+          column.typeName ? `${column.name} · ${column.typeName}` : column.name,
+          ...(column.readOnlyReason ? [column.readOnlyReason] : []),
+          ...(sort ? [t('grid.sort.hint')] : []),
+        ].join('\n')}
         className={[
           styles.headerCell,
+          readOnly ? styles.headerReadOnly : '',
           selected ? styles.headerSelected : '',
           touched ? styles.headerTouched : '',
           dragging === col ? styles.headerDragging : '',
@@ -136,8 +163,10 @@ export function GridHeader({
           if (current.drag) {
             const to = dropIndex(col, gapAt(lefts, contentX(event)));
             if (to !== col) onMove(col, to);
+          } else if (sort && !event.metaKey && !event.ctrlKey) {
+            sort.onSort(dataCol, event.shiftKey);
           } else {
-            onSelectColumn(col, selectModeOf(event));
+            onSelectColumn(col, sort ? 'add' : selectModeOf(event));
           }
         }}
         onPointerCancel={() => {
@@ -146,8 +175,20 @@ export function GridHeader({
           setDropGap(null);
         }}
       >
+        {readOnly && <Icon name="lock" className={styles.headerIcon} />}
         <span className={styles.headerName}>{column.name}</span>
         {column.typeName && <span className={styles.headerType}>{column.typeName}</span>}
+        {sortKey && (
+          <span
+            className={styles.headerSort}
+            aria-label={t(sortKey.direction === 'asc' ? 'grid.sort.asc' : 'grid.sort.desc', {
+              rank: sortIndex + 1,
+            })}
+          >
+            <Icon name={sortKey.direction === 'asc' ? 'arrowUp' : 'arrowDown'} />
+            {sort.keys.length > 1 && <span>{sortIndex + 1}</span>}
+          </span>
+        )}
         <div
           role="separator"
           aria-orientation="vertical"

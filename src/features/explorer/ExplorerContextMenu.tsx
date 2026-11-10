@@ -11,6 +11,7 @@ import {
   databaseOf,
   metaNodeOf,
   newQuery,
+  openTable,
   refreshNode,
   scriptAs,
 } from './explorerActions';
@@ -49,7 +50,12 @@ export function ExplorerContextMenu({ row, children }: ExplorerContextMenuProps)
           </ContextMenuItem>
           {table && (
             <>
-              <ContextMenuItem icon="table" disabled hint={t('explorer.menu.openData.hint')}>
+              <ContextMenuItem
+                icon="table"
+                onSelect={() => {
+                  void openTable(connectionId, table);
+                }}
+              >
                 {t('explorer.menu.openData')}
               </ContextMenuItem>
               <ContextMenuSub label={t('explorer.menu.scriptAs')} icon="terminal">

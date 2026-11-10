@@ -1,6 +1,6 @@
 import { confirm } from '../../app/errors/confirmStore';
 import { showError, showYadbeError } from '../../app/errors/presentError';
-import { selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
+import { isQueryTab, selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { translate, useI18nStore, type MessageKey, type MessageParams } from '../../i18n/i18n';
 import {
   YadbeIpcError,
@@ -418,5 +418,5 @@ export function isTabDirty(tabId: string): boolean {
 /** The active query tab's id, for shortcuts and toolbar actions. */
 export function activeQueryTabId(): string | null {
   const tab = selectActiveTab(useTabsStore.getState());
-  return tab.connectionId === null ? null : tab.id;
+  return isQueryTab(tab) ? tab.id : null;
 }

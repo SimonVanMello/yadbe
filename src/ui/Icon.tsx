@@ -73,6 +73,10 @@ const PATHS = {
   bolt: 'M13 3 5 13h6l-1 8 8-10h-6l1-8Z',
   checkSquare: 'M4 4h16v16H4zM8 12l3 3 5-6',
   save: 'M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6',
+  arrowUp: 'M12 19V5m0 0-6 6m6-6 6 6',
+  arrowDown: 'M12 5v14m0 0-6-6m6 6 6-6',
+  chevronLeft: 'm15 6-6 6 6 6',
+  filter: 'M4 5h16l-6 7.5V19l-4 1v-7.5L4 5Z',
 } as const;
 
 export type IconName = keyof typeof PATHS;

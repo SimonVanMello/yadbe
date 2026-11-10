@@ -98,6 +98,15 @@
   background: var(--fg-muted);
 }
 
+/* A table tab: its icon before the name; pending changes in the modified-cell color. */
+.kind {
+  color: var(--fg-muted);
+}
+
+.tab[data-kind='table'] .dirty {
+  background: var(--cell-modified);
+}
+
 .connection {
   flex: 1;
   min-width: 0;

@@ -30,6 +30,7 @@ const CATEGORIES: Record<string, MessageKey> = {
   query: 'palette.category.query',
   connection: 'palette.category.connection',
   explorer: 'palette.category.explorer',
+  table: 'palette.category.table',
   theme: 'palette.category.appearance',
   language: 'palette.category.appearance',
 };

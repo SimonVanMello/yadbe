@@ -6,6 +6,7 @@ import { useConnection, useSession, stateOf } from '../connections/connectionSto
 import { StateDot } from '../connections/StateDot';
 import { failedCount, isFailed, useStatementLog } from '../statement-log/statementLogStore';
 import { CursorPosition } from './CursorPosition';
+import { TableStatus } from '../table-data/TableStatus';
 import { RunStatus } from './RunStatus';
 import styles from './StatusBar.module.css';
 
@@ -25,6 +26,7 @@ export function StatusBar() {
     <footer className={styles.statusbar}>
       <div className={styles.left}>
         <RunStatus />
+        <TableStatus />
         {connection ? (
           <>
             <StateDot state={state} decorative />

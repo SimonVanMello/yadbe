@@ -1,4 +1,5 @@
 import { showError } from '../../app/errors/presentError';
+import { useTabsStore } from '../../app/tabs/tabsStore';
 import { openQueryTab } from '../query/openQueryTab';
 import { translate, useI18nStore, type MessageKey, type MessageParams } from '../../i18n/i18n';
 import { ipc, unwrap, type MetaNode, type ObjectRef, type ScriptKind } from '../../ipc';
@@ -29,11 +30,12 @@ export async function scriptAs(
 }
 
 /**
- * What a double click (or Enter) on a table does. Table tabs arrive with table editing (M2):
- * until then it is the same as "Script as SELECT" in a new query tab.
+ * What a double click (or Enter, or "Open data") on a table or view does: its rows in a table
+ * tab (F-080), the one already showing it if there is one.
  */
 export function openTable(connectionId: string, table: ObjectRef): Promise<void> {
-  return scriptAs(connectionId, table, 'select');
+  useTabsStore.getState().openTableTab(connectionId, table);
+  return Promise.resolve();
 }
 
 async function copyText(text: string, what: string): Promise<void> {

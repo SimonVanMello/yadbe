@@ -2,7 +2,7 @@ import { useQueries } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
 import { registeredActions } from '../../app/actions';
-import { selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
+import { isQueryTab, isTableTab, selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { useT } from '../../i18n/useT';
 import {
   stateOf,
@@ -110,7 +110,8 @@ export function usePaletteData(raw: string) {
   );
 
   const context: ActionContext = {
-    queryTab: activeTab.connectionId !== null,
+    queryTab: isQueryTab(activeTab),
+    tableTab: isTableTab(activeTab),
     connected: activeState === 'connected',
     running,
     transactionOpen: transaction.status !== 'idle',
@@ -120,6 +121,7 @@ export function usePaletteData(raw: string) {
   };
   const contextKey = [
     context.queryTab,
+    context.tableTab,
     context.connected,
     context.running,
     context.transactionOpen,
@@ -145,9 +147,11 @@ export function usePaletteData(raw: string) {
         name:
           tab.connectionId === null
             ? t('tab.new')
-            : filePath
-              ? fileNameOf(filePath)
-              : t('tab.query', { number: tab.ordinal }),
+            : tab.table
+              ? tab.table.name
+              : filePath
+                ? fileNameOf(filePath)
+                : t('tab.query', { number: tab.ordinal }),
         connectionName: connection?.name ?? null,
       };
     });

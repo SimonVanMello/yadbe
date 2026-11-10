@@ -314,3 +314,110 @@
   color: var(--fg-muted);
   white-space: nowrap;
 }
+
+/*
+ * Pending changes (table editing, F-084): a tint per state over the cell (the selection still
+ * shows under it), and a sign in the row number so the state never relies on color alone.
+ */
+.cell[data-state='modified'] {
+  background-image: linear-gradient(var(--cell-modified-bg), var(--cell-modified-bg));
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--cell-modified);
+}
+
+.row[data-state='inserted'] .cell {
+  background-image: linear-gradient(var(--cell-inserted-bg), var(--cell-inserted-bg));
+}
+
+.row[data-state='deleted'] .cell {
+  background-image: linear-gradient(var(--cell-deleted-bg), var(--cell-deleted-bg));
+  color: var(--fg-muted);
+  text-decoration: line-through;
+}
+
+.row[data-state='failed'] .cell {
+  background-image: linear-gradient(var(--cell-deleted-bg), var(--cell-deleted-bg));
+}
+
+.cell[data-state='failed'] {
+  box-shadow: inset 0 0 0 var(--focus-ring-width) var(--danger);
+}
+
+.scroller:focus .cell[data-focused][data-state] {
+  box-shadow: inset 0 0 0 var(--focus-ring-width) var(--accent);
+}
+
+.gutterCell[data-state]::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--grid-cell-padding-x);
+  font-weight: var(--weight-bold);
+  text-align: center;
+}
+
+.gutterCell[data-state='modified'] {
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--cell-modified);
+}
+
+.gutterCell[data-state='modified']::before {
+  content: '•';
+  color: var(--cell-modified);
+}
+
+.gutterCell[data-state='inserted'] {
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--cell-inserted);
+}
+
+.gutterCell[data-state='inserted']::before {
+  content: '+';
+  color: var(--cell-inserted);
+}
+
+.gutterCell[data-state='deleted'] {
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--cell-deleted);
+}
+
+.gutterCell[data-state='deleted']::before {
+  content: '−';
+  color: var(--cell-deleted);
+}
+
+.gutterCell[data-state='failed'] {
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--danger);
+}
+
+.gutterCell[data-state='failed']::before {
+  content: '!';
+  color: var(--danger);
+}
+
+/* A column that cannot be written (identity, computed…) in an editable table. */
+.headerReadOnly .headerName {
+  color: var(--fg-secondary);
+  font-style: italic;
+}
+
+.headerIcon {
+  flex: none;
+  color: var(--fg-muted);
+}
+
+/* Sort indicator of a table tab's header: the direction and, with several keys, the rank. */
+.headerSort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0);
+  flex: none;
+  margin-left: auto;
+  color: var(--accent);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+}
+
+/* The cell editor sits over its cell, in the scrolled content (below the sticky gutter). */
+.editorLayer {
+  position: absolute;
+  z-index: 1;
+  user-select: text;
+  -webkit-user-select: text;
+}

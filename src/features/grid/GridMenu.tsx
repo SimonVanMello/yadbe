@@ -4,6 +4,8 @@ import { ContextMenuCheckboxItem } from '../../ui/ContextMenuCheckboxItem';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
 import { ContextMenuSeparator } from '../../ui/ContextMenuSeparator';
 import { ContextMenuSub } from '../../ui/ContextMenuSub';
+import type { ReactNode } from 'react';
+
 import { COPY_FORMATS, type CopyFormat } from './copyFormats';
 import { useGridPrefs } from './gridPrefsStore';
 
@@ -17,6 +19,8 @@ interface GridMenuProps {
   onExport: (() => void) | undefined;
   /** Set when the menu opened on a column header. */
   onAutoFit: (() => void) | null;
+  /** Entries of the grid's owner (table editing), after the grid's own. */
+  extras?: ReactNode;
 }
 
 /** Content of the grid's context menu (F-063). */
@@ -28,6 +32,7 @@ export function GridMenu({
   onViewCell,
   onExport,
   onAutoFit,
+  extras,
 }: GridMenuProps) {
   const t = useT();
   const copyHeaders = useGridPrefs((state) => state.copyHeaders);
@@ -92,6 +97,7 @@ export function GridMenu({
           <ContextMenuItem onSelect={onAutoFit}>{t('grid.menu.autoFit')}</ContextMenuItem>
         </>
       )}
+      {extras}
     </>
   );
 }

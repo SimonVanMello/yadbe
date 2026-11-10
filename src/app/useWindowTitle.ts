@@ -14,7 +14,11 @@ export function useWindowTitle(): void {
   const connection = useConnection(tab.connectionId);
   const fileName = useTabFileName(tab.id);
   const tabName =
-    tab.connectionId === null ? null : (fileName ?? t('tab.query', { number: tab.ordinal }));
+    tab.connectionId === null
+      ? null
+      : tab.table
+        ? tab.table.name
+        : (fileName ?? t('tab.query', { number: tab.ordinal }));
   const connectionName = connection?.name ?? null;
   useEffect(() => {
     void nativeWindow

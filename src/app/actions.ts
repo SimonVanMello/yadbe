@@ -38,7 +38,24 @@ export const DEFAULT_BINDINGS = {
   'query.saveAs': 'Mod+Shift+S',
   // Results (F-066): the export dialog of the result on screen.
   'result.export': 'Mod+Shift+E',
+  // Table tabs (F-080 to F-085). `Mod+S` is Save in a query tab and Apply in a table tab: a
+  // handler returns `false` where it does not apply, and the next action bound to the key runs.
+  'table.apply': 'Mod+S',
+  'table.refresh': 'F5',
+  'table.filter': 'Mod+F',
+  'table.insertRow': 'Mod+I',
+  'table.duplicateRows': 'Mod+D',
+  'table.deleteRows': 'Mod+Delete',
+  'table.setNull': 'Mod+Backspace',
+  'table.nextPage': 'Alt+PageDown',
+  'table.previousPage': 'Alt+PageUp',
 } as const;
+
+/**
+ * Prefixes of actions that only act in one kind of tab. Two such actions of different kinds
+ * may share a shortcut (`query.save` and `table.apply`): only one can act at a time.
+ */
+export const TAB_SCOPES = ['query.', 'table.'] as const;
 
 /** Other shortcuts of an action, besides its own in `DEFAULT_BINDINGS`. */
 export const ALIAS_BINDINGS: Partial<Record<keyof typeof DEFAULT_BINDINGS, readonly string[]>> = {
@@ -58,6 +75,12 @@ export const UNBOUND_ACTIONS = [
   'theme.system',
   'language.en',
   'language.fr',
+  'table.preview',
+  'table.revertCells',
+  'table.revertRows',
+  'table.revertAll',
+  'table.countExact',
+  'table.pasteRows',
 ] as const;
 
 export type BoundActionId = keyof typeof DEFAULT_BINDINGS;
@@ -109,6 +132,21 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'theme.system': 'action.theme.system',
   'language.en': 'action.language.en',
   'language.fr': 'action.language.fr',
+  'table.apply': 'action.table.apply',
+  'table.refresh': 'action.table.refresh',
+  'table.filter': 'action.table.filter',
+  'table.insertRow': 'action.table.insertRow',
+  'table.duplicateRows': 'action.table.duplicateRows',
+  'table.deleteRows': 'action.table.deleteRows',
+  'table.setNull': 'action.table.setNull',
+  'table.nextPage': 'action.table.nextPage',
+  'table.previousPage': 'action.table.previousPage',
+  'table.preview': 'action.table.preview',
+  'table.revertCells': 'action.table.revertCells',
+  'table.revertRows': 'action.table.revertRows',
+  'table.revertAll': 'action.table.revertAll',
+  'table.countExact': 'action.table.countExact',
+  'table.pasteRows': 'action.table.pasteRows',
 };
 
 /** Shortcut of an action that has one, as written in `DEFAULT_BINDINGS` (`Mod+T`). */
@@ -121,16 +159,25 @@ export function shortcutFor(id: ActionId): string | null {
   return id in DEFAULT_BINDINGS ? DEFAULT_BINDINGS[id as BoundActionId] : null;
 }
 
-/** The action a key press triggers, if any. */
+/** The action a key press triggers, if any (the first one when tab scopes share the key). */
 export function findAction(event: KeyboardEvent): ActionId | null {
-  for (const id of Object.keys(DEFAULT_BINDINGS) as BoundActionId[]) {
-    if (matchShortcut(event, DEFAULT_BINDINGS[id])) return id;
-    if (ALIAS_BINDINGS[id]?.some((alias) => matchShortcut(event, alias))) return id;
-  }
-  return null;
+  return findActions(event)[0] ?? null;
 }
 
-type Handler = () => void;
+/** Every action bound to a key press, in registry order. */
+export function findActions(event: KeyboardEvent): ActionId[] {
+  return (Object.keys(DEFAULT_BINDINGS) as BoundActionId[]).filter(
+    (id) =>
+      matchShortcut(event, DEFAULT_BINDINGS[id]) ||
+      ALIAS_BINDINGS[id]?.some((alias) => matchShortcut(event, alias)) === true,
+  );
+}
+
+/**
+ * What an action does. Returning `false` means it does not apply here (another kind of tab is
+ * active): the next action bound to the same key gets it. Any other result counts as done.
+ */
+type Handler = () => unknown;
 const handlers = new Map<ActionId, Handler>();
 
 /** The actions something is registered for: what the palette can run. */
@@ -153,10 +200,9 @@ export function registerActions(entries: Partial<Record<ActionId, Handler>>): ()
   };
 }
 
-/** Runs an action; `false` when nothing is registered for it. */
+/** Runs an action; `false` when nothing is registered for it or it does not apply here. */
 export function runAction(id: ActionId): boolean {
   const handler = handlers.get(id);
   if (!handler) return false;
-  handler();
-  return true;
+  return handler() !== false;
 }

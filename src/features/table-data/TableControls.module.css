@@ -1,0 +1,47 @@
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.separator {
+  align-self: center;
+  width: var(--border-width);
+  height: var(--space-5);
+  margin: 0 var(--space-1);
+  background: var(--border-subtle);
+}
+
+.pending {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-height-sm);
+  padding: 0 var(--space-3);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.pending[data-pending] {
+  border-radius: var(--radius-full);
+  background: var(--cell-modified-bg);
+  color: var(--cell-modified);
+  font-weight: var(--weight-semibold);
+}
+
+/* Status bar line of a table tab. */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--fg-muted);
+}
+
+.statusPending {
+  color: var(--cell-modified);
+  font-weight: var(--weight-semibold);
+}

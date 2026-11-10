@@ -5,6 +5,8 @@ import type { MessageKey } from '../../i18n/i18n';
 export interface ActionContext {
   /** The active tab is a query tab (a welcome tab has no editor). */
   queryTab: boolean;
+  /** The active tab is a table tab (F-080). */
+  tableTab?: boolean;
   /** The active tab's connection is up. */
   connected: boolean;
   running: boolean;
@@ -28,6 +30,7 @@ const NEEDS_QUERY_TAB: ReadonlySet<ActionId> = new Set([
 export function disabledReason(id: ActionId, context: ActionContext): MessageKey | null {
   if (!context.registered.has(id)) return 'palette.disabled.unavailable';
   if (NEEDS_QUERY_TAB.has(id) && !context.queryTab) return 'palette.disabled.noQueryTab';
+  if (id.startsWith('table.') && context.tableTab !== true) return 'palette.disabled.noTableTab';
   switch (id) {
     case 'query.cancel':
       return context.running ? null : 'palette.disabled.notRunning';

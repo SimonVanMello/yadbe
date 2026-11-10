@@ -14,6 +14,7 @@ import { CommandPalette } from '../features/palette/CommandPalette';
 import { usePaletteActions } from '../features/palette/usePaletteActions';
 import { useSidebarView } from '../features/sidebar/sidebarViewStore';
 import { useQueryActions } from '../features/query/useQueryActions';
+import { useTableActions } from '../features/table-data/useTableActions';
 import { SidebarViews } from '../features/sidebar/SidebarViews';
 import { StatementLogPanel } from '../features/statement-log/StatementLogPanel';
 import { StatusBar } from '../features/statusbar/StatusBar';
@@ -142,6 +143,7 @@ export function Shell() {
   useShortcuts();
   useShellActions();
   useQueryActions();
+  useTableActions();
   useExportActions();
   useHistoryActions();
   usePaletteActions();
