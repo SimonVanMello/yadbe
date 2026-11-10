@@ -1,7 +1,15 @@
 import { useEffect } from 'react';
 
 import { registerActions } from '../../app/actions';
-import { activeQueryTabId, cancelQuery, openScript, runQuery, saveScript } from './queryActions';
+import {
+  activeQueryTabId,
+  cancelQuery,
+  commitTransaction,
+  openScript,
+  rollbackTransaction,
+  runQuery,
+  saveScript,
+} from './queryActions';
 
 /** Registers what the query shortcuts do (F-041, F-042, F-045) on the active query tab. */
 export function useQueryActions(): void {
@@ -26,6 +34,12 @@ export function useQueryActions(): void {
       }),
       'query.saveAs': onActive((tabId) => {
         void saveScript(tabId, true);
+      }),
+      'query.commit': onActive((tabId) => {
+        void commitTransaction(tabId);
+      }),
+      'query.rollback': onActive((tabId) => {
+        void rollbackTransaction(tabId);
       }),
     });
   }, []);

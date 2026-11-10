@@ -13,6 +13,7 @@ import { openQuery } from '../connections/connectionActions';
 import { refreshConnections, useConnectionList } from '../connections/connectionStore';
 import { useGroupDialog } from '../connections/groupDialogStore';
 import { useExplorerStore } from '../explorer/explorerStore';
+import { useRevealStore } from '../explorer/revealStore';
 import styles from './ConnectionSidebar.module.css';
 import { SidebarTree } from './SidebarTree';
 import { useSidebarRows } from './useSidebarRows';
@@ -27,6 +28,13 @@ export function ConnectionSidebar() {
   const rows = useSidebarRows(useDeferredValue(query));
   const showSystem = useExplorerStore((store) => store.showSystem);
   const searching = query.trim() !== '';
+  // A filter would hide the row an explorer reveal looks for.
+  const revealSeq = useRevealStore((store) => store.request?.seq ?? 0);
+  const [seenReveal, setSeenReveal] = useState(revealSeq);
+  if (revealSeq !== seenReveal) {
+    setSeenReveal(revealSeq);
+    setQuery('');
+  }
 
   return (
     <aside className={styles.sidebar} aria-label={t('sidebar.connections')}>
