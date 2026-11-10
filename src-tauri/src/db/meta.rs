@@ -229,6 +229,22 @@ pub struct TableDetails {
     pub triggers: Vec<TriggerInfo>,
 }
 
+impl TableDetails {
+    /// Sets `primaryKey` / `foreignKey` on the columns from the keys.
+    pub fn mark_key_columns(&mut self) {
+        for column in &mut self.columns {
+            column.primary_key = self
+                .primary_key
+                .as_ref()
+                .is_some_and(|pk| pk.columns.contains(&column.name));
+            column.foreign_key = self
+                .foreign_keys
+                .iter()
+                .any(|fk| fk.columns.contains(&column.name));
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnInfo {

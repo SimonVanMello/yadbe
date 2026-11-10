@@ -5,6 +5,8 @@
 //! Every read takes an optional `requestId`: `cancel_meta_request` with the same id stops it
 //! (it then fails with `cancelled`).
 
+use std::sync::Arc;
+
 use tauri::State;
 
 use crate::db::errors::YadbeError;
@@ -127,7 +129,7 @@ pub async fn get_completion_catalog(
     connection_id: String,
     database: String,
     include_system: bool,
-) -> Result<CompletionCatalog, YadbeError> {
+) -> Result<Arc<CompletionCatalog>, YadbeError> {
     state
         .meta
         .completion_catalog(

@@ -1,6 +1,7 @@
 //! PostgreSQL driver: `tokio-postgres` over rustls.
 
 mod decode;
+mod introspect;
 mod tls;
 
 use std::error::Error as _;
@@ -231,6 +232,10 @@ impl Connection for PgConnection {
     fn close(&self) -> BoxFuture<'_, ()> {
         // Dropping the client sends Terminate; this ends the link for clones still alive.
         Box::pin(async move { self.task.abort() })
+    }
+
+    fn introspector(&self) -> Option<&dyn crate::db::introspect::Introspector> {
+        Some(self)
     }
 }
 

@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use tokio::sync::Notify;
@@ -43,7 +44,7 @@ struct DbCache {
     counts: HashMap<Option<String>, Vec<ObjectCount>>,
     objects: HashMap<(Option<String>, ObjectKind), Vec<ObjectInfo>>,
     tables: HashMap<(Option<String>, String), TableDetails>,
-    catalogs: HashMap<bool, CompletionCatalog>,
+    catalogs: HashMap<bool, Arc<CompletionCatalog>>,
 }
 
 #[derive(Default)]
@@ -112,6 +113,8 @@ struct MetaCache {
     extra: Mutex<HashMap<String, Arc<dyn Connection>>>,
     /// Serializes opening extra connections, so a database gets one.
     opening: tokio::sync::Mutex<()>,
+    /// Data was dropped with the link: announce it once the session is back.
+    dropped: AtomicBool,
 }
 
 impl MetaCache {
@@ -190,13 +193,15 @@ impl MetaService {
             ConnectionState::Connecting => {}
             ConnectionState::Connected => {
                 let cache = lock(&self.caches).get(id).cloned();
-                if cache.is_some_and(|c| c.reset()) {
+                if cache.is_some_and(|c| c.reset() | c.dropped.swap(false, Ordering::SeqCst)) {
                     self.emit(id, MetaNode::Connection, MetaRefreshReason::Reconnected);
                 }
             }
             ConnectionState::Lost | ConnectionState::Reconnecting => {
-                if let Some(cache) = lock(&self.caches).get(id).cloned() {
-                    cache.reset();
+                if let Some(cache) = lock(&self.caches).get(id).cloned()
+                    && cache.reset()
+                {
+                    cache.dropped.store(true, Ordering::SeqCst);
                 }
             }
             ConnectionState::Closed => {
@@ -219,6 +224,7 @@ impl MetaService {
             data: Mutex::new(CacheData::default()),
             extra: Mutex::new(HashMap::new()),
             opening: tokio::sync::Mutex::new(()),
+            dropped: AtomicBool::new(false),
         });
         if let Some(old) = caches.insert(session.id().to_owned(), Arc::clone(&cache)) {
             old.reset();
@@ -555,7 +561,7 @@ impl MetaService {
         connection_id: &str,
         database: &str,
         include_system: bool,
-    ) -> Result<CompletionCatalog, YadbeError> {
+    ) -> Result<Arc<CompletionCatalog>, YadbeError> {
         Self::check_database(database)?;
         let session = Self::session(manager, connection_id)?;
         let cache = self.cache(&session);
@@ -578,6 +584,7 @@ impl MetaService {
                     Self::introspector(&*conn)?
                         .completion_catalog(&db, include_system)
                         .await
+                        .map(Arc::new)
                 })
             },
         )
@@ -634,3 +641,7 @@ impl EventSink for ObservingSink {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "meta_cache_tests.rs"]
+mod tests;

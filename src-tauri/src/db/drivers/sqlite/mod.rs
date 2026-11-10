@@ -1,5 +1,8 @@
 //! SQLite driver: `rusqlite` (bundled SQLite) on blocking threads.
 
+mod ddl;
+mod introspect;
+
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -230,6 +233,10 @@ impl Connection for SqliteConnection {
     fn close(&self) -> BoxFuture<'_, ()> {
         self.interrupt.interrupt();
         Box::pin(async {})
+    }
+
+    fn introspector(&self) -> Option<&dyn crate::db::introspect::Introspector> {
+        Some(self)
     }
 }
 
