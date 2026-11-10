@@ -33,6 +33,8 @@ export interface BodyFrame {
 
 export interface BodyClasses {
   row: string;
+  /** One element per run of consecutive rows still loading (a single animation each). */
+  placeholder: string;
   gutter: string;
   cell: string;
   num: string;
@@ -85,6 +87,7 @@ export class GridBody {
   private labels: BodyLabels;
   private readonly active = new Map<number, RowView>();
   private readonly spare: RowView[] = [];
+  private readonly placeholders: HTMLDivElement[] = [];
   private focusEl: HTMLElement | null = null;
 
   constructor(options: {
@@ -154,7 +157,41 @@ export class GridBody {
         view.gutter.hidden = true;
       }
     }
+    this.placeLoading(frame);
     this.setFocus(focusEl);
+  }
+
+  /** Covers each run of loading rows with one shimmering placeholder. */
+  private placeLoading(frame: BodyFrame): void {
+    const { rowHeight } = frame.layout;
+    let used = 0;
+    let runStart = -1;
+    const flush = (end: number) => {
+      if (runStart < 0) return;
+      let el = this.placeholders[used];
+      if (!el) {
+        el = document.createElement('div');
+        el.className = this.classes.placeholder;
+        el.setAttribute('aria-hidden', 'true');
+        this.container.appendChild(el);
+        this.placeholders.push(el);
+      }
+      used++;
+      el.hidden = false;
+      el.style.transform = `translateY(${String(runStart * rowHeight - frame.shift)}px)`;
+      el.style.height = `${String((end - runStart) * rowHeight)}px`;
+      runStart = -1;
+    };
+    for (let row = frame.rows.start; row < frame.rows.end; row++) {
+      const loading = this.active.get(row)?.loading === true;
+      if (loading && runStart < 0) runStart = row;
+      else if (!loading) flush(row);
+    }
+    flush(frame.rows.end);
+    for (let i = used; i < this.placeholders.length; i++) {
+      const el = this.placeholders[i];
+      if (el && !el.hidden) el.hidden = true;
+    }
   }
 
   destroy(): void {
@@ -162,6 +199,7 @@ export class GridBody {
     this.spare.length = 0;
     this.container.replaceChildren();
     this.gutters.replaceChildren();
+    this.placeholders.length = 0;
     this.setFocus(null);
   }
 

@@ -68,7 +68,7 @@ import { useGridCopy, type CopyExtras } from './useGridCopy';
 
 /** Rows drawn above and below the viewport (absorbs a fast flick between two frames). */
 const OVERSCAN_ROWS = 8;
-const OVERSCAN_COLS = 2;
+const OVERSCAN_COLS = 1;
 /** Rows auto-fit reads at most. */
 const AUTO_FIT_ROWS = 20_000;
 /** Speed of the scroll while a drag selection is held past an edge (fraction of the overshoot). */
@@ -266,6 +266,7 @@ export function DataGrid({
       focusId,
       classes: {
         row: styles.row ?? '',
+        placeholder: styles.placeholder ?? '',
         gutter: styles.gutterCell ?? '',
         cell: styles.cell ?? '',
         num: styles.num ?? '',

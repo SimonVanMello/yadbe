@@ -51,6 +51,7 @@ function setup(loaded: number) {
     focusId: 'g-focus',
     classes: {
       row: 'row',
+      placeholder: 'placeholder',
       gutter: 'gutter',
       cell: 'cell',
       num: 'num',
@@ -112,10 +113,13 @@ describe('GridBody', () => {
     expect(body.renderedRows).toBe(10);
   });
 
-  it('marks loading rows, then fills them when their block arrives', () => {
-    const { body, frame, rowEl } = setup(0);
-    body.render(frame({ rows: { start: 0, end: 2 } }));
+  it('marks loading rows and covers them with one placeholder', () => {
+    const { body, frame, rowEl, container } = setup(0);
+    body.render(frame({ rows: { start: 0, end: 3 } }));
     expect(rowEl(1)?.hasAttribute('data-loading')).toBe(true);
+    const placeholders = container.querySelectorAll<HTMLElement>('.placeholder:not([hidden])');
+    expect(placeholders).toHaveLength(1);
+    expect(placeholders[0]?.style.height).toBe('60px');
   });
 
   it('shows the selection and the focus, and names the focused cell', () => {

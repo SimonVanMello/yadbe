@@ -168,8 +168,6 @@
   left: 0;
   height: var(--grid-row-height);
   border-bottom: var(--border-width) solid var(--border-subtle);
-  /* Each row and cell is its own layout and paint island: new text relayouts only itself. */
-  contain: strict;
 }
 
 .gutterCell {
@@ -184,7 +182,6 @@
   font-size: var(--text-xs);
   line-height: calc(var(--grid-row-height) - var(--border-width));
   text-align: right;
-  contain: strict;
 }
 
 .gutterCell[data-touched] {
@@ -196,7 +193,6 @@
   position: absolute;
   top: 0;
   height: 100%;
-  contain: strict;
   padding: 0 var(--grid-cell-padding-x);
   overflow: hidden;
   border-right: var(--border-width) solid var(--border-subtle);
@@ -251,16 +247,19 @@
   color: var(--fg-muted);
 }
 
-/* Rows whose window is still loading. */
-.row[data-loading]::after {
-  content: '';
+/* Rows whose window is still loading: one element per run of rows, bars drawn by a gradient. */
+.placeholder {
   position: absolute;
-  top: var(--space-2);
-  bottom: var(--space-2);
+  top: 0;
   left: calc(var(--gutter) + var(--grid-cell-padding-x));
   right: var(--grid-cell-padding-x);
-  border-radius: var(--radius-sm);
-  background: var(--bg-hover);
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 var(--space-2),
+    var(--bg-hover) var(--space-2) calc(var(--grid-row-height) - var(--space-2)),
+    transparent calc(var(--grid-row-height) - var(--space-2)) var(--grid-row-height)
+  );
+  pointer-events: none;
   animation: shimmer var(--grid-shimmer-duration) ease-in-out infinite;
 }
 
@@ -271,7 +270,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .row[data-loading]::after {
+  .placeholder {
     animation: none;
   }
 }

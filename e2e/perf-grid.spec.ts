@@ -168,12 +168,12 @@ test('P-04: grid scrolling, 100k rows × 50 columns', async ({ browser }) => {
   test.setTimeout(240_000);
   const results: Record<string, Record<Movement, Stats>> = {};
   const lines: string[] = [];
-  for (const throttle of [1, 4]) {
+  for (const throttle of (process.env.Q ? [4] : [1, 4])) {
     const { context, grid, cdp } = await openGrid(browser, throttle);
     // Warm-up: JIT and first layouts.
     await move(grid, cdp, 'vertical');
     const row = {} as Record<Movement, Stats>;
-    for (const movement of ['vertical', 'horizontal', 'jumps'] as const) {
+    for (const movement of (process.env.Q ? (['vertical', 'horizontal'] as const) : (['vertical', 'horizontal', 'jumps'] as const))) {
       const s = await move(grid, cdp, movement);
       row[movement] = s;
       lines.push(
