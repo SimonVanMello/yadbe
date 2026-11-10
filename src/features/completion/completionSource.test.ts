@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryClient } from '../../app/queryClient';
 import { ipc, unwrap, type Engine } from '../../ipc';
 import { mockBackend } from '../../ipc/mockClient';
+import { startMetaFeed } from '../explorer/metaFeed';
 import { ensureCatalog, resetCatalogStore } from './catalogStore';
 import { sqlCompletionSource, type CompletionHost } from './completionSource';
 import { quotingFor } from './completionTestKit';
@@ -30,6 +31,8 @@ beforeEach(async () => {
   mockBackend.setMetaLatency(0);
   queryClient.clear();
   resetCatalogStore();
+  // The app's invalidation of cached catalogs on `metaRefreshed` (once per launch).
+  startMetaFeed();
   await unwrap(ipc.commands.connect(PG, null));
   asYouType = true;
   connected = true;

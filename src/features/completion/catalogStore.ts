@@ -2,32 +2,23 @@ import type { QueryClient } from '@tanstack/react-query';
 import { create } from 'zustand';
 
 import { queryClient as sharedClient } from '../../app/queryClient';
-import { ipc, unwrap, type CompletionCatalog, type MetaNode, type Unsubscribe } from '../../ipc';
+import type { CompletionCatalog } from '../../ipc';
+import { catalogKeys, catalogQuery } from '../explorer/catalogCache';
 import { fetchDatabases } from '../explorer/metaApi';
 import { metaKeys } from '../explorer/metaKeys';
 import { CatalogIndex } from './catalogIndex';
 
 /**
  * The completion catalog of a (connection, database), loaded the first time an editor needs it,
- * shared by every tab on the same database, and indexed once. It lives in the query cache next
- * to the explorer's data (`['meta', connection, …]`), so a refresh of the whole connection or
- * its disconnection drops it with them; the `metaRefreshed` events below drop it for the finer
- * levels (the catalog covers everything of a database).
+ * shared by every tab on the same database, and indexed once. It is the palette's cached catalog
+ * (`explorer/catalogCache.ts`): one read for both, made stale by `metaFeed` when the backend
+ * refreshes a node of that database, removed when the connection closes.
  */
 
 const key = (connectionId: string, database: string) =>
-  [...metaKeys.connection(connectionId), 'completion', database] as const;
+  catalogKeys.database(connectionId, database);
 
 const keyText = (connectionId: string, database: string) => `${connectionId}\u0000${database}`;
-
-let counter = 0;
-
-async function fetchCatalog(connectionId: string, database: string): Promise<CompletionCatalog> {
-  counter += 1;
-  const requestId = `completion-${Date.now().toString(36)}-${counter.toString(36)}`;
-  // System objects come along (`information_schema.`, `pg_catalog.`…) and rank below the user's.
-  return unwrap(ipc.commands.getCompletionCatalog(requestId, connectionId, database, true));
-}
 
 const indexes = new WeakMap<CompletionCatalog, CatalogIndex>();
 
@@ -114,7 +105,6 @@ export function ensureCatalog(
   database: string,
   deps: CatalogDeps = defaults,
 ): Promise<CatalogIndex | null> {
-  startCompletionFeed(deps);
   const id = keyText(connectionId, database);
   const cached = peekCatalog(connectionId, database, deps);
   if (cached && !isStale(connectionId, database, deps)) return Promise.resolve(cached);
@@ -126,12 +116,7 @@ export function ensureCatalog(
   }
   useLoadingStore.getState().set(id, cached === null);
   const load = deps.client
-    .query({
-      queryKey: key(connectionId, database),
-      queryFn: () => fetchCatalog(connectionId, database),
-      staleTime: 0,
-      gcTime: 30 * 60_000,
-    })
+    .query(catalogQuery({ connectionId, database }))
     .then((catalog) => {
       failures.delete(id);
       return indexOf(catalog);
@@ -173,41 +158,9 @@ export async function resolveDatabase(
   }
 }
 
-/** Drops the cached catalogs a refreshed node makes out of date. */
-export function invalidateCatalogs(
-  connectionId: string,
-  node: MetaNode,
-  deps: CatalogDeps = defaults,
-): void {
-  switch (node.level) {
-    case 'connection':
-      void deps.client.invalidateQueries({
-        queryKey: [...metaKeys.connection(connectionId), 'completion'],
-      });
-      return;
-    case 'table':
-      void deps.client.invalidateQueries({ queryKey: key(connectionId, node.table.database) });
-      return;
-    default:
-      void deps.client.invalidateQueries({ queryKey: key(connectionId, node.database) });
-  }
-}
-
-let stopFeed: Unsubscribe | null = null;
-
-/** Follows `metaRefreshed`: once per launch, started with the first catalog read. */
-export function startCompletionFeed(deps: CatalogDeps = defaults): void {
-  if (stopFeed) return;
-  stopFeed = ipc.events.subscribe('metaRefreshed', ({ connectionId, node }) => {
-    invalidateCatalogs(connectionId, node, deps);
-  });
-}
-
 /** For tests: forgets in-flight reads and failures. */
 export function resetCatalogStore(): void {
   pending.clear();
   failures.clear();
   useLoadingStore.setState({ loading: new Set() });
-  stopFeed?.();
-  stopFeed = null;
 }

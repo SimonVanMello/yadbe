@@ -11,6 +11,10 @@ export interface CatalogTarget {
 }
 
 /**
+ * The one cache of completion catalogs, shared by the palette and the editor's autocomplete
+ * (`features/completion/catalogStore.ts`): one read per (connection, database), invalidated by
+ * `metaFeed` on `meta-refreshed` and removed when the session closes.
+ *
  * Catalogs live under their own key, not under `meta`: a 10 000-object catalog landing in the
  * cache must not make the explorer's tree rebuild itself, which listens to `meta` queries.
  */

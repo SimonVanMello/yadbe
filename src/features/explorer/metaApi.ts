@@ -48,9 +48,10 @@ export function fetchMeta(connectionId: string, request: MetaRequest, signal: Ab
 }
 
 /**
- * Every schema, relation and routine of a database in one read (system objects left out): what
- * the palette and the editor's autocomplete search. Rejects with a `YadbeIpcError`.
+ * Every schema, relation and routine of a database in one read, system objects included (they
+ * rank below the user's in the autocomplete; the palette leaves them out): what the palette and
+ * the editor's autocomplete search. Rejects with a `YadbeIpcError`.
  */
 export function fetchCatalog(connectionId: string, database: string, signal: AbortSignal) {
-  return read(signal, (id) => ipc.commands.getCompletionCatalog(id, connectionId, database, false));
+  return read(signal, (id) => ipc.commands.getCompletionCatalog(id, connectionId, database, true));
 }

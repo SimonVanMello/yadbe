@@ -2,8 +2,9 @@ import { QueryClient } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
-import { ipc, unwrap } from '../../ipc';
+import { ipc, unwrap, type Unsubscribe } from '../../ipc';
 import { mockBackend } from '../../ipc/mockClient';
+import { catalogKeys, invalidateCatalogs } from '../explorer/catalogCache';
 import {
   ensureCatalog,
   needsCatalog,
@@ -21,6 +22,7 @@ let client: QueryClient;
 let clock = 0;
 let deps: CatalogDeps;
 let reads: MockInstance<typeof ipc.commands.getCompletionCatalog>;
+let stopFeed: Unsubscribe;
 
 beforeEach(async () => {
   mockBackend.reset();
@@ -33,9 +35,14 @@ beforeEach(async () => {
   await unwrap(ipc.commands.connect(PG, null));
   await unwrap(ipc.commands.connect(SQLITE, null));
   reads = vi.spyOn(ipc.commands, 'getCompletionCatalog');
+  // What `metaFeed` does in the app, on this test's client.
+  stopFeed = ipc.events.subscribe('metaRefreshed', ({ connectionId, node }) => {
+    void invalidateCatalogs(client, connectionId, node);
+  });
 });
 
 afterEach(() => {
+  stopFeed();
   reads.mockRestore();
   resetCatalogStore();
 });
@@ -158,9 +165,9 @@ describe('invalidation by metaRefreshed', () => {
     expect(needsCatalog(PG, 'app_dev', deps)).toBe(false);
   });
 
-  it('lives under the connection`s metadata key: closing the connection removes it', () => {
-    // `metaFeed` removes `['meta', connection]` when a session closes.
-    client.removeQueries({ queryKey: ['meta', PG] });
+  it('is the palette`s cached catalog: removed with it when the connection closes', () => {
+    // `metaFeed` removes `['catalog', connection]` when a session closes.
+    client.removeQueries({ queryKey: catalogKeys.connection(PG) });
     expect(peekCatalog(PG, 'app_dev', deps)).toBeNull();
     expect(needsCatalog(PG, 'app_dev', deps)).toBe(true);
   });

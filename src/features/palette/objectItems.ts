@@ -35,10 +35,18 @@ function itemsOf(
       signature,
     });
   };
+  // The shared catalog carries the engine's own objects for the autocomplete; the palette
+  // searches the user's.
+  const isSystem = (schemaIndex: number | null, name: string) =>
+    schemaIndex === null
+      ? name.startsWith('sqlite_')
+      : (catalog.schemas[schemaIndex]?.system ?? false);
   for (const relation of catalog.relations) {
+    if (isSystem(relation.schema, relation.name)) continue;
     push(relation.schema, relation.name, relation.kind, null);
   }
   for (const routine of catalog.routines) {
+    if (isSystem(routine.schema, routine.name)) continue;
     push(routine.schema, routine.name, routine.kind, routine.arguments);
   }
   return items;
