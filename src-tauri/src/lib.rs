@@ -52,11 +52,21 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::store::save_tabs,
             commands::store::get_statement_log,
             commands::store::clear_statement_log,
+            commands::meta::list_databases,
+            commands::meta::list_schemas,
+            commands::meta::list_object_counts,
+            commands::meta::list_objects,
+            commands::meta::get_table_details,
+            commands::meta::get_completion_catalog,
+            commands::meta::refresh_meta,
+            commands::meta::cancel_meta_request,
+            commands::meta::script_table,
         ])
         .events(collect_events![
             events::AppReady,
             events::ConnectionStateChanged,
             events::StatementLogged,
+            events::MetaRefreshed,
         ])
 }
 

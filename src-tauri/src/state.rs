@@ -6,6 +6,7 @@ use std::sync::Arc;
 use crate::events::EventSink;
 use crate::secrets::{KeychainBackend, SecretStore};
 use crate::session::ConnectionManager;
+use crate::session::meta_cache::{MetaService, ObservingSink};
 use crate::session::statement_log::StatementLog;
 use crate::store::{DB_FILE, Store};
 
@@ -17,6 +18,7 @@ pub struct AppState {
     pub secrets: Arc<SecretStore>,
     pub log: Arc<StatementLog>,
     pub connections: Arc<ConnectionManager>,
+    pub meta: Arc<MetaService>,
 }
 
 impl AppState {
@@ -24,6 +26,12 @@ impl AppState {
         let store = Arc::new(store);
         let secrets = Arc::new(SecretStore::new(keychain));
         let log = Arc::new(StatementLog::new(Arc::clone(&sink)));
+        let meta = Arc::new(MetaService::new(Arc::clone(&sink)));
+        // The metadata cache follows connection states (dropped, back, closed).
+        let sink: Arc<dyn EventSink> = Arc::new(ObservingSink {
+            inner: sink,
+            meta: Arc::clone(&meta),
+        });
         let connections = Arc::new(ConnectionManager::new(
             Arc::clone(&store),
             Arc::clone(&secrets),
@@ -35,6 +43,7 @@ impl AppState {
             secrets,
             log,
             connections,
+            meta,
         }
     }
 }

@@ -138,6 +138,11 @@ pub trait Connection: Send + Sync {
 
     /// Closes the connection politely when the engine supports it.
     fn close(&self) -> BoxFuture<'_, ()>;
+
+    /// Metadata reads on this connection; `None` for a driver without introspection.
+    fn introspector(&self) -> Option<&dyn crate::db::introspect::Introspector> {
+        None
+    }
 }
 
 pub trait CancelHandle: Send + Sync {

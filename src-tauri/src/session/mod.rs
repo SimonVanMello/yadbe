@@ -3,6 +3,7 @@
 
 mod connection;
 mod manager;
+pub mod meta_cache;
 mod model;
 pub mod statement_log;
 

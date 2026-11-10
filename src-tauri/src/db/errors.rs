@@ -62,6 +62,8 @@ pub enum ErrorCode {
     QueryFailed,
     /// The operation was cancelled by the user.
     Cancelled,
+    /// A database object (table, schema…) no longer exists, or was renamed.
+    ObjectNotFound,
 }
 
 /// A message in every supported UI language.
@@ -350,6 +352,19 @@ impl YadbeError {
         Self::new(ErrorCode::Cancelled, "Cancelled.", "Annulé.")
     }
 
+    /// `what`: the object as the user knows it (`shop.orders`), never translated.
+    pub fn object_not_found(what: &str) -> Self {
+        Self::new(
+            ErrorCode::ObjectNotFound,
+            format!(
+                "\"{what}\" no longer exists. Refresh the explorer to see the current objects."
+            ),
+            format!(
+                "« {what} » n'existe plus. Actualisez l'explorateur pour voir les objets actuels."
+            ),
+        )
+    }
+
     /// Whether the failure is worth retrying automatically when reconnecting: network and
     /// server-side transient failures, not wrong settings or credentials.
     pub fn is_transient(&self) -> bool {
@@ -496,6 +511,7 @@ mod tests {
             YadbeError::keychain_failed("locked"),
             YadbeError::password_required(),
             YadbeError::engine_not_supported("MySQL"),
+            YadbeError::object_not_found("shop.orders"),
         ];
         for error in all {
             assert!(!error.message.en.is_empty() && !error.message.fr.is_empty());

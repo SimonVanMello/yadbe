@@ -2,6 +2,7 @@
 
 pub mod app;
 pub mod connections;
+pub mod meta;
 pub mod secrets;
 pub mod sessions;
 pub mod store;
