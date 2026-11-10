@@ -163,6 +163,11 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
               : t('export.live.streaming')}
           </p>
         )}
+        {source.kind === 'result' && source.truncated && !live && !selectionOnly && (
+          <p className={styles.note} role="note">
+            {t('export.truncatedBefore', { count: number.format(source.rowCount) })}
+          </p>
+        )}
         {filtered && (
           <p className={styles.note} role="note">
             {t('export.table.filtered')}

@@ -325,7 +325,8 @@ for (const { name, colorScheme } of THEMES) {
       );
       await capture(page, name, 'preview-prod');
 
-      await preview.getByRole('button', { name: /^Apply 2 statements/ }).click();
+      // The Apply button's own shortcut works inside the dialog.
+      await page.keyboard.press('ControlOrMeta+s');
       await expect(preview).toBeHidden();
       await expect(page.getByText('Changes applied', { exact: true })).toBeVisible();
       await expect(pending(page)).toHaveText('No changes');

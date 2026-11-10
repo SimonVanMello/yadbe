@@ -38,7 +38,7 @@ export function ResultsArea({ tabId }: { tabId: string }) {
     ...execution.results.map((result, index) => ({
       key: `result-${String(result.resultId)}`,
       label: t('query.results.result', { number: index + 1 }),
-      detail: `· ${formatNumber(locale, result.rowCount)}${result.status === 'paused' ? '+' : ''}`,
+      detail: `· ${formatNumber(locale, result.rowCount)}${result.status === 'paused' || result.truncated ? '+' : ''}`,
       value: { kind: 'result', resultId: result.resultId } as const,
     })),
     {

@@ -216,6 +216,7 @@ async fn exports_a_paused_result_without_growing_it(b: &Bench, sql: &str) {
     assert_eq!(run.status, ExecutionStatus::Succeeded, "{run:?}");
     assert_eq!(run.results[0].status, ResultStatus::Complete);
     assert_eq!(run.results[0].row_count, 1_000);
+    assert!(run.results[0].truncated, "the summary says rows went to the export only");
     // The result is now marked as stopped at its limit, and says so to a later export.
     let again = out.path().join("again.csv");
     let started = exports

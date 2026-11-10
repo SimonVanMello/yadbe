@@ -1389,6 +1389,11 @@ export type ResultSummary = {
 	pausedBy: PauseReason | null,
 	/**  Memory the rows take in the backend, approximately, in bytes (saturates at 4 GiB). */
 	bytes: number,
+	/**
+	 *  Rows past the limits went to an export only (M2-7): the stored rows are not all the
+	 *  rows the statement returned, and the statement cannot be resumed.
+	 */
+	truncated: boolean,
 };
 
 /**  Rows `offset .. offset + rowCount` of a result, column by column. */

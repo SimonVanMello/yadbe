@@ -473,6 +473,8 @@ export function createMockQuery(host: MockQueryHost) {
       status: result.status,
       pausedBy: result.pausedBy,
       bytes: Math.min(result.rowCount * result.rowBytes, 0xffffffff),
+      // The mock's exports read the whole statement without consuming it.
+      truncated: false,
     };
   }
 

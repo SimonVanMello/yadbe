@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+
 import { shortcutOf } from '../../app/actions';
 import { localize } from '../../app/errors/presentError';
 import { useT } from '../../i18n/useT';
@@ -5,6 +7,7 @@ import { Button } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { Icon } from '../../ui/Icon';
 import { Kbd } from '../../ui/Kbd';
+import { matchShortcut } from '../../ui/shortcuts';
 import { Spinner } from '../../ui/Spinner';
 import { Switch } from '../../ui/Switch';
 import { ConnectionBanner } from '../connections/ConnectionBanner';
@@ -30,6 +33,21 @@ export function PreviewDialog({
   const { preview, applying, info } = useTableSession(tabId);
   const previewFirst = usePreference('previewBeforeApply');
   const prod = connection.environment === 'prod';
+  const ready = preview?.status === 'ready' && !applying;
+  // The Apply button shows `Mod+S`; global shortcuts are off while a dialog is open, so the
+  // dialog listens itself.
+  useEffect(() => {
+    if (!ready) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !matchShortcut(event, shortcutOf('table.apply'))) return;
+      event.preventDefault();
+      void applyChanges(tabId);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [ready, tabId]);
   if (!preview) return null;
   const statements = preview.data?.statements.length ?? 0;
 

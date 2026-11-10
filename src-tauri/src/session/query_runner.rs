@@ -144,6 +144,7 @@ impl ResultEntry {
             status: self.status,
             paused_by: self.paused_by,
             bytes: to_u32(self.bytes),
+            truncated: self.truncated,
         }
     }
 }

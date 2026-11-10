@@ -55,7 +55,14 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
   const openExport = () => {
     useExportStore.getState().open({
       label: label ?? t('grid.label', { number: summary.statementIndex + 1 }),
-      source: { kind: 'result', resultId, rowCount: summary.rowCount, status, pausedBy },
+      source: {
+        kind: 'result',
+        resultId,
+        rowCount: summary.rowCount,
+        status,
+        pausedBy,
+        truncated: summary.truncated,
+      },
     });
   };
 
@@ -112,6 +119,11 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
       <Button size="sm" variant="ghost" onClick={openExport}>
         {t('export.menu')}
       </Button>
+      {summary.truncated && status !== 'paused' && (
+        <span className={styles.paused} role="status">
+          {t('grid.status.exportedRest')}
+        </span>
+      )}
       {(status === 'cancelled' || status === 'failed') && (
         <span className={styles.stopped} role="status">
           {t(status === 'cancelled' ? 'grid.status.cancelled' : 'grid.status.failed')}

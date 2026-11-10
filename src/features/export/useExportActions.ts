@@ -37,6 +37,7 @@ export function openExportForActiveTab(): void {
       rowCount: result.rowCount,
       status: result.status,
       pausedBy: result.pausedBy,
+      truncated: result.truncated,
     },
   });
 }

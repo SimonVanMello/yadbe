@@ -196,6 +196,9 @@ pub struct ResultSummary {
     pub paused_by: Option<PauseReason>,
     /// Memory the rows take in the backend, approximately, in bytes (saturates at 4 GiB).
     pub bytes: u32,
+    /// Rows past the limits went to an export only (M2-7): the stored rows are not all the
+    /// rows the statement returned, and the statement cannot be resumed.
+    pub truncated: bool,
 }
 
 /// A message from the server, never translated.

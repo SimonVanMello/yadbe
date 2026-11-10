@@ -16,6 +16,8 @@ export interface ResultExportSource {
   rowCount: number;
   status: ResultStatus;
   pausedBy: PauseReason | null;
+  /** An earlier export read the rows past the limit: only the stored rows can be exported. */
+  truncated: boolean;
 }
 
 /** Every row of a table tab's table under the tab's filter and sort, read from the server. */

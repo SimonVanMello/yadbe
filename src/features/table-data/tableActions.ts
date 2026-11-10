@@ -247,6 +247,10 @@ export async function loadPage(
     return false;
   }
   const page = result.data;
+  // The last page says how many rows match: no estimate to show (a never-analyzed PostgreSQL
+  // table can be estimated at ten times its size).
+  const known =
+    !page.hasMore && (page.rowCount > 0 || page.offset === 0) ? page.offset + page.rowCount : null;
   source.setPage(page);
   traces.delete(tabId);
   const session = getTableSession(tabId);
@@ -266,9 +270,13 @@ export async function loadPage(
     failure: null,
     preview: null,
     stale: false,
-    ...(options.recount ? { count: null } : {}),
+    ...(known !== null
+      ? { count: { mode: 'exact', count: known, filtered: true, durationMs: null } }
+      : options.recount
+        ? { count: null }
+        : {}),
   });
-  if (options.recount) void countRows(tabId, 'estimate');
+  if (options.recount && known === null) void countRows(tabId, 'estimate');
   return true;
 }
 

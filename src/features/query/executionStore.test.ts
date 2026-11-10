@@ -33,6 +33,7 @@ function summary(resultId: number, rowCount: number, statementIndex = 0): Result
     columns: [{ name: 'n', typeName: 'int4', kind: 'int' }],
     rowCount,
     status: 'streaming',
+    truncated: false,
     pausedBy: null,
     bytes: rowCount * 8,
   };
