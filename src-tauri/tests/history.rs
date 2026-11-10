@@ -83,9 +83,11 @@ async fn records_success_failure_and_cancellation_on_sqlite() {
     let cancelled = &rows[0];
     assert_eq!(cancelled.outcome, HistoryOutcome::Cancelled);
     assert_eq!(cancelled.sql, LONG_SQLITE);
+    assert_eq!(cancelled.rows, None);
     let failed = &rows[1];
     assert_eq!(failed.outcome, HistoryOutcome::Error);
     assert_eq!(failed.sql, "SELECT nope FROM items");
+    assert_eq!(failed.rows, None);
     assert!(
         failed
             .error_message

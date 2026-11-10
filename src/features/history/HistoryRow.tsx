@@ -87,7 +87,7 @@ export function HistoryRow({
           {entry.outcome !== 'refused' && (
             <span className={styles.fact}>{formatDuration(entry.durationMs, locale)}</span>
           )}
-          {entry.rows !== null && (
+          {entry.outcome === 'ok' && entry.rows !== null && (
             <span className={styles.fact}>{t('history.rows', { count: entry.rows })}</span>
           )}
         </div>

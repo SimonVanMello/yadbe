@@ -1139,7 +1139,8 @@ impl QueryRunner {
                     index,
                     started_at,
                     duration,
-                    rows_returned.map(|r| r as u64),
+                    // A statement that did not finish has no row count worth keeping.
+                    None,
                     Err(error.clone()),
                 );
                 exec.message(
