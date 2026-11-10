@@ -37,12 +37,14 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tokio-postgres = "0.7.18"
 # Same crate family as tokio-postgres: binary decoding of arrays and network types.
 postgres-protocol = "0.6"
+# Iterator type of postgres-protocol's array decoding (already a dependency of it).
+fallible-iterator = "0.2"
 # TLS through rustls with the `ring` provider (aws-lc-rs needs cmake and NASM on Windows).
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
 # OS trust store for `verify-full` when no custom CA is given.
 rustls-native-certs = "0.8"
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled", "column_decltype"] }
 keyring = "4.2"
 zeroize = "1"
 # Already in the lockfile through Tauri.

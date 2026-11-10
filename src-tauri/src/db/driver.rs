@@ -73,6 +73,28 @@ pub async fn recorded<T>(
     result
 }
 
+/// Blocking twin of [`recorded`], for drivers running on a blocking thread.
+pub fn recorded_sync<T>(
+    recorder: &dyn StatementRecorder,
+    sql: &str,
+    rows: impl FnOnce(&T) -> Option<u64>,
+    work: impl FnOnce() -> Result<T, YadbeError>,
+) -> Result<T, YadbeError> {
+    let started_at = SystemTime::now();
+    let start = Instant::now();
+    let result = work();
+    recorder.record(RecordedStatement {
+        sql: sql.to_owned(),
+        started_at,
+        duration: start.elapsed(),
+        outcome: match &result {
+            Ok(value) => Ok(rows(value)),
+            Err(err) => Err(err.clone()),
+        },
+    });
+    result
+}
+
 /// Everything a driver needs to open a connection.
 pub struct ConnectRequest<'a> {
     pub target: &'a ConnectTarget,
