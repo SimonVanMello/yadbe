@@ -1,9 +1,10 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useMemo, useRef } from 'react';
 
-import { localize } from '../../app/errors/presentError';
+import { localize, resolveErrorAction } from '../../app/errors/presentError';
 import { useT } from '../../i18n/useT';
 import type { QueryMessage, TextPosition } from '../../ipc';
+import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
 import { getEditor } from './editorRegistry';
 import { jumpTarget } from './errorMarks';
@@ -130,6 +131,10 @@ function MessageRow({
     const where = positionText(t, body.position, statementIndex);
     const serverText = body.server?.message;
     const mine = localize(body.error.message);
+    // Only what needs no handler of ours (editing the connection) is offered here.
+    const action = resolveErrorAction(body.error.action, {
+      connectionId: execution.connectionId ?? undefined,
+    });
     return (
       <div className={styles.row} data-kind="error" data-testid="message-error">
         <Icon name="error" className={styles.icon} />
@@ -147,6 +152,11 @@ function MessageRow({
           )}
           {body.error.detail && !body.server && <p className={styles.sub}>{body.error.detail}</p>}
           {statementText && <code className={styles.statement}>{statementText}</code>}
+          {action && (
+            <Button size="sm" onClick={action.run}>
+              {action.label}
+            </Button>
+          )}
         </div>
         {target !== null && where && (
           <button
