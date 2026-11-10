@@ -1,0 +1,29 @@
+.select {
+  width: var(--settings-control-width);
+}
+
+.numberField {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The input fills its box: the width is set here, not on the primitive. */
+.numberBox {
+  display: block;
+  width: var(--settings-number-width);
+}
+
+.numberBox > input {
+  text-align: right;
+}
+
+.textBox {
+  display: block;
+  width: var(--settings-control-width);
+}
+
+.unit {
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+}

@@ -25,7 +25,16 @@ describe('theme and language preferences', () => {
   });
 
   it('refresh the first-paint copy from the backend without writing back', () => {
-    applyStoredPreferences({ theme: 'dark', locale: null, density: 'comfortable', uiState: null });
+    applyStoredPreferences({
+      theme: 'dark',
+      locale: null,
+      density: 'comfortable',
+      uiState: null,
+      historyEnabled: true,
+      historyMaxEntries: 50_000,
+      historyMaxAgeDays: 365,
+      connectTimeoutSecs: 15,
+    });
     expect(loadPreferences()).toEqual({ theme: 'dark', locale: null });
   });
 
@@ -62,6 +71,10 @@ describe('frontend-owned ui state', () => {
       locale: null,
       density: 'comfortable',
       uiState: '{oops',
+      historyEnabled: true,
+      historyMaxEntries: 50_000,
+      historyMaxAgeDays: 365,
+      connectTimeoutSecs: 15,
     });
     resetBackendPreferences();
     expect(await loadUiSlice('layout')).toBeUndefined();

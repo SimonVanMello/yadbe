@@ -44,7 +44,7 @@ import {
 import { looseRows, TableRowSource, type LooseRow } from './tableRowSource';
 import { getTableSession, useTableSessionStore, type TableSession } from './tableSessionStore';
 import { getTableTabState, useTableTabStore, type TableTabState } from './tableTabStore';
-import { useTableUiStore } from './tableUiStore';
+import { getPreference } from '../preferences/preferenceStore';
 
 /**
  * What a table tab does (F-080 to F-086): reading pages, counting, buffering edits, previewing
@@ -746,7 +746,7 @@ export async function pasteText(tabId: string, text: string, asRows: boolean): P
 export function mustPreview(tabId: string): boolean {
   const tab = tableTabOf(tabId);
   const connection = findConnection(tab?.connectionId ?? null);
-  return connection?.environment === 'prod' || useTableUiStore.getState().previewBeforeApply;
+  return connection?.environment === 'prod' || getPreference('previewBeforeApply');
 }
 
 export async function openPreview(tabId: string): Promise<void> {

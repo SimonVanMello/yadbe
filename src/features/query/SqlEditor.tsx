@@ -6,7 +6,7 @@ import {
   historyKeymap,
   indentWithTab,
 } from '@codemirror/commands';
-import { bracketMatching, indentOnInput, indentUnit } from '@codemirror/language';
+import { bracketMatching, indentOnInput } from '@codemirror/language';
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
 import { Compartment, EditorState, Prec, type Extension } from '@codemirror/state';
 import {
@@ -14,10 +14,8 @@ import {
   drawSelection,
   dropCursor,
   highlightActiveLine,
-  highlightActiveLineGutter,
   highlightSpecialChars,
   keymap,
-  lineNumbers,
 } from '@codemirror/view';
 import { useEffect, useMemo, useRef } from 'react';
 
@@ -31,7 +29,9 @@ import { completionExtension } from '../completion/completionExtension';
 import { createCompletionHost } from '../completion/completionHost';
 import { STANDARD_QUOTING, quotingOf, type Quoting } from '../completion/identifierQuoting';
 import { useEngineInfo } from '../connections/connectionStore';
-import { currentOffset, markRun, queryFields, setErrors } from './editorFields';
+import { usePreference, usePreferenceStore } from '../preferences/preferenceStore';
+import { currentOffset, markRun, queryFields, setErrors, setStatement } from './editorFields';
+import { editorOptions, type EditorPreferences } from './editorOptions';
 import { editorPhrases } from './editorPhrases';
 import { useEditorCursorStore } from './editorCursorStore';
 import { registerEditor, type EditorController } from './editorRegistry';
@@ -41,7 +41,6 @@ import { useTabExecution } from './executionStore';
 import { getQueryTabState, useQueryTabStore } from './queryTabStore';
 import styles from './SqlEditor.module.css';
 import { sqlLanguage } from './sqlLanguage';
-import { statementHighlighter } from './statementHighlighter';
 
 /** Line and column of the main cursor, for the status bar. `lineAt` is logarithmic. */
 function reportCursor(tabId: string, state: EditorState): void {
@@ -62,6 +61,17 @@ const savedStates = new Map<string, unknown>();
 /** Forgets the undo history of a closed tab. */
 export function forgetEditorState(tabId: string): void {
   savedStates.delete(tabId);
+}
+
+function currentOptions(): EditorPreferences {
+  const { values } = usePreferenceStore.getState();
+  return {
+    tabSize: values.tabSize,
+    indentWithSpaces: values.indentWithSpaces,
+    lineWrapping: values.lineWrapping,
+    lineNumbers: values.lineNumbers,
+    highlightStatement: values.highlightStatement,
+  };
 }
 
 const SCROLL_SAVE_DELAY_MS = 200;
@@ -93,7 +103,7 @@ interface EditorOptions {
 
 function editorExtensions(
   options: EditorOptions,
-  compartments: { language: Compartment; phrases: Compartment },
+  compartments: { language: Compartment; phrases: Compartment; options: Compartment },
   engine: Engine,
   locale: 'en' | 'fr',
 ): Extension {
@@ -105,8 +115,6 @@ function editorExtensions(
     // `<style>` tags of its own.
     nonce === null ? [] : EditorView.cspNonce.of(nonce),
     runKeys(),
-    lineNumbers(),
-    highlightActiveLineGutter(),
     highlightSpecialChars(),
     history(),
     drawSelection(),
@@ -115,8 +123,7 @@ function editorExtensions(
     // Alt+click adds a cursor (F-040: multi-cursor); `Mod-d` and `Mod-Alt-Up/Down` do too.
     EditorView.clickAddsSelectionRange.of((event) => event.altKey),
     indentOnInput(),
-    indentUnit.of('  '),
-    EditorState.tabSize.of(2),
+    compartments.options.of(editorOptions(currentOptions(), options.getEngine)),
     bracketMatching(),
     closeBrackets(),
     options.completion,
@@ -134,7 +141,6 @@ function editorExtensions(
     compartments.phrases.of(locale === 'fr' ? EditorState.phrases.of(editorPhrases('fr')) : []),
     sqlEditorTheme,
     queryFields,
-    statementHighlighter(options.getEngine),
     EditorView.contentAttributes.of({ 'aria-label': options.label }),
     EditorView.updateListener.of((update) => {
       const state = useQueryTabStore.getState();
@@ -180,7 +186,11 @@ export function SqlEditor({ tabId, engine, connectionId, connectionDatabase }: S
   const locale = useI18nStore((state) => state.locale);
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const compartments = useRef({ language: new Compartment(), phrases: new Compartment() });
+  const compartments = useRef({
+    language: new Compartment(),
+    phrases: new Compartment(),
+    options: new Compartment(),
+  });
   const engineRef = useRef(engine);
   const labelRef = useRef(t('editor.label'));
   const execution = useTabExecution(tabId);
@@ -205,6 +215,32 @@ export function SqlEditor({ tabId, engine, connectionId, connectionDatabase }: S
       effects: compartments.current.language.reconfigure(sqlLanguage(engine)),
     });
   }, [engine]);
+
+  const tabSize = usePreference('tabSize');
+  const indentWithSpaces = usePreference('indentWithSpaces');
+  const lineWrapping = usePreference('lineWrapping');
+  const lineNumbersOn = usePreference('lineNumbers');
+  const highlightStatement = usePreference('highlightStatement');
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: [
+        compartments.current.options.reconfigure(
+          editorOptions(
+            {
+              tabSize,
+              indentWithSpaces,
+              lineWrapping,
+              lineNumbers: lineNumbersOn,
+              highlightStatement,
+            },
+            () => engineRef.current,
+          ),
+        ),
+        // The tint of the statement under the cursor goes with its plugin.
+        ...(highlightStatement ? [] : [setStatement.of(null)]),
+      ],
+    });
+  }, [tabSize, indentWithSpaces, lineWrapping, lineNumbersOn, highlightStatement]);
 
   useEffect(() => {
     labelRef.current = t('editor.label');

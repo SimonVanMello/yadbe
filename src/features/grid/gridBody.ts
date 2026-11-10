@@ -128,8 +128,11 @@ export class GridBody {
       return;
     }
     this.labels = labels;
-    // Repaint the NULL / empty markers in the new language.
-    for (const view of this.active.values()) view.block = null;
+    // Repaint the NULL / empty markers with the new labels: cells skip text they already show.
+    for (const view of this.active.values()) {
+      view.block = null;
+      for (const cell of view.cells.values()) cell.text = undefined;
+    }
   }
 
   /** Rows currently in the DOM (for tests and measurements). */

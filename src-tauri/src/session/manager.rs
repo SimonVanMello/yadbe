@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use tokio::sync::Notify;
 
-use crate::db::config::{AuthMethod, ConnectionDefinition};
+use crate::db::config::{AuthMethod, ConnectionDefinition, DEFAULT_CONNECT_TIMEOUT_SECS};
 use crate::db::dialect::{Engine, EngineInfo};
 use crate::db::driver::{ConnectRequest, Driver};
 use crate::db::drivers;
@@ -100,6 +100,14 @@ impl ConnectionManager {
             .ok_or_else(|| YadbeError::engine_not_supported(engine.dialect().label()))
     }
 
+    /// The app-wide connect timeout (preferences) for definitions that set none.
+    async fn default_connect_timeout(&self) -> u32 {
+        let store = Arc::clone(&self.store);
+        blocking(move || store.preferences())
+            .await
+            .map_or(DEFAULT_CONNECT_TIMEOUT_SECS, |p| p.connect_timeout_secs)
+    }
+
     /// The password to use: the one given, else the stored one, else none when the
     /// connection needs none.
     async fn password(
@@ -136,7 +144,7 @@ impl ConnectionManager {
             .await?;
         let cancel = Arc::new(Notify::new());
         lock(&self.tests).insert(request_id.clone(), Arc::clone(&cancel));
-        let target = definition.target();
+        let target = definition.target_with_timeout(self.default_connect_timeout().await);
         let recorder = self
             .log
             .recorder(connection_id.clone(), definition.name.clone());
@@ -195,10 +203,13 @@ impl ConnectionManager {
         let password = self
             .password(&saved.definition, Some(connection_id), password)
             .await?;
+        let target = saved
+            .definition
+            .target_with_timeout(self.default_connect_timeout().await);
         let session = ConnectionSession::new(
             connection_id.to_owned(),
             driver,
-            saved.definition.target(),
+            target,
             password,
             self.log.recorder(
                 Some(connection_id.to_owned()),

@@ -58,7 +58,7 @@ Exit: table data is browsed, filtered and edited safely with a SQL preview; prod
 | M2-5 ✅ | **Autocomplete**: CodeMirror completion source on the cached schema (keywords, schemas, tables, columns, functions), P-05 measured | M1-1, M1-4 | F-043 (MVP part), P-05 | sonnet · high |
 | M2-6 ✅ | **Palette**: action registry with stable IDs, fuzzy search over actions / connections / objects / tabs / history, default keybindings | M1 | F-120, F-121, P-06 | sonnet · high |
 | M2-7 ✅ | **Export**: result or table streamed to CSV / JSON with options, progress and cancellation | M1-3 | F-066 (MVP part) | sonnet · medium |
-| M2-8 🟦 | **Preferences** screen and store | M1 | F-125 | sonnet · medium |
+| M2-8 ✅ | **Preferences** screen and store | M1 | F-125 | sonnet · medium |
 | M2-9 ⬜ | **Integration and validation**: end-to-end editing scenarios on the three engines, `docs/validation/M2.md`, README with screenshots | all of M2 | — | opus · medium |
 
 Order: wave 1 = M2-1 + M2-2 (one backend session, contracts first) ∥ M2-5 ∥ M2-6 ∥ M2-7; wave 2 = M2-3 ∥ M2-4 ∥ M2-8; then M2-9.

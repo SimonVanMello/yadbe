@@ -30,6 +30,10 @@ const PREF_THEME: &str = "theme";
 const PREF_LOCALE: &str = "locale";
 const PREF_DENSITY: &str = "density";
 const PREF_UI_STATE: &str = "ui_state";
+const PREF_HISTORY_ENABLED: &str = "history_enabled";
+const PREF_HISTORY_MAX_ENTRIES: &str = "history_max_entries";
+const PREF_HISTORY_MAX_AGE_DAYS: &str = "history_max_age_days";
+const PREF_CONNECT_TIMEOUT_SECS: &str = "connect_timeout_secs";
 const META_ACTIVE_TAB: &str = "active_tab";
 
 const CONNECTION_COLUMNS: &str = "id, name, engine, group_id, position, host, port, database_name, \
@@ -150,6 +154,16 @@ fn check_ui_state(ui_state: Option<&String>) -> Result<(), YadbeError> {
         ));
     }
     Ok(())
+}
+
+fn check_range(value: u32, (min, max): (u32, u32), en: &str, fr: &str) -> Result<(), YadbeError> {
+    if (min..=max).contains(&value) {
+        return Ok(());
+    }
+    Err(YadbeError::invalid_argument(
+        format!("{en} must be between {min} and {max}."),
+        format!("{fr} : valeur attendue entre {min} et {max}."),
+    ))
 }
 
 /// Inserts `id` at `position` among `siblings` (ordered, `id` excluded) and returns the new
@@ -574,6 +588,19 @@ impl Store {
             .optional()?)
     }
 
+    /// A numeric preference; missing, unreadable or out-of-range values fall back to `default`.
+    fn pref_number(
+        conn: &Connection,
+        key: &str,
+        (min, max): (u32, u32),
+        default: u32,
+    ) -> Result<u32, YadbeError> {
+        Ok(Self::pref(conn, key)?
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|v| (min..=max).contains(v))
+            .unwrap_or(default))
+    }
+
     /// Preferences; unknown or missing values fall back to the defaults.
     pub fn preferences(&self) -> Result<Preferences, YadbeError> {
         let conn = self.conn();
@@ -590,11 +617,50 @@ impl Store {
                 .and_then(|v| serde_json::from_str(&v).ok())
                 .unwrap_or(defaults.density),
             ui_state: Self::pref(&conn, PREF_UI_STATE)?,
+            history_enabled: Self::pref(&conn, PREF_HISTORY_ENABLED)?
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(defaults.history_enabled),
+            history_max_entries: Self::pref_number(
+                &conn,
+                PREF_HISTORY_MAX_ENTRIES,
+                HISTORY_ENTRIES_RANGE,
+                defaults.history_max_entries,
+            )?,
+            history_max_age_days: Self::pref_number(
+                &conn,
+                PREF_HISTORY_MAX_AGE_DAYS,
+                HISTORY_AGE_DAYS_RANGE,
+                defaults.history_max_age_days,
+            )?,
+            connect_timeout_secs: Self::pref_number(
+                &conn,
+                PREF_CONNECT_TIMEOUT_SECS,
+                CONNECT_TIMEOUT_RANGE,
+                defaults.connect_timeout_secs,
+            )?,
         })
     }
 
     pub fn set_preferences(&self, preferences: &Preferences) -> Result<Preferences, YadbeError> {
         check_ui_state(preferences.ui_state.as_ref())?;
+        check_range(
+            preferences.history_max_entries,
+            HISTORY_ENTRIES_RANGE,
+            "The history size",
+            "La taille de l'historique",
+        )?;
+        check_range(
+            preferences.history_max_age_days,
+            HISTORY_AGE_DAYS_RANGE,
+            "The history age",
+            "L'âge de l'historique",
+        )?;
+        check_range(
+            preferences.connect_timeout_secs,
+            CONNECT_TIMEOUT_RANGE,
+            "The connect timeout",
+            "Le délai de connexion",
+        )?;
         {
             let mut conn = self.conn();
             let tx = conn.transaction()?;
@@ -616,6 +682,22 @@ impl Store {
             )?;
             set(PREF_DENSITY, Some(enum_text(&preferences.density)?))?;
             set(PREF_UI_STATE, preferences.ui_state.clone())?;
+            set(
+                PREF_HISTORY_ENABLED,
+                Some(preferences.history_enabled.to_string()),
+            )?;
+            set(
+                PREF_HISTORY_MAX_ENTRIES,
+                Some(preferences.history_max_entries.to_string()),
+            )?;
+            set(
+                PREF_HISTORY_MAX_AGE_DAYS,
+                Some(preferences.history_max_age_days.to_string()),
+            )?;
+            set(
+                PREF_CONNECT_TIMEOUT_SECS,
+                Some(preferences.connect_timeout_secs.to_string()),
+            )?;
             tx.commit()?;
         }
         self.preferences()

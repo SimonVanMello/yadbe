@@ -11,6 +11,7 @@ import { useHistoryActions } from '../features/history/useHistoryActions';
 import { ExportDialog } from '../features/export/ExportDialog';
 import { useExportActions } from '../features/export/useExportActions';
 import { CommandPalette } from '../features/palette/CommandPalette';
+import { PreferencesDialog } from '../features/preferences/PreferencesDialog';
 import { usePaletteActions } from '../features/palette/usePaletteActions';
 import { useSidebarView } from '../features/sidebar/sidebarViewStore';
 import { useQueryActions } from '../features/query/useQueryActions';
@@ -94,6 +95,9 @@ function useShellActions(): void {
         ),
         'connection.new': () => {
           useShellStore.getState().openConnectionDialog({ connectionId: null });
+        },
+        'preferences.open': () => {
+          useShellStore.getState().openPreferences();
         },
         'view.toggleSidebar': () => {
           useLayoutStore.getState().togglePanel('sidebar');
@@ -197,6 +201,7 @@ export function Shell() {
       <GroupDialog />
       <ExportDialog />
       <CommandPalette />
+      <PreferencesDialog />
     </div>
   );
 }

@@ -10,28 +10,17 @@ import {
 } from './queryUiStore';
 
 describe('the saved editor settings', () => {
-  it('has defaults: results at a bit under half, dangerous statements confirmed', () => {
-    expect(DEFAULT_QUERY_UI).toEqual({
-      resultsRatio: DEFAULT_RESULTS_RATIO,
-      confirmDangerous: true,
-      completeAsYouType: true,
-    });
+  it('has a default: results at a bit under half', () => {
+    expect(DEFAULT_QUERY_UI).toEqual({ resultsRatio: DEFAULT_RESULTS_RATIO });
   });
 
-  it('reads a saved slice', () => {
+  it('reads a saved slice and ignores the settings that moved to the preferences', () => {
     expect(parseQueryUi({ resultsRatio: 0.6, confirmDangerous: false })).toEqual({
       resultsRatio: 0.6,
-      confirmDangerous: false,
-      completeAsYouType: true,
     });
   });
 
-  it('remembers that suggestions while typing are off', () => {
-    expect(parseQueryUi({ completeAsYouType: false }).completeAsYouType).toBe(false);
-    expect(parseQueryUi({ completeAsYouType: 'off' }).completeAsYouType).toBe(true);
-  });
-
-  it.each([undefined, null, 'x', 42, [], { resultsRatio: 'wide', confirmDangerous: 'no' }])(
+  it.each([undefined, null, 'x', 42, [], { resultsRatio: 'wide' }])(
     'falls back to the defaults for %j',
     (saved) => {
       expect(parseQueryUi(saved)).toEqual(DEFAULT_QUERY_UI);

@@ -15,6 +15,8 @@ import {
 import { fileDialog, type SqlFilePickerLabels } from '../../ipc/fileDialog';
 import { toast } from '../../ui/toastStore';
 import { connectTo } from '../connections/connectionActions';
+import { getPreference } from '../preferences/preferenceStore';
+import { resultLimits } from '../preferences/resultLimits';
 import type { ConnectionSummary } from '../connections/model';
 import { findConnection } from './connectionLookup';
 import { dangerKindKey, guardApplies, oneLine } from './dangerGuard';
@@ -23,7 +25,6 @@ import { getEditor } from './editorRegistry';
 import { isActive } from './executionModel';
 import { getTabExecution, getTabTransaction, useExecutionStore } from './executionStore';
 import { normalizeLineEndings, useFileIssues } from './fileIssues';
-import { useQueryUiStore } from './queryUiStore';
 import { fileNameOf, getQueryTabState, hashText, isDirty, useQueryTabStore } from './queryTabStore';
 import { scopeFor, type RunMode } from './runScope';
 
@@ -132,7 +133,7 @@ async function startRun(tabId: string, mode: RunMode): Promise<void> {
   }
   if (!(await connectTo(connection))) return;
 
-  if (guardApplies(connection, useQueryUiStore.getState().confirmDangerous)) {
+  if (guardApplies(connection, getPreference('confirmDangerous'))) {
     let dangers: DangerousStatement[] = [];
     try {
       dangers = findDangerousStatements(text, await statementsOf(connection.engine, text, scope));
@@ -152,7 +153,7 @@ async function startRun(tabId: string, mode: RunMode): Promise<void> {
     database,
     text,
     scope,
-    limits: null,
+    limits: resultLimits(),
   });
   if (result.status === 'ok') {
     store.begin(tabId, result.data, { connectionId: connection.id, database, sourceText: text });

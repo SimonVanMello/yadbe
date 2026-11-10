@@ -11,7 +11,7 @@ use crate::session::meta_cache::{MetaService, ObservingSink};
 use crate::session::statement_log::StatementLog;
 use crate::session::table_data::TableDataService;
 use crate::session::{ConnectionManager, QueryRunner};
-use crate::store::{DB_FILE, HistoryRetention, Store};
+use crate::store::{DB_FILE, Store};
 
 /// Overrides the config folder (tests, isolated `xvfb-run` sessions).
 pub const CONFIG_DIR_ENV: &str = "YADBE_CONFIG_DIR";
@@ -45,11 +45,7 @@ impl AppState {
             Arc::clone(&log),
             Arc::clone(&sink),
         ));
-        let history = StoreHistory::new(
-            Arc::clone(&store),
-            Arc::clone(&sink),
-            HistoryRetention::default(),
-        );
+        let history = StoreHistory::new(Arc::clone(&store), Arc::clone(&sink));
         let queries = Arc::new(QueryRunner::new(
             Arc::clone(&connections),
             Arc::clone(&sink),

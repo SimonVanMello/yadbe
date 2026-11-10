@@ -35,11 +35,11 @@ const chrome = EditorView.theme({
     height: '100%',
     color: 'var(--fg-primary)',
     backgroundColor: 'var(--bg-input)',
-    fontSize: 'var(--text-md)',
+    fontSize: 'var(--editor-font-size)',
   },
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': {
-    fontFamily: 'var(--font-code)',
+    fontFamily: 'var(--editor-font-family)',
     lineHeight: 'var(--leading-normal)',
     overflow: 'auto',
   },

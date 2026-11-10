@@ -101,6 +101,15 @@ describe('GridBody', () => {
     expect(gutters.children[3]?.textContent).toBe('4');
   });
 
+  it('repaints NULL and empty cells when their labels change (preferences, language)', () => {
+    const { body, frame, cellEl } = setup(100);
+    body.render(frame());
+    body.setLabels({ null: '∅', empty: 'vide' });
+    body.render(frame());
+    expect(cellEl(1, 1)?.textContent).toBe('∅');
+    expect(cellEl(0, 1)?.textContent).toBe('vide');
+  });
+
   it('recycles rows and cells instead of creating new ones', () => {
     const { body, frame, container, rowEl, cellEl } = setup(100);
     body.render(frame());

@@ -2,6 +2,8 @@ import { create } from 'zustand';
 
 import type { SortKey } from '../../ipc';
 import type { ColumnLayout } from '../grid/DataGrid';
+import { getPreference } from '../preferences/preferenceStore';
+import { PAGE_SIZES } from '../preferences/preferenceSchema';
 import { EMPTY_FILTER, parseFilterState, type FilterState } from './filterModel';
 
 /**
@@ -16,11 +18,16 @@ export interface TableTabState {
   layout: ColumnLayout | null;
 }
 
-export const PAGE_SIZES = [100, 200, 500, 1000, 5000, 10000] as const;
-export const DEFAULT_PAGE_SIZE = 500;
+export { PAGE_SIZES };
 
+/** A new tab reads pages of the size the preferences give (F-125). */
 export function newTableTabState(): TableTabState {
-  return { filter: EMPTY_FILTER, sort: [], pageSize: DEFAULT_PAGE_SIZE, layout: null };
+  return {
+    filter: EMPTY_FILTER,
+    sort: [],
+    pageSize: getPreference('defaultPageSize'),
+    layout: null,
+  };
 }
 
 function parseSort(value: unknown): SortKey[] {
@@ -60,7 +67,7 @@ export function parseTableTabState(value: unknown): TableTabState {
     pageSize:
       typeof size === 'number' && Number.isInteger(size) && size >= 1 && size <= 50_000
         ? size
-        : DEFAULT_PAGE_SIZE,
+        : getPreference('defaultPageSize'),
     layout: parseLayout('layout' in value ? value.layout : undefined),
   };
 }
@@ -100,8 +107,6 @@ export function getTableTabState(tabId: string): TableTabState {
   return useTableTabStore.getState().tabs[tabId] ?? newTableTabState();
 }
 
-const DEFAULTS = newTableTabState();
-
 export function useTableTabState(tabId: string): TableTabState {
-  return useTableTabStore((state) => state.tabs[tabId]) ?? DEFAULTS;
+  return useTableTabStore((state) => state.tabs[tabId]) ?? newTableTabState();
 }

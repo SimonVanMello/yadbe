@@ -1,0 +1,90 @@
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto var(--control-height-sm);
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.row[data-flash] {
+  animation: flash 1.4s var(--easing-standard);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0);
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--text-md);
+}
+
+.hint {
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+/* The switch carries its own label and hint, and spans both columns before the reset. */
+.toggle {
+  grid-column: 1 / span 2;
+  min-width: 0;
+}
+
+.reset {
+  display: grid;
+  place-items: center;
+  width: var(--control-height-sm);
+}
+
+/* Informative rows: a label and hint, then what they report. */
+.info {
+  grid-column: 1 / span 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: var(--settings-control-width);
+  color: var(--fg-primary);
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.mono {
+  font-family: var(--font-code);
+}
+
+@keyframes flash {
+  0%,
+  40% {
+    background: var(--accent-soft);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row[data-flash] {
+    animation: none;
+  }
+}

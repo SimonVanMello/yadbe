@@ -182,6 +182,10 @@ fn preferences_default_and_round_trip() {
         locale: Some(Locale::Fr),
         density: Density::Compact,
         ui_state: Some("{\"sidebar\":280}".into()),
+        history_enabled: false,
+        history_max_entries: 1000,
+        history_max_age_days: 30,
+        connect_timeout_secs: 45,
     };
     assert_eq!(store.set_preferences(&prefs).expect("set"), prefs);
     let cleared = Preferences {
@@ -195,6 +199,47 @@ fn preferences_default_and_round_trip() {
         ..Preferences::default()
     };
     assert!(store.set_preferences(&too_big).is_err());
+    for bad in [
+        Preferences {
+            history_max_entries: 5,
+            ..Preferences::default()
+        },
+        Preferences {
+            history_max_age_days: 0,
+            ..Preferences::default()
+        },
+        Preferences {
+            connect_timeout_secs: 601,
+            ..Preferences::default()
+        },
+    ] {
+        assert!(store.set_preferences(&bad).is_err());
+    }
+}
+
+#[test]
+fn preferences_saved_before_the_backend_fields_existed_get_their_defaults() {
+    let store = store();
+    // A database from M1: only theme, density and the UI state were ever written.
+    {
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO preferences (key, value) VALUES ('theme', 'dark')",
+            [],
+        )
+        .expect("insert");
+        conn.execute(
+            "INSERT INTO preferences (key, value) VALUES ('history_max_entries', 'garbage')",
+            [],
+        )
+        .expect("insert");
+    }
+    let prefs = store.preferences().expect("prefs");
+    assert_eq!(prefs.theme, ThemePreference::Dark);
+    assert!(prefs.history_enabled);
+    assert_eq!(prefs.history_max_entries, 50_000);
+    assert_eq!(prefs.history_max_age_days, 365);
+    assert_eq!(prefs.connect_timeout_secs, 15);
 }
 
 #[test]

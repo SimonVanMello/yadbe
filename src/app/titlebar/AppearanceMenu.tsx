@@ -1,14 +1,20 @@
 import { useT } from '../../i18n/useT';
 import { IconButton } from '../../ui/IconButton';
-import { Popover } from '../../ui/Popover';
-import { AppearanceControls } from '../AppearanceControls';
+import { shortcutOf } from '../actions';
+import { useShellStore } from '../shellStore';
 
-/** Title bar button for the theme and language switches, until the preferences screen (M2-8). */
+/** Title bar gear: opens the preferences screen (F-125). */
 export function AppearanceMenu() {
   const t = useT();
   return (
-    <Popover trigger={<IconButton icon="settings" label={t('settings.title')} size="sm" />}>
-      <AppearanceControls />
-    </Popover>
+    <IconButton
+      icon="settings"
+      label={t('preferences.open')}
+      shortcut={shortcutOf('preferences.open')}
+      size="sm"
+      onClick={() => {
+        useShellStore.getState().openPreferences();
+      }}
+    />
   );
 }

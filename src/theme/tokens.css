@@ -6,6 +6,14 @@
   /* Typography */
   --font-ui: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-code: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+  /* Editor and grid text: the preferences screen overrides these on <html>. */
+  --editor-font-family: var(--font-code);
+  --editor-font-size: var(--text-md);
+  --grid-font-family: var(--font-code);
+  --grid-font-size: var(--text-sm);
+  --grid-null-font-style: italic;
+  --grid-null-font-size: var(--text-xs);
+  --grid-null-letter-spacing: var(--tracking-caps);
   /* Base text size preference / 13: set on <html> by src/app/appearance.ts. */
   --font-scale: 1;
   --text-2xs: calc(10.5px * var(--font-scale));
@@ -61,6 +69,12 @@
   --card-min-width: 360px;
   --tooltip-max-width: 280px;
   --welcome-width: 680px;
+  --settings-width: 960px;
+  --settings-height: 680px;
+  --settings-nav-width: 220px;
+  --settings-content-width: 640px;
+  --settings-control-width: 220px;
+  --settings-number-width: 96px;
 
   /* Shell layout (SPEC §4) */
   --titlebar-height: 38px;

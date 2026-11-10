@@ -7,7 +7,7 @@ import { ContextMenuSub } from '../../ui/ContextMenuSub';
 import type { ReactNode } from 'react';
 
 import { COPY_FORMATS, type CopyFormat } from './copyFormats';
-import { useGridPrefs } from './gridPrefsStore';
+import { setPreference, usePreference } from '../preferences/preferenceStore';
 
 interface GridMenuProps {
   hasSelection: boolean;
@@ -35,8 +35,7 @@ export function GridMenu({
   extras,
 }: GridMenuProps) {
   const t = useT();
-  const copyHeaders = useGridPrefs((state) => state.copyHeaders);
-  const setCopyHeaders = useGridPrefs((state) => state.setCopyHeaders);
+  const copyHeaders = usePreference('copyHeaders');
   return (
     <>
       <ContextMenuItem
@@ -70,7 +69,12 @@ export function GridMenu({
           </ContextMenuItem>
         ))}
         <ContextMenuSeparator />
-        <ContextMenuCheckboxItem checked={copyHeaders} onCheckedChange={setCopyHeaders}>
+        <ContextMenuCheckboxItem
+          checked={copyHeaders}
+          onCheckedChange={(checked) => {
+            setPreference('copyHeaders', checked);
+          }}
+        >
           {t('grid.menu.includeHeaders')}
         </ContextMenuCheckboxItem>
       </ContextMenuSub>

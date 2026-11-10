@@ -14,7 +14,7 @@ use yadbe_lib::db::dialect::Engine;
 use yadbe_lib::events::BackendEvent;
 use yadbe_lib::session::history_writer::StoreHistory;
 use yadbe_lib::session::query_model::ExecuteScope;
-use yadbe_lib::store::{HistoryOutcome, HistoryQuery, HistoryRetention, HistoryScope};
+use yadbe_lib::store::{HistoryOutcome, HistoryQuery, HistoryScope};
 
 async fn with_history(
     definition: yadbe_lib::db::config::ConnectionDefinition,
@@ -23,8 +23,7 @@ async fn with_history(
     let slot = Arc::new(std::sync::Mutex::new(None));
     let out = Arc::clone(&slot);
     let bench = bench_with_history(definition, password, move |store, sink| {
-        let history =
-            StoreHistory::new(Arc::clone(store), sink.clone(), HistoryRetention::default());
+        let history = StoreHistory::new(Arc::clone(store), sink.clone());
         *out.lock().expect("slot") = Some(Arc::clone(&history));
         history
     })

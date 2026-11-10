@@ -2,12 +2,12 @@ import { restoreAndPersistExportPrefs } from '../features/export/exportStore';
 import { startExportFeed } from '../features/export/runExport';
 import { startConnectionFeed } from '../features/connections/connectionStore';
 import { startMetaFeed } from '../features/explorer/metaFeed';
+import { restoreAndPersistPreferences } from '../features/preferences/preferenceStore';
 import { restoreAndPersistQueryUi, startQueryFeature } from '../features/query/queryFeature';
 import { useQueryTabStore } from '../features/query/queryTabStore';
 import { startStatementLogFeed } from '../features/statement-log/statementLogStore';
 import { startTableDataFeature } from '../features/table-data/tableFeature';
 import { useTableTabStore } from '../features/table-data/tableTabStore';
-import { restoreAndPersistTableUi } from '../features/table-data/tableUiStore';
 import { initI18n, translate, useI18nStore } from '../i18n/i18n';
 import { ipc, unwrap } from '../ipc';
 import { initTheme } from '../theme/themeStore';
@@ -154,8 +154,8 @@ export function startup(): Promise<void> {
       restoreAndPersistLayout(),
       restoreTabs(),
       restoreAndPersistQueryUi(),
-      restoreAndPersistTableUi(),
       restoreAndPersistExportPrefs(),
+      restoreAndPersistPreferences(),
     ]);
     persistTabs();
   })();

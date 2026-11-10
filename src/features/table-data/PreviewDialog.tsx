@@ -14,7 +14,7 @@ import styles from './PreviewDialog.module.css';
 import { SqlView } from './SqlView';
 import { applyChanges, closePreview } from './tableActions';
 import { useTableSession } from './tableSessionStore';
-import { useTableUiStore } from './tableUiStore';
+import { setPreference, usePreference } from '../preferences/preferenceStore';
 
 /**
  * "Preview SQL" (F-085): the transaction Apply would run, as readable SQL, with the connection
@@ -30,8 +30,7 @@ export function PreviewDialog({
   const t = useT();
   const { preview, applying } = useTableSession(tabId);
   const state = useConnectionState(connection.id);
-  const previewFirst = useTableUiStore((store) => store.previewBeforeApply);
-  const setPreviewFirst = useTableUiStore((store) => store.setPreviewBeforeApply);
+  const previewFirst = usePreference('previewBeforeApply');
   const prod = connection.environment === 'prod';
   if (!preview) return null;
   const statements = preview.data?.statements.length ?? 0;
@@ -63,7 +62,9 @@ export function PreviewDialog({
             <div className={styles.preference}>
               <Switch
                 checked={previewFirst}
-                onCheckedChange={setPreviewFirst}
+                onCheckedChange={(checked) => {
+                  setPreference('previewBeforeApply', checked);
+                }}
                 label={t('tableData.preview.always')}
               />
             </div>

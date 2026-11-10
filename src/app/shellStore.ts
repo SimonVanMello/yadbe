@@ -19,6 +19,10 @@ interface ShellStore {
   connectionDialog: ConnectionDialogRequest | null;
   openConnectionDialog: (request: ConnectionDialogRequest) => void;
   closeConnectionDialog: () => void;
+  /** The preferences screen (F-125): whether it is open, and the section it opens on. */
+  preferences: { section: string | null } | null;
+  openPreferences: (section?: string) => void;
+  closePreferences: () => void;
 }
 
 export const useShellStore = create<ShellStore>()((set) => ({
@@ -28,5 +32,12 @@ export const useShellStore = create<ShellStore>()((set) => ({
   },
   closeConnectionDialog: () => {
     set({ connectionDialog: null });
+  },
+  preferences: null,
+  openPreferences: (section) => {
+    set({ preferences: { section: section ?? null } });
+  },
+  closePreferences: () => {
+    set({ preferences: null });
   },
 }));
