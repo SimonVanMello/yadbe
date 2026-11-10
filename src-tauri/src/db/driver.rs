@@ -140,6 +140,11 @@ pub trait Connection: Send + Sync {
     /// Closes the connection politely when the engine supports it.
     fn close(&self) -> BoxFuture<'_, ()>;
 
+    /// Metadata reads on this connection; `None` for a driver without introspection.
+    fn introspector(&self) -> Option<&dyn crate::db::introspect::Introspector> {
+        None
+    }
+
     /// Runs one user statement exactly as written, pushing what it produces into `events`
     /// (columns, row batches, notices). Never recorded in the statement log: the caller
     /// records user statements in the history. The channel is bounded: while the receiver

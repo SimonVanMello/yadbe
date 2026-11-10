@@ -23,7 +23,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-serde = { version = "1", features = ["derive"] }
+# `rc`: the cached completion catalog is returned as an `Arc`, without a deep copy.
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 thiserror = "2"
 specta = { version = "=2.0.0-rc.25" }

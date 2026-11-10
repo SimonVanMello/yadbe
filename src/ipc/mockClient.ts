@@ -24,6 +24,7 @@ import {
 } from './mockData';
 import { mockErrors } from './mockErrors';
 import { createMockFiles } from './mockFiles';
+import { createMockMeta } from './mock/meta';
 import { createMockQuery } from './mockQuery';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
@@ -125,6 +126,19 @@ function createMockBackend() {
   const sessions = new Map<string, SessionInfo>();
   const attempts = new Map<string, AbortController>();
   const tests = new Map<string, AbortController>();
+  const meta = createMockMeta({
+    session: (connectionId) => {
+      const conn = findConnection(connectionId);
+      if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
+      return { engine: conn.definition.engine, database: conn.definition.database };
+    },
+    logStatement: (connectionId, sql, error = null) => {
+      logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
+    },
+    emitRefreshed: (payload) => {
+      events.emit('metaRefreshed', payload);
+    },
+  });
 
   function seed(): void {
     connections = clone(MOCK_CONNECTIONS);
@@ -208,8 +222,10 @@ function createMockBackend() {
   }
 
   function setSession(info: SessionInfo): SessionInfo {
-    if (info.state === 'closed') sessions.delete(info.connectionId);
-    else sessions.set(info.connectionId, info);
+    if (info.state === 'closed') {
+      sessions.delete(info.connectionId);
+      meta.forget(info.connectionId);
+    } else sessions.set(info.connectionId, info);
     events.emit('connectionStateChanged', { session: clone(info) });
     return info;
   }
@@ -254,6 +270,7 @@ function createMockBackend() {
     await sleep(latency);
     if (sessions.get(connectionId)?.state !== 'reconnecting') return;
     setSession({ ...current, state: 'connected', error: null, reconnectAttempt: null });
+    meta.reconnected(connectionId);
   }
 
   const query = createMockQuery({
@@ -579,6 +596,7 @@ function createMockBackend() {
       return ok(null);
     },
 
+    ...meta.commands,
     ...query.commands,
 
     ...files.commands,
@@ -598,6 +616,7 @@ function createMockBackend() {
     nextId = 1;
     pending.clear();
     sessions.clear();
+    meta.reset();
     query.reset();
     files.reset();
     clearReloadState();
@@ -661,6 +680,14 @@ function createMockBackend() {
     },
     /** Simulates a dropped link on an open connection, then the automatic reconnection. */
     dropConnection,
+    /** Duration of a first metadata load, in ms (0 in unit tests). */
+    setMetaLatency(ms: number): void {
+      meta.setLatency(ms);
+    },
+    /** `large`: PostgreSQL connections opened from now on see a 10 000-object database. */
+    setMetaCatalog(kind: 'shop' | 'large'): void {
+      meta.setCatalog(kind);
+    },
     /** Time between two streamed batches of a query result, in ms (0 in unit tests). */
     setQueryTick(ms: number): void {
       query.setTick(ms);

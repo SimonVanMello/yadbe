@@ -70,6 +70,7 @@ dev/tls-certs.sh    # Throwaway CA + `localhost` server certificate in dev/certs
 docker compose -f dev/compose.yml up -d   # PostgreSQL (TLS on), SQL Server, MySQL for integration tests; URLs to export in the file's header
 cd src-tauri && YADBE_TEST_PG_URL=postgres://user:pw@localhost:5432/db YADBE_TEST_PG_CA=../dev/certs/ca.crt cargo test --test postgres   # unset: tests print SKIPPED
 YADBE_CONFIG_DIR=<dir> pnpm tauri dev   # App database (yadbe.db) in another folder than the OS config one
+cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test introspection p02 -- --ignored --nocapture   # P-02: introspection on a 500-table and a 10k-object schema
 xvfb-run pnpm tauri dev   # Run the real app in a headless container
 pnpm tauri build --debug --no-bundle   # Built front + CSP with nonces (absent under `tauri dev`): check every new screen with this binary. A lib that injects <style> must receive the page nonce (src/ui/cspNonce.ts).
 pnpm perf:startup   # P-01 on the release binary (`pnpm tauri build --no-bundle` first; headless Linux: xvfb-run -a pnpm perf:startup)

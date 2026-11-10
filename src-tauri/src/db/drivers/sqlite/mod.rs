@@ -1,6 +1,8 @@
 //! SQLite driver: `rusqlite` (bundled SQLite) on blocking threads.
 
+mod ddl;
 mod execute;
+mod introspect;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -267,6 +269,10 @@ impl Connection for SqliteConnection {
         // Busy means a statement runs: the caller asks again once it is done.
         let conn = self.conn.try_lock().ok()?;
         Some(!conn.is_autocommit())
+    }
+
+    fn introspector(&self) -> Option<&dyn crate::db::introspect::Introspector> {
+        Some(self)
     }
 }
 

@@ -68,7 +68,7 @@ pub struct Capabilities {
     pub read_only_session: bool,
 }
 
-pub trait Dialect: Send + Sync {
+pub trait Dialect: Send + Sync + crate::db::meta::MetaDialect {
     fn engine(&self) -> Engine;
 
     /// Human-readable engine name (not translated: product names).
