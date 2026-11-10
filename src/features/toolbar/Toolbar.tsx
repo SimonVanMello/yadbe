@@ -1,19 +1,20 @@
 import { shortcutOf } from '../../app/actions';
 import { useLayoutStore } from '../../app/layout/layoutStore';
 import { useT } from '../../i18n/useT';
-import { Button } from '../../ui/Button';
-import { Icon } from '../../ui/Icon';
 import { IconButton } from '../../ui/IconButton';
-import { Tooltip } from '../../ui/Tooltip';
-import { ConnectionChip } from '../connections/ConnectionChip';
-import { useConnectionState } from '../connections/connectionStore';
 import type { ConnectionSummary } from '../connections/model';
+import { QueryControls } from '../query/QueryControls';
 import styles from './Toolbar.module.css';
 
-/** Toolbar of a query tab: Run / Cancel (placeholders until M1), the connection chip, panels. */
-export function Toolbar({ connection }: { connection: ConnectionSummary | undefined }) {
+/** Toolbar of a query tab: panels, the query controls (run, transactions, files), the chip. */
+export function Toolbar({
+  connection,
+  tabId,
+}: {
+  connection: ConnectionSummary | undefined;
+  tabId: string;
+}) {
   const t = useT();
-  const state = useConnectionState(connection?.id ?? null);
   const sidebarCollapsed = useLayoutStore((store) => store.panels.sidebar.collapsed);
   const bottomCollapsed = useLayoutStore((store) => store.panels.bottom.collapsed);
 
@@ -29,31 +30,11 @@ export function Toolbar({ connection }: { connection: ConnectionSummary | undefi
         }}
       />
       <span className={styles.separator} aria-hidden="true" />
-      <Tooltip content={t('toolbar.run.soon')}>
-        {/* A disabled button gets no pointer events: the wrapper carries the tooltip. */}
-        <span className={styles.disabledWrap}>
-          <Button variant="primary" size="sm" disabled>
-            <Icon name="play" />
-            {t('toolbar.run')}
-          </Button>
-        </span>
-      </Tooltip>
-      <Tooltip content={t('toolbar.cancel.soon')}>
-        <span className={styles.disabledWrap}>
-          <Button size="sm" disabled>
-            <Icon name="stop" />
-            {t('toolbar.cancel')}
-          </Button>
-        </span>
-      </Tooltip>
-      <span className={styles.separator} aria-hidden="true" />
-      <div className={styles.chip}>
-        {connection ? (
-          <ConnectionChip connection={connection} state={state} />
-        ) : (
-          <span className={styles.noConnection}>{t('toolbar.noConnection')}</span>
-        )}
-      </div>
+      {connection ? (
+        <QueryControls tabId={tabId} connection={connection} />
+      ) : (
+        <span className={styles.noConnection}>{t('toolbar.noConnection')}</span>
+      )}
       <span className={styles.spacer} />
       <IconButton
         icon="panelBottom"

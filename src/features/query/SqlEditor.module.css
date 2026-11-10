@@ -1,0 +1,15 @@
+.editor {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg-input);
+}
+
+.editor > :global(.cm-editor) {
+  height: 100%;
+}
+
+/* The editor shows its focus on its own edge: the caret alone is easy to lose in a script. */
+.editor > :global(.cm-editor.cm-focused) {
+  box-shadow: inset 0 0 0 var(--border-width) var(--accent);
+}

@@ -23,6 +23,7 @@ import {
   MOCK_SERVER_VERSIONS,
 } from './mockData';
 import { mockErrors } from './mockErrors';
+import { createMockFiles } from './mockFiles';
 import { createMockMeta } from './mock/meta';
 import { createMockQuery } from './mockQuery';
 
@@ -280,6 +281,8 @@ function createMockBackend() {
       logStatement(connectionId, connectionName, sql);
     },
   });
+
+  const files = createMockFiles();
 
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
@@ -595,6 +598,8 @@ function createMockBackend() {
 
     ...meta.commands,
     ...query.commands,
+
+    ...files.commands,
   };
 
   function reset(): void {
@@ -613,6 +618,7 @@ function createMockBackend() {
     sessions.clear();
     meta.reset();
     query.reset();
+    files.reset();
     clearReloadState();
     seed();
   }
@@ -686,6 +692,11 @@ function createMockBackend() {
     setQueryTick(ms: number): void {
       query.setTick(ms);
     },
+    /** Puts a script on the mock disk, or removes it with `null` (a change behind the app's back). */
+    setFile: (path: string, text: string | null): void => {
+      files.set(path, text);
+    },
+    getFile: (path: string): string | undefined => files.get(path),
     reset,
   };
 }

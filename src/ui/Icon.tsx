@@ -57,6 +57,7 @@ const PATHS = {
   database:
     'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
   table: 'M4 5h16v14H4zM4 10h16M4 15h16M10 5v14',
+  save: 'M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6',
 } as const;
 
 export type IconName = keyof typeof PATHS;

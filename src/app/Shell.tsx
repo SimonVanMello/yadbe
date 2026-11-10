@@ -5,6 +5,7 @@ import { useConnection } from '../features/connections/connectionStore';
 import { GroupDialog } from '../features/connections/GroupDialog';
 import { tintOf } from '../features/connections/model';
 import { PasswordPromptDialog } from '../features/connections/PasswordPromptDialog';
+import { useQueryActions } from '../features/query/useQueryActions';
 import { ConnectionSidebar } from '../features/sidebar/ConnectionSidebar';
 import { StatementLogPanel } from '../features/statement-log/StatementLogPanel';
 import { StatusBar } from '../features/statusbar/StatusBar';
@@ -98,6 +99,7 @@ function useShellActions(): void {
 export function Shell() {
   useShortcuts();
   useShellActions();
+  useQueryActions();
   useWindowTitle();
   const ready = useStartup();
   const tab = useTabsStore(selectActiveTab);
@@ -116,7 +118,7 @@ export function Shell() {
       style={{ '--shell-tint': tint ?? 'transparent' } as CSSProperties}
     >
       <TitleBar />
-      {tab.connectionId !== null && <Toolbar connection={connection} />}
+      {tab.connectionId !== null && <Toolbar connection={connection} tabId={tab.id} />}
       <div ref={mainRef} className={styles.main}>
         {sidebarWidth > 0 && (
           <div className={styles.sidebar} style={{ width: sidebarWidth }}>

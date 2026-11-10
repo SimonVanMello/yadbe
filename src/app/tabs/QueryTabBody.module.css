@@ -17,26 +17,6 @@
   font-weight: var(--weight-semibold);
 }
 
-.hint {
-  max-width: 44ch;
-  margin: 0;
-  color: var(--fg-secondary);
-  line-height: var(--leading-normal);
-}
-
-.status {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin: 0;
-  color: var(--fg-secondary);
-}
-
 .warning {
   color: var(--warning);
-}
-
-.error {
-  width: min(var(--welcome-width), 100%);
-  text-align: left;
 }
