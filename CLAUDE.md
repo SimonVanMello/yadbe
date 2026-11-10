@@ -74,6 +74,7 @@ xvfb-run pnpm tauri dev   # Run the real app in a headless container
 pnpm tauri build --debug --no-bundle   # Built front + CSP with nonces (absent under `tauri dev`): check every new screen with this binary. A lib that injects <style> must receive the page nonce (src/ui/cspNonce.ts).
 pnpm perf:startup   # P-01 on the release binary (`pnpm tauri build --no-bundle` first; headless Linux: xvfb-run -a pnpm perf:startup)
 pnpm perf:tabs      # P-07 on a production build of the front (mock), CPU ×1 and ×4
+cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test query_postgres p03 -- --ignored --nocapture   # P-03: query sent → first 500-row window readable, 1M rows
 ```
 
 Driving the real app (WebKitGTK) on Linux, e.g. to check a change end to end: `apt-get install webkit2gtk-driver`, `cargo install tauri-driver --locked`, start `Xvfb :99` and `DISPLAY=:99 YADBE_CONFIG_DIR=<dir> tauri-driver`, then speak W3C WebDriver to `http://127.0.0.1:4444` with the capability `{"tauri:options": {"application": "src-tauri/target/debug/yadbe"}}` (see `docs/validation/M0.md`, "How M0 was checked on Linux").
