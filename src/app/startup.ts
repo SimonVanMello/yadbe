@@ -1,3 +1,5 @@
+import { restoreAndPersistExportPrefs } from '../features/export/exportStore';
+import { startExportFeed } from '../features/export/runExport';
 import { startConnectionFeed } from '../features/connections/connectionStore';
 import { startMetaFeed } from '../features/explorer/metaFeed';
 import { restoreAndPersistQueryUi, startQueryFeature } from '../features/query/queryFeature';
@@ -128,8 +130,14 @@ export function startup(): Promise<void> {
     void startStatementLogFeed();
     startMetaFeed();
     startQueryFeature();
+    startExportFeed();
     await restorePreferences();
-    await Promise.all([restoreAndPersistLayout(), restoreTabs(), restoreAndPersistQueryUi()]);
+    await Promise.all([
+      restoreAndPersistLayout(),
+      restoreTabs(),
+      restoreAndPersistQueryUi(),
+      restoreAndPersistExportPrefs(),
+    ]);
     persistTabs();
   })();
   return started;

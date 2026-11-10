@@ -93,6 +93,13 @@ export interface DataGridProps {
   copyExtras?: CopyExtras;
   /** The selection's size (the block a copy produces) after it changes; `null`: no selection. */
   onSelectionSize?: (size: { rows: number; cols: number } | null) => void;
+  /**
+   * The selection as loaded rows and data columns (in display order) when it is one range, else
+   * `null`: what an export of the selection writes.
+   */
+  onSelectionRange?: (range: { rowFrom: number; rowTo: number; columns: number[] } | null) => void;
+  /** Adds "Export…" to the context menu. */
+  onExport?: () => void;
 }
 
 type Hit =
@@ -131,6 +138,8 @@ export function DataGrid({
   emptyText,
   copyExtras,
   onSelectionSize,
+  onSelectionRange,
+  onExport,
 }: DataGridProps) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
@@ -633,6 +642,23 @@ export function DataGrid({
   useEffect(() => {
     onSelectionSize?.(hasSelection ? { rows: rowsSelected, cols: colsSelected } : null);
   }, [onSelectionSize, hasSelection, rowsSelected, colsSelected]);
+  useEffect(() => {
+    const only = selection?.ranges.length === 1 ? selection.ranges[0] : undefined;
+    if (!only || rowCount === 0 || colCount === 0) {
+      onSelectionRange?.(null);
+      return;
+    }
+    const columns: number[] = [];
+    for (let c = only.c0; c <= Math.min(only.c1, colCount - 1); c++) {
+      const dataCol = order[c];
+      if (dataCol !== undefined) columns.push(dataCol);
+    }
+    onSelectionRange?.({
+      rowFrom: only.r0,
+      rowTo: Math.min(only.r1, rowCount - 1),
+      columns,
+    });
+  }, [onSelectionRange, selection, rowCount, colCount, order]);
   const focusCell =
     selection && rowCount > 0
       ? { row: selection.focus.row, col: order[selection.focus.col] ?? selection.focus.col }
@@ -651,6 +677,7 @@ export function DataGrid({
                 setSelection((sel) => selectAll(sel));
               }}
               onViewCell={toggleViewer}
+              onExport={onExport}
               onAutoFit={
                 menuColumn === null
                   ? null

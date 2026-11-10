@@ -25,6 +25,9 @@ const EXTENSIONS = {
   json: ['json', 'ndjson', 'jsonl', 'txt'],
 } as const;
 
+const BOM = String.fromCharCode(0xfeff);
+const stripBom = (text: string) => (text.startsWith(BOM) ? text.slice(1) : text);
+
 const DEFAULT_TICK_MS = 40;
 /** Rows written per simulated step. */
 const STEP_ROWS = 20_000;
@@ -185,7 +188,7 @@ export function createMockExport(host: MockExportHost) {
       const encoder = mockEncoder(format);
       const [from, to] = picked.rows;
       const end = Math.min(to, source.loaded, from + Math.min(limit, MAX_PREVIEW_ROWS));
-      let text = encoder.begin(columnsOf(source, picked.columns)).replace(/^﻿/, '');
+      let text = stripBom(encoder.begin(columnsOf(source, picked.columns)));
       for (let row = from; row < end; row++) {
         text += encoder.row(rowOf(source, row, picked.columns));
       }

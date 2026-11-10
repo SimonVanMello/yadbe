@@ -6,6 +6,8 @@ import { GroupDialog } from '../features/connections/GroupDialog';
 import { tintOf } from '../features/connections/model';
 import { PasswordPromptDialog } from '../features/connections/PasswordPromptDialog';
 import { useHistoryActions } from '../features/history/useHistoryActions';
+import { ExportDialog } from '../features/export/ExportDialog';
+import { useExportActions } from '../features/export/useExportActions';
 import { useQueryActions } from '../features/query/useQueryActions';
 import { SidebarViews } from '../features/sidebar/SidebarViews';
 import { StatementLogPanel } from '../features/statement-log/StatementLogPanel';
@@ -101,6 +103,7 @@ export function Shell() {
   useShortcuts();
   useShellActions();
   useQueryActions();
+  useExportActions();
   useHistoryActions();
   useWindowTitle();
   const ready = useStartup();
@@ -150,6 +153,7 @@ export function Shell() {
       <ConnectionDialog />
       <PasswordPromptDialog />
       <GroupDialog />
+      <ExportDialog />
     </div>
   );
 }

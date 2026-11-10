@@ -31,6 +31,8 @@ export const DEFAULT_BINDINGS = {
   'query.open': 'Mod+O',
   'query.save': 'Mod+S',
   'query.saveAs': 'Mod+Shift+S',
+  // Results (F-066): the export dialog of the result on screen.
+  'result.export': 'Mod+Shift+E',
 } as const;
 
 export type ActionId = keyof typeof DEFAULT_BINDINGS;

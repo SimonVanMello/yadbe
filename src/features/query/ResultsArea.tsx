@@ -7,7 +7,7 @@ import { Spinner } from '../../ui/Spinner';
 import { ResultGrid } from '../grid/ResultGrid';
 import { shortcutOf } from '../../app/actions';
 import {
-  defaultSelection,
+  effectiveSelection,
   isWorking,
   summarizeExecution,
   type ResultsSelection,
@@ -17,18 +17,6 @@ import { useElapsedMs, useExecutionStore, useTabExecution } from './executionSto
 import { formatDuration } from './format';
 import { MessagesPanel } from './MessagesPanel';
 import styles from './ResultsArea.module.css';
-
-/** The user's pick if it still exists, else what the run suggests. */
-function effectiveSelection(
-  picked: ResultsSelection | undefined,
-  execution: TabExecution,
-): ResultsSelection {
-  if (picked?.kind === 'messages') return picked;
-  if (picked?.kind === 'result') {
-    if (execution.results.some((result) => result.resultId === picked.resultId)) return picked;
-  }
-  return defaultSelection(execution);
-}
 
 const tabDomId = (tabId: string, key: string) => `results-${tabId}-${key}`;
 

@@ -6,9 +6,11 @@ import { useT } from '../../i18n/useT';
 import { ipc, unwrap, type ResumeMode } from '../../ipc';
 import { Button } from '../../ui/Button';
 import { Spinner } from '../../ui/Spinner';
+import { useExportStore } from '../export/exportStore';
 import { DataGrid } from './DataGrid';
 import { formatCount } from './formatCount';
 import type { ResultGridProps } from './ResultGrid';
+import type { ExportGridRange } from '../export/exportOptions';
 import { createResultRowSource } from './resultRowSource';
 import { useResultSelectionStore, type SelectionSize } from './resultSelectionStore';
 import styles from './ResultGrid.module.css';
@@ -31,6 +33,7 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
     return () => {
       source.dispose();
       useResultSelectionStore.getState().clear(resultId);
+      useExportStore.getState().forgetRange(resultId);
     };
   }, [source, resultId]);
 
@@ -40,6 +43,24 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
     },
     [resultId],
   );
+
+  const onSelectionRange = useCallback(
+    (range: ExportGridRange | null) => {
+      useExportStore.getState().setRange(resultId, range);
+    },
+    [resultId],
+  );
+
+  const { status, pausedBy } = summary;
+  const openExport = () => {
+    useExportStore.getState().open({
+      resultId,
+      label: label ?? t('grid.label', { number: summary.statementIndex + 1 }),
+      rowCount: summary.rowCount,
+      status,
+      pausedBy,
+    });
+  };
 
   const resume = (mode: ResumeMode) => {
     setResuming(true);
@@ -52,7 +73,6 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
       });
   };
 
-  const { status, pausedBy } = summary;
   const footer = (
     <>
       <span className={styles.count}>{formatCount(locale, 'grid.rows', summary.rowCount)}</span>
@@ -92,6 +112,9 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
           </Button>
         </>
       )}
+      <Button size="sm" variant="ghost" onClick={openExport}>
+        {t('export.menu')}
+      </Button>
       {(status === 'cancelled' || status === 'failed') && (
         <span className={styles.stopped} role="status">
           {t(status === 'cancelled' ? 'grid.status.cancelled' : 'grid.status.failed')}
@@ -108,6 +131,8 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
       footer={footer}
       emptyText={status === 'streaming' ? undefined : t('grid.noRows')}
       onSelectionSize={onSelectionSize}
+      onSelectionRange={onSelectionRange}
+      onExport={openExport}
     />
   );
 }

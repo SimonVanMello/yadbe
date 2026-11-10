@@ -179,6 +179,18 @@ export function defaultSelection(execution: TabExecution): ResultsSelection {
   return { kind: 'messages' };
 }
 
+/** The user's pick if it still exists, else what the run suggests. */
+export function effectiveSelection(
+  picked: ResultsSelection | undefined,
+  execution: TabExecution,
+): ResultsSelection {
+  if (picked?.kind === 'messages') return picked;
+  if (picked?.kind === 'result') {
+    if (execution.results.some((result) => result.resultId === picked.resultId)) return picked;
+  }
+  return defaultSelection(execution);
+}
+
 /** Counts shown in the summary line of the results area. */
 export function summarizeExecution(execution: TabExecution): {
   statements: number;

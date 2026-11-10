@@ -1,3 +1,4 @@
+import { shortcutOf } from '../../app/actions';
 import { useT } from '../../i18n/useT';
 import { ContextMenuCheckboxItem } from '../../ui/ContextMenuCheckboxItem';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
@@ -12,6 +13,8 @@ interface GridMenuProps {
   onCopy: (format: CopyFormat, headers: boolean) => void;
   onSelectAll: () => void;
   onViewCell: () => void;
+  /** Present when the grid can be exported. */
+  onExport: (() => void) | undefined;
   /** Set when the menu opened on a column header. */
   onAutoFit: (() => void) | null;
 }
@@ -23,6 +26,7 @@ export function GridMenu({
   onCopy,
   onSelectAll,
   onViewCell,
+  onExport,
   onAutoFit,
 }: GridMenuProps) {
   const t = useT();
@@ -65,6 +69,11 @@ export function GridMenu({
           {t('grid.menu.includeHeaders')}
         </ContextMenuCheckboxItem>
       </ContextMenuSub>
+      {onExport && (
+        <ContextMenuItem shortcut={shortcutOf('result.export')} onSelect={onExport}>
+          {t('export.menu')}
+        </ContextMenuItem>
+      )}
       <ContextMenuSeparator />
       <ContextMenuItem shortcut="Mod+A" onSelect={onSelectAll}>
         {t('grid.menu.selectAll')}

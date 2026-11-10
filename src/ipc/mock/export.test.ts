@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ColumnMeta, ExportFinished, ExportFormat, Value } from '../bindings';
+import type {
+  ColumnMeta,
+  ExportFinished,
+  ExportFormat,
+  ExportSourceSpec,
+  Value,
+} from '../bindings';
 import { EventEmitter } from '../emitter';
 import { createMockExport } from './export';
 
@@ -73,11 +79,11 @@ describe('the mock export', () => {
 
   it('exports a selection of the loaded rows and previews it', async () => {
     const { exporter, files, finished } = setup(50);
-    const source = {
+    const source: ExportSourceSpec = {
       kind: 'result',
       resultId: 1,
       scope: { kind: 'range', rowFrom: 1, rowTo: 99, columns: [1] },
-    } as const;
+    };
     const preview = await exporter.commands.previewExport(source, csv, 2);
     expect(preview).toEqual({ status: 'ok', data: 'name\n"n,1"\n\n' });
     await exporter.commands.startExport({ source, format: csv, path: '/home/ana/sel.csv' });
