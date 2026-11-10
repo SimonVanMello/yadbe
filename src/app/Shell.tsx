@@ -5,8 +5,9 @@ import { useConnection } from '../features/connections/connectionStore';
 import { GroupDialog } from '../features/connections/GroupDialog';
 import { tintOf } from '../features/connections/model';
 import { PasswordPromptDialog } from '../features/connections/PasswordPromptDialog';
+import { useHistoryActions } from '../features/history/useHistoryActions';
 import { useQueryActions } from '../features/query/useQueryActions';
-import { ConnectionSidebar } from '../features/sidebar/ConnectionSidebar';
+import { SidebarViews } from '../features/sidebar/SidebarViews';
 import { StatementLogPanel } from '../features/statement-log/StatementLogPanel';
 import { StatusBar } from '../features/statusbar/StatusBar';
 import { Toolbar } from '../features/toolbar/Toolbar';
@@ -100,6 +101,7 @@ export function Shell() {
   useShortcuts();
   useShellActions();
   useQueryActions();
+  useHistoryActions();
   useWindowTitle();
   const ready = useStartup();
   const tab = useTabsStore(selectActiveTab);
@@ -122,7 +124,7 @@ export function Shell() {
       <div ref={mainRef} className={styles.main}>
         {sidebarWidth > 0 && (
           <div className={styles.sidebar} style={{ width: sidebarWidth }}>
-            <ConnectionSidebar />
+            <SidebarViews />
           </div>
         )}
         <PanelResizer

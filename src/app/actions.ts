@@ -22,6 +22,8 @@ export const DEFAULT_BINDINGS = {
   'connection.new': 'Mod+N',
   'view.toggleSidebar': 'Mod+B',
   'view.toggleStatementLog': 'Mod+J',
+  // Sidebar: History view (F-101), search focused.
+  'view.history': 'Mod+Shift+H',
   // SQL editor (F-041, F-042, F-045): `query.run` runs the selection, else the whole script.
   'query.run': 'Mod+Enter',
   'query.runStatement': 'Mod+Shift+Enter',

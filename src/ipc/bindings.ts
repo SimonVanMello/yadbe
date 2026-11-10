@@ -179,6 +179,40 @@ export const commands = {
 	 *  rolled back by the server) and frees its results.
 	 */
 	closeQueryTab: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("close_query_tab", { tabId })),
+	/**
+	 *  One page of the history, newest first: full-text `text`, filters, keyset pagination
+	 *  (`after` is the previous page's `next`). Statements are cut in list rows.
+	 */
+	searchHistory: (query: HistoryQuery) => typedError<HistoryPage, YadbeError>(__TAURI_INVOKE("search_history", { query })),
+	/**  An entry with its whole statement and error message; `null` once deleted or pruned. */
+	getHistoryEntry: (id: number | null) => typedError<{
+	id: number | null,
+	connectionId: string,
+	/**  The connection's name when the statement ran. */
+	connectionName: string,
+	engine: Engine,
+	/**  `null`: the connection's own database was unnamed (SQLite file). */
+	database: string | null,
+	sql: string,
+	sqlTruncated: boolean,
+	/**  Unix time in milliseconds. */
+	startedAt: number | null,
+	durationMs: number | null,
+	/**  Rows returned or affected, when known. */
+	rows: number | null,
+	outcome: HistoryOutcome,
+	errorCode: ErrorCode | null,
+	/**  The server's message (or yadbe's when it never reached the server). */
+	errorMessage: string | null,
+} | null, YadbeError>(__TAURI_INVOKE("get_history_entry", { id })),
+	deleteHistoryEntry: (id: number | null) => typedError<null, YadbeError>(__TAURI_INVOKE("delete_history_entry", { id })),
+	/**  How many entries `clear_history` would delete: the concrete effect to confirm. */
+	countHistory: (scope: HistoryScope) => typedError<number, YadbeError>(__TAURI_INVOKE("count_history", { scope })),
+	/**
+	 *  Deletes the entries inside `scope` (all, one connection, a date range); returns how
+	 *  many.
+	 */
+	clearHistory: (scope: HistoryScope) => typedError<number, YadbeError>(__TAURI_INVOKE("clear_history", { scope })),
 	/**  Reads a script file as UTF-8 text (a byte order mark is dropped). */
 	readTextFile: (path: string) => typedError<string, YadbeError>(__TAURI_INVOKE("read_text_file", { path })),
 	/**  Writes `text` to a script file, replacing its content. */
@@ -189,6 +223,7 @@ export const commands = {
 export const events = {
 	appReady: makeEvent<AppReady>("app-ready"),
 	connectionStateChanged: makeEvent<ConnectionStateChanged>("connection-state-changed"),
+	historyChanged: makeEvent<HistoryChanged>("history-changed"),
 	metaRefreshed: makeEvent<MetaRefreshed>("meta-refreshed"),
 	queryFinished: makeEvent<QueryFinished>("query-finished"),
 	queryProgress: makeEvent<QueryProgress>("query-progress"),
@@ -368,6 +403,11 @@ export type ConnectionDefinition = {
 	 *  in memory for the session.
 	 */
 	rememberPassword: boolean,
+	/**
+	 *  Statements run on this connection go to the history (F-104). `true` unless the user
+	 *  opts out; absent in older payloads.
+	 */
+	historyEnabled?: boolean,
 };
 
 /**  A folder of connections; groups can nest. */
@@ -628,6 +668,74 @@ export type Generated = {
 	stored: boolean,
 	/**  `null` when the engine does not expose it. */
 	expression: string | null,
+};
+
+/**
+ *  The history changed: statements recorded, an entry deleted, the history cleared or pruned.
+ *  Debounced (at most about four per second): query it again.
+ */
+export type HistoryChanged = Record<string, never>;
+
+export type HistoryOutcome = "ok" | "error" | "cancelled" | 
+/**  Not sent: the connection is read-only and the statement may write. */
+"refused";
+
+export type HistoryPage = {
+	rows: HistoryRow[],
+	/**  Pass it as `after` for the following page; `null` on the last page. */
+	next: number | null,
+};
+
+/**  Newest first. Every field narrows the result. */
+export type HistoryQuery = {
+	/**  Words of the statement text; each matches as a prefix, all must match. */
+	text: string | null,
+	connectionId: string | null,
+	/**  Empty: every outcome. */
+	outcomes: HistoryOutcome[],
+	/**  Unix milliseconds, inclusive. */
+	from: number | null,
+	/**  Unix milliseconds, exclusive. */
+	to: number | null,
+	minDurationMs: number | null,
+	/**  The `next` of the previous page (an entry id: entries are ordered by id). */
+	after: number | null,
+	/**  At most [`HISTORY_PAGE_SIZE`] (the default). */
+	limit: number | null,
+};
+
+/**
+ *  One history entry. In a search page `sql` is cut to [`HISTORY_PREVIEW_CHARS`]
+ *  (`sqlTruncated`); `get_history_entry` returns it whole.
+ */
+export type HistoryRow = {
+	id: number | null,
+	connectionId: string,
+	/**  The connection's name when the statement ran. */
+	connectionName: string,
+	engine: Engine,
+	/**  `null`: the connection's own database was unnamed (SQLite file). */
+	database: string | null,
+	sql: string,
+	sqlTruncated: boolean,
+	/**  Unix time in milliseconds. */
+	startedAt: number | null,
+	durationMs: number | null,
+	/**  Rows returned or affected, when known. */
+	rows: number | null,
+	outcome: HistoryOutcome,
+	errorCode: ErrorCode | null,
+	/**  The server's message (or yadbe's when it never reached the server). */
+	errorMessage: string | null,
+};
+
+/**  What clearing, or counting before clearing, applies to. */
+export type HistoryScope = {
+	connectionId: string | null,
+	/**  Unix milliseconds, inclusive. */
+	from: number | null,
+	/**  Unix milliseconds, exclusive. */
+	to: number | null,
 };
 
 /**  How an identity / auto-increment column gets its value. */

@@ -13,6 +13,8 @@ export interface EditorController {
   setErrors: (ranges: readonly TextRange[]) => void;
   /** Replaces the whole text (file opened or read again from disk). */
   replaceContent: (text: string) => void;
+  /** Replaces the selection (an empty one is the cursor) with `text` and leaves the cursor after it. */
+  insertAtCursor: (text: string) => void;
 }
 
 const editors = new Map<string, EditorController>();

@@ -1,0 +1,19 @@
+.icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon[data-outcome='ok'] {
+  color: var(--success);
+}
+
+.icon[data-outcome='error'] {
+  color: var(--danger);
+}
+
+.icon[data-outcome='cancelled'],
+.icon[data-outcome='refused'] {
+  color: var(--warning);
+}

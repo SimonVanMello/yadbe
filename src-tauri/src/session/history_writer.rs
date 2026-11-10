@@ -262,3 +262,66 @@ impl Writer {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::dialect::Engine;
+    use crate::events::RecordingSink;
+    use crate::store::HistoryQuery;
+
+    fn entry(sql: &str, started_at_ms: i64) -> NewHistoryEntry {
+        NewHistoryEntry {
+            connection_id: "c".into(),
+            connection_name: "shop".into(),
+            engine: Engine::Postgres,
+            database: None,
+            sql: sql.into(),
+            started_at_ms,
+            duration_ms: 1.0,
+            rows: None,
+            outcome: HistoryOutcome::Ok,
+            error_code: None,
+            error_message: None,
+        }
+    }
+
+    #[test]
+    fn the_history_is_pruned_when_the_writer_starts_and_the_panel_is_told() {
+        let store = Arc::new(Store::open_in_memory().expect("store"));
+        let now = unix_ms(SystemTime::now());
+        let day = 86_400_000;
+        store
+            .insert_history(&[
+                entry("too old", now - 40 * day),
+                entry("old", now - 3 * day),
+                entry("newer", now - 2 * day),
+                entry("newest", now - day),
+            ])
+            .expect("insert");
+        let sink = Arc::new(RecordingSink::default());
+        let history = StoreHistory::new(
+            Arc::clone(&store),
+            sink.clone(),
+            HistoryRetention {
+                max_entries: 2,
+                max_age_days: 30,
+            },
+        );
+        history.flush();
+        let kept: Vec<String> = store
+            .search_history(&HistoryQuery::default())
+            .expect("search")
+            .rows
+            .into_iter()
+            .map(|row| row.sql)
+            .collect();
+        assert_eq!(kept, ["newest", "newer"]);
+        drop(history);
+        assert!(
+            sink.events()
+                .iter()
+                .any(|e| matches!(e, BackendEvent::HistoryChanged(_)))
+        );
+    }
+}

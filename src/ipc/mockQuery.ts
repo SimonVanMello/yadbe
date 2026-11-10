@@ -23,6 +23,7 @@ import type {
 } from './bindings';
 import type { YadbeCommands } from './client';
 import type { EventEmitter } from './emitter';
+import type { MockHistoryRecord } from './mock/history';
 import { mockErrors } from './mockErrors';
 import { mockSplit, mockStatementAt } from './mockSplit';
 
@@ -68,6 +69,8 @@ export interface MockQueryHost {
   connection(id: string): SavedConnection | undefined;
   session(id: string): SessionInfo | undefined;
   logStatement(connectionId: string | null, connectionName: string, sql: string): void;
+  /** A user statement ran, was refused or was cancelled (the history, F-100). */
+  recordHistory?(statement: MockHistoryRecord): void;
 }
 
 type Result<T> = Promise<{ status: 'ok'; data: T } | { status: 'error'; error: YadbeError }>;
@@ -794,6 +797,38 @@ export function createMockQuery(host: MockQueryHost) {
     return 'ok';
   }
 
+  /** Hands a statement that ran (or was refused) to the history, with what its messages say. */
+  function recordStatement(
+    exec: MockExecution,
+    index: number,
+    startedAt: number,
+    durationMs: number,
+    outcome: Outcome | 'refused',
+    refusal: YadbeError | null = null,
+  ): void {
+    const range = exec.statements[index];
+    if (!range) return;
+    const own = exec.messages.filter((m) => m.statementIndex === index);
+    const failure = own.find((m) => m.body.kind === 'error')?.body;
+    const completed = own.find((m) => m.body.kind === 'statementCompleted')?.body;
+    const error = refusal ?? (failure?.kind === 'error' ? failure.error : null);
+    const status =
+      outcome === 'refused' || outcome === 'cancelled' ? outcome : error ? 'error' : 'ok';
+    host.recordHistory?.({
+      connectionId: exec.connectionId,
+      database: exec.database,
+      sql: exec.text.slice(range.from, range.to),
+      startedAt,
+      durationMs,
+      rows:
+        completed?.kind === 'statementCompleted'
+          ? (completed.rowsReturned ?? completed.rowsAffected)
+          : null,
+      outcome: status,
+      error: status === 'cancelled' ? (error ?? mockErrors.cancelled()) : error,
+    });
+  }
+
   async function run(exec: MockExecution, tab: MockTab, conn: SavedConnection): Promise<void> {
     const signal = exec.controller.signal;
     if (exec.status === 'connecting') {
@@ -815,12 +850,14 @@ export function createMockQuery(host: MockQueryHost) {
       for (const [index, range] of exec.statements.entries()) {
         const refusal = readOnlyRefusal(exec.text.slice(range.from, range.to));
         if (refusal !== null) {
+          const error = mockErrors.readOnlyViolation(refusal);
           message(exec, index, {
             kind: 'error',
-            error: mockErrors.readOnlyViolation(refusal),
+            error,
             server: null,
             position: position(exec.text, range.from),
           });
+          recordStatement(exec, index, Date.now(), 0, 'refused', error);
           finish(exec, 'failed');
           return;
         }
@@ -833,7 +870,10 @@ export function createMockQuery(host: MockQueryHost) {
         host.logStatement(conn.id, conn.definition.name, 'BEGIN');
         setTransaction(tab, 'open');
       }
+      const startedAt = Date.now();
+      const startedPerf = performance.now();
       const outcome = await runStatement(exec, tab, index);
+      recordStatement(exec, index, startedAt, performance.now() - startedPerf, outcome);
       if (outcome !== 'ok') {
         finish(exec, outcome === 'cancelled' ? 'cancelled' : 'failed');
         return;
