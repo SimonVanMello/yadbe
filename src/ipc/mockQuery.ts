@@ -33,6 +33,8 @@ import { mockSplit, mockStatementAt } from './mockSplit';
  * - `generate_series(a, b)`: `b - a + 1` integers, streamed.
  * - a `huge` table: 1 000 000 rows × 5 columns, streamed; pauses at the row limit.
  * - `big_table` or `wide`: 100 000 rows × 50 columns of mixed kinds, generated lazily.
+ * - `long_tail`: 3 000 rows × 2 columns whose text is short in the first window and much
+ *   longer after it (the grid widens its columns when those rows load).
  * - `empty` or `where false`: the sample columns, no row.
  * - any other `FROM`: the sample `orders` result, 1 284 rows of every kind (NULLs, long
  *   cut text, arrays, a column of mixed kinds).
@@ -802,6 +804,15 @@ export function createMockQuery(host: MockQueryHost) {
       } else if (/\bhuge\b/.test(lower)) {
         columns = hugeColumns();
         total = 1_000_000;
+      } else if (/\blong_tail\b/.test(lower)) {
+        columns = [
+          col('id', 'int4', 'int', (r) => ['int', String(r + 1)]),
+          col('label', 'text', 'text', (r) => [
+            'text',
+            r < 1500 ? `row ${String(r)}` : `row ${String(r)} ${'a much longer value '.repeat(3)}`,
+          ]),
+        ];
+        total = 3000;
       } else if (/\b(big_table|wide)\b/.test(lower)) {
         columns = wideColumns(50);
         total = 100_000;
