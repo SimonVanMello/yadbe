@@ -1042,5 +1042,6 @@
   "tableData.violation.foreignKey": "Clé étrangère",
   "tableData.violation.check": "Contrainte de vérification",
   "tableData.violation.notNull": "Non nul",
-  "tableData.violation.exclusion": "Contrainte d'exclusion"
+  "tableData.violation.exclusion": "Contrainte d'exclusion",
+  "palette.hint.openData": "Ouvrir les données"
 }

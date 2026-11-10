@@ -205,10 +205,7 @@ for (const { name, colorScheme } of THEMES) {
       const tabs = page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab');
       await expect(tabs).toHaveCount(1);
       await item(page, /^orders$/).click({ button: 'right' });
-      await expect(page.getByRole('menuitem', { name: /Open data/ })).toHaveAttribute(
-        'aria-disabled',
-        'true',
-      );
+      await expect(page.getByRole('menuitem', { name: 'Open data' })).toBeEnabled();
       await page.getByRole('menuitem', { name: 'Script as' }).hover();
       await expect(page.getByRole('menuitem', { name: 'UPDATE' })).toBeVisible();
       await capture(page, name, 'menu');

@@ -17,7 +17,13 @@ import { Kbd } from '../../ui/Kbd';
 import { Spinner } from '../../ui/Spinner';
 import { activateItem, primaryHint, secondaryHint } from './activateItem';
 import styles from './CommandPalette.module.css';
-import { KIND_PREFIX, MODE_HINTS, type PaletteItem, type PaletteKind } from './paletteItems';
+import {
+  isScriptable,
+  KIND_PREFIX,
+  MODE_HINTS,
+  type PaletteItem,
+  type PaletteKind,
+} from './paletteItems';
 import { PaletteRow } from './PaletteRow';
 import { usePaletteStore } from './paletteStore';
 import { usePaletteData } from './usePaletteData';
@@ -90,20 +96,20 @@ export function PaletteBody({ onChosen }: PaletteBodyProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeItemKey]);
 
-  const choose = (item: PaletteItem, secondary: boolean) => {
+  const choose = (item: PaletteItem, secondary: boolean, openData = false) => {
     if (item.kind === 'action' && item.disabledReason !== null) return;
     if (item.kind !== 'history') usePaletteStore.getState().remember(item.key);
     onChosen(item);
     usePaletteStore.getState().hide();
     // After the dialog unmounted, so that closing it cannot take back what the item focuses.
     setTimeout(() => {
-      activateItem(item, secondary);
+      activateItem(item, secondary, openData);
     }, 0);
   };
 
   // Enter pressed before the results caught up with the field would pick from the previous
   // query's list: it waits for them and picks then.
-  const enterPending = useRef<{ secondary: boolean } | null>(null);
+  const enterPending = useRef<{ secondary: boolean; openData: boolean } | null>(null);
   const latest = useRef({ choose, active, caughtUp: true });
   useEffect(() => {
     latest.current = { choose, active, caughtUp: raw === query };
@@ -113,7 +119,7 @@ export function PaletteBody({ onChosen }: PaletteBodyProps) {
     const { choose: pick, active: item, caughtUp } = latest.current;
     if (!pending || !caughtUp) return;
     enterPending.current = null;
-    if (item) pick(item.item, pending.secondary);
+    if (item) pick(item.item, pending.secondary, pending.openData);
   }, [query, raw]);
 
   const move = (to: number) => {
@@ -158,8 +164,10 @@ export function PaletteBody({ onChosen }: PaletteBodyProps) {
         break;
       case 'Enter': {
         const secondary = event.ctrlKey || event.metaKey;
-        if (raw !== query) enterPending.current = { secondary };
-        else if (active) choose(active.item, secondary);
+        // `Shift+Enter` on a table or view: its rows in a table tab.
+        const openData = event.shiftKey && !secondary;
+        if (raw !== query) enterPending.current = { secondary, openData };
+        else if (active) choose(active.item, secondary, openData);
         break;
       }
       default:
@@ -309,6 +317,12 @@ export function PaletteBody({ onChosen }: PaletteBodyProps) {
           <span className={styles.footerHint}>
             <Kbd shortcut="Mod+Enter" />
             {t(secondary)}
+          </span>
+        )}
+        {active && isScriptable(active.item) && (
+          <span className={styles.footerHint}>
+            <Kbd shortcut="Shift+Enter" />
+            {t('palette.hint.openData')}
           </span>
         )}
         <span className={styles.spacer} />

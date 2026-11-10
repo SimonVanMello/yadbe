@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { SavedTab } from '../../ipc';
-import { fromBackendTabs, toBackendTabs } from './tabsPersistence';
+import { fromBackendTabs, tablesFromBackendTabs, toBackendTabs } from './tabsPersistence';
 
 const title = (ordinal: number) => `Query ${String(ordinal)}`;
 
@@ -32,6 +32,45 @@ describe('saved tabs', () => {
       activeTabId: 'a',
     };
     expect(fromBackendTabs(toBackendTabs(saved, title))).toEqual(saved);
+  });
+
+  it('saves a table tab with its table and view, never its pending changes', () => {
+    const table = { database: 'shop', schema: 'shop', name: 'orders' };
+    const saved = {
+      tabs: [
+        { id: 'q', connectionId: 'c1', ordinal: 1, pinned: false },
+        { id: 't', connectionId: 'c1', ordinal: 0, pinned: true, table },
+      ],
+      activeTabId: 't',
+    };
+    const view = {
+      filter: {
+        chips: [{ column: 'status', op: 'eq' as const, values: ['paid'] }],
+        rawWhere: 'total > 1',
+      },
+      sort: [{ column: 'id', direction: 'desc' as const }],
+      pageSize: 1000,
+      layout: { widths: { note: 240 }, order: ['note', 'id'] },
+    };
+    const backend = toBackendTabs(saved, title, {}, { t: view });
+    const tab = backend.tabs[1];
+    expect(tab).toMatchObject({
+      kind: 'table',
+      title: 'orders',
+      database: 'shop',
+      table: { schema: 'shop', name: 'orders' },
+      content: '',
+    });
+    expect(fromBackendTabs(backend)).toEqual(saved);
+    expect(tablesFromBackendTabs(backend)).toEqual({ t: view });
+  });
+
+  it('drops a table tab saved without its table', () => {
+    const state = {
+      tabs: [backendTab({ id: 't', kind: 'table', connectionId: 'c1', database: 'shop' })],
+      activeTabId: 't',
+    };
+    expect(fromBackendTabs(state)).toBeNull();
   });
 
   it('names a query tab and leaves a welcome tab unnamed', () => {

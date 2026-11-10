@@ -2,7 +2,7 @@ import { runAction } from '../../app/actions';
 import { useTabsStore } from '../../app/tabs/tabsStore';
 import type { MessageKey } from '../../i18n/i18n';
 import { openQuery } from '../connections/connectionActions';
-import { scriptAs } from '../explorer/explorerActions';
+import { openTable, scriptAs } from '../explorer/explorerActions';
 import { revealInExplorer } from '../explorer/revealInExplorer';
 import { insertEntry, openEntry } from '../history/historyActions';
 import { isScriptable, type PaletteItem } from './paletteItems';
@@ -30,11 +30,12 @@ export function secondaryHint(item: PaletteItem): MessageKey | null {
 }
 
 /**
- * Carries out an item, once the palette is closed. `secondary` (`⌘↵`): a table or view opens as
+ * Carries out an item, once the palette is closed. `openData` (`⇧↵`): a table or view opens in a
+ * table tab. `secondary` (`⌘↵`): a table or view opens as
  * `SELECT` in a new tab instead of showing in the explorer, a statement of the history is
  * inserted at the cursor instead of opening in a new tab.
  */
-export function activateItem(item: PaletteItem, secondary: boolean): void {
+export function activateItem(item: PaletteItem, secondary: boolean, openData = false): void {
   switch (item.kind) {
     case 'action':
       runAction(item.id);
@@ -46,7 +47,13 @@ export function activateItem(item: PaletteItem, secondary: boolean): void {
       useTabsStore.getState().activate(item.tabId);
       return;
     case 'object':
-      if (secondary && isScriptable(item)) {
+      if (openData && isScriptable(item)) {
+        void openTable(item.connectionId, {
+          database: item.database,
+          schema: item.schema,
+          name: item.name,
+        });
+      } else if (secondary && isScriptable(item)) {
         void scriptAs(
           item.connectionId,
           { database: item.database, schema: item.schema, name: item.name },
