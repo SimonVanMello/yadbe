@@ -46,6 +46,7 @@ function message(seq: number, statementIndex: number | null = 0): QueryMessage {
     body: {
       kind: 'statementCompleted',
       durationMs: 1,
+      pausedMs: 0,
       rowsAffected: null,
       rowsReturned: 1,
       resultId: null,
@@ -57,6 +58,7 @@ function delta(patch: Partial<ExecutionDelta> = {}): ExecutionDelta {
   return {
     status: 'running',
     elapsedMs: 100,
+    pausedMs: 0,
     currentStatement: 0,
     results: [],
     messages: [],

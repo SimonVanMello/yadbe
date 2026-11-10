@@ -158,6 +158,30 @@ for (const { name, colorScheme } of THEMES) {
       expect(await grid.getByRole('gridcell').count()).toBeLessThan(1500);
       await capture(page, name, 'wide');
     });
+
+    test('columns widen when later rows are longer', async ({ page }) => {
+      await open(page, 'select * from long_tail');
+      const grid = page.getByRole('grid');
+      const label = header(page, 'label');
+      const width = async () => (await label.boundingBox())?.width ?? 0;
+      // The first rows are short (`row 20`): the column is narrow.
+      const before = await width();
+      expect(before).toBeLessThan(120);
+      await grid.evaluate((el) => {
+        el.scrollTop = 24 * 2600;
+      });
+      // Once the scroll settles, the column fits what loaded: no cut `…` in the new rows.
+      await expect.poll(width).toBeGreaterThan(before + 100);
+      await expect(grid.locator('[data-loading]')).toHaveCount(0);
+      await capture(page, name, 'widened');
+      // Never narrower once seen: back at the top the column keeps its width.
+      const widened = await width();
+      await grid.evaluate((el) => {
+        el.scrollTop = 0;
+      });
+      await page.waitForTimeout(400);
+      expect(await width()).toBeGreaterThanOrEqual(widened);
+    });
   });
 }
 

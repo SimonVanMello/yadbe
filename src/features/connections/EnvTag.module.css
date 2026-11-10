@@ -36,3 +36,11 @@
 .tag[data-environment='custom'] {
   color: color-mix(in srgb, var(--env-color) 55%, var(--fg-primary));
 }
+
+.tag[data-prominent] {
+  padding: var(--space-1) var(--space-3);
+  background: var(--env-color);
+  color: var(--bg-app);
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+}

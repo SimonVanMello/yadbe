@@ -3,6 +3,7 @@ import { useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
+import { Tooltip } from '../../ui/Tooltip';
 import { formatCount } from '../grid/formatCount';
 import { useResultSelectionStore } from '../grid/resultSelectionStore';
 import { isActive, isWorking } from '../query/executionModel';
@@ -57,8 +58,16 @@ function RunStatusLine({ tabId }: { tabId: string }) {
         : `${formatCount(locale, 'grid.rows', rows)} · ${time}`;
   }
 
-  return (
-    <span className={styles.run} data-testid="statusbar-run">
+  // The time shown leaves out the pauses at a result cap; the wall time stays one hover away.
+  const wall =
+    execution.pausedMs > 0
+      ? t('query.status.wallTime', {
+          total: formatDuration(elapsed + execution.pausedMs),
+          paused: formatDuration(execution.pausedMs),
+        })
+      : null;
+  const line = (
+    <span className={styles.run} data-testid="statusbar-run" tabIndex={wall ? 0 : undefined}>
       {icon}
       <span>{text}</span>
       {cells > 1 && (
@@ -66,4 +75,5 @@ function RunStatusLine({ tabId }: { tabId: string }) {
       )}
     </span>
   );
+  return wall ? <Tooltip content={wall}>{line}</Tooltip> : line;
 }

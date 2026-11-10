@@ -33,6 +33,8 @@ import { mockSplit, mockStatementAt } from './mockSplit';
  * - `generate_series(a, b)`: `b - a + 1` integers, streamed.
  * - a `huge` table: 1 000 000 rows × 5 columns, streamed; pauses at the row limit.
  * - `big_table` or `wide`: 100 000 rows × 50 columns of mixed kinds, generated lazily.
+ * - `long_tail`: 3 000 rows × 2 columns whose text is short in the first window and much
+ *   longer after it (the grid widens its columns when those rows load).
  * - `empty` or `where false`: the sample columns, no row.
  * - any other `FROM`: the sample `orders` result, 1 284 rows of every kind (NULLs, long
  *   cut text, arrays, a column of mixed kinds).
@@ -135,6 +137,9 @@ interface MockExecution {
   startedAt: number;
   startedPerf: number;
   finishedPerf: number | null;
+  /** Time spent paused at a result cap, and since when when it is paused now. */
+  pausedTotal: number;
+  pausedSince: number | null;
   status: ExecutionStatus;
   currentStatement: number | null;
   results: number[];
@@ -470,14 +475,22 @@ export function createMockQuery(host: MockQueryHost) {
     };
   }
 
+  function pausedFor(exec: MockExecution): number {
+    const now = exec.finishedPerf ?? performance.now();
+    return exec.pausedTotal + (exec.pausedSince === null ? 0 : now - exec.pausedSince);
+  }
+
   function elapsed(exec: MockExecution): number {
-    return Math.round((exec.finishedPerf ?? performance.now()) - exec.startedPerf);
+    return Math.round(
+      (exec.finishedPerf ?? performance.now()) - exec.startedPerf - pausedFor(exec),
+    );
   }
 
   function takeDelta(exec: MockExecution): ExecutionDelta {
     const delta: ExecutionDelta = {
       status: exec.status,
       elapsedMs: elapsed(exec),
+      pausedMs: Math.round(pausedFor(exec)),
       currentStatement: exec.currentStatement,
       results: [...exec.dirtyResults].flatMap((id) => {
         const result = results.get(id);
@@ -577,8 +590,10 @@ export function createMockQuery(host: MockQueryHost) {
         result.status = 'paused';
         result.pausedBy = cap === result.limitRows ? 'rowLimit' : 'memoryLimit';
         exec.status = 'paused';
+        exec.pausedSince = performance.now();
         exec.dirtyResults.add(result.id);
         changed(exec);
+        const pausedAt = performance.now();
         const mode = await new Promise<'more' | 'all' | null>((resolve) => {
           result.resume = resolve;
           signal.addEventListener('abort', () => {
@@ -586,6 +601,8 @@ export function createMockQuery(host: MockQueryHost) {
           });
         });
         result.resume = null;
+        exec.pausedTotal += performance.now() - pausedAt;
+        exec.pausedSince = null;
         if (!mode) return false;
         if (mode === 'all') {
           result.limitRows = Infinity;
@@ -635,11 +652,14 @@ export function createMockQuery(host: MockQueryHost) {
     const lower = words.toLowerCase();
     const verb = /^\w+/.exec(lower)?.[0] ?? '';
     const started = performance.now();
+    const pausedBefore = exec.pausedTotal;
     const signal = exec.controller.signal;
     const completed = (extra: { rowsAffected?: number; result?: MockResult }) => {
       message(exec, index, {
         kind: 'statementCompleted',
-        durationMs: Math.round((performance.now() - started) * 10) / 10,
+        durationMs:
+          Math.round((performance.now() - started - (exec.pausedTotal - pausedBefore)) * 10) / 10,
+        pausedMs: Math.round(exec.pausedTotal - pausedBefore),
         rowsAffected: extra.rowsAffected ?? null,
         rowsReturned: extra.result ? extra.result.rowCount : null,
         resultId: extra.result ? extra.result.id : null,
@@ -784,6 +804,15 @@ export function createMockQuery(host: MockQueryHost) {
       } else if (/\bhuge\b/.test(lower)) {
         columns = hugeColumns();
         total = 1_000_000;
+      } else if (/\blong_tail\b/.test(lower)) {
+        columns = [
+          col('id', 'int4', 'int', (r) => ['int', String(r + 1)]),
+          col('label', 'text', 'text', (r) => [
+            'text',
+            r < 1500 ? `row ${String(r)}` : `row ${String(r)} ${'a much longer value '.repeat(3)}`,
+          ]),
+        ];
+        total = 3000;
       } else if (/\b(big_table|wide)\b/.test(lower)) {
         columns = wideColumns(50);
         total = 100_000;
@@ -900,6 +929,7 @@ export function createMockQuery(host: MockQueryHost) {
       startedAt: exec.startedAt,
       status: exec.status,
       elapsedMs: elapsed(exec),
+      pausedMs: Math.round(pausedFor(exec)),
       currentStatement: exec.currentStatement,
       results: exec.results.flatMap((id) => {
         const result = results.get(id);
@@ -1009,6 +1039,8 @@ export function createMockQuery(host: MockQueryHost) {
         startedAt: Date.now(),
         startedPerf: performance.now(),
         finishedPerf: null,
+        pausedTotal: 0,
+        pausedSince: null,
         status: sameTarget ? 'running' : 'connecting',
         currentStatement: null,
         results: [],

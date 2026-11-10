@@ -21,6 +21,7 @@ export function openExportForActiveTab(): void {
     label: translate(useI18nStore.getState().locale, 'query.results.result', {
       number: execution.results.indexOf(result) + 1,
     }),
+    connectionId: execution.connectionId,
     rowCount: result.rowCount,
     status: result.status,
     pausedBy: result.pausedBy,

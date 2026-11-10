@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 
+import { useShellStore } from '../../app/shellStore';
 import type { ShellTab } from '../../app/tabs/tabsStore';
 import { useT } from '../../i18n/useT';
 import { Button } from '../../ui/Button';
@@ -101,9 +102,22 @@ function ConnectionNotice({ connection }: { connection: ConnectionSummary }) {
                 ? t('connection.state.lost')
                 : t('connection.connectFailed', { name: connection.name })
             }
-            error={error}
+            // A dropped link is fixed by reconnecting: editing the connection is the way out
+            // only when that fails again.
+            error={state === 'lost' ? { ...error, action: null } : error}
             context={{ retry, reconnect: retry, connectionId: connection.id }}
-          />
+          >
+            {state === 'lost' && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  useShellStore.getState().openConnectionDialog({ connectionId: connection.id });
+                }}
+              >
+                {t('error.action.editConnection')}
+              </Button>
+            )}
+          </ErrorPanel>
         </div>
       ) : (
         <>
@@ -115,7 +129,7 @@ function ConnectionNotice({ connection }: { connection: ConnectionSummary }) {
       )}
       <Button size="sm" variant="primary" onClick={retry}>
         <Icon name="play" />
-        {t('connection.menu.connect')}
+        {state === 'lost' ? t('error.action.reconnect') : t('connection.menu.connect')}
       </Button>
     </div>
   );

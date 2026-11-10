@@ -40,7 +40,9 @@ export function HistoryDetail({ entry: listed, search }: HistoryDetailProps) {
             new Date(entry.startedAt),
           )}
           {entry.outcome !== 'refused' && ` · ${formatDuration(entry.durationMs, locale)}`}
-          {entry.rows !== null && ` · ${t('history.rows', { count: entry.rows })}`}
+          {entry.outcome === 'ok' &&
+            entry.rows !== null &&
+            ` · ${t('history.rows', { count: entry.rows })}`}
         </p>
         <div className={styles.actions}>
           <IconButton

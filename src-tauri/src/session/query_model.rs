@@ -214,7 +214,10 @@ pub struct ServerMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StatementCompleted {
+    /// Time the statement ran, without the time it waited paused at a result cap.
     pub duration_ms: f64,
+    /// Time it waited paused at a result cap, for the user to resume.
+    pub paused_ms: u32,
     /// Rows changed by a DML statement, when the engine says.
     pub rows_affected: Option<f64>,
     /// Rows read, for a statement that returned a result set.
@@ -261,8 +264,11 @@ pub struct QueryMessage {
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionDelta {
     pub status: ExecutionStatus,
-    /// Milliseconds since the execution started (until it finished).
+    /// Active milliseconds since the execution started (until it finished): pauses at a result
+    /// cap, which wait for the user, are not counted.
     pub elapsed_ms: u32,
+    /// Milliseconds spent paused so far.
+    pub paused_ms: u32,
     /// The statement running (or paused), `null` once finished.
     pub current_statement: Option<u32>,
     /// Results created or changed since the previous event: replace them by `resultId`.
@@ -283,6 +289,7 @@ pub struct ExecutionSnapshot {
     pub started_at: f64,
     pub status: ExecutionStatus,
     pub elapsed_ms: u32,
+    pub paused_ms: u32,
     pub current_statement: Option<u32>,
     pub results: Vec<ResultSummary>,
     pub messages: Vec<QueryMessage>,

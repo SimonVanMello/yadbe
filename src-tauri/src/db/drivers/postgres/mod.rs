@@ -26,7 +26,7 @@ use crate::db::driver::{
     BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Connection, Driver,
     ExecError, ExecSender, ExecSummary, LinkWatch, StatementRecorder, recorded, recorded_bound,
 };
-use crate::db::errors::{YadbeError, from_connect_sqlstate};
+use crate::db::errors::{YadbeError, from_connect_sqlstate, from_query_sqlstate};
 use crate::db::value::{QueryResult, Value};
 
 const APPLICATION_NAME: &str = "yadbe";
@@ -436,6 +436,9 @@ fn classify_query(err: &tokio_postgres::Error) -> YadbeError {
         let code = db.code().code();
         if matches!(code, "57P01" | "57P02" | "57P03") {
             return YadbeError::connection_lost().with_detail(db.message());
+        }
+        if let Some(error) = from_query_sqlstate(code, db.message()) {
+            return error;
         }
         let mut detail = format!("{}: {}", db.severity(), db.message());
         if let Some(hint) = db.hint() {
