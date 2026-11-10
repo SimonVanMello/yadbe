@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  holdRange,
   columnAt,
   columnLefts,
   dropIndex,
@@ -113,5 +114,26 @@ describe('rows', () => {
     expect(scrollToInclude(100, 50, 120, 130)).toBe(100);
     expect(scrollToInclude(100, 50, 80, 90)).toBe(80);
     expect(scrollToInclude(100, 50, 160, 170)).toBe(120);
+  });
+});
+
+describe('holdRange', () => {
+  it('keeps the drawn range while it covers the visible one, then widens around it', () => {
+    const drawn = holdRange({ start: 0, end: 0 }, { start: 4, end: 9 }, 3, 50);
+    expect(drawn).toEqual({ start: 1, end: 12 });
+    expect(holdRange(drawn, { start: 6, end: 12 }, 3, 50)).toBe(drawn);
+    expect(holdRange(drawn, { start: 7, end: 13 }, 3, 50)).toEqual({ start: 4, end: 16 });
+    expect(holdRange(drawn, { start: 0, end: 5 }, 3, 50)).toEqual({ start: 0, end: 8 });
+  });
+
+  it('stays within the columns, and drops a range past a shrunk count', () => {
+    expect(holdRange({ start: 0, end: 0 }, { start: 45, end: 50 }, 3, 50)).toEqual({
+      start: 42,
+      end: 50,
+    });
+    expect(holdRange({ start: 0, end: 12 }, { start: 0, end: 8 }, 3, 8)).toEqual({
+      start: 0,
+      end: 8,
+    });
   });
 });

@@ -29,6 +29,7 @@ import {
   columnLefts,
   fitWidth,
   gutterWidth as gutterWidthFor,
+  holdRange,
   initialWidth,
   moveItem,
   scrollToInclude,
@@ -37,6 +38,7 @@ import {
   virtualTop,
   visibleColumns,
   visibleRows,
+  type Range,
 } from './gridMath';
 import { GridHeader } from './GridHeader';
 import { GridMenu } from './GridMenu';
@@ -68,7 +70,8 @@ import { useGridCopy, type CopyExtras } from './useGridCopy';
 
 /** Rows drawn above and below the viewport (absorbs a fast flick between two frames). */
 const OVERSCAN_ROWS = 8;
-const OVERSCAN_COLS = 1;
+/** Columns drawn past each side of the viewport when the drawn ones move (`holdRange`). */
+const COLUMN_BATCH = 1;
 /** Rows auto-fit reads at most. */
 const AUTO_FIT_ROWS = 20_000;
 /** Speed of the scroll while a drag selection is held past an edge (fraction of the overshoot). */
@@ -136,6 +139,7 @@ export function DataGrid({
   const snapshot = useRef<Snapshot | null>(null);
   const dragRef = useRef<Drag | null>(null);
   const frameRef = useRef<number | null>(null);
+  const drawnCols = useRef<Range>({ start: 0, end: 0 });
   const fitted = useRef(false);
   const resized = useRef(new Set<number>());
 
@@ -177,12 +181,13 @@ export function DataGrid({
     const m = verticalMetrics(s.rowCount, s.layout.rowHeight, bodyHeight);
     const top = virtualTop(el.scrollTop, m);
     const rows = visibleRows(top, bodyHeight, s.layout.rowHeight, s.rowCount, OVERSCAN_ROWS);
-    const visible = visibleColumns(
-      s.layout.lefts,
-      el.scrollLeft,
-      s.viewport.width - s.layout.gutterWidth,
-      OVERSCAN_COLS,
+    const visible = holdRange(
+      drawnCols.current,
+      visibleColumns(s.layout.lefts, el.scrollLeft, s.viewport.width - s.layout.gutterWidth, 0),
+      COLUMN_BATCH,
+      s.layout.lefts.length - 1,
     );
+    drawnCols.current = visible;
     body.render({
       rows,
       cols: visible,

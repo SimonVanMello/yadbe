@@ -54,6 +54,21 @@ export function visibleColumns(
   return { start: Math.max(0, first - overscan), end: Math.min(count, last + 1 + overscan) };
 }
 
+/**
+ * The range to draw for `visible`: the current one while it still covers `visible`, else
+ * `visible` widened by `extra` on each side. Columns then enter the DOM a few at a time instead
+ * of one per frame: each entry touches every drawn row, whatever the number of columns added.
+ */
+export function holdRange(current: Range, visible: Range, extra: number, count: number): Range {
+  if (visible.start >= current.start && visible.end <= current.end && current.end <= count) {
+    return current;
+  }
+  return {
+    start: Math.max(0, visible.start - extra),
+    end: Math.min(count, visible.end + extra),
+  };
+}
+
 export interface VerticalMetrics {
   rowHeight: number;
   /** Height of the rows area (viewport minus header), in px. */
