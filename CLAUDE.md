@@ -37,14 +37,18 @@ src/                      Frontend
   features/<feature>/     One feature = components + hooks + styles + tests:
     connections/          Connection list model, dialog and forms, password prompt, connection chip
     sidebar/              Sidebar views (Connections / History), the virtualized tree of connections + explorer
-    explorer/             Explorer rows (pure tree building and filter), metadata queries, context menu, Script as
+    explorer/             Explorer rows (pure tree building and filter), metadata queries, context menu, Script as, the shared catalog cache (catalogCache.ts: palette + autocomplete)
     query/                Query tab: SQL editor (CodeMirror), run / cancel, transactions, results area, files, danger guard
-    grid/                 Result grid, selection and copy formats, cell viewer
+    grid/                 Data grid (results and table tabs), selection and copy formats, cell viewer
+    table-data/           Table tab: pages, count, filter bar, sort, cell editors, pending changes, SQL preview, apply, table export
+    completion/           Editor autocomplete: SQL context analysis, suggestions, quoting, index over the shared catalog
+    palette/              Command palette: fuzzy matcher, sources (actions, connections, objects, tabs, history)
+    preferences/          Preferences screen, schema and store; user-facing settings are read with `usePreference` / `getPreference`
+    export/               Export dialog, options, progress toasts (result or table source)
     history/              History panel, search and filters, open / insert, clear
     statement-log/        Statement log panel
     statusbar/, toolbar/, welcome/   Bottom bar (run status, Ln/Col), query toolbar, welcome screen
     demo/                 The /#primitives page
-    (M2: table-data, palette, preferences, export)
   ipc/                    Backend access: generated bindings + Tauri client + mock client (mock/ per domain)
   ui/                     Reusable primitives (Button, Menu, Dialog, Toast…)
   theme/                  tokens.css, graphite.css, paper.css
@@ -55,13 +59,13 @@ scripts/                  check-case, P-01 startup and P-04 WebKitGTK measuremen
 src-tauri/
   src/
     commands/             Tauri handlers: thin, no logic (validation → service call → error mapping)
-    db/                   value.rs (Value model), driver.rs (traits), dialect.rs, meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
+    db/                   value.rs (Value model), driver.rs (traits), dialect.rs + edit_dialect.rs (paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
       drivers/<engine>/   postgres, mssql, sqlite (mysql in M3): the only place a driver crate is used
-    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording
-    edit/                 Change set → EditPlanner → parameterized DML (M2, empty)
+    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs
+    edit/                 Change set → EditPlanner → parameterized DML, SQL preview
     secrets/              Keychain access, Secret type
     store/                SQLite: connections, tabs, history, preferences (saved queries later)
-    export/               Streaming exports (M2, empty)
+    export/               Streaming exports: sources (result, table), CSV / JSON encoders, the background job manager
   examples/               export_bindings.rs (`pnpm bindings`)
   tests/                  Integration tests (common/, query_common/, conformance/) + fixture schema scripts (fixtures/)
   vendor/tiberius/        tiberius 0.13.0, pristine commit then yadbe's patches (PATCHES.md says which and why)
@@ -91,11 +95,12 @@ xvfb-run pnpm tauri dev   # Run the real app in a headless container
 pnpm tauri build --debug --no-bundle   # Built front + CSP with nonces (absent under `tauri dev`): check every new screen with this binary. A lib that injects <style> must receive the page nonce (src/ui/cspNonce.ts).
 cd src-tauri && cargo test --release --test history_bench p08 -- --ignored --nocapture   # P-08: history search over 100k entries
 pnpm perf:startup   # P-01 on the release binary (`pnpm tauri build --no-bundle` first; headless Linux: xvfb-run -a pnpm perf:startup)
-pnpm perf:tabs      # P-07 on a production build of the front (mock), CPU ×1 and ×4
+pnpm perf:tabs      # P-07 on a production build of the front (mock): three query tabs and two table tabs, CPU ×1 and ×4
 pnpm perf:grid      # P-04 on Chromium: scrolling 100k × 50 on the mock (production build), CPU ×1 and ×4
 YADBE_TEST_PG_URL=… pnpm perf:grid:webkit [--binary …]   # P-04 in the real app through tauri-driver (start it with WEBKIT_DISABLE_COMPOSITING_MODE=1 under Xvfb)
 pnpm perf:palette   # P-06: palette search over 10 000 objects on the mock (production build), CPU ×1 and ×4
 pnpm perf:completion  # P-05: autocomplete source over a 10 000-object catalog on the mock, CPU ×1 and ×4
+pnpm tauri build --bundles deb   # P-10: installer size (Linux .deb; macOS / Windows bundles on their OS)
 cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… cargo test --test table_data --test export   # table browsing / edit plans on the three engines, exports
 pnpm perf:explorer  # Explorer tree on the mock: first level with 500 tables, scroll, filter (at once and a key at a time) on 10k objects (YADBE_PERF_PORT / YADBE_MOCK_PORT when the default port is taken)
 cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test query_postgres p03 -- --ignored --nocapture   # P-03: query sent → first 500-row window readable, 1M rows
@@ -103,7 +108,7 @@ cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test query_postgres
 
 `cargo build` / `cargo test` (debug or `--release`) rewrite `src-tauri/target/<profile>/yadbe` without the bundled frontend (it then loads `http://localhost:1420`): run `pnpm tauri build [--debug] --no-bundle` again before launching or measuring that binary.
 
-Driving the real app (WebKitGTK) on Linux, e.g. to check a change end to end: `apt-get install webkit2gtk-driver`, `cargo install tauri-driver --locked`, start `Xvfb :99` and `DISPLAY=:99 YADBE_CONFIG_DIR=<dir> tauri-driver`, then speak W3C WebDriver to `http://127.0.0.1:4444` with the capability `{"tauri:options": {"application": "src-tauri/target/debug/yadbe"}}` (see `docs/validation/M0.md`, "How M0 was checked on Linux", and `docs/validation/M1.md`). Under Xvfb, `WEBKIT_DISABLE_COMPOSITING_MODE=1` makes WebKitGTK render much faster; GTK native dialogs can be driven with `xdotool` (Ctrl+L, type the path, Return).
+Driving the real app (WebKitGTK) on Linux, e.g. to check a change end to end: `apt-get install webkit2gtk-driver`, `cargo install tauri-driver --locked`, start `Xvfb :99` and `DISPLAY=:99 YADBE_CONFIG_DIR=<dir> tauri-driver`, then speak W3C WebDriver to `http://127.0.0.1:4444` with the capability `{"tauri:options": {"application": "src-tauri/target/debug/yadbe"}}` (see `docs/validation/M0.md`, "How M0 was checked on Linux", and `docs/validation/M1.md`, `M2.md`). Under Xvfb, `WEBKIT_DISABLE_COMPOSITING_MODE=1` makes WebKitGTK render much faster; GTK native dialogs can be driven with `xdotool` (`windowfocus --sync` on the dialog, Ctrl+A, type the path, Return). Use a fresh `YADBE_CONFIG_DIR` for measurements: saved preferences (result caps, fonts) change what the scripts see.
 
 ## Architecture rules (non-negotiable)
 

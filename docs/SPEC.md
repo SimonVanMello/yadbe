@@ -46,7 +46,7 @@ Same shell and frontend stack as yaggui, so primitives, themes, i18n and tooling
 | PostgreSQL | **`tokio-postgres`** + `rustls` | Dynamic typing, simple-query protocol (multi-statement scripts), cancel tokens, notices. `sqlx` is designed for compile-time-known queries and hides what an explorer needs. |
 | SQL Server | **`tiberius`** | The only maintained pure-Rust TDS driver. SQL logins and Entra ID tokens; integrated auth is V2. |
 | MySQL / MariaDB | `mysql_async` | Native async driver. |
-| SQLite | `rusqlite` (bundled) | Also used for the app store. |
+| SQLite | `rusqlite` (bundled) | Also used for the app store. User databases are opened with `PRAGMA foreign_keys = ON` (SQLite's default is off), so edits keep the declared constraints. |
 | Secrets | **`keyring`** | macOS Keychain, Windows Credential Manager, Secret Service (Linux). |
 | SSH tunnels | `russh` | No dependency on a system `ssh`; V1. |
 | Bindings | `tauri-specta` | TS types and commands generated from Rust. |
@@ -181,7 +181,7 @@ Priorities: **MVP** (daily use), **V1** (public release), **V2** (after v1).
 | F-040 | Editor tabs with syntax highlighting per dialect, multi-cursor, find/replace, bracket matching, comment toggle, indentation. | MVP |
 | F-041 | Run all (`⌘↵`), run selection, **run statement under cursor** (`⌘⇧↵`); the statement about to run is highlighted. Statement splitting is dialect-aware (`GO` batches on SQL Server, dollar-quoting on Postgres, `DELIMITER` on MySQL). | MVP |
 | F-042 | Cancel a running query (`⌘.`); elapsed time shown live. | MVP |
-| F-043 | **Schema-aware autocomplete**: keywords, schemas, tables, columns (resolving aliases and CTEs in the current statement), functions; join suggestions from foreign keys. | MVP (objects, columns), V1 (aliases, joins) |
+| F-043 | **Schema-aware autocomplete**: keywords, schemas, tables, columns (resolving aliases and CTEs in the current statement), functions; join suggestions from foreign keys. | MVP (objects, columns, aliases, joins: delivered together in M2); V1 (CTE columns, hover) |
 | F-044 | Tabs restored on restart with their content, cursor and connection, saved or not (autosave to the store every few seconds). | MVP |
 | F-045 | Open / save `.sql` files; dirty indicator; external change detection. | MVP |
 | F-046 | Switch the tab's connection / database from the toolbar. | MVP |
@@ -203,7 +203,7 @@ Priorities: **MVP** (daily use), **V1** (public release), **V2** (after v1).
 | F-063 | Selection of cells / rows / columns (mouse and keyboard), copy as TSV (default), CSV, JSON, Markdown, SQL `INSERT`, `IN (…)` list. | MVP |
 | F-064 | Cell viewer panel for long text, JSON / XML (pretty-printed, foldable), binary (hex + size), with copy and save to file. | MVP |
 | F-065 | Client-side sort and filter on a loaded result; quick aggregate (count, sum, avg, min, max) of the selection in the status bar. | V1 |
-| F-066 | Export a result or a table to CSV, JSON, SQL inserts, Markdown, Excel; streamed to disk without loading everything in memory, cancellable. | MVP (CSV, JSON), V1 (others) |
+| F-066 | Export a result or a table to CSV, JSON, SQL inserts, Markdown, Excel; streamed to disk without loading everything in memory, cancellable. A table is exported under its tab's filter and sort, read in pages (not one snapshot). | MVP (CSV, JSON), V1 (others) |
 | F-067 | Pin a result so the next run opens beside it; compare two results (row diff by key). | V2 |
 | F-068 | Row detail view (one row as a vertical form), useful on wide tables. | V1 |
 | F-069 | Quick chart of a result (bar / line / scatter). | V2 |
