@@ -48,6 +48,8 @@ export interface BodyLabels {
   empty: string;
   /** Shown instead of NULL in a cell the server will fill in (a new row's default). */
   default?: string;
+  /** Shown instead of NULL in a cell of a new row that must be filled before Apply. */
+  required?: string;
 }
 
 interface CellView {
@@ -123,7 +125,8 @@ export class GridBody {
     if (
       labels.null === this.labels.null &&
       labels.empty === this.labels.empty &&
-      labels.default === this.labels.default
+      labels.default === this.labels.default &&
+      labels.required === this.labels.required
     ) {
       return;
     }
@@ -392,10 +395,12 @@ export class GridBody {
       el.toggleAttribute('data-truncated', truncated);
     }
     if (column?.states || cell.state !== null) {
-      const wasDefault = cell.state === 'default';
+      const wasMarker = cell.state === 'default' || cell.state === 'required';
       this.paintState(cell, column?.states?.[index] ?? null, column?.titles?.[index] ?? null);
-      // The default marker is drawn like NULL with another word.
-      if (wasDefault !== (cell.state === 'default')) cell.text = undefined;
+      // The default and required markers are drawn like NULL with another word.
+      if (wasMarker !== (cell.state === 'default' || cell.state === 'required')) {
+        cell.text = undefined;
+      }
     }
     if (text === cell.text && kind === cell.kind) return;
     cell.text = text;
@@ -407,7 +412,11 @@ export class GridBody {
       case 'null':
         el.className = `${base} ${classes.null}`;
         el.textContent =
-          cell.state === 'default' ? (this.labels.default ?? this.labels.null) : this.labels.null;
+          cell.state === 'default'
+            ? (this.labels.default ?? this.labels.null)
+            : cell.state === 'required'
+              ? (this.labels.required ?? this.labels.null)
+              : this.labels.null;
         return;
       case 'empty':
         el.className = `${base} ${classes.empty}`;

@@ -5,6 +5,7 @@ import {
   addInserts,
   deleteRows,
   EMPTY_PENDING,
+  firstMissingRequired,
   isEmpty,
   pendingCount,
   revertCells,
@@ -143,5 +144,31 @@ describe('pending changes', () => {
       index: 0,
       dataCols: [0],
     });
+  });
+});
+
+describe('required cells of new rows', () => {
+  const cols = [
+    { optionalOnInsert: true },
+    { optionalOnInsert: false },
+    { optionalOnInsert: false },
+  ];
+
+  it('points at the first column the server needs a value for', () => {
+    let pending = addInserts(EMPTY_PENDING, [new Map(), new Map()]).pending;
+    expect(firstMissingRequired(pending, cols)).toEqual({ index: 0, dataCol: 1 });
+    pending = setInsertCell(pending, 0, 1, text('a'));
+    expect(firstMissingRequired(pending, cols)).toEqual({ index: 0, dataCol: 2 });
+    pending = setInsertCell(pending, 0, 2, NULL);
+    expect(firstMissingRequired(pending, cols)).toEqual({ index: 1, dataCol: 1 });
+  });
+
+  it('finds nothing when every required cell has a value, or without new rows', () => {
+    expect(firstMissingRequired(EMPTY_PENDING, cols)).toBeNull();
+    const full = new Map([
+      [1, text('a')],
+      [2, text('b')],
+    ]);
+    expect(firstMissingRequired(addInserts(EMPTY_PENDING, [full]).pending, cols)).toBeNull();
   });
 });

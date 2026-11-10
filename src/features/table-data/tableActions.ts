@@ -30,6 +30,7 @@ import {
   addInserts,
   deleteRows as markDeleted,
   EMPTY_PENDING,
+  firstMissingRequired,
   isEmpty,
   revertCells as dropCells,
   revertInsertCells,
@@ -140,6 +141,7 @@ function sourceLabels() {
     original: (text: string) => t('tableData.cell.original', { value: text }),
     defaultValue: (expression: string | null) =>
       expression ? t('tableData.cell.defaultOf', { expression }) : t('tableData.cell.default'),
+    required: (column: string) => t('tableData.cell.required', { column }),
     null: 'NULL',
   };
 }
@@ -779,10 +781,29 @@ export function closePreview(tabId: string): void {
   patch(tabId, { preview: null });
 }
 
+/**
+ * A new row misses a value the server requires: says which, and focuses the cell. The server
+ * would refuse the insert and roll everything back.
+ */
+function missingRequired(tabId: string): boolean {
+  const { info, pending } = getTableSession(tabId);
+  const missing = info ? firstMissingRequired(pending, info.columns) : null;
+  const source = sources.get(tabId);
+  if (!info || !missing || !source) return false;
+  const grid = grids.get(tabId);
+  grid?.focusCell({ row: source.mappedCount + missing.index, dataCol: missing.dataCol });
+  grid?.focus();
+  toast({
+    variant: 'warning',
+    title: t('tableData.apply.required', { column: info.columns[missing.dataCol]?.name ?? '' }),
+  });
+  return true;
+}
+
 /** `Mod+S`: shows the SQL first when it must, else applies. */
 export function requestApply(tabId: string): void {
   const { pending, applying } = getTableSession(tabId);
-  if (isEmpty(pending) || applying) return;
+  if (isEmpty(pending) || applying || missingRequired(tabId)) return;
   if (mustPreview(tabId)) void openPreview(tabId);
   else void applyChanges(tabId);
 }
@@ -809,6 +830,10 @@ export async function applyChanges(tabId: string): Promise<void> {
   const { info, pending } = session;
   const source = sources.get(tabId);
   if (!info || !source || isEmpty(pending) || session.applying) return;
+  if (missingRequired(tabId)) {
+    patch(tabId, { preview: null });
+    return;
+  }
   patch(tabId, { applying: true });
   const { changes, trace } = toChangeSet(pending, info.columns);
   traces.set(tabId, trace);

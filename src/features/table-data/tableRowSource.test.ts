@@ -32,6 +32,7 @@ const columns = [
 const labels = {
   original: (text: string) => `was ${text}`,
   defaultValue: (expression: string | null) => `default ${expression ?? ''}`,
+  required: (column: string) => `${column} is required`,
   null: 'NULL',
 };
 
@@ -124,6 +125,22 @@ describe('TableRowSource', () => {
     expect(block?.columns[0]?.truncated).toEqual([0]);
     expect(s.pendingValue(3, 1)).toEqual({ kind: 'null' });
     expect(s.rowKind(3)).toEqual({ kind: 'insert', index: 0 });
+  });
+
+  it('marks the cells of a new row that the server will not fill as required', () => {
+    const strict = [...columns, col('owner', 'text', { nullable: false, optionalOnInsert: false })];
+    const s = new TableRowSource(
+      strict,
+      strict.map((c) => ({ name: c.name, typeName: c.typeName, kind: c.kind })),
+      labels,
+    );
+    s.setPage(page());
+    s.setPending(addInserts(EMPTY_PENDING, [new Map()]).pending);
+    const block = s.block(0);
+    const last = block?.columns[3];
+    expect(last?.states?.[3]).toBe('required');
+    expect(last?.titles?.[3]).toBe('owner is required');
+    expect(block?.columns[2]?.states?.[3]).toBe('default');
   });
 
   it('shows what the server stored after an apply: deleted rows leave, new rows follow', () => {

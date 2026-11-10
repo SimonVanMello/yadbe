@@ -32,9 +32,10 @@ export interface RowBlock {
 
 /**
  * How a row or a cell differs from what the server holds (table editing, F-084); `default`: a
- * cell of a new row the server fills in.
+ * cell of a new row the server fills in; `required`: a cell of a new row the server needs a
+ * value for.
  */
-export type EditState = 'modified' | 'inserted' | 'deleted' | 'failed' | 'default';
+export type EditState = 'modified' | 'inserted' | 'deleted' | 'failed' | 'default' | 'required';
 
 export interface BlockColumn {
   values: readonly (string | null)[];

@@ -476,6 +476,7 @@ export function DataGrid({
       null: nullText,
       empty: t('grid.empty'),
       default: t('grid.default'),
+      required: t('grid.required'),
     });
     if (!metrics || !layout) {
       snapshot.current = null;

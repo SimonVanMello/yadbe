@@ -64,6 +64,8 @@ export interface SourceLabels {
   original: (text: string) => string;
   /** Hover text of a column a new row leaves to the server. */
   defaultValue: (expression: string | null) => string;
+  /** Hover text of a column a new row must fill before Apply. */
+  required: (column: string) => string;
   null: string;
 }
 
@@ -471,7 +473,11 @@ export class TableRowSource implements RowSource {
         outs.forEach((out, col) => {
           const value = insert?.cells.get(col);
           if (value === undefined) {
-            mark(out, i, 'default', this.labels.defaultValue(out.column.default));
+            if (out.column.optionalOnInsert) {
+              mark(out, i, 'default', this.labels.defaultValue(out.column.default));
+            } else {
+              mark(out, i, 'required', this.labels.required(out.column.name));
+            }
             return;
           }
           out.values[i] = valueText(value);

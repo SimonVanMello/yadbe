@@ -148,6 +148,23 @@ export function revertCells(pending: Pending, row: number, dataCols: readonly nu
   return withRow(pending, row, { ...current, cells });
 }
 
+/**
+ * The first cell of a new row that the server will refuse: a column that is not optional on
+ * insert (NOT NULL without default, identity or generation) left without a value.
+ */
+export function firstMissingRequired(
+  pending: Pending,
+  columns: readonly Pick<TableColumn, 'optionalOnInsert'>[],
+): { index: number; dataCol: number } | null {
+  for (const [index, insert] of pending.inserts.entries()) {
+    const dataCol = columns.findIndex(
+      (column, col) => !column.optionalOnInsert && !insert.cells.has(col),
+    );
+    if (dataCol >= 0) return { index, dataCol };
+  }
+  return null;
+}
+
 /** Reverts cells of a new row to their defaults. */
 export function revertInsertCells(
   pending: Pending,

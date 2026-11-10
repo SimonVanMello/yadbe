@@ -283,7 +283,7 @@ for (const { name, colorScheme } of THEMES) {
       await expect(row(0)).toHaveAttribute('data-state', 'modified');
       await expect(row(2)).toHaveAttribute('data-state', 'deleted');
       await expect(row(12)).toHaveAttribute('data-state', 'inserted');
-      await expect(cell(page, 12, 1)).toHaveText('DEFAULT');
+      await expect(cell(page, 12, 1)).toHaveText('REQUIRED');
       await expect(cell(page, 0, note)).toHaveAttribute('title', /^Was: /);
       await capture(page, name, 'pending');
 
@@ -405,6 +405,29 @@ for (const { name, colorScheme } of THEMES) {
       await expect(page.getByText('The connection is read-only.').last()).toBeVisible();
       await expect(page.getByRole('button', { name: 'Insert row' })).toBeDisabled();
       await capture(page, name, 'read-only-connection');
+    });
+
+    test('a new row marks the values the server requires and refuses to apply without them', async ({
+      page,
+    }) => {
+      await openOrders(page);
+      const where = page.getByRole('textbox', { name: /WHERE condition/ });
+      await where.fill('id <= 12');
+      await where.press('Enter');
+      await expect(page.getByTestId('table-range')).toHaveText('Rows 1–12');
+      await cell(page, 0, 1).click();
+      await page.keyboard.press('ControlOrMeta+i');
+      const customer = await col(page, 'customer_id');
+      const status = await col(page, 'status');
+      await expect(cell(page, 12, customer)).toHaveText('REQUIRED');
+      await expect(cell(page, 12, customer)).toHaveAttribute('data-state', 'required');
+      await expect(cell(page, 12, customer)).toHaveAttribute('title', /customer_id/);
+      await expect(cell(page, 12, status)).toHaveText('DEFAULT');
+      await page.keyboard.press('ControlOrMeta+s');
+      await expect(page.getByText(/Column customer_id needs a value/).first()).toBeVisible();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(cell(page, 12, customer)).toHaveAttribute('data-focused', /.*/);
+      await capture(page, name, 'required');
     });
 
     test('Mod+F opens the filter form on the grid, not the browser search', async ({ page }) => {
