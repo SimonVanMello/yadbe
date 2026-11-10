@@ -25,6 +25,8 @@ export const DEFAULT_BINDINGS = {
   'tab.select8': 'Mod+8',
   'tab.select9': 'Mod+9',
   'connection.new': 'Mod+N',
+  // The preferences screen (F-125).
+  'preferences.open': 'Mod+,',
   'view.toggleSidebar': 'Mod+B',
   'view.toggleStatementLog': 'Mod+J',
   // Sidebar: History view (F-101), search focused.
@@ -88,6 +90,7 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'tab.select8': 'action.tab.select8',
   'tab.select9': 'action.tab.select9',
   'connection.new': 'action.connection.new',
+  'preferences.open': 'action.preferences.open',
   'view.toggleSidebar': 'action.view.toggleSidebar',
   'view.toggleStatementLog': 'action.view.toggleStatementLog',
   'view.history': 'action.view.history',

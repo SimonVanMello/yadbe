@@ -3,7 +3,7 @@ import { ipc, unwrap, type Engine } from '../../ipc';
 import { stateOf, useSessions } from '../connections/connectionStore';
 import { metaKeys } from '../explorer/metaKeys';
 import { getQueryTabState } from '../query/queryTabStore';
-import { useQueryUiStore } from '../query/queryUiStore';
+import { getPreference } from '../preferences/preferenceStore';
 import type { CompletionHost } from './completionSource';
 import type { Quoting } from './identifierQuoting';
 
@@ -35,7 +35,7 @@ export function createCompletionHost(options: HostOptions): CompletionHost {
         connected: stateOf(useSessions.getState().sessions[connectionId]) === 'connected',
       };
     },
-    asYouType: () => useQueryUiStore.getState().completeAsYouType,
+    asYouType: () => getPreference('completeAsYouType'),
     // The explorer's own query: shared with the tree when it has read the table already.
     tableDetails: async (table, kind) => {
       try {

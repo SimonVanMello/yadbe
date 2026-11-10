@@ -21,8 +21,8 @@
   outline: none;
   background: var(--bg-panel);
   color: var(--fg-primary);
-  font-family: var(--font-code);
-  font-size: var(--text-sm);
+  font-family: var(--grid-font-family);
+  font-size: var(--grid-font-size);
   overscroll-behavior: contain;
   user-select: none;
   -webkit-user-select: none;
@@ -231,9 +231,9 @@
 /* NULL, the empty string and invisible whitespace each read differently from text. */
 .null {
   color: var(--cell-null);
-  font-size: var(--text-xs);
-  font-style: italic;
-  letter-spacing: var(--tracking-caps);
+  font-size: var(--grid-null-font-size);
+  font-style: var(--grid-null-font-style);
+  letter-spacing: var(--grid-null-letter-spacing);
 }
 
 .empty {

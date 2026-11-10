@@ -2,6 +2,7 @@ import { restoreAndPersistExportPrefs } from '../features/export/exportStore';
 import { startExportFeed } from '../features/export/runExport';
 import { startConnectionFeed } from '../features/connections/connectionStore';
 import { startMetaFeed } from '../features/explorer/metaFeed';
+import { restoreAndPersistPreferences } from '../features/preferences/preferenceStore';
 import { restoreAndPersistQueryUi, startQueryFeature } from '../features/query/queryFeature';
 import { useQueryTabStore } from '../features/query/queryTabStore';
 import { startStatementLogFeed } from '../features/statement-log/statementLogStore';
@@ -137,6 +138,7 @@ export function startup(): Promise<void> {
       restoreTabs(),
       restoreAndPersistQueryUi(),
       restoreAndPersistExportPrefs(),
+      restoreAndPersistPreferences(),
     ]);
     persistTabs();
   })();

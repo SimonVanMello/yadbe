@@ -19,6 +19,7 @@ import { useT } from '../../i18n/useT';
 import { ContextMenu } from '../../ui/ContextMenu';
 import { IconButton } from '../../ui/IconButton';
 import { matchShortcut } from '../../ui/shortcuts';
+import { getPreference, usePreference } from '../preferences/preferenceStore';
 import { displayLength } from './cellDisplay';
 import { CellViewer } from './CellViewer';
 import type { CopyFormat } from './copyFormats';
@@ -142,6 +143,7 @@ export function DataGrid({
   onExport,
 }: DataGridProps) {
   const t = useT();
+  const nullText = usePreference('nullText');
   const locale = useI18nStore((state) => state.locale);
   const focusId = `${useId()}-focus`;
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -223,12 +225,12 @@ export function DataGrid({
         if (!values) continue;
         for (let i = 0; i < block.rowCount && rows < AUTO_FIT_ROWS; i++, rows++) {
           const kind = values.kinds?.[i] ?? column.kind;
-          longest = Math.max(longest, displayLength(values.values[i] ?? null, kind, 'NULL'));
+          longest = Math.max(longest, displayLength(values.values[i] ?? null, kind, nullText));
         }
       }
       return fitWidth(longest, m.headerWidth(column.name, column.typeName), m);
     },
-    [source],
+    [source, nullText],
   );
 
   const schedulePaint = useCallback(() => {
@@ -294,7 +296,7 @@ export function DataGrid({
         empty: styles.empty ?? '',
         mark: styles.mark ?? '',
       },
-      labels: { null: 'NULL', empty: '' },
+      labels: { null: getPreference('nullText'), empty: '' },
     });
     rendererRef.current = body;
     return () => {
@@ -305,7 +307,7 @@ export function DataGrid({
 
   // Every render: hand the latest state to the scroll path, then draw.
   useLayoutEffect(() => {
-    rendererRef.current?.setLabels({ null: 'NULL', empty: t('grid.empty') });
+    rendererRef.current?.setLabels({ null: nullText, empty: t('grid.empty') });
     if (!metrics || !layout) {
       snapshot.current = null;
       return;
