@@ -286,6 +286,16 @@ for (const { name, colorScheme } of THEMES) {
       await expect(page.locator('.cm-activeLine')).toContainText('select count(*)');
     });
 
+    test('a closed tab comes back with its text', async ({ page }) => {
+      await openQueryTab(page, 'local postgres');
+      await setScript(page, 'select 42 as answer;');
+      await page.keyboard.press('ControlOrMeta+w');
+      await expect(page.getByRole('tab', { name: /Query 1/ })).toHaveCount(0);
+      await page.keyboard.press('ControlOrMeta+Shift+t');
+      await expect(editorContent(page)).toContainText('select 42 as answer;');
+      await expect(page.getByRole('tab', { name: /Query 1.*Unsaved changes/ })).toBeVisible();
+    });
+
     test('the split between editor and results is remembered', async ({ page }) => {
       await openQueryTab(page, 'local postgres');
       const separator = page.getByRole('separator', { name: 'Resize the results area' });
