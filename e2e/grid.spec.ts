@@ -122,7 +122,9 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'viewer-binary');
       // Saved through the backend's `writeValueFile` (the mock disk keeps the hex form).
       await viewer.getByRole('button', { name: 'Save to a file…' }).click();
-      await expect(page.getByText('Saved to /home/ana/Downloads/blob-4.bin')).toBeVisible();
+      await expect(
+        page.getByText('Saved to /home/ana/Downloads/blob-4.bin', { exact: true }),
+      ).toBeVisible();
       expect(
         await page.evaluate(() =>
           (
