@@ -1,0 +1,316 @@
+.grid {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-panel);
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The scroll container is the ARIA grid: it holds the focus and the keyboard. */
+.scroller {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  outline: none;
+  background: var(--bg-panel);
+  color: var(--fg-primary);
+  font-family: var(--font-code);
+  font-size: var(--text-sm);
+  overscroll-behavior: contain;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Sized inline (never by its content: intrinsic sizing would lay out every row). */
+.sizer {
+  position: relative;
+  min-width: 100%;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: var(--grid-header-height);
+  min-width: 100%;
+  border-bottom: var(--border-width) solid var(--border-strong);
+  background: var(--bg-elevated);
+}
+
+.corner {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  padding: 0 var(--grid-cell-padding-x);
+  border-right: var(--border-width) solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  cursor: default;
+}
+
+.headerCell {
+  position: absolute;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 100%;
+  padding: 0 var(--grid-cell-padding-x);
+  overflow: hidden;
+  border-right: var(--border-width) solid var(--border-subtle);
+  color: var(--fg-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.headerCell:hover {
+  background: var(--bg-hover);
+}
+
+.headerName {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+}
+
+.headerType {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: var(--text-2xs);
+  text-overflow: ellipsis;
+}
+
+.headerSelected,
+.headerSelected:hover {
+  background: var(--grid-selection-header-bg);
+}
+
+.headerTouched {
+  box-shadow: inset 0 calc(-1 * var(--focus-ring-width)) 0 var(--accent);
+}
+
+.headerDragging {
+  opacity: 0.6;
+}
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  width: var(--grid-resize-handle-width);
+  height: 100%;
+  cursor: col-resize;
+}
+
+.resizeHandle:hover {
+  background: var(--accent-soft);
+}
+
+.dropIndicator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 4;
+  width: var(--focus-ring-width);
+  margin-left: calc(var(--focus-ring-width) / -2);
+  background: var(--accent);
+  pointer-events: none;
+}
+
+/* Rows are created and placed by gridBody.ts; `--gutter` is set inline. */
+.body {
+  --gutter: var(--grid-gutter-min-width);
+  position: relative;
+}
+
+/* The row numbers: one layer stuck to the left edge, its cells placed like the rows. */
+.gutters {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: var(--gutter);
+  height: 100%;
+  border-right: var(--border-width) solid var(--border-strong);
+  background: var(--bg-elevated);
+  contain: strict;
+}
+
+.rows {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: var(--grid-row-height);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+
+.gutterCell {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--grid-row-height);
+  padding: 0 var(--grid-cell-padding-x);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  line-height: calc(var(--grid-row-height) - var(--border-width));
+  text-align: right;
+}
+
+.gutterCell[data-touched] {
+  background: var(--grid-selection-header-bg);
+  color: var(--fg-secondary);
+}
+
+.cell {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  padding: 0 var(--grid-cell-padding-x);
+  overflow: hidden;
+  border-right: var(--border-width) solid var(--border-subtle);
+  line-height: calc(var(--grid-row-height) - var(--border-width));
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.cell[aria-selected='true'] {
+  background: var(--grid-selection-bg);
+}
+
+.cell[data-focused] {
+  box-shadow: inset 0 0 0 var(--focus-ring-width) var(--border-strong);
+}
+
+.scroller:focus .cell[data-focused] {
+  box-shadow: inset 0 0 0 var(--focus-ring-width) var(--accent);
+}
+
+/* A cut value (more in the backend): a corner mark, the viewer shows it whole. */
+.cell[data-truncated]::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-style: solid;
+  border-width: 0 var(--grid-truncated-marker-size) var(--grid-truncated-marker-size) 0;
+  border-color: transparent var(--warning) transparent transparent;
+}
+
+.num {
+  text-align: right;
+}
+
+/* NULL, the empty string and invisible whitespace each read differently from text. */
+.null {
+  color: var(--cell-null);
+  font-size: var(--text-xs);
+  font-style: italic;
+  letter-spacing: var(--tracking-caps);
+}
+
+.empty {
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-style: italic;
+}
+
+.mark {
+  color: var(--fg-muted);
+}
+
+/* Rows whose window is still loading: one element per run of rows, bars drawn by a gradient. */
+.placeholder {
+  position: absolute;
+  top: 0;
+  left: calc(var(--gutter) + var(--grid-cell-padding-x));
+  right: var(--grid-cell-padding-x);
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 var(--space-2),
+    var(--bg-hover) var(--space-2) calc(var(--grid-row-height) - var(--space-2)),
+    transparent calc(var(--grid-row-height) - var(--space-2)) var(--grid-row-height)
+  );
+  pointer-events: none;
+  animation: shimmer var(--grid-shimmer-duration) ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .placeholder {
+    animation: none;
+  }
+}
+
+.emptyRows {
+  position: absolute;
+  top: var(--grid-header-height);
+  left: 0;
+  right: 0;
+  padding: var(--space-6);
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  text-align: center;
+  pointer-events: none;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: none;
+  height: var(--grid-footer-height);
+  padding: 0 var(--space-1) 0 var(--space-4);
+  border-top: var(--border-width) solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--fg-secondary);
+  font-size: var(--text-xs);
+}
+
+.footerStart {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.selectionInfo {
+  color: var(--fg-muted);
+  white-space: nowrap;
+}

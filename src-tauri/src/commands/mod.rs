@@ -9,6 +9,7 @@ pub mod query;
 pub mod secrets;
 pub mod sessions;
 pub mod store;
+pub mod value_file;
 
 use crate::db::errors::YadbeError;
 

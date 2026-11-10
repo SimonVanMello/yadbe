@@ -138,12 +138,39 @@ for (const { name, colorScheme } of THEMES) {
       );
       await expect(resultTabs(page).getByRole('tab', { name: /Result 2/ })).toBeVisible();
       await expect(resultTabs(page).getByRole('tab', { name: 'Messages' })).toBeVisible();
-      await expect(page.getByTestId('result-placeholder')).toContainText('1284 rows');
+      // The result grid under the editor, with its footer and the run in the status bar.
+      const grid = results(page).getByRole('grid', { name: 'Result 1' });
+      await expect(grid).toHaveAttribute('aria-rowcount', '1285');
+      await expect(results(page).getByText('1,284 rows', { exact: true })).toBeVisible();
+      await expect(grid.getByRole('columnheader', { name: /^email\b/ })).toBeVisible();
+      await expect(page.getByTestId('statusbar-run')).toContainText(/rows · /);
+      await grid.locator('[aria-rowindex="3"] [aria-colindex="1"]').click();
+      await grid.locator('[aria-rowindex="6"] [aria-colindex="3"]').click({ modifiers: ['Shift'] });
+      await expect(page.getByTestId('statusbar-run')).toContainText('12 cells selected');
       await capture(page, name, 'results-first');
       await resultTabs(page).getByRole('tab', { name: 'Messages' }).click();
       await expect(results(page)).toContainText('1 row affected');
       await expect(results(page)).toContainText('Statement 3');
       await capture(page, name, 'messages-completed');
+    });
+
+    test('a result paused at its limit offers Load more once, in the grid footer', async ({
+      page,
+    }) => {
+      await page.evaluate(() => window.__yadbeMock?.setQueryTick(5));
+      await openQueryTab(page, 'local postgres');
+      await setScript(page, 'select * from huge;');
+      await page.keyboard.press('ControlOrMeta+Enter');
+      await expect(runStatus(page)).toContainText('Paused');
+      await expect(results(page).getByText('Paused at the row limit')).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(1);
+      await expect(page.getByRole('button', { name: 'Load all' })).toHaveCount(1);
+      await expect(resultTabs(page).getByRole('tab', { name: /Result 1/ })).toContainText('+');
+      await capture(page, name, 'results-paused');
+      await page.getByRole('button', { name: 'Load more' }).click();
+      await expect(results(page).getByText('200,000 rows', { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
     });
 
     test('an error is explained in Messages, underlined, and jumps to its position', async ({
@@ -199,7 +226,11 @@ for (const { name, colorScheme } of THEMES) {
       await expect(page.getByRole('button', { name: 'Run selection' })).toBeVisible();
       await page.keyboard.press('ControlOrMeta+Enter');
       await expect(runStatus(page)).toContainText('1 statement');
-      await expect(page.getByTestId('result-placeholder')).toContainText('two');
+      await expect(
+        results(page)
+          .getByRole('grid')
+          .getByRole('columnheader', { name: /^two\b/ }),
+      ).toBeVisible();
     });
 
     test('manual transactions: open, commit, and a confirmation on close', async ({ page }) => {

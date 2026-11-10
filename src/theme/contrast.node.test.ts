@@ -43,7 +43,14 @@ function contrast(a: string, b: string): number {
   return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
 }
 
-const SURFACES = ['--bg-app', '--bg-panel', '--bg-elevated', '--bg-hover', '--bg-selected'];
+const SURFACES = [
+  '--bg-app',
+  '--bg-panel',
+  '--bg-elevated',
+  '--bg-hover',
+  '--bg-selected',
+  '--grid-selection-bg',
+];
 const TEXT = ['--fg-primary', '--fg-secondary', '--fg-muted'];
 const STATUS = ['--accent', '--success', '--warning', '--danger', '--info'];
 // yadbe tokens (SPEC §7), used as text or markers over the panels.

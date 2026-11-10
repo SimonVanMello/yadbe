@@ -45,4 +45,25 @@ describe('the mock disk', () => {
     expect(files.get('/home/ana/q/b.sql')).toBeUndefined();
     expect(files.get('/home/ana/queries/orders-report.sql')).toContain('select');
   });
+
+  it('saves cell values as data files, like the backend', async () => {
+    expect(
+      await files.commands.writeValueFile('/home/ana/out/payload.json', '{"a": 1}', 'utf8'),
+    ).toEqual({ status: 'ok', data: null });
+    expect(files.get('/home/ana/out/payload.json')).toBe('{"a": 1}');
+    expect(await files.commands.writeValueFile('/home/ana/out/b.bin', 'cafe', 'hex')).toEqual({
+      status: 'ok',
+      data: null,
+    });
+    for (const [path, contents] of [
+      ['/home/ana/out/b.bin', 'xyz'],
+      ['/home/ana/.bashrc', 'x'],
+      ['out/b.bin', 'cafe'],
+    ] as const) {
+      expect(await files.commands.writeValueFile(path, contents, 'hex')).toMatchObject({
+        status: 'error',
+        error: { code: 'invalidArgument' },
+      });
+    }
+  });
 });

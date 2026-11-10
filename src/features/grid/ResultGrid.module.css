@@ -1,0 +1,18 @@
+.count {
+  color: var(--fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.paused {
+  color: var(--warning);
+}
+
+.stopped {
+  color: var(--fg-muted);
+}

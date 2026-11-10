@@ -3,6 +3,7 @@ import type { KeyboardEvent } from 'react';
 import { useT } from '../../i18n/useT';
 import { Kbd } from '../../ui/Kbd';
 import { Spinner } from '../../ui/Spinner';
+import { ResultGrid } from '../grid/ResultGrid';
 import { shortcutOf } from '../../app/actions';
 import {
   defaultSelection,
@@ -14,7 +15,6 @@ import {
 import { useElapsedMs, useExecutionStore, useTabExecution } from './executionStore';
 import { formatDuration } from './format';
 import { MessagesPanel } from './MessagesPanel';
-import { ResultPlaceholder } from './ResultPlaceholder';
 import styles from './ResultsArea.module.css';
 
 /** The user's pick if it still exists, else what the run suggests. */
@@ -126,11 +126,12 @@ export function ResultsArea({ tabId }: { tabId: string }) {
         ) : selection.kind === 'messages' || !selectedResult ? (
           <MessagesPanel tabId={tabId} execution={execution} />
         ) : (
-          // The grid of M1-5 (`ResultGrid`, same props) replaces the placeholder here.
-          <ResultPlaceholder
-            key={selectedResult.resultId}
+          <ResultGrid
             resultId={selectedResult.resultId}
             summary={selectedResult}
+            label={t('query.results.result', {
+              number: execution.results.indexOf(selectedResult) + 1,
+            })}
           />
         )}
       </div>
