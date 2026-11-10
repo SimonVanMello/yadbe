@@ -22,7 +22,7 @@ import { findConnection } from './connectionLookup';
 import { dangerKindKey, guardApplies, guardLines } from './dangerGuard';
 import { findDangerousStatements, type DangerousStatement } from './dangerousStatements';
 import { getEditor } from './editorRegistry';
-import { isActive } from './executionModel';
+import { canRun, isActive } from './executionModel';
 import { getTabExecution, getTabTransaction, useExecutionStore } from './executionStore';
 import { normalizeLineEndings, useFileIssues } from './fileIssues';
 import { fileNameOf, getQueryTabState, hashText, isDirty, useQueryTabStore } from './queryTabStore';
@@ -136,7 +136,7 @@ async function startRun(tabId: string, mode: RunMode): Promise<void> {
   const tab = queryTab(tabId);
   const connection = findConnection(tab?.connectionId ?? null);
   if (!tab || !connection) return;
-  if (isActive(getTabExecution(tabId).status)) return;
+  if (!canRun(getTabExecution(tabId).status)) return;
   const editor = getQueryTabState(tabId);
   const text = editor.content;
   const scope = scopeFor(mode, editor.selection, text);
@@ -161,6 +161,8 @@ async function startRun(tabId: string, mode: RunMode): Promise<void> {
     if (dangers.length > 0 && !(await confirmDangerous(connection, text, ranges, dangers))) return;
   }
 
+  // Confirmed (or none needed): a result paused at its cap makes way, without a prompt.
+  if (!(await cancelPausedRun(tabId))) return;
   const { database } = editor;
   const store = useExecutionStore.getState();
   getEditor(tabId)?.markRunStart();
@@ -195,6 +197,31 @@ async function startRun(tabId: string, mode: RunMode): Promise<void> {
     },
   });
 }
+
+/**
+ * Cancels the run of the tab if it is paused at its result cap and waits until the tab is free.
+ * `false` when the tab is busy with something else, or the paused run did not end.
+ */
+async function cancelPausedRun(tabId: string): Promise<boolean> {
+  const status = getTabExecution(tabId).status;
+  if (status !== 'paused') return !isActive(status);
+  const ended = new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      unsubscribe();
+      resolve(false);
+    }, PAUSED_CANCEL_TIMEOUT_MS);
+    const unsubscribe = useExecutionStore.subscribe((state) => {
+      if (isActive(state.executions[tabId]?.status ?? 'idle')) return;
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(true);
+    });
+  });
+  cancelQuery(tabId);
+  return ended;
+}
+
+const PAUSED_CANCEL_TIMEOUT_MS = 5000;
 
 /** Cancels the tab's running execution with the engine's native mechanism (F-042). */
 export function cancelQuery(tabId: string): void {

@@ -61,6 +61,14 @@ export function isActive(status: TabExecution['status']): boolean {
   return status === 'connecting' || status === 'running' || status === 'paused';
 }
 
+/**
+ * Run is on unless the server is busy. A run paused at its result cap does not block it: the
+ * new run cancels the paused one, which holds no side effect to lose.
+ */
+export function canRun(status: TabExecution['status']): boolean {
+  return !isActive(status) || status === 'paused';
+}
+
 export function isFinished(status: TabExecution['status']): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled';
 }

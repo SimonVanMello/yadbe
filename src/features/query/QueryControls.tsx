@@ -10,7 +10,7 @@ import { Select } from '../../ui/Select';
 import { Tooltip } from '../../ui/Tooltip';
 import type { ConnectionSummary } from '../connections/model';
 import { ConnectionSwitcher } from './ConnectionSwitcher';
-import { useTabRunning, useTabTransaction } from './executionStore';
+import { useTabCanRun, useTabRunning, useTabTransaction } from './executionStore';
 import {
   cancelQuery,
   commitTransaction,
@@ -36,6 +36,7 @@ interface QueryControlsProps {
 export function QueryControls({ tabId, connection }: QueryControlsProps) {
   const t = useT();
   const running = useTabRunning(tabId);
+  const canRun = useTabCanRun(tabId);
   const { selection } = useQueryTabState(tabId);
   const hasSelection = selectedRange(selection) !== null;
   const dirty = useIsDirty(tabId);
@@ -49,7 +50,7 @@ export function QueryControls({ tabId, connection }: QueryControlsProps) {
             variant="primary"
             size="sm"
             className={styles.run}
-            disabled={running}
+            disabled={!canRun}
             onClick={() => {
               void runQuery(tabId, 'auto');
             }}
@@ -65,7 +66,7 @@ export function QueryControls({ tabId, connection }: QueryControlsProps) {
               icon="chevronDown"
               size="sm"
               label={t('toolbar.runMenu')}
-              disabled={running}
+              disabled={!canRun}
               className={styles.runMenu}
             />
           }

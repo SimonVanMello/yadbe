@@ -15,6 +15,7 @@ import {
   beginExecution,
   failedToStart,
   fromSnapshot,
+  canRun,
   isActive,
   isWorking,
   liveElapsed,
@@ -198,6 +199,10 @@ export function useTabTransaction(tabId: string): TransactionState {
 
 export function useTabRunning(tabId: string): boolean {
   return useExecutionStore((state) => isActive((state.executions[tabId] ?? IDLE_EXECUTION).status));
+}
+
+export function useTabCanRun(tabId: string): boolean {
+  return useExecutionStore((state) => canRun((state.executions[tabId] ?? IDLE_EXECUTION).status));
 }
 
 /** Elapsed time of the tab's run in ms, refreshed ten times a second while it is in progress. */

@@ -178,6 +178,24 @@ for (const { name, colorScheme } of THEMES) {
       });
     });
 
+    test('Run stays available on a paused result and replaces it without a prompt', async ({
+      page,
+    }) => {
+      await page.evaluate(() => window.__yadbeMock?.setQueryTick(5));
+      await openQueryTab(page, 'local postgres');
+      await setScript(page, 'select * from huge;');
+      await page.keyboard.press('ControlOrMeta+Enter');
+      await expect(runStatus(page)).toContainText('Paused');
+      const run = page.getByRole('button', { name: /^Run/ }).first();
+      await expect(run).toBeEnabled();
+      await expect(page.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+      await setScript(page, 'select 1;');
+      await run.click();
+      await expect(runStatus(page)).not.toContainText('Paused');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
+    });
+
     test('an error is explained in Messages, underlined, and jumps to its position', async ({
       page,
     }) => {
