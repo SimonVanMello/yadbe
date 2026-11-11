@@ -258,7 +258,7 @@ impl TableShape {
     }
 }
 
-fn column_reason(dialect: &dyn Dialect, column: &ColumnInfo) -> Option<ColumnReadOnlyReason> {
+pub fn column_reason(dialect: &dyn Dialect, column: &ColumnInfo) -> Option<ColumnReadOnlyReason> {
     if column.generated.is_some() {
         Some(ColumnReadOnlyReason::Generated)
     } else if column.identity == Some(Identity::Always) {

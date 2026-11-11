@@ -116,6 +116,15 @@ pub enum ErrorCode {
     SshKeyUnreadable,
     /// The key passphrase is wrong.
     SshKeyPassphraseWrong,
+    /// An import file (CSV, JSON) cannot be read as the chosen format (bad quoting, invalid
+    /// JSON…); `detail` says where.
+    ImportFileInvalid,
+    /// An import stopped at a row the engine or the type check rejected (stop on first
+    /// error); nothing of a single-transaction import was kept.
+    ImportRejected,
+    /// A connections file (yadbe export, Azure Data Studio settings, DBeaver…) is not in a
+    /// format yadbe understands, or comes from a newer version.
+    ConnectionFileInvalid,
 }
 
 /// A message in every supported UI language.
@@ -606,6 +615,60 @@ impl YadbeError {
             ),
         };
         failure.with_detail(error.to_string())
+    }
+
+    /// A file could not be read (import files, connection files).
+    pub fn file_read_failed(path: &str, error: &std::io::Error) -> Self {
+        use std::io::ErrorKind;
+        let failure = match error.kind() {
+            ErrorKind::NotFound => Self::file_not_found(path),
+            ErrorKind::PermissionDenied => Self::new(
+                ErrorCode::PermissionDenied,
+                format!("Permission denied: \"{path}\" could not be read."),
+                format!("Permission refusée : « {path} » n'a pas pu être lu."),
+            )
+            .with_action(ErrorAction::ChooseFile),
+            _ => Self::new(
+                ErrorCode::Internal,
+                format!("The file \"{path}\" could not be read."),
+                format!("Le fichier « {path} » n'a pas pu être lu."),
+            ),
+        };
+        failure.with_detail(error.to_string())
+    }
+
+    /// An import file does not follow its format: `line` is 1-based, `problem` untranslated
+    /// technical text.
+    pub fn import_file_invalid(line: u64, problem: &str) -> Self {
+        Self::new(
+            ErrorCode::ImportFileInvalid,
+            format!(
+                "The file cannot be read as the chosen format (line {line}). Check the format options."
+            ),
+            format!(
+                "Le fichier ne peut pas être lu dans le format choisi (ligne {line}). Vérifiez les options de format."
+            ),
+        )
+        .with_action(ErrorAction::ChooseFile)
+        .with_detail(problem)
+    }
+
+    /// The import stopped at line `line` (stop on first error).
+    pub fn import_rejected(line: u64, problem: &str) -> Self {
+        Self::new(
+            ErrorCode::ImportRejected,
+            format!(
+                "The import stopped at line {line}: a row was rejected. Nothing was kept unless the import commits batch by batch."
+            ),
+            format!(
+                "L'import s'est arrêté à la ligne {line} : une ligne a été rejetée. Rien n'a été conservé, sauf si l'import valide lot par lot."
+            ),
+        )
+        .with_detail(problem)
+    }
+
+    pub fn connection_file_invalid(en: impl Into<String>, fr: impl Into<String>) -> Self {
+        Self::new(ErrorCode::ConnectionFileInvalid, en, fr).with_action(ErrorAction::ChooseFile)
     }
 
     /// Whether the failure is worth retrying automatically when reconnecting: network and

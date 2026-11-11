@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::events::EventSink;
 use crate::export::ExportManager;
+use crate::import::ImportManager;
 use crate::secrets::{KeychainBackend, SecretStore};
 use crate::session::history_writer::StoreHistory;
 use crate::session::library::Library;
@@ -28,6 +29,7 @@ pub struct AppState {
     pub history: Arc<StoreHistory>,
     pub library: Arc<Library>,
     pub exports: Arc<ExportManager>,
+    pub imports: Arc<ImportManager>,
     pub tables: Arc<TableDataService>,
     pub references: Arc<ReferenceService>,
 }
@@ -74,6 +76,11 @@ impl AppState {
         let exports = Arc::new(ExportManager::new(
             Arc::clone(&queries),
             Arc::clone(&tables),
+            Arc::clone(&sink),
+        ));
+        let imports = Arc::new(ImportManager::new(
+            Arc::clone(&connections),
+            Arc::clone(&meta),
             sink,
         ));
         Self {
@@ -86,6 +93,7 @@ impl AppState {
             history,
             library,
             exports,
+            imports,
             tables,
             references,
         }
