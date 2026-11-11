@@ -282,8 +282,13 @@ interface Draft {
 
 /** The tables a statement names after `FROM` / `JOIN`, for a plausible plan. */
 function tablesOf(sql: string): string[] {
-  const names = [...sql.matchAll(/\b(?:from|join)\s+([\w."[\]`]+)/gi)].map((m) =>
-    (m[1] ?? '').replace(/["[\]`]/g, ''),
+  const names = [...sql.matchAll(/\b(?:from|join)\s+([\w."[\]`]+)/gi)].map(
+    (m) =>
+      // The table's own name: `shop.orders` reads `orders` in the plan, as engines write it.
+      (m[1] ?? '')
+        .replace(/["[\]`]/g, '')
+        .split('.')
+        .pop() ?? '',
   );
   return names.length > 0 ? names : ['dual'];
 }

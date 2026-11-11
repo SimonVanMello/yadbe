@@ -11,7 +11,11 @@ import { Tooltip } from '../../ui/Tooltip';
 import type { ConnectionSummary } from '../connections/model';
 import { saveEditorToLibrary, updateSavedFromTab } from '../library/libraryActions';
 import { useSavedLibrary } from '../library/useLibrary';
+import { useEngineInfo } from '../connections/connectionStore';
 import { ConnectionSwitcher } from './ConnectionSwitcher';
+import { explainQuery } from './explainActions';
+import { formatTab } from './formatActions';
+import { useTabPlan } from './planStore';
 import { useTabCanRun, useTabRunning, useTabTransaction } from './executionStore';
 import {
   cancelQuery,
@@ -37,8 +41,12 @@ interface QueryControlsProps {
  */
 export function QueryControls({ tabId, connection }: QueryControlsProps) {
   const t = useT();
-  const running = useTabRunning(tabId);
-  const canRun = useTabCanRun(tabId);
+  const executing = useTabRunning(tabId);
+  const explaining = useTabPlan(tabId)?.status === 'running';
+  const running = executing || explaining;
+  const canRun = useTabCanRun(tabId) && !explaining;
+  const engineInfo = useEngineInfo(connection?.engine ?? null);
+  const canAnalyze = engineInfo?.capabilities.explainAnalyze !== false;
   const { selection } = useQueryTabState(tabId);
   const hasSelection = selectedRange(selection) !== null;
   const dirty = useIsDirty(tabId);
@@ -104,6 +112,14 @@ export function QueryControls({ tabId, connection }: QueryControlsProps) {
           >
             {t('toolbar.runStatement')}
           </MenuItem>
+          <MenuItem
+            icon="retry"
+            onSelect={() => {
+              void runQuery(tabId, 'auto', { sameValues: true });
+            }}
+          >
+            {t('toolbar.runSameParameters')}
+          </MenuItem>
         </Menu>
       </span>
       <Tooltip content={t('toolbar.cancel')} shortcut={shortcutOf('query.cancel')}>
@@ -118,6 +134,61 @@ export function QueryControls({ tabId, connection }: QueryControlsProps) {
           {t('toolbar.cancel')}
         </Button>
       </Tooltip>
+      <span className={styles.group}>
+        <Tooltip content={t('action.query.explain')} shortcut={shortcutOf('query.explain')}>
+          <Button
+            size="sm"
+            className={styles.split}
+            disabled={!canRun}
+            onClick={() => {
+              void explainQuery(tabId, false);
+            }}
+          >
+            <Icon name="tree" />
+            {t('toolbar.explain')}
+          </Button>
+        </Tooltip>
+        <Menu
+          align="start"
+          trigger={
+            <IconButton
+              icon="chevronDown"
+              size="sm"
+              label={t('toolbar.explainMenu')}
+              disabled={!canRun}
+              className={styles.splitMenu}
+            />
+          }
+        >
+          <MenuItem
+            icon="tree"
+            shortcut={shortcutOf('query.explain')}
+            onSelect={() => {
+              void explainQuery(tabId, false);
+            }}
+          >
+            {t('toolbar.explain')}
+          </MenuItem>
+          <MenuItem
+            icon="bolt"
+            disabled={!canAnalyze}
+            shortcut={shortcutOf('query.explainAnalyze')}
+            onSelect={() => {
+              void explainQuery(tabId, true);
+            }}
+          >
+            {t('toolbar.explainAnalyze')}
+          </MenuItem>
+        </Menu>
+      </span>
+      <IconButton
+        icon="formula"
+        label={t('toolbar.format')}
+        shortcut={shortcutOf('query.format')}
+        onClick={() => {
+          formatTab(tabId);
+        }}
+      />
       <span className={styles.separator} aria-hidden="true" />
       <TransactionControls tabId={tabId} running={running} />
       <span className={styles.separator} aria-hidden="true" />

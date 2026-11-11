@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 
 import { registerActions } from '../../app/actions';
+import { explainQuery } from './explainActions';
+import { formatTab, goToDefinition } from './formatActions';
 import {
   activeQueryTabId,
   cancelQuery,
@@ -43,6 +45,22 @@ export function useQueryActions(): void {
       }),
       'query.rollback': onActive((tabId) => {
         void rollbackTransaction(tabId);
+      }),
+      'query.runSameParameters': onActive((tabId) => {
+        void runQuery(tabId, 'auto', { sameValues: true });
+      }),
+      'query.format': onActive(formatTab),
+      'query.explain': onActive((tabId) => {
+        void explainQuery(tabId, false);
+      }),
+      'query.explainAnalyze': onActive((tabId) => {
+        void explainQuery(tabId, true);
+      }),
+      'query.goToDefinition': onActive((tabId) => {
+        void goToDefinition(tabId, 'reveal');
+      }),
+      'query.openDefinitionData': onActive((tabId) => {
+        void goToDefinition(tabId, 'open');
       }),
     });
   }, []);

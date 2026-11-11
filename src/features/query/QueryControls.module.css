@@ -29,6 +29,19 @@
   background: var(--accent-hover);
 }
 
+/* Explain and its menu (F-053): a neutral split button. */
+.split {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.splitMenu {
+  height: var(--control-height-sm);
+  margin-left: var(--border-width);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
 .runMenu:disabled {
   background: var(--bg-disabled);
   color: var(--fg-disabled);

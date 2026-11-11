@@ -1,0 +1,47 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.head,
+.row {
+  display: grid;
+  grid-template-columns: var(--param-name-width) var(--param-kind-width) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.head {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+}
+
+.name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.name code {
+  overflow: hidden;
+  font-family: var(--font-code);
+  font-size: var(--text-sm);
+  color: var(--syn-special);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uses {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.invalid {
+  grid-column: 3;
+  color: var(--danger);
+  font-size: var(--text-xs);
+}

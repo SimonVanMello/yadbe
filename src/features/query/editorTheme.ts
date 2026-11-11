@@ -241,6 +241,61 @@ const chrome = EditorView.theme({
   '.cm-yadbe-info-type': { color: 'var(--syn-type)' },
   '.cm-yadbe-info-more': { color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' },
   '.cm-yadbe-info-comment': { marginTop: 'var(--space-2)', color: 'var(--fg-muted)' },
+  // The card of a name under the pointer (F-052).
+  '.cm-tooltip-hover': {
+    border: 'var(--border-width) solid var(--border-strong)',
+    borderRadius: 'var(--radius-md)',
+    background: 'var(--bg-elevated)',
+    boxShadow: 'var(--shadow-popover)',
+  },
+  '.cm-yadbe-hover': {
+    maxWidth: 'var(--hover-card-max-width)',
+    padding: 'var(--space-3) var(--space-4)',
+    fontFamily: 'var(--font-ui)',
+    fontSize: 'var(--text-sm)',
+    color: 'var(--fg-secondary)',
+  },
+  '.cm-yadbe-hover .cm-yadbe-info': { padding: '0' },
+  '.cm-yadbe-hover-kind': {
+    marginBottom: 'var(--space-1)',
+    color: 'var(--fg-muted)',
+    fontSize: 'var(--text-xs)',
+    letterSpacing: 'var(--tracking-caps)',
+    textTransform: 'uppercase',
+  },
+  '.cm-yadbe-hover-key': {
+    marginInlineStart: 'var(--space-2)',
+    color: 'var(--syn-special)',
+    fontSize: 'var(--text-2xs)',
+    fontWeight: 'var(--weight-semibold)',
+  },
+  '.cm-yadbe-hover-actions': {
+    display: 'flex',
+    gap: 'var(--space-2)',
+    marginTop: 'var(--space-3)',
+    paddingTop: 'var(--space-2)',
+    borderTop: 'var(--border-width) solid var(--border-subtle)',
+  },
+  '.cm-yadbe-hover-action': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 'var(--space-2)',
+    height: 'var(--control-height-sm)',
+    padding: '0 var(--space-3)',
+    border: 'var(--border-width) solid var(--border-strong)',
+    borderRadius: 'var(--radius-sm)',
+    background: 'var(--bg-panel)',
+    color: 'var(--fg-primary)',
+    font: 'inherit',
+    fontSize: 'var(--text-xs)',
+    cursor: 'pointer',
+  },
+  '.cm-yadbe-hover-action:hover': { background: 'var(--bg-hover)' },
+  '.cm-yadbe-hover-action kbd': {
+    color: 'var(--fg-muted)',
+    fontFamily: 'var(--font-ui)',
+    fontSize: 'var(--text-2xs)',
+  },
 });
 
 /** Highlighting and chrome of the SQL editor. */

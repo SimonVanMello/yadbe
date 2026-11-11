@@ -5,6 +5,8 @@ import { forgetEditorState } from './SqlEditor';
 import { confirmAbandonTransaction, hasOpenTransaction } from './queryActions';
 import { useExecutionStore, startQueryFeed } from './executionStore';
 import { useFileIssues } from './fileIssues';
+import { useParameterStore } from './parameterStore';
+import { usePlanStore } from './planStore';
 import { useQueryTabStore, type QueryTabState } from './queryTabStore';
 
 export { restoreAndPersistQueryUi } from './queryUiStore';
@@ -26,6 +28,8 @@ function forgetTab(tabId: string): void {
   forgetEditorState(tabId);
   useExecutionStore.getState().forget(tabId);
   useFileIssues.getState().set(tabId, null);
+  usePlanStore.getState().forget(tabId);
+  useParameterStore.getState().forget(tabId);
   // Frees the tab's server connection and results; an open transaction is rolled back.
   void ipc.commands.closeQueryTab(tabId);
 }

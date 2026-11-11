@@ -98,6 +98,8 @@ export type SettingId =
   | 'lineNumbers'
   | 'highlightStatement'
   | 'confirmDangerous'
+  | 'formatKeywordCase'
+  | 'formatIndent'
   | 'resultMaxRows'
   | 'resultMaxMb'
   | 'defaultPageSize'
@@ -241,6 +243,34 @@ export const SETTINGS: readonly SettingSpec[] = [
     key: 'confirmDangerous',
     control: toggle,
     keywords: 'delete update truncate drop prod safety',
+  },
+  {
+    id: 'formatKeywordCase',
+    section: 'editor',
+    key: 'formatKeywordCase',
+    control: {
+      type: 'segmented',
+      options: [
+        { value: 'upper', label: 'preferences.formatKeywordCase.upper' },
+        { value: 'lower', label: 'preferences.formatKeywordCase.lower' },
+        { value: 'preserve', label: 'preferences.formatKeywordCase.preserve' },
+      ],
+    },
+    keywords: 'format beautify uppercase lowercase',
+  },
+  {
+    id: 'formatIndent',
+    section: 'editor',
+    key: 'formatIndent',
+    control: {
+      type: 'segmented',
+      options: [
+        { value: 'two', label: 'preferences.formatIndent.two' },
+        { value: 'four', label: 'preferences.formatIndent.four' },
+        { value: 'tab', label: 'preferences.formatIndent.tab' },
+      ],
+    },
+    keywords: 'format beautify indentation spaces tabs',
   },
 
   {

@@ -20,6 +20,16 @@ export interface EditorController {
    * moves between the fields (F-050).
    */
   insertSnippet: (template: string) => void;
+  /**
+   * Formats the selection, or the whole text without one (F-049): one edit, undone at once.
+   * `false` when the text was already formatted.
+   */
+  format: (format: (text: string) => string) => boolean;
+  /**
+   * Acts on the object named at the cursor (F-052): `reveal` shows it in the explorer, `open`
+   * its data in a table tab. Resolves `false` when nothing known is named there.
+   */
+  definitionAtCursor: (action: 'reveal' | 'open') => Promise<boolean>;
 }
 
 const editors = new Map<string, EditorController>();
