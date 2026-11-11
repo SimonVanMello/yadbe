@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useRef, useState, type ReactNode, type SubmitEvent } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type SubmitEvent } from 'react';
 
 import { ErrorPanel } from '../../app/errors/ErrorPanel';
 import { showError } from '../../app/errors/presentError';
@@ -196,7 +196,9 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
 
   // The latest `runTest`, for the host key prompt that resolves after a re-render.
   const retest = useRef(runTest);
-  retest.current = runTest;
+  useEffect(() => {
+    retest.current = runTest;
+  });
 
   /** The field of the hop an error is about: the SSH host or secret, else the database's. */
   const focusHop = (error: YadbeError, what: 'host' | 'secret') => {

@@ -7,6 +7,7 @@ import { connectTo } from './connectionActions';
 import { connectionsApi } from './connectionsApi';
 import { startConnectionFeed, stateOf, useSessions } from './connectionStore';
 import { draftFromSaved, summarize, type ConnectionSummary } from './model';
+import { useHostKeyPrompt } from './hostKeyPromptStore';
 import { usePasswordPrompt } from './passwordPromptStore';
 
 function seed(id: string) {
@@ -97,5 +98,52 @@ describe('connectTo', () => {
   it('shows the typed error of an engine the build cannot open', async () => {
     expect(await connectTo(connection('conn-wordpress'))).toBe(false);
     expect(useSessions.getState().errors['conn-wordpress']?.code).toBe('engineNotSupported');
+  });
+
+  it('trusts an unknown SSH host key, asks for the SSH password, then connects', async () => {
+    const saved = await connectionsApi.save(
+      {
+        ...draftOf('conn-local-pg'),
+        id: null,
+        name: 'through a bastion',
+        password: 'db-pw',
+        ssh: {
+          ...draftOf('conn-local-pg').ssh,
+          enabled: true,
+          server: {
+            host: 'new-bastion',
+            port: '',
+            username: 'deploy',
+            auth: 'password',
+            keyPath: '',
+            secret: '',
+            rememberSecret: true,
+          },
+        },
+      },
+      postgres,
+      null,
+    );
+    const attempt = connectTo(summarize(saved));
+    await expect.poll(() => useHostKeyPrompt.getState().pending).not.toBeNull();
+    expect(useHostKeyPrompt.getState().pending?.failure.fingerprint).toMatch(/^SHA256:/);
+    // The dialog stores the key before it settles; here the test does both.
+    const failure = useHostKeyPrompt.getState().pending?.failure;
+    if (!failure?.keyType || !failure.fingerprint) throw new Error('no host key');
+    await connectionsApi.trustHostKey(
+      failure.host,
+      failure.port,
+      failure.keyType,
+      failure.fingerprint,
+    );
+    useHostKeyPrompt.getState().settle(true);
+    await expect.poll(() => usePasswordPrompt.getState().pending?.secret?.kind).toBe('sshPassword');
+    expect(usePasswordPrompt.getState().pending?.secret?.endpoint).toBe('deploy@new-bastion:22');
+    usePasswordPrompt.getState().settle({ password: 'ssh-pw', remember: true });
+    expect(await attempt).toBe(true);
+    expect(state(saved.id)).toBe('connected');
+    expect(useSessions.getState().sessions[saved.id]?.tunnel?.phase).toBe('open');
+    // Remembered once it worked.
+    expect((await connectionsApi.sshSecretLocations(saved.id)).sshPassword).toBe('keychain');
   });
 });

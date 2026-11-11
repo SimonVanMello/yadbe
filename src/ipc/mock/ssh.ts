@@ -49,7 +49,7 @@ export function mockFingerprint(host: string, port: number): string {
   let out = '';
   for (let i = 0; i < 43; i += 1) {
     seed = Math.imul(seed ^ (seed >>> 13), 1274126177) >>> 0;
-    out += alphabet[seed % 64];
+    out += alphabet.charAt(seed % 64);
   }
   return `SHA256:${out}`;
 }

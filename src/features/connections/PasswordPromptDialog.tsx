@@ -46,11 +46,9 @@ function PromptForm({
       onOpenChange={(open) => {
         if (!open) settle(null);
       }}
-      title={
-        t((secret && PROMPT_TITLES[secret.kind]) ?? 'connection.password.prompt.title', {
-          name: connection.name,
-        })
-      }
+      title={t((secret && PROMPT_TITLES[secret.kind]) ?? 'connection.password.prompt.title', {
+        name: connection.name,
+      })}
       description={
         secret
           ? t('connection.ssh.prompt.description', { endpoint: secret.endpoint })

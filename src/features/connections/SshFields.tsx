@@ -100,9 +100,7 @@ export function SshFields({
                 label={t('connection.ssh.keepalive')}
                 htmlFor={`${id}-keepalive`}
                 hint={t('connection.ssh.keepalive.hint')}
-                error={
-                  errors.keepalive ? t('connection.ssh.error.keepaliveInvalid') : undefined
-                }
+                error={errors.keepalive ? t('connection.ssh.error.keepaliveInvalid') : undefined}
               >
                 <TextInput
                   id={`${id}-keepalive`}
@@ -127,7 +125,11 @@ export function SshFields({
                   hint={t('connection.ssh.jump.hint')}
                 />
                 {ssh.jumpEnabled && (
-                  <div className={styles.jumpBody} role="group" aria-label={t('connection.ssh.jump')}>
+                  <div
+                    className={styles.jumpBody}
+                    role="group"
+                    aria-label={t('connection.ssh.jump')}
+                  >
                     <SshHopFields
                       name="jump"
                       hop={ssh.jump}
