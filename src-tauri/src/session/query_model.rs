@@ -373,7 +373,7 @@ pub struct ParameterValue {
 #[serde(rename_all = "camelCase")]
 pub struct QueryParameter {
     /// What the value is given for: the name without its sigil (`id`), the number of a
-    /// numbered one (`2`), the order of a `?` in the run (`1`, `2`…).
+    /// numbered one (`2`), `#` and the order of a `?` in the run (`#1`, `#2`…).
     pub name: String,
     /// As written the first time (`:id`, `@id`, `$2`, `?`).
     pub label: String,

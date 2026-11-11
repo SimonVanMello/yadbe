@@ -5,13 +5,17 @@
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use tiberius::{BatchItem, DoneKind, ServerMessage as TdsMessage};
+use tiberius::{BatchItem, ColumnData, DoneKind, ServerMessage as TdsMessage};
 use tokio::time::Instant;
 
 use super::MssqlConnection;
 use super::decode::{self, Decoder};
-use crate::db::driver::{ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary};
+use crate::db::driver::{
+    Connection, ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary, Explained, recorded,
+};
 use crate::db::errors::{YadbeError, from_mssql_query_error};
+use crate::db::params::ParamStatement;
+use crate::db::plan::RawPlan;
 use crate::db::value::Value;
 use crate::session::query_model::ServerMessage;
 
@@ -78,9 +82,12 @@ struct Outcome {
 }
 
 impl MssqlConnection {
+    /// Runs a user batch. With query parameters (F-048), the batch goes through
+    /// `sp_executesql` as written, each parameter declared under its own `@name`.
     pub(super) async fn execute_streaming(
         &self,
         sql: &str,
+        params: Vec<(String, ColumnData<'static>)>,
         events: ExecSender,
     ) -> Result<ExecSummary, ExecError> {
         let attention = self.current_attention();
@@ -90,10 +97,12 @@ impl MssqlConnection {
             .ok_or_else(|| ExecError::from(self.closed()))?;
         let mut outcome = Outcome::default();
         let streamed = {
-            let stream = client
-                .batch(sql, Some(attention))
-                .await
-                .map_err(|e| ExecError::from(self.failed(&e)));
+            let stream = if params.is_empty() {
+                client.batch(sql, Some(attention)).await
+            } else {
+                client.rpc_batch_named(sql, params, Some(attention)).await
+            }
+            .map_err(|e| ExecError::from(self.failed(&e)));
             match stream {
                 Ok(mut stream) => self.stream(&mut stream, &events, &mut outcome).await,
                 Err(err) => Err(err),
@@ -204,6 +213,116 @@ impl MssqlConnection {
             }
         }
         flush(events, &mut batch).await
+    }
+}
+
+/// The column SQL Server names the plan of `SET STATISTICS XML` / `SET SHOWPLAN_XML`.
+const SHOWPLAN_COLUMN: &str = "Microsoft SQL Server 2005 XML Showplan";
+
+impl MssqlConnection {
+    /// The plan of a user batch (F-053): showplan XML, estimated (`SET SHOWPLAN_XML ON`:
+    /// nothing runs) or actual (`SET STATISTICS XML ON`: the batch runs, its own result sets
+    /// are read and dropped). The `SET` statements are always switched back off.
+    pub(super) async fn explain(
+        &self,
+        statement: &ParamStatement,
+        analyze: bool,
+    ) -> Result<Explained, ExecError> {
+        let (on, off) = if analyze {
+            ("SET STATISTICS XML ON", "SET STATISTICS XML OFF")
+        } else {
+            ("SET SHOWPLAN_XML ON", "SET SHOWPLAN_XML OFF")
+        };
+        Connection::query(self, on, 0).await?;
+        let mut failure = None;
+        let rows_of = |plans: &Vec<String>| u64::try_from(plans.len()).ok();
+        let read = recorded(&*self.recorder, &statement.sql, rows_of, async {
+            self.read_plans(statement).await.map_err(|e| {
+                let error = e.error.clone();
+                failure = Some(e);
+                error
+            })
+        })
+        .await;
+        let reset = Connection::query(self, off, 0).await;
+        let plans = read.map_err(|error| failure.unwrap_or_else(|| error.into()))?;
+        reset?;
+        Ok(Explained {
+            raw: RawPlan::ShowplanXml(plans),
+            sent: format!("{on}\n{}\n{off}", statement.sql),
+        })
+    }
+
+    /// Runs the batch and keeps the showplan documents it returns.
+    async fn read_plans(&self, statement: &ParamStatement) -> Result<Vec<String>, ExecError> {
+        let params = statement
+            .params
+            .iter()
+            .map(|p| (p.name.clone(), super::bound::user_param(&p.value)))
+            .collect::<Vec<_>>();
+        let attention = self.current_attention();
+        let mut guard = self.client.lock().await;
+        let client = guard
+            .as_mut()
+            .ok_or_else(|| ExecError::from(self.closed()))?;
+        let mut plans = Vec::new();
+        let mut error: Option<TdsMessage> = None;
+        let mut cancelled = false;
+        let streamed: Result<(), ExecError> = async {
+            let mut stream = if params.is_empty() {
+                client.batch(statement.sql.as_str(), Some(attention)).await
+            } else {
+                client
+                    .rpc_batch_named(statement.sql.as_str(), params, Some(attention))
+                    .await
+            }
+            .map_err(|e| ExecError::from(self.failed(&e)))?;
+            let mut collecting = false;
+            let mut decoders: Vec<Decoder> = Vec::new();
+            while let Some(item) = stream.next().await {
+                match item.map_err(|e| ExecError::from(self.failed(&e)))? {
+                    BatchItem::Metadata(meta) => {
+                        collecting = meta.metadata.len() == 1
+                            && meta.metadata[0].col_name == SHOWPLAN_COLUMN;
+                        decoders = meta
+                            .metadata
+                            .iter()
+                            .map(|c| decode::column_meta(c).1)
+                            .collect();
+                    }
+                    BatchItem::Row(row) if collecting => {
+                        if let Some((data, &decoder)) = row.into_iter().zip(&decoders).next()
+                            && let Value::Text(xml) | Value::Other(xml) =
+                                decode::decode(data, decoder)
+                        {
+                            plans.push(xml);
+                        }
+                    }
+                    BatchItem::Done(done) if done.attention => cancelled = true,
+                    BatchItem::Message(message) if message.error && error.is_none() => {
+                        error = Some(message);
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        }
+        .await;
+        self.track_transaction(client);
+        drop(guard);
+        streamed?;
+        if cancelled {
+            return Err(YadbeError::cancelled().into());
+        }
+        if let Some(error) = error {
+            return Err(ExecError {
+                error: from_mssql_query_error(error.number, &detail(&error))
+                    .unwrap_or_else(|| YadbeError::query_failed(detail(&error))),
+                server: Some(Box::new(server_message(&error))),
+                location: None,
+            });
+        }
+        Ok(plans)
     }
 }
 

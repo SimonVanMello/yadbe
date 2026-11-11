@@ -336,6 +336,49 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Client<S> {
         Ok(BatchStream::new(tokens))
     }
 
+    /// Same as [`Client::rpc_batch`], with every parameter declared under the name the
+    /// statement uses (`@id`) instead of `@P1`, `@P2`… (yadbe patch 8): user statements
+    /// keep their own parameter names. Names must be valid T-SQL variable names.
+    pub async fn rpc_batch_named<'a, 'b>(
+        &'a mut self,
+        sql: impl Into<Cow<'b, str>>,
+        params: Vec<(String, ColumnData<'b>)>,
+        attention: Option<Arc<AttentionSignal>>,
+    ) -> crate::Result<BatchStream<'a>>
+    where
+        'a: 'b,
+    {
+        self.connection.flush_stream().await?;
+        self.connection.arm_attention(attention);
+        let mut rpc_params = Self::rpc_params(sql);
+        let mut declarations = String::new();
+        for (name, value) in params {
+            if !declarations.is_empty() {
+                declarations.push(',');
+            }
+            declarations.push_str(&name);
+            declarations.push(' ');
+            declarations.push_str(&value.type_name());
+            rpc_params.push(RpcParam {
+                name: Cow::Owned(name),
+                flags: BitFlags::empty(),
+                value: RpcValue::Scalar(value),
+            });
+        }
+        if let Some(slot) = rpc_params.iter_mut().find(|x| x.name == "params") {
+            slot.value = RpcValue::Scalar(ColumnData::String(Some(declarations.into())));
+        }
+        let req = TokenRpcRequest::new(
+            RpcProcId::ExecuteSQL,
+            rpc_params,
+            self.connection.context().transaction_descriptor(),
+        );
+        let id = self.connection.context_mut().next_packet_id();
+        self.connection.send(PacketHeader::rpc(id), req).await?;
+        let tokens = TokenStream::batch(&mut self.connection).try_unfold();
+        Ok(BatchStream::new(tokens))
+    }
+
     /// Whether a transaction is open on the connection, as the server last reported it
     /// with its transaction environment changes (yadbe patch).
     pub fn in_transaction(&self) -> bool {

@@ -345,11 +345,11 @@ fn trim_number(digits: &str) -> String {
     if trimmed.is_empty() { "0" } else { trimmed }.to_owned()
 }
 
-/// The identity of a parameter across a run: names compare without case where the engine
-/// folds them, positional ones by their order in the run.
+/// The identity of a parameter across a run: a name by its name, a numbered one by its
+/// number, a positional one by `#` and its order in the run (`#2`).
 pub fn parameter_key(placeholder: &Placeholder, positional_index: usize) -> String {
     match placeholder.style {
-        ParameterStyle::Positional => positional_index.to_string(),
+        ParameterStyle::Positional => format!("#{positional_index}"),
         ParameterStyle::Numbered => placeholder.name.clone(),
         _ => placeholder.name.clone(),
     }
@@ -711,7 +711,7 @@ fn missing_values(sql: &str, keyed: &[(String, &Placeholder)], missing: &[String
             keyed.iter().find(|(k, _)| k == key).map_or_else(
                 || key.clone(),
                 |(_, p)| match p.style {
-                    ParameterStyle::Positional => format!("? #{key}"),
+                    ParameterStyle::Positional => format!("? {key}"),
                     _ => p.written(sql).to_owned(),
                 },
             )
@@ -873,9 +873,9 @@ mod tests {
     #[test]
     fn mysql_rewrites_names_to_question_marks() {
         let given = values(&[
-            ("1", Value::int(1)),
+            ("#1", Value::int(1)),
             ("id", Value::int(2)),
-            ("2", Value::Null),
+            ("#2", Value::Null),
         ]);
         let statement = bound(Engine::Mysql, "select ?, :id, ?, :id", &given).expect("bound");
         assert_eq!(statement.sql, "select ?, ?, ?, ?");
@@ -890,8 +890,8 @@ mod tests {
     fn sqlite_and_sql_server_send_the_text_as_written() {
         let given = values(&[
             ("a", Value::int(1)),
-            ("1", Value::int(2)),
-            ("2", Value::int(3)),
+            ("#1", Value::int(2)),
+            ("#2", Value::int(3)),
         ]);
         let statement = bound(Engine::Sqlite, "select :a, ?, :a, ?", &given).expect("bound");
         assert_eq!(statement.sql, "select :a, ?, :a, ?");
@@ -963,11 +963,11 @@ mod tests {
         let statements = crate::db::split::split(text, &syntax);
         let found = parameters_of(text, &statements, &syntax, styles);
         let keys: Vec<&str> = found.iter().map(|p| p.key.as_str()).collect();
-        assert_eq!(keys, ["1", "2", "a"]);
+        assert_eq!(keys, ["#1", "#2", "a"]);
         assert_eq!(found[1].occurrences, [(17, 18)]);
         let given = values(&[
-            ("1", Value::int(1)),
-            ("2", Value::int(2)),
+            ("#1", Value::int(1)),
+            ("#2", Value::int(2)),
             ("a", Value::Null),
         ]);
         let bound = bind_all(
@@ -992,8 +992,12 @@ mod tests {
         )
         .expect_err("missing");
         assert!(err.message.en.contains(":a, $2"), "{}", err.message.en);
-        let err = bound(Engine::Mysql, "select ?, ?", &values(&[("1", Value::Null)]))
-            .expect_err("missing");
+        let err = bound(
+            Engine::Mysql,
+            "select ?, ?",
+            &values(&[("#1", Value::Null)]),
+        )
+        .expect_err("missing");
         assert!(err.message.en.contains("? #2"), "{}", err.message.en);
     }
 }

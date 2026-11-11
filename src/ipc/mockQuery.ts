@@ -447,7 +447,7 @@ function missingParameters(
   const names = new Set(given.map((p) => p.name));
   const missing = mockQueryParameters(engine, text, scope)
     .filter((p) => !names.has(p.name))
-    .map((p) => (p.style === 'positional' ? `? #${p.name}` : p.label));
+    .map((p) => (p.style === 'positional' ? `? ${p.name}` : p.label));
   if (missing.length === 0) return null;
   const list = missing.join(', ');
   return mockErrors.invalidArgument(

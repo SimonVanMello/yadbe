@@ -248,7 +248,7 @@ export function mockQueryParameters(
     const sql = text.slice(statement.from, statement.to);
     for (const found of mockPlaceholders(engine, sql)) {
       if (found.style === 'positional') positional++;
-      const name = found.style === 'positional' ? String(positional) : found.name;
+      const name = found.style === 'positional' ? `#${positional}` : found.name;
       const at = { from: statement.from + found.from, to: statement.from + found.to };
       const known = out.find((p) => p.name === name);
       if (known) known.occurrences.push(at);

@@ -19,7 +19,7 @@ describe('mock query parameters', () => {
 
   it('merges a name used twice and numbers positional ones across statements', () => {
     const found = mockQueryParameters('mysql', 'select ?, :a; select ?, :a', { kind: 'all' });
-    expect(found.map((p) => p.name)).toEqual(['1', 'a', '2']);
+    expect(found.map((p) => p.name)).toEqual(['#1', 'a', '#2']);
     expect(found[1]?.occurrences).toHaveLength(2);
   });
 });
@@ -28,7 +28,7 @@ describe('mock plans', () => {
   it('weighs the nodes and keeps parents before their children', () => {
     const plan = mockPlan('postgres', 'select * from orders o join customers c on true', true);
     expect(plan.analyzed).toBe(true);
-    const total = plan.nodes.reduce((sum, node) => sum + node.weight, 0);
+    const total = plan.nodes.reduce((sum, node) => sum + (node.weight ?? 0), 0);
     expect(total).toBeCloseTo(1, 5);
     for (const node of plan.nodes) {
       if (node.parent !== null) expect(node.parent).toBeLessThan(node.id);

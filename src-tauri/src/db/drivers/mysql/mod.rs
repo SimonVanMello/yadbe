@@ -32,12 +32,13 @@ use crate::db::config::{ConnectTarget, TlsMode};
 use crate::db::dialect::Engine;
 use crate::db::driver::{
     BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Connection, Driver,
-    ExecError, ExecSender, ExecSummary, LinkSignal, LinkWatch, StatementRecorder, recorded,
-    recorded_bound,
+    ExecError, ExecSender, ExecSummary, Explained, LinkSignal, LinkWatch, StatementRecorder,
+    recorded, recorded_bound,
 };
 use crate::db::errors::{
     ErrorCode, YadbeError, from_connect_sqlstate, from_mysql_connect_error, from_mysql_query_error,
 };
+use crate::db::params::ParamStatement;
 use crate::db::value::{ColumnMeta, QueryResult, Value};
 
 const APPLICATION_NAME: &str = "yadbe";
@@ -651,8 +652,37 @@ impl Connection for MysqlConnection {
         let inner = Arc::clone(&self.inner);
         let sql = sql.to_owned();
         Box::pin(detached(async move {
-            inner.execute_streaming(&sql, events).await
+            inner.execute_streaming(&sql, Vec::new(), events).await
         }))
+    }
+
+    fn execute_params<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+        events: ExecSender,
+    ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
+        let inner = Arc::clone(&self.inner);
+        let sql = statement.sql.clone();
+        let params = statement
+            .params
+            .iter()
+            .map(|p| bound::param(&p.value))
+            .collect();
+        Box::pin(detached(async move {
+            inner.execute_streaming(&sql, params, events).await
+        }))
+    }
+
+    fn explain<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+        analyze: bool,
+    ) -> BoxFuture<'a, Result<Explained, ExecError>> {
+        let inner = Arc::clone(&self.inner);
+        let statement = statement.clone();
+        Box::pin(detached(
+            async move { inner.explain(&statement, analyze).await },
+        ))
     }
 
     fn query_bound<'a>(

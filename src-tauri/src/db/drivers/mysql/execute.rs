@@ -5,14 +5,18 @@
 
 use std::time::Duration;
 
-use mysql_async::prelude::Queryable;
-use mysql_async::{Conn, Error as MyError, TextProtocol};
+use mysql_async::prelude::{Protocol, Queryable};
+use mysql_async::{Conn, Error as MyError, Params, Value as MyValue};
 use tokio::time::Instant;
 
 use super::decode::{self, Decoder};
 use super::{Inner, decode_row};
-use crate::db::driver::{ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary, recorded};
+use crate::db::driver::{
+    ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary, Explained, recorded,
+};
 use crate::db::errors::YadbeError;
+use crate::db::params::ParamStatement;
+use crate::db::plan::RawPlan;
 use crate::db::value::{ColumnMeta, Value};
 use crate::session::query_model::ServerMessage;
 
@@ -82,8 +86,8 @@ struct Outcome {
     warnings: bool,
 }
 
-async fn stream(
-    result: &mut mysql_async::QueryResult<'_, '_, TextProtocol>,
+async fn stream<P: Protocol>(
+    result: &mut mysql_async::QueryResult<'_, '_, P>,
     events: &ExecSender,
     outcome: &mut Outcome,
 ) -> Result<(), Stop> {
@@ -194,9 +198,12 @@ impl Inner {
         }
     }
 
+    /// Runs a user statement; with query parameters (F-048), as a prepared statement
+    /// (binary protocol, values bound in order of the `?`).
     pub(super) async fn execute_streaming(
         &self,
         sql: &str,
+        params: Vec<MyValue>,
         events: ExecSender,
     ) -> Result<ExecSummary, ExecError> {
         let (mut guard, running) = self.lock().await?;
@@ -204,9 +211,16 @@ impl Inner {
             .as_mut()
             .ok_or_else(|| ExecError::from(self.closed()))?;
         let mut outcome = Outcome::default();
-        let streamed = match conn.query_iter(sql).await {
-            Ok(mut result) => stream(&mut result, &events, &mut outcome).await,
-            Err(err) => Err(Stop::Server(err)),
+        let streamed = if params.is_empty() {
+            match conn.query_iter(sql).await {
+                Ok(mut result) => stream(&mut result, &events, &mut outcome).await,
+                Err(err) => Err(Stop::Server(err)),
+            }
+        } else {
+            match conn.exec_iter(sql, Params::Positional(params)).await {
+                Ok(mut result) => stream(&mut result, &events, &mut outcome).await,
+                Err(err) => Err(Stop::Server(err)),
+            }
         };
         drop(running);
         if streamed.is_ok() && outcome.warnings {
@@ -232,6 +246,79 @@ impl Inner {
             }
             Err(Stop::Server(err)) => Err(self.failed(&err).into()),
         }
+    }
+}
+
+impl Inner {
+    /// The plan of a user statement (F-053): `EXPLAIN FORMAT=JSON`; with `analyze`,
+    /// `EXPLAIN ANALYZE` (a tree, MySQL 8.0.18+) or `ANALYZE FORMAT=JSON` (MariaDB).
+    pub(super) async fn explain(
+        &self,
+        statement: &ParamStatement,
+        analyze: bool,
+    ) -> Result<Explained, ExecError> {
+        let (prefix, tree) = match (analyze, self.flavor.mariadb) {
+            (false, _) => ("EXPLAIN FORMAT=JSON", false),
+            (true, true) => ("ANALYZE FORMAT=JSON", false),
+            (true, false) => ("EXPLAIN ANALYZE", true),
+        };
+        let sql = format!("{prefix} {}", statement.sql);
+        let params: Vec<MyValue> = statement
+            .params
+            .iter()
+            .map(|p| super::bound::param(&p.value))
+            .collect();
+        let (mut guard, running) = self.lock().await?;
+        let conn = guard
+            .as_mut()
+            .ok_or_else(|| ExecError::from(self.closed()))?;
+        let mut server = None;
+        let rows_of =
+            |d: &super::Drained| u64::try_from(d.sets.first().map_or(0, |s| s.rows.len())).ok();
+        let read = recorded(&*self.recorder, &sql, rows_of, async {
+            super::bound::run_one(conn, &sql, params, usize::MAX)
+                .await
+                .map_err(|err| {
+                    if let MyError::Server(e) = &err {
+                        server = Some(error_message(e));
+                    }
+                    self.failed(&err)
+                })
+        })
+        .await;
+        let killed = running.killed();
+        drop(running);
+        self.track_transaction(conn).await;
+        drop(guard);
+        if killed {
+            return Err(YadbeError::cancelled().into());
+        }
+        let drained = read.map_err(|error| ExecError {
+            error,
+            server: server.map(Box::new),
+            location: None,
+        })?;
+        let text: Vec<String> = drained
+            .sets
+            .into_iter()
+            .next()
+            .map(|set| set.rows)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|row| match row.into_iter().next() {
+                Some(Value::Text(text) | Value::Json(text)) => Some(text),
+                _ => None,
+            })
+            .collect();
+        let text = text.join("\n");
+        Ok(Explained {
+            raw: if tree {
+                RawPlan::MysqlTree(text)
+            } else {
+                RawPlan::MysqlJson(text)
+            },
+            sent: sql,
+        })
     }
 }
 

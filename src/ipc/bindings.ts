@@ -1721,7 +1721,7 @@ export type QueryMessage = {
 export type QueryParameter = {
 	/**
 	 *  What the value is given for: the name without its sigil (`id`), the number of a
-	 *  numbered one (`2`), the order of a `?` in the run (`1`, `2`…).
+	 *  numbered one (`2`), `#` and the order of a `?` in the run (`#1`, `#2`…).
 	 */
 	name: string,
 	/**  As written the first time (`:id`, `@id`, `$2`, `?`). */

@@ -22,11 +22,14 @@ use self::decode::{Raw, column_meta, decode};
 use self::tls::RustlsConnect;
 use crate::db::config::{ConnectTarget, TlsMode};
 use crate::db::dialect::Engine;
+use crate::db::driver::Explained;
 use crate::db::driver::{
     BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Connection, Driver,
     ExecError, ExecSender, ExecSummary, LinkWatch, StatementRecorder, recorded, recorded_bound,
 };
 use crate::db::errors::{YadbeError, from_connect_sqlstate, from_query_sqlstate};
+use crate::db::params::ParamStatement;
+use crate::db::plan::RawPlan;
 use crate::db::value::{QueryResult, Value};
 
 const APPLICATION_NAME: &str = "yadbe";
@@ -265,7 +268,78 @@ impl Connection for PgConnection {
         sql: &'a str,
         events: ExecSender,
     ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
-        Box::pin(self.execute_streaming(sql, events))
+        Box::pin(self.execute_streaming(sql, &[], events))
+    }
+
+    fn execute_params<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+        events: ExecSender,
+    ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
+        Box::pin(async move {
+            let params: Vec<bound::TextParam> = statement
+                .params
+                .iter()
+                .map(|p| bound::TextParam::of(&p.value))
+                .collect();
+            self.execute_streaming(&statement.sql, &params, events)
+                .await
+        })
+    }
+
+    fn explain<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+        analyze: bool,
+    ) -> BoxFuture<'a, Result<Explained, ExecError>> {
+        Box::pin(async move {
+            let options = if analyze {
+                "ANALYZE, BUFFERS, FORMAT JSON"
+            } else {
+                "FORMAT JSON"
+            };
+            let sql = format!("EXPLAIN ({options}) {}", statement.sql);
+            let params: Vec<bound::TextParam> = statement
+                .params
+                .iter()
+                .map(|p| bound::TextParam::of(&p.value))
+                .collect();
+            let mut server = None;
+            let rows_of = |r: &QueryResult| u64::try_from(r.rows.len()).ok();
+            let read = recorded(&*self.recorder, &sql, rows_of, async {
+                self.run_with(&sql, &params, usize::MAX)
+                    .await
+                    .map_err(|failure| match failure {
+                        bound::PgFailure::Server(err) => {
+                            server = Some(execute::exec_error(&err));
+                            classify_query(&err)
+                        }
+                        bound::PgFailure::Decode(err) => err,
+                    })
+            })
+            .await;
+            let result = match read {
+                Ok(result) => result,
+                Err(error) => {
+                    // The position is in the EXPLAIN text, not the user's: left out.
+                    let mut failure = server.unwrap_or_else(|| error.into());
+                    failure.location = None;
+                    return Err(failure);
+                }
+            };
+            let text: Vec<String> = result
+                .rows
+                .into_iter()
+                .filter_map(|row| match row.into_iter().next() {
+                    Some(Value::Json(text) | Value::Text(text)) => Some(text),
+                    _ => None,
+                })
+                .collect();
+            Ok(Explained {
+                raw: RawPlan::PostgresJson(text.join("\n")),
+                sent: sql,
+            })
+        })
     }
 
     fn introspector(&self) -> Option<&dyn crate::db::introspect::Introspector> {

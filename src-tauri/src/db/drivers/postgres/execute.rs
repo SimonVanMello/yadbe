@@ -11,6 +11,7 @@ use tokio::time::Instant;
 use tokio_postgres::error::{DbError, ErrorPosition};
 use tokio_postgres::types::ToSql;
 
+use super::bound::TextParam;
 use super::decode::{Raw, column_meta, decode};
 use super::{PgConnection, classify_query};
 use crate::db::driver::{ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary};
@@ -68,7 +69,7 @@ pub(super) fn server_message(db: &DbError) -> ServerMessage {
     }
 }
 
-fn exec_error(err: &tokio_postgres::Error) -> ExecError {
+pub(super) fn exec_error(err: &tokio_postgres::Error) -> ExecError {
     let Some(db) = err.as_db_error() else {
         return classify_query(err).into();
     };
@@ -108,15 +109,18 @@ async fn flush(events: &ExecSender, batch: &mut Vec<Vec<Value>>) -> Result<(), E
 }
 
 impl PgConnection {
+    /// Runs a user statement; `params`: its query parameters (F-048), sent as text like
+    /// the values of authored statements, so the server reads each with its inferred type.
     pub(super) async fn execute_streaming(
         &self,
         sql: &str,
+        params: &[TextParam],
         events: ExecSender,
     ) -> Result<ExecSummary, ExecError> {
         let (sender, mut notices) = mpsc::unbounded_channel();
         self.notices.set(Some(sender));
         let guard = RouteGuard(&self.notices);
-        let result = self.stream(sql, &events, &mut notices).await;
+        let result = self.stream(sql, params, &events, &mut notices).await;
         drop(guard);
         // Notices sent just before the statement completed.
         while let Ok(notice) = notices.try_recv() {
@@ -128,6 +132,7 @@ impl PgConnection {
     async fn stream(
         &self,
         sql: &str,
+        params: &[TextParam],
         events: &ExecSender,
         notices: &mut mpsc::UnboundedReceiver<ServerMessage>,
     ) -> Result<ExecSummary, ExecError> {
@@ -147,7 +152,7 @@ impl PgConnection {
         }
         let stream = self
             .client
-            .query_raw(&statement, std::iter::empty::<&(dyn ToSql + Sync)>())
+            .query_raw(&statement, params.iter().map(|p| p as &(dyn ToSql + Sync)))
             .await
             .map_err(|e| exec_error(&e))?;
         pin_mut!(stream);

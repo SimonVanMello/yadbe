@@ -21,7 +21,7 @@ use crate::db::value::{QueryResult, Value};
 /// A bound value as sent to the server. Integers go as integers (MySQL compares a string
 /// with an integer column as floating point, which loses 64-bit keys); everything else as
 /// text, which the server converts to the column's type, and bytes as bytes.
-fn param(value: &Value) -> MyValue {
+pub(super) fn param(value: &Value) -> MyValue {
     match value {
         Value::Null => MyValue::NULL,
         Value::Bool(b) => MyValue::Int(i64::from(*b)),

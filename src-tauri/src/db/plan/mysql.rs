@@ -364,10 +364,7 @@ pub(super) fn parse_tree(text: &str) -> QueryPlan {
         let mut body = line[arrow + 3..].trim_end();
         let mut draft = Draft::new("");
         // Figure groups at the end, right to left.
-        loop {
-            let Some(open) = body.rfind(" (") else {
-                break;
-            };
+        while let Some(open) = body.rfind(" (") {
             let group = &body[open + 2..];
             let Some(inner) = group.strip_suffix(')') else {
                 break;

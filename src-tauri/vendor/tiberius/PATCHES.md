@@ -26,6 +26,7 @@ that was ruled out.
 | 5 | rustls with `ring` instead of `aws-lc-rs` | `Cargo.toml`, `client/tls_stream/rustls_tls_stream.rs` | Yes, as a feature flag |
 | 6 | Manifest without tests, examples and dev-dependencies | `Cargo.toml` | No (vendoring only) |
 | 7 | Parameterized batch stream | `client.rs` | Yes, additive API |
+| 8 | Parameters under their own names | `client.rs` | Yes, additive API |
 
 1. **Batch stream.** `Client::batch(sql, attention)` sends `sql` as one SQL batch and returns a
    `BatchStream` of `BatchItem`s in the order the server sends them: `Metadata` (names and
@@ -86,11 +87,21 @@ that was ruled out.
    cancelled either. Inlining the values as escaped literals into a plain batch was ruled out:
    yadbe never writes a value into SQL (architecture rule 2).
 
+8. **Parameters under their own names.** `Client::rpc_batch_named(sql, params, attention)` is
+   patch 7 with each parameter declared to `sp_executesql` under the name the statement
+   writes (`@id`, `@from`) instead of `@P1`, `@P2`…. Query parameters of user batches (F-048)
+   are the batch's undeclared `@name`s: the batch text is sent exactly as written and the
+   server binds the values by name.
+   *Without it:* `rpc_batch` names the parameters `@P1`…, so the user's text would have to be
+   rewritten (`@id` → `@P1`), which architecture rule 3 rules out when the engine can bind the
+   names as they are. Building the `sp_executesql` call as a T-SQL batch with the values
+   written in it was ruled out by rule 2.
+
 ## Maintenance
 
 A new file of about 280 lines (`batch.rs`) and about 120 changed lines in nine upstream files;
 `token.rs` and `connection.rs` are where an upgrade may conflict. To upgrade: copy the new
 release over `src/` and `Cargo.toml` in a commit of its own, re-apply these patches, then run
 `cargo test --test query_mssql --test introspection --test table_data` against a SQL Server (see `CLAUDE.md`).
-Patches 1, 2, 3, 5 and 7 could be proposed upstream (prisma/tiberius); once released there, the
+Patches 1, 2, 3, 5, 7 and 8 could be proposed upstream (prisma/tiberius); once released there, the
 fork shrinks to patch 4 or disappears.
