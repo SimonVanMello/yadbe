@@ -24,17 +24,20 @@ use tokio::task::JoinHandle;
 use crate::db::dialect::Dialect;
 use crate::db::driver::{BoundFailure, BoundStatement, CancelHandle, Connection};
 use crate::db::edit_dialect::{RowEstimateSource, plain_text};
+use crate::db::errors::ErrorCode;
 use crate::db::errors::YadbeError;
 use crate::db::meta::ObjectRef;
 use crate::db::value::{ColumnMeta, QueryResult, Value, ValueKind};
+use crate::edit::inverse::{self, AppliedSet};
 use crate::edit::model::{
     AppliedStatement, ApplyOutcome, ChangeSet, EditPreview, InsertedRows, PlannedChange,
-    StatementFailure,
+    RowConflict, StatementFailure,
 };
-use crate::edit::planner::{self, PlannedEdit};
+use crate::edit::planner::{self, PlanMode, PlannedEdit};
 use crate::events::{BackendEvent, EventSink, TableDataChanged};
 use crate::session::ConnectionManager;
 use crate::session::connection::ConnectionSession;
+use crate::session::journal::ChangeJournal;
 use crate::session::meta_cache::MetaService;
 use crate::session::query_model::ResultWindow;
 use crate::session::result_store::ResultStore;
@@ -44,6 +47,7 @@ use crate::session::table_model::{
 };
 use crate::session::table_shape::TableShape;
 use crate::session::table_sql;
+use crate::store::{JournalStatement, MAX_INVERSE_BYTES, NewJournalEntry, RevertBlocker};
 
 /// Rows per statement of a table export: big enough that the paging overhead stays small, small
 /// enough that one batch is a modest amount of memory.
@@ -125,6 +129,17 @@ pub struct TableDataService {
     sink: Arc<dyn EventSink>,
     tabs: Mutex<HashMap<String, Arc<TableTab>>>,
     export_batch_rows: u32,
+    /// Where applied change sets are recorded (F-090); `None`: not recorded, no revert.
+    journal: Option<Arc<ChangeJournal>>,
+}
+
+/// Rows read by their identity, in the order of the keys asked for (`None`: not found).
+type RowsByKey = Vec<Option<Vec<Value>>>;
+
+/// A read that failed, with the statement as shown.
+struct ReadFailure {
+    failure: BoundFailure,
+    sql: String,
 }
 
 impl TableDataService {
@@ -139,7 +154,15 @@ impl TableDataService {
             sink,
             tabs: Mutex::new(HashMap::new()),
             export_batch_rows: EXPORT_BATCH_ROWS,
+            journal: None,
         }
+    }
+
+    /// Records every applied change set in `journal` and allows reverting them.
+    #[must_use]
+    pub fn with_journal(mut self, journal: Arc<ChangeJournal>) -> Self {
+        self.journal = Some(journal);
+        self
     }
 
     /// Rows per statement of a table export (tests use small pages).
@@ -430,19 +453,54 @@ impl TableDataService {
         for key in &keys {
             shape.check_key(key)?;
         }
-        let per_statement = (KEYS_PER_STATEMENT / shape.identity.len().max(1)).max(1);
-        let mut found: Vec<Vec<Value>> = Vec::new();
-        if !keys.is_empty() {
+        let found = if keys.is_empty() {
+            Vec::new()
+        } else {
             let (_guard, conn) = self.connection(&tab).await?;
             tab.cancel_requested.store(false, Ordering::SeqCst);
-            for chunk in keys.chunks(per_statement) {
-                let statement = table_sql::rows_by_key(tab.dialect, shape, chunk);
-                let result = self
-                    .run(&tab, &conn, &statement, usize::MAX)
-                    .await
-                    .map_err(|f| f.error)?;
-                found.extend(result.rows);
-            }
+            self.rows_by_key(&tab, &conn, &keys)
+                .await
+                .map_err(|f| f.failure.error)?
+        };
+        Ok(self.keep_found(&tab, found))
+    }
+
+    /// The rows found, kept in the store, with each key's position.
+    fn keep_found(&self, tab: &TableTab, found: RowsByKey) -> RefreshedRows {
+        let mut rows = Vec::new();
+        let positions = found
+            .into_iter()
+            .map(|row| {
+                row.map(|row| {
+                    rows.push(row);
+                    to_u32(rows.len() - 1)
+                })
+            })
+            .collect();
+        let window = self.keep(tab, rows);
+        RefreshedRows { window, positions }
+    }
+
+    /// Reads rows by their identity on `conn` (a page per [`KEYS_PER_STATEMENT`] values).
+    async fn rows_by_key(
+        &self,
+        tab: &TableTab,
+        conn: &Arc<dyn Connection>,
+        keys: &[RowKey],
+    ) -> Result<RowsByKey, ReadFailure> {
+        let shape = &tab.shape;
+        let per_statement = (KEYS_PER_STATEMENT / shape.identity.len().max(1)).max(1);
+        let mut found: Vec<Vec<Value>> = Vec::new();
+        for chunk in keys.chunks(per_statement) {
+            let statement = table_sql::rows_by_key(tab.dialect, shape, chunk);
+            let result = self
+                .run(tab, conn, &statement, usize::MAX)
+                .await
+                .map_err(|failure| ReadFailure {
+                    failure,
+                    sql: statement.display.clone(),
+                })?;
+            found.extend(result.rows);
         }
         shape.normalize(&mut found);
         let identity_of = |row: &[Value]| -> Vec<Option<String>> {
@@ -452,24 +510,17 @@ impl TableDataService {
                 .map(|&i| row.get(i).and_then(|v| comparable(v, shape, i)))
                 .collect()
         };
-        let mut rows = Vec::new();
-        let mut positions = Vec::with_capacity(keys.len());
-        for key in &keys {
-            let wanted: Vec<Option<String>> = key
-                .iter()
-                .zip(&shape.identity)
-                .map(|(v, &i)| comparable(v, shape, i))
-                .collect();
-            match found.iter().position(|row| identity_of(row) == wanted) {
-                Some(at) => {
-                    rows.push(found[at].clone());
-                    positions.push(Some(to_u32(rows.len() - 1)));
-                }
-                None => positions.push(None),
-            }
-        }
-        let window = self.keep(&tab, rows);
-        Ok(RefreshedRows { window, positions })
+        Ok(keys
+            .iter()
+            .map(|key| {
+                let wanted: Vec<Option<String>> = key
+                    .iter()
+                    .zip(&shape.identity)
+                    .map(|(v, &i)| comparable(v, shape, i))
+                    .collect();
+                found.iter().find(|row| identity_of(row) == wanted).cloned()
+            })
+            .collect())
     }
 
     /// The checked filter and order of an export of the tab's table.
@@ -565,12 +616,59 @@ impl TableDataService {
         Ok(planner::preview(tab.dialect, &planned))
     }
 
+    /// Applies `changes` in one transaction (F-085, F-089); recorded in the journal (F-090).
     pub async fn apply(
         &self,
         tab_id: &str,
         changes: &ChangeSet,
     ) -> Result<ApplyOutcome, YadbeError> {
         let tab = self.tab(tab_id)?;
+        self.apply_on(&tab, changes, PlanMode::Edit, None).await
+    }
+
+    /// The inverse of journal entry `entry_id` (F-090), checked against the tab's table.
+    fn revert_changes(&self, tab: &TableTab, entry_id: u32) -> Result<ChangeSet, YadbeError> {
+        let journal = self.journal.as_ref().ok_or_else(|| {
+            YadbeError::invalid_argument(
+                "The change journal is not available.",
+                "Le journal des modifications n'est pas disponible.",
+            )
+        })?;
+        let inverse =
+            journal.revert_input(entry_id, &tab.connection_id, &tab.shape.details.table)?;
+        serde_json::from_str(&inverse)
+            .map_err(|err| YadbeError::internal(format!("unreadable journal inverse: {err}")))
+    }
+
+    /// The statements "Revert this change set" would run on the tab's table, as planned now.
+    pub fn preview_revert(&self, tab_id: &str, entry_id: u32) -> Result<EditPreview, YadbeError> {
+        let tab = self.tab(tab_id)?;
+        let changes = self.revert_changes(&tab, entry_id)?;
+        let planned = planner::plan_with(tab.dialect, &tab.shape, &changes, PlanMode::Restore)?;
+        Ok(planner::preview(tab.dialect, &planned))
+    }
+
+    /// Reverts journal entry `entry_id` like an apply: one transaction, one row per `UPDATE`
+    /// / `DELETE`, rows changed since reported as conflicts. Recorded as a change set of its
+    /// own.
+    pub async fn apply_revert(
+        &self,
+        tab_id: &str,
+        entry_id: u32,
+    ) -> Result<ApplyOutcome, YadbeError> {
+        let tab = self.tab(tab_id)?;
+        let changes = self.revert_changes(&tab, entry_id)?;
+        self.apply_on(&tab, &changes, PlanMode::Restore, Some(i64::from(entry_id)))
+            .await
+    }
+
+    async fn apply_on(
+        &self,
+        tab: &TableTab,
+        changes: &ChangeSet,
+        mode: PlanMode,
+        reverts: Option<i64>,
+    ) -> Result<ApplyOutcome, YadbeError> {
         if tab.read_only {
             let statement = if !changes.deletes.is_empty() {
                 "DELETE"
@@ -581,31 +679,45 @@ impl TableDataService {
             };
             return Err(YadbeError::read_only_violation(statement));
         }
-        let planned = planner::plan(tab.dialect, &tab.shape, changes)?;
+        let planned = planner::plan_with(tab.dialect, &tab.shape, changes, mode)?;
         let started = Instant::now();
-        let (_guard, conn) = self.connection(&tab).await?;
+        let applied_at = std::time::SystemTime::now();
+        let (_guard, conn) = self.connection(tab).await?;
         tab.cancel_requested.store(false, Ordering::SeqCst);
         conn.query(tab.dialect.begin_transaction(), 0).await?;
         let mut applied = Vec::with_capacity(planned.len());
         let mut inserted: Vec<Option<Vec<Value>>> = vec![None; changes.inserts.len()];
+        // Statements that matched no row: the row changed or went since it was read (F-089).
+        let mut conflicts: Vec<usize> = Vec::new();
+        let mut cleanups: Vec<&str> = Vec::new();
         for (index, edit) in planned.iter().enumerate() {
+            if let Some(cleanup) = &edit.cleanup {
+                cleanups.push(cleanup);
+            }
             let statement_started = Instant::now();
-            let result = match self.run(&tab, &conn, &edit.statement, 2).await {
+            let result = match self.run(tab, &conn, &edit.statement, 2).await {
                 Ok(result) => result,
                 Err(failure) => {
-                    self.rollback(&tab, &conn).await;
+                    self.abort(tab, &conn, &cleanups).await;
+                    // A failure after a conflict is most likely its consequence (a key the
+                    // conflicting delete did not free).
+                    if !conflicts.is_empty() && failure.error.code != ErrorCode::Cancelled {
+                        return Ok(self
+                            .conflicted(tab, &conn, &planned, &conflicts, started)
+                            .await);
+                    }
                     return Ok(rolled_back(index, edit, failure, None));
                 }
             };
             if edit.one_row() && result.rows_affected != Some(1) {
-                self.rollback(&tab, &conn).await;
                 let count = result.rows_affected.unwrap_or(0);
+                if count == 0 {
+                    conflicts.push(index);
+                    continue;
+                }
+                self.abort(tab, &conn, &cleanups).await;
                 let row = edit.row.as_deref().unwrap_or_default();
-                let error = if count == 0 {
-                    YadbeError::row_not_found(row)
-                } else {
-                    YadbeError::row_not_unique(row, count)
-                };
+                let error = YadbeError::row_not_unique(row, count);
                 return Ok(rolled_back(index, edit, error.into(), Some(count)));
             }
             if let PlannedChange::Insert { insert } = edit.change
@@ -627,8 +739,36 @@ impl TableDataService {
                 duration_ms: ms(statement_started),
             });
         }
+        if !conflicts.is_empty() {
+            self.abort(tab, &conn, &cleanups).await;
+            return Ok(self
+                .conflicted(tab, &conn, &planned, &conflicts, started)
+                .await);
+        }
+        // The updated rows as stored, read in the transaction, for the journal's inverse.
+        let updated = if self.journal.is_some() {
+            match self.read_back_updates(tab, &conn, &planned).await {
+                Ok(rows) => Some(rows),
+                Err(read) => {
+                    self.abort(tab, &conn, &cleanups).await;
+                    return Ok(ApplyOutcome::RolledBack {
+                        failure: Box::new(StatementFailure {
+                            statement_index: None,
+                            change: None,
+                            sql: read.sql,
+                            error: read.failure.error,
+                            server: read.failure.server.map(|s| *s),
+                            violation: None,
+                            rows_affected: None,
+                        }),
+                    });
+                }
+            }
+        } else {
+            None
+        };
         if let Err(error) = conn.query(tab.dialect.commit(), 0).await {
-            self.rollback(&tab, &conn).await;
+            self.abort(tab, &conn, &cleanups).await;
             return Ok(ApplyOutcome::RolledBack {
                 failure: Box::new(StatementFailure {
                     statement_index: None,
@@ -641,6 +781,30 @@ impl TableDataService {
                 }),
             });
         }
+        let duration_ms = ms(started);
+        let journal_id = match (&self.journal, &updated) {
+            (Some(journal), Some(updated)) => {
+                let entry = self.journal_entry(
+                    journal,
+                    tab,
+                    &AppliedSet {
+                        changes,
+                        planned: &planned,
+                        inserted: &inserted,
+                        updated,
+                    },
+                    &applied,
+                    applied_at,
+                    duration_ms,
+                    reverts,
+                );
+                journal
+                    .record(entry)
+                    .await
+                    .map(|id| u32::try_from(id).unwrap_or(u32::MAX))
+            }
+            _ => None,
+        };
         let mut rows = Vec::new();
         let positions = inserted
             .into_iter()
@@ -651,7 +815,7 @@ impl TableDataService {
                 })
             })
             .collect();
-        let window = self.keep(&tab, rows);
+        let window = self.keep(tab, rows);
         let count = |kind: fn(&PlannedChange) -> bool| {
             to_u32(planned.iter().filter(|p| kind(&p.change)).count())
         };
@@ -667,8 +831,159 @@ impl TableDataService {
         Ok(ApplyOutcome::Applied {
             statements: applied,
             inserted: InsertedRows { window, positions },
-            duration_ms: ms(started),
+            duration_ms,
+            journal_id,
         })
+    }
+
+    /// After the rollback: the conflicting rows as stored now.
+    async fn conflicted(
+        &self,
+        tab: &TableTab,
+        conn: &Arc<dyn Connection>,
+        planned: &[PlannedEdit],
+        conflicts: &[usize],
+        started: Instant,
+    ) -> ApplyOutcome {
+        let edits: Vec<(usize, &PlannedEdit)> = conflicts
+            .iter()
+            .filter_map(|&i| planned.get(i).map(|edit| (i, edit)))
+            .collect();
+        let keys: Vec<RowKey> = edits
+            .iter()
+            .filter_map(|(_, edit)| match &edit.change {
+                PlannedChange::Update { key, .. } | PlannedChange::Delete { key, .. } => {
+                    Some(key.clone())
+                }
+                PlannedChange::Insert { .. } => None,
+            })
+            .collect();
+        let found = match self.rows_by_key(tab, conn, &keys).await {
+            Ok(found) => found,
+            Err(read) => {
+                tracing::warn!(tab = %tab.id, error = %read.failure.error, "reading conflicting rows");
+                // Without the rows, the first conflict is reported as before F-089.
+                let (index, edit) = edits[0];
+                let row = edit.row.as_deref().unwrap_or_default();
+                return rolled_back(index, edit, YadbeError::row_not_found(row).into(), Some(0));
+            }
+        };
+        ApplyOutcome::Conflicted {
+            conflicts: edits
+                .iter()
+                .map(|(index, edit)| RowConflict {
+                    statement_index: to_u32(*index),
+                    change: edit.change.clone(),
+                    sql: edit.statement.display.clone(),
+                    row: edit.row.clone().unwrap_or_default(),
+                })
+                .collect(),
+            current: self.keep_found(tab, found),
+            duration_ms: ms(started),
+        }
+    }
+
+    /// The rows of the planned updates as stored after them, in plan order, read by their key
+    /// as written.
+    async fn read_back_updates(
+        &self,
+        tab: &TableTab,
+        conn: &Arc<dyn Connection>,
+        planned: &[PlannedEdit],
+    ) -> Result<RowsByKey, ReadFailure> {
+        let keys: Vec<RowKey> = planned
+            .iter()
+            .filter_map(|edit| match &edit.change {
+                PlannedChange::Update { key, .. } => Some(
+                    tab.shape
+                        .identity
+                        .iter()
+                        .zip(key)
+                        .map(|(column, value)| {
+                            edit.written
+                                .iter()
+                                .find(|(c, _, _)| c == column)
+                                .map_or_else(|| value.clone(), |(_, written, _)| written.clone())
+                        })
+                        .collect(),
+                ),
+                _ => None,
+            })
+            .collect();
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.rows_by_key(tab, conn, &keys).await
+    }
+
+    /// The journal entry of an applied change set, with its inverse when it has a faithful one.
+    #[allow(clippy::too_many_arguments)]
+    fn journal_entry(
+        &self,
+        journal: &ChangeJournal,
+        tab: &TableTab,
+        set: &AppliedSet<'_>,
+        applied: &[AppliedStatement],
+        applied_at: std::time::SystemTime,
+        duration_ms: f64,
+        reverts: Option<i64>,
+    ) -> NewJournalEntry {
+        let mut blocker = None;
+        let mut inverse_json = None;
+        let mut inverse_statements = Vec::new();
+        match inverse::inverse(tab.dialect, &tab.shape, set) {
+            Ok(undo) => {
+                match planner::plan_with(tab.dialect, &tab.shape, &undo, PlanMode::Restore) {
+                    Ok(plan) => {
+                        inverse_statements =
+                            plan.iter().map(|p| p.statement.display.clone()).collect();
+                        match serde_json::to_string(&undo) {
+                            Ok(json) if json.len() <= MAX_INVERSE_BYTES => {
+                                inverse_json = Some(json);
+                            }
+                            _ => {
+                                inverse_statements.clear();
+                                blocker = Some(RevertBlocker::TooLarge);
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!(error = %err, "planning the inverse of a change set");
+                        blocker = Some(RevertBlocker::NotPlannable);
+                    }
+                }
+            }
+            Err(reason) => blocker = Some(reason),
+        }
+        let count = |kind: fn(&PlannedChange) -> bool| {
+            to_u32(set.planned.iter().filter(|p| kind(&p.change)).count())
+        };
+        NewJournalEntry {
+            connection_id: tab.connection_id.clone(),
+            connection_name: journal.connection_name(&tab.connection_id),
+            engine: tab.dialect.engine(),
+            table: tab.shape.details.table.clone(),
+            applied_at_ms: applied_at
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX)),
+            duration_ms,
+            updated: count(|c| matches!(c, PlannedChange::Update { .. })),
+            inserted: count(|c| matches!(c, PlannedChange::Insert { .. })),
+            deleted: count(|c| matches!(c, PlannedChange::Delete { .. })),
+            statements: set
+                .planned
+                .iter()
+                .zip(applied)
+                .map(|(edit, done)| JournalStatement {
+                    sql: edit.statement.display.clone(),
+                    rows_affected: done.rows_affected,
+                })
+                .collect(),
+            inverse: inverse_json,
+            inverse_statements,
+            blocker,
+            reverts,
+        }
     }
 
     /// Where a table tab reads its rows: lookups on its database (F-088) go there too.
@@ -690,6 +1005,19 @@ impl TableDataService {
         }
         if let Err(err) = conn.query(tab.dialect.rollback(), 0).await {
             tracing::warn!(tab = %tab.id, error = %err, "rollback after a failed apply");
+        }
+    }
+
+    /// Rolls back, then undoes the session settings statements left on (`cleanups`).
+    async fn abort(&self, tab: &TableTab, conn: &Arc<dyn Connection>, cleanups: &[&str]) {
+        self.rollback(tab, conn).await;
+        if conn.link().is_lost() {
+            return;
+        }
+        for cleanup in cleanups {
+            if let Err(err) = conn.query(cleanup, 0).await {
+                tracing::warn!(tab = %tab.id, error = %err, "cleanup after a failed apply");
+            }
         }
     }
 }

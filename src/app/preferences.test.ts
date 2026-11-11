@@ -34,6 +34,8 @@ describe('theme and language preferences', () => {
       historyMaxEntries: 50_000,
       historyMaxAgeDays: 365,
       connectTimeoutSecs: 15,
+      journalMaxEntries: 1000,
+      journalMaxAgeDays: 90,
     });
     expect(loadPreferences()).toEqual({ theme: 'dark', locale: null });
   });
@@ -75,6 +77,8 @@ describe('frontend-owned ui state', () => {
       historyMaxEntries: 50_000,
       historyMaxAgeDays: 365,
       connectTimeoutSecs: 15,
+      journalMaxEntries: 1000,
+      journalMaxAgeDays: 90,
     });
     resetBackendPreferences();
     expect(await loadUiSlice('layout')).toBeUndefined();

@@ -6,6 +6,7 @@ pub mod edit;
 pub mod export;
 pub mod files;
 pub mod history;
+pub mod journal;
 pub mod meta;
 pub mod query;
 pub mod references;

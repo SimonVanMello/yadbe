@@ -367,11 +367,40 @@ export const commands = {
 	trustHostKey: (host: string, port: number, keyType: string, fingerprint: string) => typedError<KnownHost, YadbeError>(__TAURI_INVOKE("trust_host_key", { host, port, keyType, fingerprint })),
 	/**  Forgets the accepted keys of a host (`keyType`: only that one). Returns how many. */
 	forgetHostKey: (host: string, port: number, keyType: string | null) => typedError<number, YadbeError>(__TAURI_INVOKE("forget_host_key", { host, port, keyType })),
+	/**  One page of the journal, newest first (`after` is the previous page's `next`). */
+	searchChangeJournal: (query: JournalQuery) => typedError<JournalPage, YadbeError>(__TAURI_INVOKE("search_change_journal", { query })),
+	/**  An entry with its statements and inverse statements; `null` once cleared or pruned. */
+	getChangeJournalEntry: (id: number) => typedError<{
+	entry: JournalEntry,
+	statements: JournalStatement[],
+	/**
+	 *  What "Revert this change set" would run, as planned when the change set was applied
+	 *  (the revert plans it again on the table as it is then).
+	 */
+	inverseStatements: string[],
+} | null, YadbeError>(__TAURI_INVOKE("get_change_journal_entry", { id })),
+	/**  The tables that have entries (of one connection, or all), for the filter. */
+	listChangeJournalTables: (connectionId: string | null) => typedError<JournalTable[], YadbeError>(__TAURI_INVOKE("list_change_journal_tables", { connectionId })),
+	/**  Deletes the entries of a connection (every entry when `null`); returns how many. */
+	clearChangeJournal: (connectionId: string | null) => typedError<number, YadbeError>(__TAURI_INVOKE("clear_change_journal", { connectionId })),
+	/**
+	 *  What reverting entry `entryId` would run on the table of table tab `tabId`, planned on the
+	 *  table as it is now. Fails with `invalidArgument` when the entry belongs to another table,
+	 *  was already reverted, or cannot be reverted faithfully (its `revertBlocker`).
+	 */
+	previewChangeSetRevert: (tabId: string, entryId: number) => typedError<EditPreview, YadbeError>(__TAURI_INVOKE("preview_change_set_revert", { tabId, entryId })),
+	/**
+	 *  Reverts entry `entryId` on table tab `tabId`'s connection, like `apply_table_changes`: one
+	 *  transaction, rows changed since the change set reported as `conflicted`, recorded as a
+	 *  change set of its own (the entry is then marked reverted).
+	 */
+	applyChangeSetRevert: (tabId: string, entryId: number) => typedError<ApplyOutcome, YadbeError>(__TAURI_INVOKE("apply_change_set_revert", { tabId, entryId })),
 };
 
 /** Events */
 export const events = {
 	appReady: makeEvent<AppReady>("app-ready"),
+	changeJournalChanged: makeEvent<ChangeJournalChanged>("change-journal-changed"),
 	connectionStateChanged: makeEvent<ConnectionStateChanged>("connection-state-changed"),
 	exportFinished: makeEvent<ExportFinished>("export-finished"),
 	exportProgress: makeEvent<ExportProgress>("export-progress"),
@@ -411,9 +440,25 @@ export type AppliedStatement = {
 /**  How an apply ended. */
 export type ApplyOutcome = 
 /**  Every statement ran and the transaction was committed. */
-{ status: "applied"; statements: AppliedStatement[]; inserted: InsertedRows; durationMs: number | null } | 
+{ status: "applied"; statements: AppliedStatement[]; inserted: InsertedRows; durationMs: number | null; 
+/**
+ *  The change set's entry in the change journal (F-090); `null` when it was not
+ *  recorded.
+ */
+journalId: number | null } | 
 /**  A statement failed: the transaction was rolled back, nothing changed. */
-{ status: "rolledBack"; failure: StatementFailure };
+{ status: "rolledBack"; failure: StatementFailure } | 
+/**
+ *  Rows were changed or deleted by someone else since they were read (F-089): their
+ *  `UPDATE` / `DELETE` matched no row. The transaction was rolled back, nothing changed.
+ *  The statements after the first conflict ran too, so every conflicting row is listed.
+ */
+{ status: "conflicted"; conflicts: RowConflict[]; 
+/**
+ *  The conflicting rows as stored now, read after the rollback; `positions` follow
+ *  `conflicts` (`null`: the row no longer exists).
+ */
+current: RefreshedRows; durationMs: number | null };
 
 /**  How the user authenticates. */
 export type AuthMethod = 
@@ -505,7 +550,20 @@ export type CellUpdate = {
 	key: Value[],
 	column: string,
 	value: Value,
+	/**
+	 *  The cell's value as read (F-089): the `UPDATE` only matches the row while the column
+	 *  still holds it, so a row changed by someone else meanwhile is reported as a conflict
+	 *  instead of being overwritten. `null`: not known; the column is not checked and the
+	 *  change set cannot be reverted from the journal.
+	 */
+	original?: Value | null,
 };
+
+/**
+ *  The change journal changed (F-090): a change set was recorded or reverted, or entries
+ *  were cleared. Query it again.
+ */
+export type ChangeJournalChanged = Record<string, never>;
 
 /**
  *  Everything the grid buffered for one table (F-084). Cell updates of the same row are
@@ -516,7 +574,7 @@ export type CellUpdate = {
 export type ChangeSet = {
 	updates: CellUpdate[],
 	inserts: RowInsert[],
-	deletes: Value[][],
+	deletes: RowDelete[],
 };
 
 export type CheckConstraint = {
@@ -1270,6 +1328,75 @@ export type InsertedRows = {
 	positions: (number | null)[],
 };
 
+/**  An entry with its statements and the inverse statements. */
+export type JournalDetail = {
+	entry: JournalEntry,
+	statements: JournalStatement[],
+	/**
+	 *  What "Revert this change set" would run, as planned when the change set was applied
+	 *  (the revert plans it again on the table as it is then).
+	 */
+	inverseStatements: string[],
+};
+
+/**  One applied change set, as listed. */
+export type JournalEntry = {
+	id: number,
+	connectionId: string,
+	/**  The connection's name when the change set was applied. */
+	connectionName: string,
+	engine: Engine,
+	table: ObjectRef,
+	/**  Unix time in milliseconds. */
+	appliedAt: number | null,
+	durationMs: number | null,
+	updated: number,
+	inserted: number,
+	deleted: number,
+	statementCount: number,
+	/**  The first statement, cut to [`JOURNAL_PREVIEW_CHARS`]. */
+	preview: string,
+	/**  `null`: it can be reverted (unless already reverted). */
+	revertBlocker: RevertBlocker | null,
+	/**  The entry this change set reverted. */
+	reverts: number | null,
+	/**  The entry that reverted this change set. */
+	revertedBy: number | null,
+};
+
+export type JournalPage = {
+	entries: JournalEntry[],
+	/**  Pass it as `after` for the following page; `null` on the last page. */
+	next: number | null,
+};
+
+/**  Newest first. Every field narrows the result. */
+export type JournalQuery = {
+	/**  Matched in the table name and the statements (case-insensitive substring). */
+	text: string | null,
+	connectionId: string | null,
+	/**  Database (when not empty), schema (when set) and name of the table. */
+	table: ObjectRef | null,
+	/**  The `next` of the previous page. */
+	after: number | null,
+	/**  At most [`JOURNAL_PAGE_SIZE`] (the default). */
+	limit: number | null,
+};
+
+/**  A statement of a change set, as run (values written as literals, like the SQL preview). */
+export type JournalStatement = {
+	sql: string,
+	/**  Rows the statement changed, when known. */
+	rowsAffected: number | null,
+};
+
+/**  A table that has entries, for the filter. */
+export type JournalTable = {
+	connectionId: string,
+	table: ObjectRef,
+	entries: number,
+};
+
 export type JsonLayout = 
 /**  One JSON array of objects, one object per line. */
 "array" | 
@@ -1525,6 +1652,10 @@ export type Preferences = {
 	historyMaxAgeDays: number,
 	/**  Connect timeout of the connections that do not set their own, in seconds. */
 	connectTimeoutSecs: number,
+	/**  Change journal bound (F-090): most change sets kept. */
+	journalMaxEntries: number,
+	/**  Change journal bound: oldest change set kept, in days. */
+	journalMaxAgeDays: number,
 };
 
 /**
@@ -1666,6 +1797,30 @@ export type ResumeMode =
 /**  Everything, without limit. */
 "all";
 
+/**  Why a change set cannot be reverted faithfully: yadbe refuses rather than guess. */
+export type RevertBlocker = 
+/**  An edited value was sent without the value it replaced. */
+{ kind: "originalUnknown"; column: string } | 
+/**  A deleted row was sent without its values. */
+{ kind: "deletedRowUnknown" } | 
+/**  A deleted row lacks columns of the table (not loaded). */
+{ kind: "columnsNotLoaded"; columns: string[] } | 
+/**
+ *  A deleted row holds a value of a type yadbe cannot write back (SQL Server
+ *  `sql_variant`, spatial types…).
+ */
+{ kind: "unwritableColumn"; column: string } | 
+/**  A deleted row's identity value cannot be written back on this engine. */
+{ kind: "identityNotRestorable"; column: string } | 
+/**  An inserted row could not be read back (no key value to find it). */
+{ kind: "insertedRowUnknown" } | 
+/**  The updated rows could not be read back after the change. */
+{ kind: "updatedRowUnknown" } | 
+/**  The values are too large to be kept. */
+{ kind: "tooLarge" } | 
+/**  The inverse statements could not be planned. */
+{ kind: "notPlannable" };
+
 export type RoutineSignature = {
 	/**  Full argument list as the engine prints it (`p_id integer, p_note text DEFAULT ''`). */
 	arguments: string,
@@ -1675,6 +1830,30 @@ export type RoutineSignature = {
 	returnType: string | null,
 	language: string | null,
 	aggregate: boolean,
+};
+
+/**  A row an `UPDATE` / `DELETE` did not find with the values it was read with (F-089). */
+export type RowConflict = {
+	/**  Index into the preview's statements. */
+	statementIndex: number,
+	change: PlannedChange,
+	/**  The statement, as in the preview. */
+	sql: string,
+	/**  The row as the user knows it (`id = 42`). */
+	row: string,
+};
+
+/**  An existing row to delete. */
+export type RowDelete = {
+	/**  The row, by its identity as last read. */
+	key: Value[],
+	/**
+	 *  The row as read, every loaded column (F-089, F-090): the `DELETE` only matches the row
+	 *  while it still holds these values (columns the engine cannot compare exactly are left
+	 *  out of the check), and the journal can insert it back. Empty: not known; only the key
+	 *  is checked and the change set cannot be reverted.
+	 */
+	values?: ColumnValue[],
 };
 
 /**  A new row. Columns left out take their default (or identity, or computed value). */

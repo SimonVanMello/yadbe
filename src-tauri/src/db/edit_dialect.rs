@@ -41,8 +41,45 @@ pub enum RowEstimateSource {
     Catalog(&'static str),
 }
 
+/// How an `UPDATE` / `DELETE` checks that a column still holds the value it was read with
+/// (F-089). A `NULL` read is always checked with `IS NULL`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OriginalCheck {
+    /// `column = <value>`, the value bound as when it is written.
+    Equal,
+    /// `f(column) = f(<value>)`, `{}` standing for the column, then for the placeholder: for
+    /// types without an equality operator whose text form is exact (PostgreSQL `json`).
+    Through(&'static str),
+    /// Not compared: the engine cannot compare the value exactly (SQL Server `image`, MySQL
+    /// single-precision `float`). The other columns and the key still are.
+    Unchecked,
+}
+
+/// How a deleted row is inserted back with the value of an identity column the server
+/// always generates (reverting a change set, F-090).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentityInsert {
+    /// It cannot be.
+    Refused,
+    /// `INSERT INTO t (…) OVERRIDING SYSTEM VALUE VALUES (…)`
+    Overriding,
+    /// `SET IDENTITY_INSERT t ON; INSERT …; SET IDENTITY_INSERT t OFF`
+    SessionSwitch,
+}
+
 pub trait EditDialect {
     fn paging(&self) -> PagingSyntax;
+
+    /// How the original value of `column` is compared (F-089).
+    fn original_check(&self, column: &ColumnInfo) -> OriginalCheck {
+        let _ = column;
+        OriginalCheck::Equal
+    }
+
+    /// How a value is written into an always-generated identity column.
+    fn identity_insert(&self) -> IdentityInsert {
+        IdentityInsert::Refused
+    }
 
     fn insert_returning(&self) -> InsertReturning;
 
@@ -207,9 +244,39 @@ pub fn pg_text(value: &Value) -> Option<String> {
     }
 }
 
+/// PostgreSQL types without an equality operator (or with one that is not equality, `box`).
+const PG_NO_EQUALITY: [&str; 9] = [
+    "json", "xml", "point", "line", "lseg", "box", "path", "polygon", "circle",
+];
+
 impl EditDialect for PostgresDialect {
     fn paging(&self) -> PagingSyntax {
         PagingSyntax::LimitOffset
+    }
+    fn original_check(&self, column: &ColumnInfo) -> OriginalCheck {
+        let type_name = column.type_name.to_ascii_lowercase();
+        let (base, array) = match type_name.strip_suffix("[]") {
+            Some(base) => (base, true),
+            None => (type_name.as_str(), false),
+        };
+        let no_equality = PG_NO_EQUALITY.contains(&base);
+        if array {
+            // An array's text form quotes its elements its own way: not comparable as text.
+            return if no_equality {
+                OriginalCheck::Unchecked
+            } else {
+                OriginalCheck::Equal
+            };
+        }
+        // Read through their text form (`select_expression`): compared the same way.
+        if no_equality || column.kind == ValueKind::Other {
+            OriginalCheck::Through("CAST({} AS text)")
+        } else {
+            OriginalCheck::Equal
+        }
+    }
+    fn identity_insert(&self) -> IdentityInsert {
+        IdentityInsert::Overriding
     }
     fn insert_returning(&self) -> InsertReturning {
         InsertReturning::Returning
@@ -261,6 +328,20 @@ const MSSQL_DATE_TYPES: [&str; 6] = [
 impl EditDialect for MssqlDialect {
     fn paging(&self) -> PagingSyntax {
         PagingSyntax::OffsetFetch
+    }
+    fn original_check(&self, column: &ColumnInfo) -> OriginalCheck {
+        let type_name = column.type_name.to_ascii_lowercase();
+        match type_name.as_str() {
+            // No `=` on these: their text is exact.
+            "text" | "ntext" | "xml" => OriginalCheck::Through("CAST({} AS nvarchar(max))"),
+            "image" => OriginalCheck::Unchecked,
+            // sql_variant and CLR types are only shown as text.
+            _ if column.kind == ValueKind::Other => OriginalCheck::Unchecked,
+            _ => OriginalCheck::Equal,
+        }
+    }
+    fn identity_insert(&self) -> IdentityInsert {
+        IdentityInsert::SessionSwitch
     }
     fn insert_returning(&self) -> InsertReturning {
         InsertReturning::Output
@@ -378,6 +459,20 @@ fn mysql_decimal(type_name: &str) -> Option<&str> {
 impl EditDialect for MysqlDialect {
     fn paging(&self) -> PagingSyntax {
         PagingSyntax::LimitOffset
+    }
+    fn original_check(&self, column: &ColumnInfo) -> OriginalCheck {
+        let type_name = column.type_name.to_ascii_lowercase();
+        if column.kind == ValueKind::Other || type_name.starts_with("float") {
+            // Spatial values are read as WKT; a single-precision float is compared as a
+            // double, never equal to its shortest decimal text.
+            OriginalCheck::Unchecked
+        } else if type_name == "json" {
+            // A JSON column compared with a string compares a JSON string: parse both
+            // (MariaDB's JSON is a `longtext`, compared as text).
+            OriginalCheck::Through("JSON_EXTRACT({}, '$')")
+        } else {
+            OriginalCheck::Equal
+        }
     }
     // MariaDB 10.5+ has `INSERT … RETURNING`, MySQL none: one form for both.
     fn insert_returning(&self) -> InsertReturning {

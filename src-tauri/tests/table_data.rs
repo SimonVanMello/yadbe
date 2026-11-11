@@ -15,8 +15,8 @@ use yadbe_lib::db::errors::{ConstraintKind, ErrorCode, YadbeError};
 use yadbe_lib::db::meta::ObjectRef;
 use yadbe_lib::db::value::Value;
 use yadbe_lib::edit::model::{
-    ApplyOutcome, CellUpdate, ChangeSet, ColumnValue, InsertedRows, PlannedChange, RowInsert,
-    StatementFailure,
+    ApplyOutcome, CellUpdate, ChangeSet, ColumnValue, InsertedRows, PlannedChange, RowConflict,
+    RowDelete, RowInsert, StatementFailure,
 };
 use yadbe_lib::events::{BackendEvent, RecordingSink};
 use yadbe_lib::export::ExportManager;
@@ -158,14 +158,24 @@ impl Tab<'_> {
                 assert!(statements.iter().all(|s| s.rows_affected == Some(1.0)));
                 inserted
             }
-            ApplyOutcome::RolledBack { failure } => panic!("rolled back: {failure:?}"),
+            other => panic!("not applied: {other:?}"),
         }
     }
 
     async fn failed(&self, changes: ChangeSet) -> StatementFailure {
         match self.apply(changes).await.expect("apply") {
             ApplyOutcome::RolledBack { failure } => *failure,
-            ApplyOutcome::Applied { .. } => panic!("applied"),
+            other => panic!("not rolled back: {other:?}"),
+        }
+    }
+
+    /// The conflicts (F-089) and, per conflict, the row as stored now.
+    async fn conflicted(&self, changes: ChangeSet) -> (Vec<RowConflict>, Vec<Option<u32>>) {
+        match self.apply(changes).await.expect("apply") {
+            ApplyOutcome::Conflicted {
+                conflicts, current, ..
+            } => (conflicts, current.positions),
+            other => panic!("no conflict: {other:?}"),
         }
     }
 
@@ -265,6 +275,14 @@ fn update(key: Vec<Value>, column: &str, value: Value) -> CellUpdate {
         key,
         column: column.into(),
         value,
+        original: None,
+    }
+}
+
+fn del(key: Vec<Value>) -> RowDelete {
+    RowDelete {
+        key,
+        values: Vec::new(),
     }
 }
 
@@ -627,7 +645,7 @@ async fn editability(b: &Bench, conn: &str, fx: &Fixture) {
         .preview(
             "view",
             &ChangeSet {
-                deletes: vec![vec![int(1)]],
+                deletes: vec![del(vec![int(1)])],
                 ..ChangeSet::default()
             },
         )
@@ -746,7 +764,7 @@ async fn round_trips(b: &Bench, conn: &str, fx: &Fixture) {
 
     // Delete.
     tab.applied(ChangeSet {
-        deletes: vec![vec![id.clone()]],
+        deletes: vec![del(vec![id.clone()])],
         ..ChangeSet::default()
     })
     .await;
@@ -778,7 +796,7 @@ async fn keys_and_identifiers(b: &Bench, conn: &str, fx: &Fixture) {
     assert_eq!(row[tab.col("value")], text("two"));
     // A deleted key can be reused in the same change set (deletes run first).
     tab.applied(ChangeSet {
-        deletes: vec![vec![int(1), text("z")]],
+        deletes: vec![del(vec![int(1), text("z")])],
         inserts: vec![insert(&[
             ("a", int(1)),
             ("b", text("z")),
@@ -872,7 +890,7 @@ async fn keys_and_identifiers(b: &Bench, conn: &str, fx: &Fixture) {
         [Some("7".into()), Some("renamed".into()), Some("b".into())]
     );
     tab.applied(ChangeSet {
-        deletes: vec![vec![int(7)]],
+        deletes: vec![del(vec![int(7)])],
         ..ChangeSet::default()
     })
     .await;
@@ -918,30 +936,31 @@ async fn one_row_check(b: &Bench, conn: &str, fx: &Fixture) {
             .map(|t| t.parse::<f64>().ok()),
         Some(Some(5.0))
     );
-    // The second statement matches no row: the first one is rolled back too.
-    let failure = tab
-        .failed(updates(vec![
+    // The second statement matches no row (F-089: a conflict): the first one is rolled back
+    // too.
+    let (conflicts, current) = tab
+        .conflicted(updates(vec![
             update(vec![first.clone()], "qty", int(10)),
             update(vec![int(999_999)], "qty", int(11)),
         ]))
         .await;
-    assert_eq!(failure.error.code, ErrorCode::RowNotFound);
-    assert_eq!(failure.statement_index, Some(1));
-    assert_eq!(failure.rows_affected, Some(0.0));
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(conflicts[0].statement_index, 1);
     assert!(
-        matches!(failure.change, Some(PlannedChange::Update { ref key, .. }) if key == &[int(999_999)])
+        matches!(conflicts[0].change, PlannedChange::Update { ref key, .. } if key == &[int(999_999)])
     );
-    assert!(failure.error.message.en.contains("id = 999999"));
+    assert_eq!(conflicts[0].row, "id = 999999");
+    assert_eq!(current, [None], "the row does not exist");
     let row = tab.row(vec![first.clone()]).await.expect("row");
     assert_eq!(row[tab.col("qty")], int(1), "rolled back");
     // A delete that matches nothing.
-    let failure = tab
-        .failed(ChangeSet {
-            deletes: vec![vec![second.clone()], vec![int(999_998)]],
+    let (conflicts, _) = tab
+        .conflicted(ChangeSet {
+            deletes: vec![del(vec![second.clone()]), del(vec![int(999_998)])],
             ..ChangeSet::default()
         })
         .await;
-    assert_eq!(failure.error.code, ErrorCode::RowNotFound);
+    assert_eq!(conflicts.len(), 1);
     assert!(tab.row(vec![second]).await.is_some(), "delete rolled back");
     b.tables.close("items").await;
 }
@@ -1142,7 +1161,7 @@ async fn browsing(b: &Bench, conn: &str, fx: &Fixture) {
         .map(|r| r[tab.col("id")].clone())
         .collect();
     tab.applied(ChangeSet {
-        deletes: vec![vec![ids[1].clone()]],
+        deletes: vec![del(vec![ids[1].clone()])],
         ..ChangeSet::default()
     })
     .await;

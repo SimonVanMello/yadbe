@@ -11,6 +11,7 @@ import { useExplorerStore } from '../features/explorer/explorerStore';
 import { useHistoryActions } from '../features/history/useHistoryActions';
 import { SaveQueryDialog } from '../features/library/SaveQueryDialog';
 import { useLibraryActions } from '../features/library/useLibraryActions';
+import { useJournalActions } from '../features/journal/useJournalActions';
 import { ExportDialog } from '../features/export/ExportDialog';
 import { useExportActions } from '../features/export/useExportActions';
 import { CommandPalette } from '../features/palette/CommandPalette';
@@ -163,6 +164,7 @@ export function Shell() {
   useExportActions();
   useHistoryActions();
   useLibraryActions();
+  useJournalActions();
   usePaletteActions();
   const ready = useStartup();
   // Only the connection, not the tab: a tab switch must not re-render the whole shell.

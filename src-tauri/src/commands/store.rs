@@ -28,6 +28,8 @@ pub async fn set_preferences(
     let saved = blocking(move || store.set_preferences(&preferences)).await?;
     // A lower retention applies now, not at the next hourly prune.
     state.history.prune_now();
+    let journal = Arc::clone(&state.journal);
+    blocking(move || journal.prune_now()).await?;
     Ok(saved)
 }
 

@@ -4,20 +4,24 @@ import { isTableTab, selectActiveTab, useTabsStore, type ShellTab } from '../../
 import { translate, useI18nStore, type MessageKey, type MessageParams } from '../../i18n/i18n';
 import {
   ipc,
+  unwrap,
   YadbeIpcError,
+  type ApplyOutcome,
   type ColumnReadOnlyReason,
   type CountMode,
+  type ObjectRef,
   type TableColumn,
   type TableDataInfo,
   type TableReadOnlyReason,
   type Value,
 } from '../../ipc';
+import { showJournalEntry } from '../journal/journalStore';
 import { toast } from '../../ui/toastStore';
 import type { DataGridApi } from '../grid/DataGrid';
 import type { GridColumn } from '../grid/rowSource';
 import { selectedRowIntervals, type Selection } from '../grid/selection';
 import { findConnection } from '../query/connectionLookup';
-import { isEditableKind } from './cellValues';
+import { cellValue, isEditableKind, valuesEqual } from './cellValues';
 import { toTableFilter, type FilterState } from './filterModel';
 import {
   duplicateCells,
@@ -32,6 +36,7 @@ import {
   EMPTY_PENDING,
   firstMissingRequired,
   isEmpty,
+  rebaseRow,
   revertCells as dropCells,
   revertInsertCells,
   revertRows as dropRows,
@@ -44,7 +49,12 @@ import {
 } from './pendingChanges';
 import { clearPendingFocus, peekPendingFocus } from './pendingFocus';
 import { looseRows, TableRowSource, type LooseRow } from './tableRowSource';
-import { getTableSession, useTableSessionStore, type TableSession } from './tableSessionStore';
+import {
+  getTableSession,
+  useTableSessionStore,
+  type ConflictRow,
+  type TableSession,
+} from './tableSessionStore';
 import { getTableTabState, useTableTabStore, type TableTabState } from './tableTabStore';
 import { getPreference } from '../preferences/preferenceStore';
 
@@ -326,7 +336,7 @@ export function cancelTableWork(tabId: string): void {
 }
 
 export type DiscardReason =
-  'page' | 'filter' | 'sort' | 'refresh' | 'close' | 'pageSize' | 'navigate';
+  'page' | 'filter' | 'sort' | 'refresh' | 'close' | 'pageSize' | 'navigate' | 'revert';
 
 /** Asks before pending changes are lost; `true` when there are none or the user agrees. */
 export function confirmDiscard(tabIds: readonly string[], reason: DiscardReason): Promise<boolean> {
@@ -639,8 +649,13 @@ export async function deleteSelectedRows(tabId: string): Promise<void> {
     const at = source.rowKind(row);
     return at.kind === 'insert' ? [at.index] : [];
   });
+  // The whole row as read: the delete checks it (F-089) and the journal can put it back (F-090).
   const targets = await Promise.all(
-    existing.map(async (row) => ({ row, key: await source.keyOf(row, identity) })),
+    existing.map(async (row) => ({
+      row,
+      key: await source.keyOf(row, identity),
+      values: await Promise.all(info.columns.map((_, col) => source.underlyingValue(row, col))),
+    })),
   );
   setPending(tabId, markDeleted(getTableSession(tabId).pending, targets, inserts));
 }
@@ -893,6 +908,12 @@ export async function applyChanges(tabId: string): Promise<void> {
     revealTarget(tabId, target);
     return;
   }
+  if (outcome.status === 'conflicted') {
+    const rows = await conflictRows(info, source, pending, trace, outcome);
+    if (!tableTabOf(tabId)) return;
+    patch(tabId, { applying: false, preview: null, conflict: { rows } });
+    return;
+  }
 
   const identity = identityColumns(info);
   const deleted = new Set(trace.deletes);
@@ -943,10 +964,21 @@ export async function applyChanges(tabId: string): Promise<void> {
         ? { ...count, count: Math.max(0, count.count + counts.inserted - counts.deleted) }
         : count,
   });
+  const journalId = outcome.journalId;
   toast({
     variant: 'success',
     title: t('tableData.apply.done'),
     description: t('tableData.apply.counts', counts),
+    ...(journalId !== null
+      ? {
+          action: {
+            label: t('journal.showEntry'),
+            onClick: () => {
+              showJournalEntry(journalId);
+            },
+          },
+        }
+      : {}),
   });
   // Rows the server could not send back (triggers, no key to read them): read the page again.
   if (reload) await loadPage(tabId, { offset: getTableSession(tabId).offset });
@@ -984,6 +1016,223 @@ export function revertFailure(tabId: string): void {
 export function dismissFailure(tabId: string): void {
   patch(tabId, { failure: null });
   sources.get(tabId)?.setFailed(null);
+}
+
+// --- Conflicts (F-089) -----------------------------------------------------------------------
+
+/** The whole value of a cell of a loose row (its text may be cut). */
+function looseValue(loose: LooseRow, col: number): Promise<Value> {
+  if (loose.truncated.has(col)) {
+    return unwrap(ipc.commands.fetchResultCell(loose.resultId, loose.index, col));
+  }
+  return Promise.resolve(cellValue(loose.texts[col] ?? null, loose.kinds[col] ?? 'text'));
+}
+
+/**
+ * The conflicting rows of an apply, each with the cells the user edited (as read, as wanted, as
+ * stored now) and the ones changed elsewhere.
+ */
+async function conflictRows(
+  info: TableDataInfo,
+  source: TableRowSource,
+  pending: Pending,
+  trace: ChangeTrace,
+  outcome: Extract<ApplyOutcome, { status: 'conflicted' }>,
+): Promise<ConflictRow[]> {
+  const current = looseRows(outcome.current.window, info.columns);
+  const columnOf = (name: string) => info.columns.findIndex((c) => c.name === name);
+  const rows = await Promise.all(
+    outcome.conflicts.map(async (conflict, i): Promise<ConflictRow | null> => {
+      const target = targetOf(conflict.change, trace, columnOf, null);
+      if (target?.kind !== 'row') return null;
+      const change = pending.rows.get(target.row);
+      if (!change) return null;
+      const position = outcome.current.positions[i];
+      const currentRow = position === null || position === undefined ? null : current[position];
+      const theirs = currentRow
+        ? await Promise.all(info.columns.map((_, col) => looseValue(currentRow, col)))
+        : null;
+      const asRead = await Promise.all(
+        info.columns.map((_, col) => source.underlyingValue(target.row, col)),
+      );
+      const cells = info.columns.flatMap((column, col) => {
+        const edit = change.cells.get(col);
+        const original = edit?.original ?? asRead[col] ?? NULL;
+        const now = theirs ? (theirs[col] ?? NULL) : null;
+        const changedElsewhere = now !== null && !valuesEqual(original, now);
+        if (!edit && !changedElsewhere) return [];
+        return [
+          {
+            column: column.name,
+            original,
+            mine: change.deleted ? null : (edit?.value ?? original),
+            theirs: now,
+            edited: !!edit && !change.deleted,
+          },
+        ];
+      });
+      return {
+        row: target.row,
+        kind: change.deleted ? 'delete' : 'update',
+        label: conflict.row,
+        sql: conflict.sql,
+        current: theirs,
+        currentRow: currentRow ?? null,
+        cells,
+      };
+    }),
+  );
+  return rows.filter((row): row is ConflictRow => row !== null);
+}
+
+const NULL: Value = { kind: 'null' };
+
+export type ConflictChoice = 'mine' | 'theirs' | 'edit';
+
+/** The choices a conflicting row offers: a row deleted elsewhere can only be let go. */
+export function conflictChoices(row: ConflictRow): ConflictChoice[] {
+  return row.current ? ['mine', 'theirs', 'edit'] : ['theirs'];
+}
+
+/**
+ * Applies the per-row choices of the conflict dialog: "keep mine" and "keep editing" compare
+ * with what the server holds now (the next Apply overwrites it, by choice), "take theirs" drops
+ * the change. The rows show what the server holds. Without "keep editing", Apply runs again;
+ * otherwise the first row to edit is focused.
+ */
+export function resolveConflicts(
+  tabId: string,
+  choices: ReadonlyMap<number, ConflictChoice>,
+): void {
+  const session = getTableSession(tabId);
+  const source = sources.get(tabId);
+  const conflict = session.conflict;
+  if (!conflict || !source) return;
+  let pending = session.pending;
+  const refreshed = new Map<number, LooseRow>();
+  let gone = false;
+  let editRow: number | null = null;
+  for (const item of conflict.rows) {
+    const choice = item.current ? (choices.get(item.row) ?? 'edit') : 'theirs';
+    if (item.currentRow) refreshed.set(item.row, item.currentRow);
+    else gone = true;
+    if (choice === 'theirs' || !item.current) {
+      pending = dropRows(pending, [item.row], []);
+      continue;
+    }
+    pending = rebaseRow(pending, item.row, item.current);
+    if (choice === 'edit') editRow ??= item.row;
+  }
+  source.refreshRows(refreshed);
+  setPending(tabId, pending);
+  patch(tabId, { conflict: null, stale: session.stale || gone });
+  if (editRow !== null) {
+    const grid = grids.get(tabId);
+    grid?.selectRows(editRow, editRow);
+    grid?.focus();
+    return;
+  }
+  if (!isEmpty(pending)) requestApply(tabId);
+}
+
+/** Closes the conflict dialog: nothing changes, the next Apply conflicts again. */
+export function closeConflicts(tabId: string): void {
+  patch(tabId, { conflict: null });
+}
+
+// --- Revert a change set (F-090) -------------------------------------------------------------
+
+/** Waits until the tab's table is open and its first page read; `false` if the tab closes. */
+function whenReady(tabId: string): Promise<boolean> {
+  const ready = () => {
+    const session = getTableSession(tabId);
+    return session.info !== null && session.page !== null && session.loadingSince === null;
+  };
+  if (ready()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const stop = useTableSessionStore.subscribe(() => {
+      if (!tableTabOf(tabId)) {
+        stop();
+        resolve(false);
+      } else if (ready()) {
+        stop();
+        resolve(true);
+      }
+    });
+  });
+}
+
+/**
+ * "Revert this change set": opens (or shows) the table's tab, then its SQL to review before it
+ * runs. The tab's pending changes go first, after asking.
+ */
+export async function revertChangeSet(
+  connectionId: string,
+  table: ObjectRef,
+  entryId: number,
+): Promise<void> {
+  const tabId = useTabsStore.getState().openTableTab(connectionId, table);
+  if (!(await whenReady(tabId))) return;
+  if (!(await confirmDiscard([tabId], 'revert'))) return;
+  if (!isEmpty(getTableSession(tabId).pending)) setPending(tabId, EMPTY_PENDING);
+  patch(tabId, {
+    revert: {
+      entryId,
+      status: 'loading',
+      preview: null,
+      error: null,
+      conflicts: [],
+      failure: null,
+    },
+  });
+  const result = await ipc.commands.previewChangeSetRevert(tabId, entryId);
+  const revert = getTableSession(tabId).revert;
+  if (revert?.entryId !== entryId) return;
+  patch(tabId, {
+    revert:
+      result.status === 'ok'
+        ? { ...revert, status: 'ready', preview: result.data }
+        : { ...revert, status: 'failed', error: result.error },
+  });
+}
+
+/** Runs the reviewed revert in one transaction; the rows are read again once it is applied. */
+export async function applyRevert(tabId: string): Promise<void> {
+  const revert = getTableSession(tabId).revert;
+  if (revert?.status !== 'ready') return;
+  patch(tabId, { revert: { ...revert, status: 'applying' } });
+  const result = await ipc.commands.applyChangeSetRevert(tabId, revert.entryId);
+  if (!tableTabOf(tabId) || getTableSession(tabId).revert?.entryId !== revert.entryId) return;
+  if (result.status === 'error') {
+    patch(tabId, { revert: { ...revert, status: 'failed', error: result.error } });
+    return;
+  }
+  const outcome = result.data;
+  if (outcome.status === 'conflicted') {
+    patch(tabId, {
+      revert: {
+        ...revert,
+        status: 'conflicted',
+        conflicts: outcome.conflicts.map((conflict, i) => ({
+          label: conflict.row,
+          sql: conflict.sql,
+          gone: outcome.current.positions[i] === null,
+        })),
+      },
+    });
+    return;
+  }
+  if (outcome.status === 'rolledBack') {
+    patch(tabId, { revert: { ...revert, status: 'rolledBack', failure: outcome.failure } });
+    return;
+  }
+  patch(tabId, { revert: null });
+  toast({ variant: 'success', title: t('journal.revert.done') });
+  await loadPage(tabId, { offset: getTableSession(tabId).offset, recount: true });
+}
+
+export function closeRevert(tabId: string): void {
+  patch(tabId, { revert: null });
 }
 
 // --- Life of a tab ---------------------------------------------------------------------------

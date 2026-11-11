@@ -129,6 +129,15 @@ export function TableMenu({
       >
         {t('action.table.revertRows')}
       </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        icon="history"
+        onSelect={() => {
+          runAction('table.journal');
+        }}
+      >
+        {t('action.table.journal')}
+      </ContextMenuItem>
     </>
   );
 }

@@ -5,6 +5,7 @@ import { useT } from '../../i18n/useT';
 import { Icon, type IconName } from '../../ui/Icon';
 import { Tooltip } from '../../ui/Tooltip';
 import { HistoryPanel } from '../history/HistoryPanel';
+import { JournalPanel } from '../journal/JournalPanel';
 import { LibraryPanel } from '../library/LibraryPanel';
 import { ConnectionSidebar } from './ConnectionSidebar';
 import styles from './SidebarViews.module.css';
@@ -14,6 +15,7 @@ const VIEWS: readonly { view: SidebarView; icon: IconName }[] = [
   { view: 'connections', icon: 'database' },
   { view: 'history', icon: 'history' },
   { view: 'library', icon: 'bookmark' },
+  { view: 'journal', icon: 'undo' },
 ];
 
 /** The sidebar: a switcher between its views (connections, history) and the view itself. */
@@ -26,6 +28,7 @@ export function SidebarViews() {
     connections: t('sidebar.connections'),
     history: t('history.title'),
     library: t('library.tab'),
+    journal: t('journal.tab'),
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -93,6 +96,7 @@ export function SidebarViews() {
         {current === 'connections' && <ConnectionSidebar />}
         {current === 'history' && <HistoryPanel />}
         {current === 'library' && <LibraryPanel />}
+        {current === 'journal' && <JournalPanel />}
       </div>
     </div>
   );

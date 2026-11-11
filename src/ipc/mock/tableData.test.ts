@@ -174,7 +174,7 @@ describe('mock table data', () => {
           ],
         },
       ],
-      deletes: [[int(2)]],
+      deletes: [{ key: [int(2)], values: [] }],
     };
     const preview = await unwrap(commands.previewTableChanges(TAB, changes));
     expect(preview.statements.map((s) => s.change.kind)).toEqual([
@@ -219,10 +219,9 @@ describe('mock table data', () => {
         deletes: [],
       }),
     );
-    if (gone.status !== 'rolledBack') throw new Error('expected a rollback');
-    expect(gone.failure.error.code).toBe('rowNotFound');
-    expect(gone.failure.statementIndex).toBe(1);
-    expect(gone.failure.rowsAffected).toBe(0);
+    if (gone.status !== 'conflicted') throw new Error('expected a conflict');
+    expect(gone.conflicts).toEqual([expect.objectContaining({ statementIndex: 1, row: 'id = 5' })]);
+    expect(gone.current.positions).toEqual([null]);
     const unchanged = await unwrap(commands.refreshTableRows(TAB, [[int(4)]]));
     expect(unchanged.window.columns[3]?.values[0]).not.toBe('+33 1');
 
@@ -264,9 +263,112 @@ describe('mock table data', () => {
     expect(bad.status === 'rolledBack' && bad.failure.error.code).toBe('invalidValue');
   });
 
+  it('checks the values read and reports every conflicting row (F-089)', async () => {
+    const table = ref('shop', 'customers');
+    await unwrap(commands.openTableData(TAB, PG, table));
+    const rows = await unwrap(commands.refreshTableRows(TAB, [[int(4)], [int(6)]]));
+    const phoneOf = (row: number): Value => {
+      const value = rows.window.columns[3]?.values[row] ?? null;
+      return value === null ? { kind: 'null' } : text(value);
+    };
+    const changes = {
+      updates: [
+        { key: [int(4)], column: 'phone', value: text('+33 4'), original: phoneOf(0) },
+        { key: [int(6)], column: 'phone', value: text('+33 6'), original: phoneOf(1) },
+      ],
+      inserts: [],
+      deletes: [],
+    };
+    const preview = await unwrap(commands.previewTableChanges(TAB, changes));
+    expect(preview.statements[0]?.sql).toMatch(/WHERE "id" = 4 AND "phone" (=|IS NULL)/);
+
+    expect(mockBackend.changeRowElsewhere(PG, table, [int(4)], 'phone', text('+1 elsewhere'))).toBe(
+      true,
+    );
+    expect(mockBackend.deleteRowElsewhere(PG, table, [int(6)])).toBe(true);
+    const outcome = await unwrap(commands.applyTableChanges(TAB, changes));
+    if (outcome.status !== 'conflicted') throw new Error('expected a conflict');
+    expect(outcome.conflicts.map((c) => c.row)).toEqual(['id = 4', 'id = 6']);
+    expect(outcome.current.positions).toEqual([0, null]);
+    expect(outcome.current.window.columns[3]?.values[0]).toBe('+1 elsewhere');
+
+    // Rebased on what the server holds now, the change applies.
+    const rebased = {
+      ...changes,
+      updates: [{ ...changes.updates[0], key: [int(4)], original: text('+1 elsewhere') }],
+    } as typeof changes;
+    const applied = await unwrap(commands.applyTableChanges(TAB, rebased));
+    expect(applied.status).toBe('applied');
+  });
+
+  it('journals change sets and reverts them (F-090)', async () => {
+    const table = ref('shop', 'customers');
+    const info = await unwrap(commands.openTableData(TAB, PG, table));
+    const before = await unwrap(commands.refreshTableRows(TAB, [[int(7)], [int(8)]]));
+    const named = (row: number) =>
+      info.columns.map((column, c) => {
+        const window = before.window.columns[c];
+        const text = window?.values[row] ?? null;
+        const kind = window?.kinds?.[row] ?? column.kind;
+        const value: Value =
+          text === null
+            ? { kind: 'null' }
+            : kind === 'bool'
+              ? { kind: 'bool', value: text === 'true' }
+              : kind === 'array'
+                ? { kind: 'array', value: [] }
+                : { kind, value: text };
+        return { column: column.name, value };
+      });
+    const phone = named(0).find((c) => c.column === 'phone')?.value ?? { kind: 'null' };
+    const outcome = await unwrap(
+      commands.applyTableChanges(TAB, {
+        updates: [{ key: [int(7)], column: 'phone', value: text('+44 7'), original: phone }],
+        inserts: [],
+        deletes: [{ key: [int(8)], values: named(1) }],
+      }),
+    );
+    if (outcome.status !== 'applied') throw new Error('expected applied');
+    expect(outcome.journalId).not.toBeNull();
+    const page = await unwrap(
+      commands.searchChangeJournal({
+        text: null,
+        connectionId: PG,
+        table: null,
+        after: null,
+        limit: null,
+      }),
+    );
+    expect(page.entries[0]).toMatchObject({ updated: 1, deleted: 1, revertBlocker: null });
+    const id = page.entries[0]?.id ?? 0;
+    const detail = await unwrap(commands.getChangeJournalEntry(id));
+    expect(detail?.inverseStatements).toHaveLength(2);
+
+    const preview = await unwrap(commands.previewChangeSetRevert(TAB, id));
+    expect(preview.statements.map((s) => s.change.kind)).toEqual(['update', 'insert']);
+    const reverted = await unwrap(commands.applyChangeSetRevert(TAB, id));
+    expect(reverted.status).toBe('applied');
+    const after = await unwrap(commands.refreshTableRows(TAB, [[int(7)], [int(8)]]));
+    expect(after.window.columns.map((c) => c.values)).toEqual(
+      before.window.columns.map((c) => c.values),
+    );
+    const again = await unwrap(
+      commands.searchChangeJournal({
+        text: null,
+        connectionId: null,
+        table,
+        after: null,
+        limit: null,
+      }),
+    );
+    expect(again.entries[0]?.reverts).toBe(id);
+    expect(again.entries[1]?.revertedBy).toBe(again.entries[0]?.id);
+    expect(await errorCode(commands.previewChangeSetRevert(TAB, id))).toBe('invalidArgument');
+  });
+
   it('refuses edits the backend refuses', async () => {
     await unwrap(commands.openTableData(TAB, PG, ref('shop', 'orders')));
-    const change = { updates: [], inserts: [], deletes: [[int(1)]] };
+    const change = { updates: [], inserts: [], deletes: [{ key: [int(1)], values: [] }] };
     expect(
       await errorCode(
         commands.previewTableChanges(TAB, {

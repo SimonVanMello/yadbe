@@ -156,6 +156,32 @@ const MIGRATIONS: &[&str] = &[
         added_at INTEGER NOT NULL,
         PRIMARY KEY (host, port, key_type)
     );",
+    // v5: change journal (F-090). One row per applied change set: the statements as run
+    // (values written as literals, like the SQL preview), and its inverse as a JSON change set
+    // (`NULL` with `revert_blocker` when it cannot be reverted faithfully). No foreign key on
+    // connections: entries outlive a deleted connection, with the name it had.
+    "CREATE TABLE change_journal (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        connection_id TEXT NOT NULL,
+        connection_name TEXT NOT NULL,
+        engine TEXT NOT NULL,
+        database_name TEXT NOT NULL,
+        schema_name TEXT,
+        table_name TEXT NOT NULL,
+        applied_at INTEGER NOT NULL,
+        duration_ms REAL NOT NULL,
+        updated INTEGER NOT NULL,
+        inserted INTEGER NOT NULL,
+        deleted INTEGER NOT NULL,
+        statements TEXT NOT NULL,
+        inverse TEXT,
+        inverse_statements TEXT NOT NULL,
+        revert_blocker TEXT,
+        reverts INTEGER,
+        reverted_by INTEGER
+    );
+    CREATE INDEX change_journal_by_connection ON change_journal(connection_id, id);
+    CREATE INDEX change_journal_by_table ON change_journal(table_name, id);",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {

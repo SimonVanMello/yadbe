@@ -1,0 +1,91 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.rowHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.rowTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.rowTitle code {
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+}
+
+.rowIcon {
+  flex: none;
+  color: var(--warning);
+}
+
+.rowState {
+  color: var(--fg-secondary);
+}
+
+.gone {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.cells {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+  table-layout: fixed;
+}
+
+.cells th,
+.cells td {
+  padding: var(--space-1) var(--space-2);
+  overflow: hidden;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cells thead th {
+  color: var(--fg-muted);
+  font-weight: var(--weight-semibold);
+}
+
+.cells tbody th {
+  color: var(--fg-secondary);
+  font-family: var(--font-code);
+  font-weight: var(--weight-regular);
+}
+
+.cells td {
+  color: var(--fg-primary);
+  font-family: var(--font-code);
+}
+
+.cells tr[data-edited] td[data-kind='mine'] {
+  background: var(--cell-modified-bg);
+  color: var(--cell-modified);
+}
+
+.cells td[data-kind='theirs'] {
+  color: var(--warning);
+}

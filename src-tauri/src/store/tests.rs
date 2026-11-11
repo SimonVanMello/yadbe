@@ -186,6 +186,8 @@ fn preferences_default_and_round_trip() {
         history_max_entries: 1000,
         history_max_age_days: 30,
         connect_timeout_secs: 45,
+        journal_max_entries: 500,
+        journal_max_age_days: 7,
     };
     assert_eq!(store.set_preferences(&prefs).expect("set"), prefs);
     let cleared = Preferences {

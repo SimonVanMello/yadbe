@@ -2,6 +2,7 @@
 //! preferences (SPEC §8). History, saved queries and the change journal arrive with M1/M3.
 
 mod history;
+mod journal;
 mod known_hosts;
 mod library_io;
 mod migrations;
@@ -20,6 +21,7 @@ use crate::db::config::{
 use crate::db::dialect::Engine;
 use crate::db::errors::YadbeError;
 pub use history::*;
+pub use journal::*;
 pub use library_io::ImportReport;
 pub use saved_queries::*;
 pub use types::*;
@@ -39,6 +41,8 @@ const PREF_HISTORY_ENABLED: &str = "history_enabled";
 const PREF_HISTORY_MAX_ENTRIES: &str = "history_max_entries";
 const PREF_HISTORY_MAX_AGE_DAYS: &str = "history_max_age_days";
 const PREF_CONNECT_TIMEOUT_SECS: &str = "connect_timeout_secs";
+const PREF_JOURNAL_MAX_ENTRIES: &str = "journal_max_entries";
+const PREF_JOURNAL_MAX_AGE_DAYS: &str = "journal_max_age_days";
 const META_ACTIVE_TAB: &str = "active_tab";
 
 const CONNECTION_COLUMNS: &str = "id, name, engine, group_id, position, host, port, database_name, \
@@ -659,6 +663,18 @@ impl Store {
                 CONNECT_TIMEOUT_RANGE,
                 defaults.connect_timeout_secs,
             )?,
+            journal_max_entries: Self::pref_number(
+                &conn,
+                PREF_JOURNAL_MAX_ENTRIES,
+                JOURNAL_ENTRIES_RANGE,
+                defaults.journal_max_entries,
+            )?,
+            journal_max_age_days: Self::pref_number(
+                &conn,
+                PREF_JOURNAL_MAX_AGE_DAYS,
+                JOURNAL_AGE_DAYS_RANGE,
+                defaults.journal_max_age_days,
+            )?,
         })
     }
 
@@ -681,6 +697,18 @@ impl Store {
             CONNECT_TIMEOUT_RANGE,
             "The connect timeout",
             "Le délai de connexion",
+        )?;
+        check_range(
+            preferences.journal_max_entries,
+            JOURNAL_ENTRIES_RANGE,
+            "The change journal size",
+            "La taille du journal des modifications",
+        )?;
+        check_range(
+            preferences.journal_max_age_days,
+            JOURNAL_AGE_DAYS_RANGE,
+            "The change journal age",
+            "L'âge du journal des modifications",
         )?;
         {
             let mut conn = self.conn();
@@ -718,6 +746,14 @@ impl Store {
             set(
                 PREF_CONNECT_TIMEOUT_SECS,
                 Some(preferences.connect_timeout_secs.to_string()),
+            )?;
+            set(
+                PREF_JOURNAL_MAX_ENTRIES,
+                Some(preferences.journal_max_entries.to_string()),
+            )?;
+            set(
+                PREF_JOURNAL_MAX_AGE_DAYS,
+                Some(preferences.journal_max_age_days.to_string()),
             )?;
             tx.commit()?;
         }

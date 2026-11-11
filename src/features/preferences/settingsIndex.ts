@@ -110,6 +110,8 @@ export type SettingId =
   | 'historyMaxEntries'
   | 'historyMaxAgeDays'
   | 'clearHistory'
+  | 'journalMaxEntries'
+  | 'journalMaxAgeDays'
   | 'connectTimeoutSecs'
   | 'tlsRule'
   | 'keychain'
@@ -318,6 +320,20 @@ export const SETTINGS: readonly SettingSpec[] = [
     keywords: 'retention',
   },
   { id: 'clearHistory', section: 'history', key: null, control: custom, keywords: 'delete' },
+  {
+    id: 'journalMaxEntries',
+    section: 'history',
+    key: 'journalMaxEntries',
+    control: number('preferences.unit.changeSets'),
+    keywords: 'journal changes revert undo retention',
+  },
+  {
+    id: 'journalMaxAgeDays',
+    section: 'history',
+    key: 'journalMaxAgeDays',
+    control: number('preferences.unit.days'),
+    keywords: 'journal changes revert undo retention',
+  },
 
   {
     id: 'connectTimeoutSecs',

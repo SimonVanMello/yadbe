@@ -7,6 +7,7 @@ use crate::events::EventSink;
 use crate::export::ExportManager;
 use crate::secrets::{KeychainBackend, SecretStore};
 use crate::session::history_writer::StoreHistory;
+use crate::session::journal::ChangeJournal;
 use crate::session::library::Library;
 use crate::session::meta_cache::{MetaService, ObservingSink};
 use crate::session::references::ReferenceService;
@@ -30,6 +31,7 @@ pub struct AppState {
     pub exports: Arc<ExportManager>,
     pub tables: Arc<TableDataService>,
     pub references: Arc<ReferenceService>,
+    pub journal: Arc<ChangeJournal>,
 }
 
 impl AppState {
@@ -60,11 +62,15 @@ impl AppState {
             history.clone(),
         ));
         // Table pages live in the query results' store: `fetch_result_window` reads both.
-        let tables = Arc::new(TableDataService::new(
-            Arc::clone(&connections),
-            queries.shared_store(),
-            Arc::clone(&sink),
-        ));
+        let journal = Arc::new(ChangeJournal::new(Arc::clone(&store), Arc::clone(&sink)));
+        let tables = Arc::new(
+            TableDataService::new(
+                Arc::clone(&connections),
+                queries.shared_store(),
+                Arc::clone(&sink),
+            )
+            .with_journal(Arc::clone(&journal)),
+        );
         let references = Arc::new(ReferenceService::new(
             Arc::clone(&connections),
             Arc::clone(&meta),
@@ -88,6 +94,7 @@ impl AppState {
             exports,
             tables,
             references,
+            journal,
         }
     }
 }

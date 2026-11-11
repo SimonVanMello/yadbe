@@ -57,6 +57,8 @@ pub enum Density {
 pub const HISTORY_ENTRIES_RANGE: (u32, u32) = (100, 1_000_000);
 pub const HISTORY_AGE_DAYS_RANGE: (u32, u32) = (1, 3650);
 pub const CONNECT_TIMEOUT_RANGE: (u32, u32) = (1, 600);
+pub const JOURNAL_ENTRIES_RANGE: (u32, u32) = (10, 100_000);
+pub const JOURNAL_AGE_DAYS_RANGE: (u32, u32) = (1, 3650);
 
 /// App preferences (F-125). The settings only the frontend reads live in `ui_state`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -76,6 +78,10 @@ pub struct Preferences {
     pub history_max_age_days: u32,
     /// Connect timeout of the connections that do not set their own, in seconds.
     pub connect_timeout_secs: u32,
+    /// Change journal bound (F-090): most change sets kept.
+    pub journal_max_entries: u32,
+    /// Change journal bound: oldest change set kept, in days.
+    pub journal_max_age_days: u32,
 }
 
 impl Default for Preferences {
@@ -89,6 +95,8 @@ impl Default for Preferences {
             history_max_entries: 50_000,
             history_max_age_days: 365,
             connect_timeout_secs: 15,
+            journal_max_entries: 1_000,
+            journal_max_age_days: 90,
         }
     }
 }
