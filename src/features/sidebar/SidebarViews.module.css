@@ -9,6 +9,8 @@
 .switcher {
   display: flex;
   flex: none;
+  /* The labels of the views that are not shown fit or not, depending on the sidebar's width. */
+  container-type: inline-size;
   gap: var(--space-1);
   padding: var(--space-3) var(--space-3) 0;
 }
@@ -42,6 +44,31 @@
 .tab:focus-visible {
   outline: var(--focus-ring-width) solid var(--accent);
   outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+/* A narrow sidebar: the view on screen keeps its name, the others are their icon (and tooltip). */
+.tab[aria-selected='false'] {
+  flex: none;
+}
+
+.tab[aria-selected='false'] .label {
+  display: none;
+}
+
+@container (min-width: 22rem) {
+  .tab[aria-selected='false'] {
+    flex: 1;
+  }
+
+  .tab[aria-selected='false'] .label {
+    display: inline;
+  }
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tab[aria-selected='true'] {

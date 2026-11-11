@@ -98,6 +98,17 @@
   background: var(--fg-muted);
 }
 
+/* The text differs from the saved query the tab came from: a ring, never the file's dot. */
+.savedChanged {
+  flex: none;
+  box-sizing: border-box;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border: var(--border-width) solid var(--accent);
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+}
+
 /* A table tab: its icon before the name; pending changes in the modified-cell color. */
 .kind {
   color: var(--fg-muted);

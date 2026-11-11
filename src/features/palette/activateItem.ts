@@ -5,6 +5,7 @@ import { openQuery } from '../connections/connectionActions';
 import { openTable, scriptAs } from '../explorer/explorerActions';
 import { revealInExplorer } from '../explorer/revealInExplorer';
 import { insertEntry, openEntry } from '../history/historyActions';
+import { insertSaved, openSaved } from '../library/libraryActions';
 import { isScriptable, type PaletteItem } from './paletteItems';
 
 /** What `↵` does, shown in the footer. */
@@ -20,13 +21,15 @@ export function primaryHint(item: PaletteItem): MessageKey {
       return 'palette.hint.reveal';
     case 'history':
       return 'palette.hint.openHistory';
+    case 'saved':
+      return 'palette.hint.openSaved';
   }
 }
 
 /** What `⌘↵` does for this item, `null` when it has no second action. */
 export function secondaryHint(item: PaletteItem): MessageKey | null {
   if (isScriptable(item)) return 'palette.hint.script';
-  return item.kind === 'history' ? 'palette.hint.insert' : null;
+  return item.kind === 'history' || item.kind === 'saved' ? 'palette.hint.insert' : null;
 }
 
 /**
@@ -70,6 +73,9 @@ export function activateItem(item: PaletteItem, secondary: boolean, openData = f
       return;
     case 'history':
       void (secondary ? insertEntry(item.entry) : openEntry(item.entry));
+      return;
+    case 'saved':
+      void (secondary ? insertSaved(item.query) : openSaved(item.query));
       return;
   }
 }

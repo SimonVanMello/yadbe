@@ -1,0 +1,57 @@
+.row {
+  --depth: 0;
+
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--row-height);
+  padding: 0 var(--space-3) 0 calc(var(--space-2) + var(--depth) * var(--space-4));
+  border-radius: var(--radius-md);
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  cursor: default;
+  user-select: none;
+}
+
+.row:hover {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}
+
+.row[data-active] {
+  background: var(--bg-selected);
+}
+
+/* Where a drop would land. */
+.row[data-drop] {
+  background: var(--accent-soft);
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+/* The tree keeps the focus (aria-activedescendant): ring the active row while it has it. */
+:global([role='tree']:focus-visible) .row[data-active] {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+.chevron,
+.folder {
+  color: var(--fg-muted);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+  font-variant-numeric: tabular-nums;
+}

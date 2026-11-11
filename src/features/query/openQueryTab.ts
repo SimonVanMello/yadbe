@@ -1,6 +1,6 @@
 import { openConnectionTab, selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { getEditor } from './editorRegistry';
-import { newQueryTabState, useQueryTabStore } from './queryTabStore';
+import { newQueryTabState, useQueryTabStore, type SavedOrigin } from './queryTabStore';
 
 /** Where a new query tab starts. */
 export interface QueryTabTarget {
@@ -15,6 +15,8 @@ export interface QueryTabTarget {
    * new tab").
    */
   reuseWelcomeTab?: boolean;
+  /** The saved query the text comes from (F-050): the tab can update it. */
+  origin?: SavedOrigin | null;
 }
 
 /**
@@ -33,6 +35,7 @@ export function openQueryTab(target: QueryTabTarget): string {
     content,
     selection: { anchor: content.length, head: content.length },
     database: target.database ?? null,
+    origin: target.origin ?? null,
   });
   return id;
 }

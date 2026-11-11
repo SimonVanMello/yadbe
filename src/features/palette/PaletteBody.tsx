@@ -33,7 +33,7 @@ const OVERSCAN = 3;
 const PAGE = 8;
 /** Rows drawn before the real size is measured (and in tests, where nothing is measured). */
 const INITIAL_RECT = { width: 600, height: 408 };
-const MODES: readonly PaletteKind[] = ['action', 'object', 'tab', 'history', 'connection'];
+const MODES: readonly PaletteKind[] = ['action', 'object', 'tab', 'saved', 'history', 'connection'];
 
 interface PaletteBodyProps {
   /** An item was chosen: the palette closes and the item runs. */

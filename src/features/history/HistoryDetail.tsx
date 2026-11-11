@@ -9,6 +9,8 @@ import { ConnectionTag } from './ConnectionTag';
 import styles from './HistoryDetail.module.css';
 import { MatchText } from './MatchText';
 import { OutcomeIcon } from './OutcomeIcon';
+import { saveHistoryEntry } from '../library/libraryActions';
+import { useSavedSqlSet } from '../library/useLibrary';
 import { copyEntry, deleteEntry, insertEntry, openEntry } from './historyActions';
 import type { HistoryEntry } from './historyModel';
 import { useHistoryEntry } from './useHistory';
@@ -26,6 +28,8 @@ export function HistoryDetail({ entry: listed, search }: HistoryDetailProps) {
   const connection = useConnection(listed.connectionId);
   const whole = useHistoryEntry(listed.sqlTruncated ? listed.id : null);
   const entry = whole.data ?? listed;
+  const saved = useSavedSqlSet();
+  const inLibrary = saved.has(entry.sql.trim());
 
   return (
     <aside className={styles.detail} aria-label={t('history.detail')}>
@@ -60,6 +64,16 @@ export function HistoryDetail({ entry: listed, search }: HistoryDetailProps) {
             label={t('history.action.insert')}
             onClick={() => {
               void insertEntry(entry);
+            }}
+          />
+          <IconButton
+            icon="star"
+            size="sm"
+            label={inLibrary ? t('history.action.inLibrary') : t('history.action.saveToLibrary')}
+            aria-pressed={inLibrary}
+            data-saved={inLibrary || undefined}
+            onClick={() => {
+              void saveHistoryEntry(entry);
             }}
           />
           <IconButton

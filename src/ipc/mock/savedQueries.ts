@@ -822,6 +822,7 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
     clear(): void {
       folders = [];
       queries = [];
+      announce();
     },
   };
 }

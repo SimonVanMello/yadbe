@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type SidebarView = 'connections' | 'history';
+export type SidebarView = 'connections' | 'history' | 'library';
 
 interface SidebarViewStore {
   view: SidebarView;

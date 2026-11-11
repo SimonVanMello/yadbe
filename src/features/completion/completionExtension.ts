@@ -3,6 +3,7 @@ import { Prec, type Extension } from '@codemirror/state';
 import { keymap } from '@codemirror/view';
 
 import { translate, useI18nStore, type MessageKey } from '../../i18n/i18n';
+import { snippetCompletionSource } from '../library/snippetCompletion';
 import { sqlCompletionSource, type CompletionHost } from './completionSource';
 
 /** One-letter marks of the kinds of suggestion; the full name is the mark's tooltip. */
@@ -19,6 +20,7 @@ const GLYPHS: Record<string, string> = {
   alias: 'A',
   cte: 'W',
   join: 'J',
+  snippet: '{}',
 };
 
 /** Pause after a keystroke before the suggestions start: short, the source is what takes time. */
@@ -43,7 +45,9 @@ function kindMark(type: string | undefined): Node | null {
 export function completionExtension(host: CompletionHost): Extension {
   return [
     autocompletion({
-      override: [sqlCompletionSource(host)],
+      // Snippets first: a trigger word being typed is what the user means, and the SQL source's
+      // own order (`filter: false`) keeps its options after ours.
+      override: [snippetCompletionSource(host), sqlCompletionSource(host)],
       icons: false,
       activateOnTypingDelay: TYPING_DELAY_MS,
       maxRenderedOptions: 60,

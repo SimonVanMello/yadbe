@@ -5,9 +5,10 @@ import type { IconName } from '../../ui/Icon';
 import type { ConnectionState, ConnectionSummary } from '../connections/model';
 import { KIND_ICONS } from '../explorer/explorerLabels';
 import type { HistoryEntry } from '../history/historyModel';
+import type { SavedQuery } from '../../ipc';
 import type { Searchable } from './matcher';
 
-export type PaletteKind = 'action' | 'connection' | 'tab' | 'object' | 'history';
+export type PaletteKind = 'action' | 'connection' | 'tab' | 'object' | 'history' | 'saved';
 
 /** What the palette lists: everything, or one kind chosen with a prefix. */
 export type PaletteMode = 'all' | PaletteKind;
@@ -58,7 +59,17 @@ export interface HistoryItem extends Searchable {
   entry: HistoryEntry;
 }
 
-export type PaletteItem = ActionItem | ConnectionItem | TabItem | ObjectItem | HistoryItem;
+/** A saved query or snippet of the library (F-120), searched by name. */
+export interface SavedItem extends Searchable {
+  kind: 'saved';
+  key: string;
+  query: SavedQuery;
+  /** The folder it is in (`Reports / Monthly`), empty at the root. */
+  folder: string;
+}
+
+export type PaletteItem =
+  ActionItem | ConnectionItem | TabItem | ObjectItem | HistoryItem | SavedItem;
 
 /** Prefixes narrowing the search to one kind (`>` commands, as in VS Code). */
 export const MODE_PREFIXES: Record<string, PaletteKind> = {
@@ -67,6 +78,7 @@ export const MODE_PREFIXES: Record<string, PaletteKind> = {
   '#': 'tab',
   '@': 'object',
   '!': 'history',
+  '*': 'saved',
 };
 
 /** The prefix of each kind, for the hint row. */
@@ -76,6 +88,7 @@ export const KIND_PREFIX: Record<PaletteKind, string> = {
   tab: '#',
   object: '@',
   history: '!',
+  saved: '*',
 };
 
 export interface ParsedQuery {
@@ -95,6 +108,7 @@ export const GROUP_LABELS: Record<PaletteKind, MessageKey> = {
   tab: 'palette.group.tab',
   object: 'palette.group.object',
   history: 'palette.group.history',
+  saved: 'palette.group.saved',
 };
 
 export const MODE_HINTS: Record<PaletteKind, MessageKey> = {
@@ -103,6 +117,7 @@ export const MODE_HINTS: Record<PaletteKind, MessageKey> = {
   tab: 'palette.mode.tab',
   object: 'palette.mode.object',
   history: 'palette.mode.history',
+  saved: 'palette.mode.saved',
 };
 
 const KIND_ICON: Record<Exclude<PaletteKind, 'object'>, IconName> = {
@@ -110,6 +125,7 @@ const KIND_ICON: Record<Exclude<PaletteKind, 'object'>, IconName> = {
   connection: 'database',
   tab: 'terminal',
   history: 'history',
+  saved: 'bookmark',
 };
 
 export function iconOf(item: PaletteItem): IconName {

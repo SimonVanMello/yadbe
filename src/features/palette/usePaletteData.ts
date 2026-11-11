@@ -11,10 +11,11 @@ import {
   useSessions,
 } from '../connections/connectionStore';
 import { useCatalogs, type CatalogTarget } from '../explorer/catalogCache';
+import { useSavedLibrary } from '../library/useLibrary';
 import { fetchDatabases } from '../explorer/metaApi';
 import { metaKeys } from '../explorer/metaKeys';
 import { useTabRunning, useTabTransaction } from '../query/executionStore';
-import { fileNameOf, useQueryTabStore } from '../query/queryTabStore';
+import { fileNameOf, useDiffersFromSaved, useQueryTabStore } from '../query/queryTabStore';
 import type { ActionContext } from './actionAvailability';
 import { createSearcher } from './matcher';
 import { buildObjectItems } from './objectItems';
@@ -24,14 +25,18 @@ import {
   buildActionItems,
   buildConnectionItems,
   buildHistoryItems,
+  buildSavedItems,
   buildTabItems,
   type TabEntry,
 } from './paletteSources';
 import { usePaletteStore } from './paletteStore';
 import { useHistoryHits } from './useHistoryHits';
+import { useSavedHits } from './useSavedHits';
 
 /** Longest text the history is searched with in the mixed list: shorter ones match everything. */
 const HISTORY_MIN_CHARS = 3;
+/** Same for the saved queries: their names are matched on the client, so two letters will do. */
+const SAVED_MIN_CHARS = 2;
 
 /**
  * The databases whose objects the palette searches: the one each connected connection was opened
@@ -90,6 +95,7 @@ export function usePaletteData(raw: string) {
   const running = useTabRunning(activeTab.id);
   const transaction = useTabTransaction(activeTab.id);
   const activeState = useConnectionState(activeTab.connectionId);
+  const savedDiffers = useDiffersFromSaved(activeTab.id);
 
   const wantsObjects = mode === 'all' || mode === 'object';
   const { targets, loading: loadingDatabases } = useCatalogTargets(wantsObjects);
@@ -109,6 +115,15 @@ export function usePaletteData(raw: string) {
     [historyWanted, history.entries],
   );
 
+  const savedWanted = mode === 'saved' || (mode === 'all' && text.length >= SAVED_MIN_CHARS);
+  const { library } = useSavedLibrary();
+  const savedHits = useSavedHits(text, savedWanted);
+  const savedItems = useMemo(
+    () => (savedWanted ? buildSavedItems(library) : []),
+    [savedWanted, library],
+  );
+  const savedSearcher = useMemo(() => createSearcher(savedItems), [savedItems]);
+
   const context: ActionContext = {
     queryTab: isQueryTab(activeTab),
     tableTab: isTableTab(activeTab),
@@ -118,6 +133,7 @@ export function usePaletteData(raw: string) {
     tabCount: tabs.length,
     closedTabCount: closedTabs,
     registered: useMemo(() => registeredActions(), []),
+    savedDiffers,
   };
   const contextKey = [
     context.queryTab,
@@ -127,6 +143,7 @@ export function usePaletteData(raw: string) {
     context.transactionOpen,
     context.tabCount,
     context.closedTabCount,
+    context.savedDiffers,
   ].join();
   const actions = useMemo(
     () => buildActionItems(t, context),
@@ -166,14 +183,27 @@ export function usePaletteData(raw: string) {
       tabs: tabItems,
       objects,
       history: historyItems,
+      saved: savedItems,
+      savedTextIds: savedHits.ids,
       searchers: {
         actions: createSearcher(actions),
         connections: createSearcher(connectionItems),
         tabs: createSearcher(tabItems),
         objects: objectSearcher,
+        saved: savedSearcher,
       },
     }),
-    [actions, connectionItems, tabItems, objects, objectSearcher, historyItems],
+    [
+      actions,
+      connectionItems,
+      tabItems,
+      objects,
+      objectSearcher,
+      historyItems,
+      savedItems,
+      savedHits.ids,
+      savedSearcher,
+    ],
   );
 
   const results = useMemo(
@@ -184,7 +214,7 @@ export function usePaletteData(raw: string) {
     mode,
     text,
     results,
-    loading: loadingObjects || history.loading,
+    loading: loadingObjects || history.loading || savedHits.loading,
     loadingObjects,
     hasObjects: objects.length > 0,
     connectedCount: targets.length,

@@ -9,6 +9,8 @@ import { MenuItem } from '../../ui/MenuItem';
 import { Select } from '../../ui/Select';
 import { Tooltip } from '../../ui/Tooltip';
 import type { ConnectionSummary } from '../connections/model';
+import { saveEditorToLibrary, updateSavedFromTab } from '../library/libraryActions';
+import { useSavedLibrary } from '../library/useLibrary';
 import { ConnectionSwitcher } from './ConnectionSwitcher';
 import { useTabRunning, useTabTransaction } from './executionStore';
 import {
@@ -21,7 +23,7 @@ import {
   setTransactionMode,
 } from './queryActions';
 import styles from './QueryControls.module.css';
-import { useIsDirty, useQueryTabState } from './queryTabStore';
+import { useDiffersFromSaved, useIsDirty, useQueryTabState } from './queryTabStore';
 import { runLabelKey, selectedRange } from './runScope';
 
 interface QueryControlsProps {
@@ -39,7 +41,12 @@ export function QueryControls({ tabId, connection }: QueryControlsProps) {
   const { selection } = useQueryTabState(tabId);
   const hasSelection = selectedRange(selection) !== null;
   const dirty = useIsDirty(tabId);
-  const { filePath } = useQueryTabState(tabId);
+  const { filePath, origin } = useQueryTabState(tabId);
+  const savedDiffers = useDiffersFromSaved(tabId);
+  const { library } = useSavedLibrary();
+  const originName = origin
+    ? (library.queries.find((query) => query.id === origin.queryId)?.name ?? '')
+    : '';
 
   return (
     <>
@@ -129,6 +136,26 @@ export function QueryControls({ tabId, connection }: QueryControlsProps) {
           void saveScript(tabId);
         }}
       />
+      <IconButton
+        icon="bookmark"
+        label={t('action.query.saveToLibrary')}
+        shortcut={shortcutOf('query.saveToLibrary')}
+        onClick={() => {
+          saveEditorToLibrary(tabId);
+        }}
+      />
+      {origin && savedDiffers && (
+        <Tooltip content={t('library.update.hint', { name: originName })}>
+          <Button
+            size="sm"
+            onClick={() => {
+              void updateSavedFromTab(tabId);
+            }}
+          >
+            {t('library.update')}
+          </Button>
+        </Tooltip>
+      )}
       <span className={styles.separator} aria-hidden="true" />
       {connection ? <ConnectionSwitcher tabId={tabId} connection={connection} /> : null}
     </>

@@ -31,6 +31,8 @@ export const DEFAULT_BINDINGS = {
   'view.toggleStatementLog': 'Mod+J',
   // Sidebar: History view (F-101), search focused.
   'view.history': 'Mod+Shift+H',
+  // Sidebar: Saved queries view (F-050), search focused.
+  'view.library': 'Mod+Shift+B',
   // SQL editor (F-041, F-042, F-045): `query.run` runs the selection, else the whole script.
   'query.run': 'Mod+Enter',
   'query.runStatement': 'Mod+Shift+Enter',
@@ -38,6 +40,8 @@ export const DEFAULT_BINDINGS = {
   'query.open': 'Mod+O',
   'query.save': 'Mod+S',
   'query.saveAs': 'Mod+Shift+S',
+  // The selection, or the whole tab, into the query library (F-050): not the `.sql` file save.
+  'query.saveToLibrary': 'Mod+Shift+L',
   // Results (F-066): the export dialog of the result on screen.
   'result.export': 'Mod+Shift+E',
   // Table tabs (F-080 to F-085). `Mod+S` is Save in a query tab and Apply in a table tab: a
@@ -72,6 +76,7 @@ export const UNBOUND_ACTIONS = [
   'tab.togglePin',
   'query.commit',
   'query.rollback',
+  'query.updateSavedQuery',
   'theme.light',
   'theme.dark',
   'theme.system',
@@ -118,6 +123,7 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'view.toggleSidebar': 'action.view.toggleSidebar',
   'view.toggleStatementLog': 'action.view.toggleStatementLog',
   'view.history': 'action.view.history',
+  'view.library': 'action.view.library',
   'result.export': 'action.result.export',
   'query.run': 'action.query.run',
   'query.runStatement': 'action.query.runStatement',
@@ -125,12 +131,14 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'query.open': 'action.query.open',
   'query.save': 'action.query.save',
   'query.saveAs': 'action.query.saveAs',
+  'query.saveToLibrary': 'action.query.saveToLibrary',
   'view.connections': 'action.view.connections',
   'explorer.refresh': 'action.explorer.refresh',
   'explorer.toggleSystem': 'action.explorer.toggleSystem',
   'tab.togglePin': 'action.tab.togglePin',
   'query.commit': 'action.query.commit',
   'query.rollback': 'action.query.rollback',
+  'query.updateSavedQuery': 'action.query.updateSavedQuery',
   'theme.light': 'action.theme.light',
   'theme.dark': 'action.theme.dark',
   'theme.system': 'action.theme.system',

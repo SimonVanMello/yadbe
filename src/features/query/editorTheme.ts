@@ -189,6 +189,7 @@ const chrome = EditorView.theme({
   '.cm-yadbe-kind[data-kind="function"], .cm-yadbe-kind[data-kind="procedure"]': {
     color: 'var(--syn-function)',
   },
+  '.cm-yadbe-kind[data-kind="snippet"]': { color: 'var(--accent)' },
   '.cm-yadbe-kind[data-kind="keyword"], .cm-yadbe-kind[data-kind="type"]': {
     color: 'var(--syn-keyword)',
   },

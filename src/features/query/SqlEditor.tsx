@@ -1,4 +1,4 @@
-import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { closeBrackets, closeBracketsKeymap, snippet } from '@codemirror/autocomplete';
 import {
   defaultKeymap,
   history,
@@ -89,6 +89,8 @@ function runKeys(): Extension {
       bind('Mod-Enter', 'query.run'),
       bind('Mod-Shift-Enter', 'query.runStatement'),
       bind('Mod-.', 'query.cancel'),
+      // CodeMirror's search keymap binds `Mod-Shift-l` (select every match): the library is ours.
+      bind('Mod-Shift-l', 'query.saveToLibrary'),
     ]),
   );
 }
@@ -334,6 +336,11 @@ export function SqlEditor({ tabId, engine, connectionId, connectionDatabase }: S
           userEvent: 'input.paste',
         });
         view.focus();
+      },
+      insertSnippet: (template) => {
+        const { from, to } = view.state.selection.main;
+        view.focus();
+        snippet(template)(view, null, from, to);
       },
     };
     const unregister = registerEditor(tabId, controller);

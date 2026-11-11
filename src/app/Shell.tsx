@@ -8,6 +8,8 @@ import { PasswordPromptDialog } from '../features/connections/PasswordPromptDial
 import { refreshNode } from '../features/explorer/explorerActions';
 import { useExplorerStore } from '../features/explorer/explorerStore';
 import { useHistoryActions } from '../features/history/useHistoryActions';
+import { SaveQueryDialog } from '../features/library/SaveQueryDialog';
+import { useLibraryActions } from '../features/library/useLibraryActions';
 import { ExportDialog } from '../features/export/ExportDialog';
 import { useExportActions } from '../features/export/useExportActions';
 import { CommandPalette } from '../features/palette/CommandPalette';
@@ -150,6 +152,7 @@ export function Shell() {
   useTableActions();
   useExportActions();
   useHistoryActions();
+  useLibraryActions();
   usePaletteActions();
   useWindowTitle();
   const ready = useStartup();
@@ -200,6 +203,7 @@ export function Shell() {
       <PasswordPromptDialog />
       <GroupDialog />
       <ExportDialog />
+      <SaveQueryDialog />
       <CommandPalette />
       <PreferencesDialog />
     </div>

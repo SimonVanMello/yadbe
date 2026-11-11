@@ -9,6 +9,7 @@ import {
   type PaletteItem,
   type PaletteKind,
   type PaletteMode,
+  type SavedItem,
   type TabItem,
 } from './paletteItems';
 
@@ -19,11 +20,16 @@ export interface PaletteSources {
   objects: readonly ObjectItem[];
   /** Statements the backend found for the query, newest first. */
   history: readonly HistoryItem[];
+  /** Every saved query, searched by name here. */
+  saved: readonly SavedItem[];
+  /** Ids of the saved queries the full-text search found (their text, not their name), best first. */
+  savedTextIds: readonly string[];
   searchers: {
     actions: Searcher<ActionItem>;
     connections: Searcher<ConnectionItem>;
     tabs: Searcher<TabItem>;
     objects: Searcher<ObjectItem>;
+    saved: Searcher<SavedItem>;
   };
 }
 
@@ -41,12 +47,20 @@ export interface Results {
 const GROUP_CAP = 8;
 const OBJECT_CAP = 12;
 const HISTORY_CAP = 5;
+const SAVED_CAP = 5;
 const RECENT_BOOST = 6;
 const DISABLED_PENALTY = 12;
 const ACTIVE_TAB_BOOST = 2;
 
 /** Kinds in the order they are listed when their best matches tie. */
-const KIND_ORDER: readonly PaletteKind[] = ['action', 'connection', 'tab', 'object', 'history'];
+const KIND_ORDER: readonly PaletteKind[] = [
+  'action',
+  'connection',
+  'tab',
+  'object',
+  'saved',
+  'history',
+];
 
 interface Group {
   kind: PaletteKind;
@@ -105,7 +119,9 @@ export function buildResults(
         ? OBJECT_CAP
         : kind === 'history'
           ? HISTORY_CAP
-          : GROUP_CAP;
+          : kind === 'saved'
+            ? SAVED_CAP
+            : GROUP_CAP;
 
   if (text === '' && mode === 'all') return emptyQueryResults(sources, recentKeys);
 
@@ -127,6 +143,7 @@ export function buildResults(
   addSearched('connection', sources.searchers.connections, sources.connections);
   addSearched('tab', sources.searchers.tabs, sources.tabs);
   addSearched('object', sources.searchers.objects, sources.objects);
+  if (wants('saved')) groups.push(savedGroup(sources, text, cap('saved'), boost));
   if (wants('history')) {
     const limit = single ? MAX_HITS : HISTORY_CAP;
     groups.push({
@@ -146,6 +163,40 @@ export function buildResults(
     // One kind alone needs no heading.
     rows: groups.flatMap(groupRows).filter((row) => !single || row.type === 'item'),
     total: groups.reduce((sum, group) => sum + group.total, 0),
+  };
+}
+
+/** Saved queries whose name matches, then the ones only their text or tags matched. */
+function savedGroup(
+  sources: PaletteSources,
+  text: string,
+  limit: number,
+  boost: (item: PaletteItem) => number,
+): Group {
+  if (text === '') {
+    return {
+      kind: 'saved',
+      hits: plain(sources.saved, limit),
+      total: sources.saved.length,
+      best: 0,
+    };
+  }
+  const { hits, total } = sources.searchers.saved.search(text, limit, boost);
+  const named = new Set(hits.map((hit) => hit.item.key));
+  const byKey = new Map(sources.saved.map((item) => [item.key, item]));
+  const rest = sources.savedTextIds
+    .map((id) => byKey.get(`saved:${id}`))
+    .filter((item): item is SavedItem => item !== undefined && !named.has(item.key));
+  const room = Math.max(0, limit - hits.length);
+  const all: Hit<PaletteItem>[] = [
+    ...hits,
+    ...rest.slice(0, room).map((item): Hit<PaletteItem> => ({ item, score: 0, indices: [] })),
+  ];
+  return {
+    kind: 'saved',
+    hits: all,
+    total: total + rest.length,
+    best: hits[0]?.score ?? -Infinity,
   };
 }
 
