@@ -8,7 +8,7 @@ use crate::db::meta::{
     CompletionCatalog, DatabaseInfo, IncomingForeignKeys, ObjectCount, ObjectInfo, ObjectKind,
     ObjectRef, SchemaInfo, TableDetails,
 };
-use crate::db::object_model::{DdlTarget, ObjectDependents, ObjectProperties};
+use crate::db::object_model::{DdlTarget, ObjectDdl, ObjectDependents, ObjectProperties};
 
 pub type MetaFuture<'a, T> = BoxFuture<'a, Result<T, YadbeError>>;
 
@@ -61,15 +61,16 @@ pub trait Introspector: Send + Sync {
         Box::pin(async { Ok(IncomingForeignKeys::unsupported()) })
     }
 
-    /// The engine's own definition text of an object (F-024): a view, a routine, a trigger, a
-    /// table on engines that keep one. `None` when the engine keeps none (the caller then
-    /// reconstructs it from the catalog). `info` is the object's entry of its list, for the
+    /// The engine's own definition text of an object (F-024): a view, a routine, a table on
+    /// engines that keep one (`source` `catalog`), or text the driver builds from catalog
+    /// functions (`reconstructed`, with the header comment). `None` when the driver has
+    /// nothing better than the generic reconstruction. `info` is the object's entry of its list, for the
     /// kinds that have one.
     fn native_ddl<'a>(
         &'a self,
         _target: &'a DdlTarget,
         _info: Option<&'a ObjectInfo>,
-    ) -> MetaFuture<'a, Option<String>> {
+    ) -> MetaFuture<'a, Option<ObjectDdl>> {
         Box::pin(async { Ok(None) })
     }
 

@@ -22,6 +22,7 @@ use crate::db::meta::{
     SequenceSummary, TableDetails, TriggerEvent, TriggerInfo, TriggerTiming, TypeAttribute,
     TypeCategory, TypeSummary,
 };
+use crate::db::object_model::{DdlTarget, ObjectDdl, ObjectDependents, ObjectProperties};
 use crate::db::value::ValueKind;
 
 const DATABASES_SQL: &str = "\
@@ -216,7 +217,7 @@ WHERE con.contype = 'f'";
 /// A catalog column: attnum, name, (type oid, type modifier).
 type Attribute = (i16, String, (u32, i32));
 
-fn get<'a, T: FromSql<'a>>(row: &'a Row, index: usize) -> Result<T, YadbeError> {
+pub(super) fn get<'a, T: FromSql<'a>>(row: &'a Row, index: usize) -> Result<T, YadbeError> {
     row.try_get(index)
         .map_err(|e| YadbeError::internal(format!("metadata column {index}: {e}")))
 }
@@ -277,11 +278,11 @@ fn count(value: i32) -> u32 {
 }
 
 /// `reltuples`: negative (PG 14+) or zero (before) when never analyzed.
-fn estimate(reltuples: f64) -> Option<f64> {
+pub(super) fn estimate(reltuples: f64) -> Option<f64> {
     (reltuples > 0.0).then_some(reltuples)
 }
 
-fn relation_kind(relkind: &str) -> ObjectKind {
+pub(super) fn relation_kind(relkind: &str) -> ObjectKind {
     match relkind {
         "v" => ObjectKind::View,
         "m" => ObjectKind::MaterializedView,
@@ -343,7 +344,7 @@ fn trigger_type(tgtype: i32) -> (TriggerTiming, Vec<TriggerEvent>, bool) {
 
 impl PgConnection {
     /// Runs one metadata query, recorded in the statement log.
-    async fn meta(
+    pub(super) async fn meta(
         &self,
         sql: &str,
         params: &[&(dyn ToSql + Sync)],
@@ -638,7 +639,10 @@ impl PgConnection {
         Ok(details)
     }
 
-    async fn incoming(&self, table: &ObjectRef) -> Result<IncomingForeignKeys, YadbeError> {
+    pub(super) async fn incoming(
+        &self,
+        table: &ObjectRef,
+    ) -> Result<IncomingForeignKeys, YadbeError> {
         let schema = schema_of(table.schema.as_deref())?;
         let rows = self
             .meta(INCOMING_FOREIGN_KEYS_SQL, &[&schema, &table.name])
@@ -930,6 +934,30 @@ impl Introspector for PgConnection {
         table: &'a ObjectRef,
     ) -> MetaFuture<'a, IncomingForeignKeys> {
         Box::pin(self.incoming(table))
+    }
+
+    fn native_ddl<'a>(
+        &'a self,
+        target: &'a DdlTarget,
+        info: Option<&'a ObjectInfo>,
+    ) -> MetaFuture<'a, Option<ObjectDdl>> {
+        Box::pin(self.native_definition(target, info))
+    }
+
+    fn properties<'a>(
+        &'a self,
+        object: &'a ObjectRef,
+        kind: ObjectKind,
+    ) -> MetaFuture<'a, ObjectProperties> {
+        Box::pin(self.object_properties(object, kind))
+    }
+
+    fn dependents<'a>(
+        &'a self,
+        object: &'a ObjectRef,
+        kind: ObjectKind,
+    ) -> MetaFuture<'a, ObjectDependents> {
+        Box::pin(self.object_dependents(object, kind))
     }
 }
 

@@ -11,6 +11,7 @@ mod bound;
 mod decode;
 mod execute;
 mod introspect;
+mod objects;
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};

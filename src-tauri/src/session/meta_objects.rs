@@ -74,9 +74,9 @@ impl MetaService {
                         info.as_ref(),
                     )
                     .await?;
-                if let Some(text) = native {
+                if let Some(native) = native {
                     return Ok(self
-                        .with_triggers(manager, connection_id, object, *kind, text, dialect)
+                        .with_triggers(manager, connection_id, object, *kind, native, dialect)
                         .await);
                 }
                 match kind {
@@ -103,16 +103,12 @@ impl MetaService {
                     .ok_or_else(|| YadbeError::object_not_found(name))?;
                 match &trigger.definition {
                     Some(text) => Ok(ObjectDdl {
-                        sql: ensure_semicolon(text),
+                        sql: format!("{}\n", ddl::script_statement(dialect, text)),
                         source: DdlSource::Catalog,
                     }),
                     None => self
                         .native_ddl(&session, request_id, &table.database, target, None)
                         .await?
-                        .map(|sql| ObjectDdl {
-                            sql,
-                            source: DdlSource::Catalog,
-                        })
                         .ok_or_else(|| no_ddl(dialect, table)),
                 }
             }
@@ -127,7 +123,7 @@ impl MetaService {
                     .ok_or_else(|| YadbeError::object_not_found(name))?;
                 Ok(match &index.definition {
                     Some(text) => ObjectDdl {
-                        sql: ensure_semicolon(text),
+                        sql: format!("{}\n", ddl::script_statement(dialect, text)),
                         source: DdlSource::Catalog,
                     },
                     None => {
@@ -150,7 +146,7 @@ impl MetaService {
         database: &str,
         target: &DdlTarget,
         info: Option<&ObjectInfo>,
-    ) -> Result<Option<String>, YadbeError> {
+    ) -> Result<Option<ObjectDdl>, YadbeError> {
         let cache = self.cache(session);
         let conn = self.connection_for(session, &cache, Some(database)).await?;
         let work = async { Self::introspector(&*conn)?.native_ddl(target, info).await };
@@ -165,10 +161,10 @@ impl MetaService {
         connection_id: &str,
         object: &ObjectRef,
         kind: ObjectKind,
-        text: String,
+        native: ObjectDdl,
         dialect: &dyn Dialect,
     ) -> ObjectDdl {
-        let mut sql = text;
+        let mut sql = native.sql;
         if kind == ObjectKind::Table
             && let Ok(details) = self
                 .table_details(manager, None, connection_id, object)
@@ -179,7 +175,7 @@ impl MetaService {
         }
         ObjectDdl {
             sql,
-            source: DdlSource::Catalog,
+            source: native.source,
         }
     }
 
@@ -327,15 +323,6 @@ fn reconstructed(sql: String) -> ObjectDdl {
     ObjectDdl {
         sql,
         source: DdlSource::Reconstructed,
-    }
-}
-
-fn ensure_semicolon(statement: &str) -> String {
-    let trimmed = statement.trim_end();
-    if trimmed.ends_with(';') {
-        format!("{trimmed}\n")
-    } else {
-        format!("{trimmed};\n")
     }
 }
 

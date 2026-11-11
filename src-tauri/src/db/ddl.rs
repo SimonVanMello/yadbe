@@ -4,11 +4,13 @@
 //! Identifiers are quoted through the dialect.
 
 use crate::db::dialect::Dialect;
+use crate::db::meta::qualified_name;
 use crate::db::meta::{
     ColumnInfo, ForeignKey, ForeignKeyAction, Identity, IndexInfo, ObjectDetail, ObjectInfo,
     ObjectKind, ObjectRef, SequenceSummary, TableDetails, TypeCategory, TypeSummary,
 };
 use crate::db::object_ops::{GeneratedStyle, IdentityStyle};
+use crate::db::split::Separator;
 
 fn header(dialect: &dyn Dialect, what: &str) -> String {
     let mut text = format!(
@@ -100,7 +102,7 @@ fn foreign_key_line(dialect: &dyn Dialect, fk: &ForeignKey) -> String {
     let mut body = format!(
         "FOREIGN KEY ({}) REFERENCES {} ({})",
         column_list(dialect, &fk.columns),
-        dialect.ddl_name(&fk.referenced_table),
+        qualified_name(dialect, &fk.referenced_table),
         column_list(dialect, &fk.referenced_columns)
     );
     for clause in [
@@ -125,7 +127,7 @@ pub fn index_ddl(dialect: &dyn Dialect, table: &ObjectRef, index: &IndexInfo) ->
         "CREATE {}INDEX {} ON {} ({})",
         if index.unique { "UNIQUE " } else { "" },
         dialect.quote_identifier(&index.name),
-        dialect.ddl_name(table),
+        qualified_name(dialect, table),
         column_list(dialect, &index.columns)
     );
     if let Some(predicate) = &index.predicate {
@@ -136,12 +138,15 @@ pub fn index_ddl(dialect: &dyn Dialect, table: &ObjectRef, index: &IndexInfo) ->
     sql
 }
 
-fn terminated(statement: &str) -> String {
-    let trimmed = statement.trim_end();
-    if trimmed.ends_with(';') {
-        trimmed.to_owned()
-    } else {
-        format!("{trimmed};")
+/// A statement as a script written to be run again holds it: ended with `;`, or, on an engine
+/// whose statements may hold `;` in their body (MySQL), wrapped in a `DELIMITER` block.
+pub fn script_statement(dialect: &dyn Dialect, statement: &str) -> String {
+    let body = statement.trim().trim_end_matches(';').trim_end();
+    match dialect.syntax().separator {
+        Separator::MysqlDelimiter if body.contains(';') => {
+            format!("DELIMITER //\n{body}\n//\nDELIMITER ;")
+        }
+        _ => format!("{body};"),
     }
 }
 
@@ -170,7 +175,7 @@ pub fn table_extras(
             .unwrap_or_else(|| index_ddl(dialect, &details.table, index));
         if !existing.contains(statement.trim_end_matches(';')) {
             out.push('\n');
-            out.push_str(&terminated(&statement));
+            out.push_str(&script_statement(dialect, &statement));
             out.push('\n');
         }
     }
@@ -179,7 +184,11 @@ pub fn table_extras(
             && !existing.contains(definition.trim())
         {
             out.push('\n');
-            out.push_str(&terminated(definition));
+            // `CREATE TRIGGER` must start its batch on SQL Server.
+            if dialect.syntax().separator == Separator::GoBatches {
+                out.push_str("GO\n");
+            }
+            out.push_str(&script_statement(dialect, definition));
             out.push('\n');
         }
     }
@@ -229,7 +238,7 @@ pub fn table_ddl(dialect: &dyn Dialect, details: &TableDetails) -> String {
     let mut text = header(dialect, "a table");
     text.push_str(&format!(
         "CREATE TABLE {} (\n{}\n);\n",
-        dialect.ddl_name(&details.table),
+        qualified_name(dialect, &details.table),
         lines.join(",\n")
     ));
     let extras = table_extras(dialect, details, &text, true);
@@ -241,7 +250,7 @@ fn sequence_ddl(dialect: &dyn Dialect, object: &ObjectRef, s: &SequenceSummary) 
     let mut text = header(dialect, "a sequence");
     text.push_str(&format!(
         "CREATE SEQUENCE {}\n  AS {}\n  START WITH {}\n  INCREMENT BY {}\n  MINVALUE {}\n  MAXVALUE {}\n  {};\n",
-        dialect.ddl_name(object),
+        qualified_name(dialect, object),
         s.data_type,
         s.start,
         s.increment,
@@ -252,8 +261,8 @@ fn sequence_ddl(dialect: &dyn Dialect, object: &ObjectRef, s: &SequenceSummary) 
     if let Some(owner) = &s.owned_by {
         text.push_str(&format!(
             "\nALTER SEQUENCE {} OWNED BY {}.{};\n",
-            dialect.ddl_name(object),
-            dialect.ddl_name(&owner.table),
+            qualified_name(dialect, object),
+            qualified_name(dialect, &owner.table),
             dialect.quote_identifier(&owner.column)
         ));
     }
@@ -261,7 +270,7 @@ fn sequence_ddl(dialect: &dyn Dialect, object: &ObjectRef, s: &SequenceSummary) 
 }
 
 fn type_ddl(dialect: &dyn Dialect, object: &ObjectRef, t: &TypeSummary) -> String {
-    let name = dialect.ddl_name(object);
+    let name = qualified_name(dialect, object);
     let mut text = header(dialect, "a type");
     match t.category {
         TypeCategory::Enum => {
@@ -422,10 +431,7 @@ mod tests {
         let sql = table_ddl(Engine::Mssql.dialect(), &orders(Some("dbo")));
         assert!(sql.contains("IDENTITY(1,1)"), "{sql}");
         assert!(sql.contains("[total] AS (a + b) PERSISTED"), "{sql}");
-        assert!(
-            sql.contains("CREATE TABLE [shop].[dbo].[orders] ("),
-            "{sql}"
-        );
+        assert!(sql.contains("CREATE TABLE [dbo].[orders] ("), "{sql}");
         assert!(sql.contains("seed and increment"), "{sql}");
     }
 
