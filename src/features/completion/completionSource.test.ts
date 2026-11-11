@@ -176,17 +176,29 @@ describe('the catalog', () => {
   });
 
   it('does not re-ask an editor that is not focused', async () => {
-    mockBackend.setMetaLatency(30);
+    mockBackend.setMetaLatency(100);
+    const source = sqlCompletionSource(host);
+    let asked = 0;
     const view = new EditorView({
       state: EditorState.create({
         doc: 'select * from ord',
         selection: { anchor: 17 },
-        extensions: autocompletion({ override: [sqlCompletionSource(host)] }),
+        extensions: autocompletion({
+          override: [
+            (cm) => {
+              asked += 1;
+              return source(cm);
+            },
+          ],
+        }),
       }),
       parent: document.body,
     });
     startCompletion(view);
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    // The source has run (and found no catalog) before the catalog arrives.
+    await vi.waitFor(() => {
+      expect(asked).toBe(1);
+    });
     await load();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(currentCompletions(view.state)).toEqual([]);
@@ -194,18 +206,32 @@ describe('the catalog', () => {
   });
 
   it('does not re-ask after a run: the catalog arriving late opens nothing unasked', async () => {
-    mockBackend.setMetaLatency(30);
+    mockBackend.setMetaLatency(100);
+    const source = sqlCompletionSource(host);
+    let asked = 0;
     const view = new EditorView({
       state: EditorState.create({
         doc: 'select * from ord',
         selection: { anchor: 17 },
-        extensions: [autocompletion({ override: [sqlCompletionSource(host)] }), completionRunGuard],
+        extensions: [
+          autocompletion({
+            override: [
+              (cm) => {
+                asked += 1;
+                return source(cm);
+              },
+            ],
+          }),
+          completionRunGuard,
+        ],
       }),
       parent: document.body,
     });
     view.focus();
     startCompletion(view);
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await vi.waitFor(() => {
+      expect(asked).toBeGreaterThanOrEqual(1);
+    });
     view.dispatch({ effects: markRun.of(null) });
     await load();
     await new Promise((resolve) => setTimeout(resolve, 50));
