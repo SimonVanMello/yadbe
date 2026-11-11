@@ -73,6 +73,10 @@ export function explorerRowLabel(row: ExplorerRow, t: Translate): string {
       return `${kindLabel(t, row.kind)} (${String(row.count)})`;
     case 'object':
       return row.object.name;
+    case 'pinnedGroup':
+      return `${t('explorer.pinned')} (${String(row.count)})`;
+    case 'pinned':
+      return row.pin.name;
     case 'detailGroup':
       return `${groupLabel(t, row.group)} (${String(row.count)})`;
     case 'column':

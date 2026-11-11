@@ -9,13 +9,14 @@ import type {
   ObjectInfo,
   ObjectKind,
   ObjectRef,
+  PinnedObject,
   SchemaInfo,
   TableDetails,
   TriggerInfo,
   YadbeError,
 } from '../../ipc';
 import { fuzzyMatch } from '../connections/fuzzy';
-import { ROOT_NODE } from './explorerStore';
+import { PINNED_NODE, ROOT_NODE } from './explorerStore';
 
 /** What a node's data is: not asked, on its way, failed, or there. */
 export type Loadable<T> =
@@ -62,6 +63,8 @@ export type ExplorerBody =
   | { type: 'schema'; database: string; schema: SchemaInfo }
   | { type: 'kind'; database: string; schema: string | null; kind: ObjectKind; count: number }
   | { type: 'object'; ref: ObjectRef; object: ObjectInfo }
+  | { type: 'pinnedGroup'; count: number }
+  | { type: 'pinned'; pin: PinnedObject; ref: ObjectRef; missing: boolean }
   | { type: 'detailGroup'; table: ObjectRef; group: DetailGroup; count: number }
   | { type: 'column'; table: ObjectRef; column: ColumnInfo }
   | { type: 'key'; table: ObjectRef; name: string | null; columns: string[]; primary: boolean }
@@ -104,6 +107,9 @@ export const nodeKeys = {
     JSON.stringify(['t', database, schema, kind, id]),
   group: (table: ObjectRef, kind: ObjectKind, group: DetailGroup) =>
     JSON.stringify(['g', table.database, table.schema, kind, table.name, group]),
+  pinnedGroup: PINNED_NODE,
+  pinned: (pin: PinnedObject) =>
+    JSON.stringify(['pin', pin.database, pin.schema, pin.kind, pin.id]),
 };
 
 export interface ExplorerNode {
@@ -124,6 +130,8 @@ export interface BuildContext {
   source: MetaSource;
   /** List the loaded nodes even where collapsed (the filter looks at all of them). */
   exhaustive: boolean;
+  /** Pinned objects of the connection, shown first (F-027); none while filtering. */
+  pins?: readonly PinnedObject[];
 }
 
 function node(
@@ -348,6 +356,41 @@ function databaseContent(
 }
 
 /**
+ * A pin whose object the explorer has listed and does not find any more: dropped or renamed
+ * elsewhere. What is not loaded says nothing: the pin stays as it is.
+ */
+function isMissing(ctx: BuildContext, pin: PinnedObject): boolean {
+  if (pin.kind === null) {
+    const schemas = ctx.source.schemas(pin.database, false);
+    return schemas.state === 'ready' && !schemas.data.some((s) => s.name === pin.name);
+  }
+  const objects = ctx.source.objects(pin.database, pin.schema, pin.kind, false);
+  return objects.state === 'ready' && !objects.data.some((o) => o.id === pin.id);
+}
+
+/** The "Pinned" group at the top of a connection's tree. */
+function pinnedNodes(ctx: BuildContext): ExplorerNode[] {
+  const pins = ctx.pins ?? [];
+  if (pins.length === 0 || ctx.exhaustive) return [];
+  const open = ctx.expanded.has(PINNED_NODE);
+  const children = open
+    ? pins.map((pin) =>
+        node(
+          nodeKeys.pinned(pin),
+          {
+            type: 'pinned',
+            pin,
+            ref: { database: pin.database, schema: pin.schema, name: pin.name },
+            missing: isMissing(ctx, pin),
+          },
+          false,
+        ),
+      )
+    : null;
+  return [node(PINNED_NODE, { type: 'pinnedGroup', count: pins.length }, true, children)];
+}
+
+/**
  * The tree under an open connection row. `fetching`: the connection is up and its row open,
  * so the open nodes are loaded; otherwise only what is loaded already is shown.
  */
@@ -364,16 +407,17 @@ export function buildNodes(ctx: BuildContext, fetching: boolean): ExplorerNode[]
     case 'ready':
       break;
   }
+  const pinned = pinnedNodes(ctx);
   if (!levels.databases) {
     // The only database is not a level of its own: its content hangs off the connection.
     const only = databases.data.find((database) => database.current) ?? databases.data[0];
     if (!only) return [statusNode(nodeKeys.root, 'empty', 'databases', refresh())];
     const children = rootContent(ctx, only.name, fetching);
     return children.length > 0
-      ? children
-      : [statusNode(nodeKeys.root, 'empty', 'kinds', refresh())];
+      ? [...pinned, ...children]
+      : [...pinned, statusNode(nodeKeys.root, 'empty', 'kinds', refresh())];
   }
-  const nodes: ExplorerNode[] = [];
+  const nodes: ExplorerNode[] = [...pinned];
   for (const database of databases.data) {
     if (database.system && !ctx.showSystem) continue;
     const id = nodeKeys.database(database.name);
@@ -387,7 +431,9 @@ export function buildNodes(ctx: BuildContext, fetching: boolean): ExplorerNode[]
       ),
     );
   }
-  return nodes.length > 0 ? nodes : [statusNode(nodeKeys.root, 'empty', 'databases', refresh())];
+  return nodes.length > pinned.length
+    ? nodes
+    : [...pinned, statusNode(nodeKeys.root, 'empty', 'databases', refresh())];
 }
 
 /** Content of a database that is not a level: always open, no node of its own. */
@@ -407,6 +453,8 @@ function nameOf(body: ExplorerBody): string | null {
       return body.schema.name;
     case 'object':
       return body.object.name;
+    case 'pinned':
+      return body.pin.name;
     case 'column':
       return body.column.name;
     case 'key':

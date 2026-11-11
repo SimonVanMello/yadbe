@@ -88,6 +88,20 @@ export function metaNodeOf(row: ExplorerRow): MetaNode | null {
             schema: row.ref.schema,
             kind: row.object.kind,
           };
+    case 'pinned':
+      if (row.pin.kind === null) {
+        return { level: 'schema', database: row.pin.database, schema: row.pin.schema };
+      }
+      return isRelationKind(row.pin.kind)
+        ? { level: 'table', table: row.ref }
+        : {
+            level: 'objects',
+            database: row.pin.database,
+            schema: row.pin.schema,
+            kind: row.pin.kind,
+          };
+    case 'pinnedGroup':
+      return null;
     case 'detailGroup':
     case 'column':
     case 'key':
@@ -111,6 +125,10 @@ export function databaseOf(row: ExplorerRow): string | null {
       return row.database;
     case 'object':
       return row.ref.database;
+    case 'pinned':
+      return row.pin.database;
+    case 'pinnedGroup':
+      return null;
     case 'detailGroup':
     case 'column':
     case 'key':

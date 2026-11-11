@@ -3,6 +3,10 @@ import { useEffect } from 'react';
 import { registerActions } from '../../app/actions';
 import { showError } from '../../app/errors/presentError';
 import { translate, useI18nStore } from '../../i18n/i18n';
+import { showObjectDdl } from '../objects/ddlActions';
+import { pinOf } from '../objects/objectsModel';
+import { usePinStore } from '../objects/pinStore';
+import { showProperties } from '../objects/propertiesStore';
 import { useFilterRequests } from './filterRequests';
 import { goToReference, moveInTrail, openReferencingPanel, peekReference } from './fkNavigation';
 import { openTableExport } from './tableExport';
@@ -22,7 +26,9 @@ import {
   revertSelectedCells,
   revertSelectedRows,
   setNullOnSelection,
+  tableTabOf,
 } from './tableActions';
+import { getTableSession } from './tableSessionStore';
 
 /** Focus in a text field (filter, WHERE, cell editor): its own keys win over grid actions. */
 function typing(): boolean {
@@ -72,6 +78,22 @@ export function useTableActions(): void {
         void goToPage(tabId, 'previous');
       }),
       'table.export': onTable(openTableExport),
+      'table.showDdl': onTable((tabId) => {
+        const tab = tableTabOf(tabId);
+        if (tab)
+          showObjectDdl(tab.connectionId, tab.table, getTableSession(tabId).info?.kind ?? 'table');
+      }),
+      'table.properties': onTable((tabId) => {
+        const tab = tableTabOf(tabId);
+        if (tab)
+          showProperties(tab.connectionId, tab.table, getTableSession(tabId).info?.kind ?? 'table');
+      }),
+      'table.togglePin': onTable((tabId) => {
+        const tab = tableTabOf(tabId);
+        if (!tab) return;
+        const kind = getTableSession(tabId).info?.kind ?? 'table';
+        void usePinStore.getState().toggle(pinOf(tab.connectionId, tab.table, kind));
+      }),
       'table.countExact': onTable((tabId) => {
         void countRows(tabId, 'exact');
       }),

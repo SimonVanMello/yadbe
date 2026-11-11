@@ -15,6 +15,7 @@ import { useT } from '../../i18n/useT';
 import { Icon } from '../../ui/Icon';
 import { Kbd } from '../../ui/Kbd';
 import { Spinner } from '../../ui/Spinner';
+import { togglePaletteObjectPin } from '../objects/palettePins';
 import { activateItem, primaryHint, secondaryHint } from './activateItem';
 import styles from './CommandPalette.module.css';
 import {
@@ -163,6 +164,11 @@ export function PaletteBody({ onChosen }: PaletteBodyProps) {
         move(options.length - 1);
         break;
       case 'Enter': {
+        // `Alt+Enter` on an object: pins it at the top of its connection, or unpins it.
+        if (event.altKey && active?.item.kind === 'object') {
+          void togglePaletteObjectPin(active.item);
+          break;
+        }
         const secondary = event.ctrlKey || event.metaKey;
         // `Shift+Enter` on a table or view: its rows in a table tab.
         const openData = event.shiftKey && !secondary;
@@ -323,6 +329,12 @@ export function PaletteBody({ onChosen }: PaletteBodyProps) {
           <span className={styles.footerHint}>
             <Kbd shortcut="Shift+Enter" />
             {t('palette.hint.openData')}
+          </span>
+        )}
+        {active?.item.kind === 'object' && (
+          <span className={styles.footerHint}>
+            <Kbd shortcut="Alt+Enter" />
+            {t('palette.hint.pin')}
           </span>
         )}
         <span className={styles.spacer} />

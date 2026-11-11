@@ -58,8 +58,7 @@ export const usePinStore = create<PinStore>()((set, get) => ({
     }
   },
 
-  toggle: (pin) =>
-    get().pins.some((p) => samePin(p, pin)) ? get().unpin(pin) : get().pin(pin),
+  toggle: (pin) => (get().pins.some((p) => samePin(p, pin)) ? get().unpin(pin) : get().pin(pin)),
 
   forgetConnection: (connectionId) => {
     set((state) => ({ pins: state.pins.filter((p) => p.connectionId !== connectionId) }));

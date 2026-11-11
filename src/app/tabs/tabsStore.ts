@@ -485,12 +485,12 @@ export function toSavedTabs(state: Pick<TabsStore, 'tabs' | 'activeTabId'>): Sav
     tabs: state.tabs
       .filter((tab) => tab.ddl === undefined)
       .map((tab) => ({
-      id: tab.id,
-      connectionId: tab.connectionId,
-      ordinal: tab.ordinal,
-      pinned: tab.pinned,
-      ...(tab.table ? { table: tab.table } : {}),
-    })),
+        id: tab.id,
+        connectionId: tab.connectionId,
+        ordinal: tab.ordinal,
+        pinned: tab.pinned,
+        ...(tab.table ? { table: tab.table } : {}),
+      })),
     activeTabId: state.activeTabId,
   };
 }

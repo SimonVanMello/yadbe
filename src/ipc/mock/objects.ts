@@ -154,7 +154,7 @@ function checkNewName(old: string, next: string): YadbeError | null {
   if (next === old) {
     return bad('The new name is the current one.', 'Le nouveau nom est le nom actuel.');
   }
-  if ([...next].length > 128) {
+  if (Array.from(next).length > 128) {
     return bad(
       'The new name is longer than 128 characters.',
       'Le nouveau nom dépasse 128 caractères.',

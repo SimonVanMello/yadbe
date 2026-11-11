@@ -12,6 +12,8 @@ import { Highlight } from '../connections/Highlight';
 import { tintOf } from '../connections/model';
 import { kindLabel } from '../explorer/explorerLabels';
 import { rowStyle } from '../sidebar/rowStyle';
+import { pinnedAs } from '../objects/palettePins';
+import { usePinStore } from '../objects/pinStore';
 import styles from './CommandPalette.module.css';
 import { iconOf, type PaletteItem } from './paletteItems';
 
@@ -60,6 +62,14 @@ function RowEnvironment({ connectionId }: { connectionId: string | null }) {
   );
 }
 
+/** A pin before the name of an object that is pinned (F-027). */
+function ObjectPin({ item }: { item: Extract<PaletteItem, { kind: 'object' }> }) {
+  const t = useT();
+  const pinned = usePinStore((state) => pinnedAs(state.pins, item) !== undefined);
+  if (!pinned) return null;
+  return <Icon name="pin" className={styles.pin} aria-label={t('palette.pinned')} />;
+}
+
 function Content({ item, indices }: { item: PaletteItem; indices: readonly number[] }) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
@@ -104,6 +114,7 @@ function Content({ item, indices }: { item: PaletteItem; indices: readonly numbe
       return (
         <>
           <span className={styles.label}>
+            <ObjectPin item={item} />
             <QualifiedName item={item} indices={indices} />
             {item.signature !== null && <span className={styles.schema}>({item.signature})</span>}
           </span>

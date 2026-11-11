@@ -162,7 +162,9 @@ function ConfirmAction({
       }
     >
       <div className={styles.body}>
-        {connection && <ConnectionBanner connection={{ ...connection, database: object.database }} />}
+        {connection && (
+          <ConnectionBanner connection={{ ...connection, database: object.database }} />
+        )}
         {plan.status === 'loading' && (
           <div className={styles.loading}>
             <Spinner />

@@ -96,6 +96,9 @@ export const UNBOUND_ACTIONS = [
   'table.countExact',
   'table.pasteRows',
   'table.export',
+  'table.showDdl',
+  'table.properties',
+  'table.togglePin',
 ] as const;
 
 export type BoundActionId = keyof typeof DEFAULT_BINDINGS;
@@ -167,6 +170,9 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'table.countExact': 'action.table.countExact',
   'table.pasteRows': 'action.table.pasteRows',
   'table.export': 'action.table.export',
+  'table.showDdl': 'action.table.showDdl',
+  'table.properties': 'action.table.properties',
+  'table.togglePin': 'action.table.togglePin',
   'table.goToReference': 'action.table.goToReference',
   'table.peekReference': 'action.table.peekReference',
   'table.referencingRows': 'action.table.referencingRows',

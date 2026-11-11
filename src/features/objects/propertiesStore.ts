@@ -26,10 +26,6 @@ export const usePropertiesStore = create<PropertiesStore>()((set) => ({
 }));
 
 /** Opens the properties of a table, view or materialized view. */
-export function showProperties(
-  connectionId: string,
-  object: ObjectRef,
-  kind: ObjectKind,
-): void {
+export function showProperties(connectionId: string, object: ObjectRef, kind: ObjectKind): void {
   usePropertiesStore.getState().open({ connectionId, object, kind });
 }

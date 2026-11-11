@@ -92,7 +92,8 @@ function Properties({ target }: { target: PropertiesTarget }) {
         )}
         {properties.isError && (
           <p className={styles.error} role="alert">
-            {t('objects.props.failed')}: {failure ? localize(failure.message) : String(properties.error)}
+            {t('objects.props.failed')}:{' '}
+            {failure ? localize(failure.message) : String(properties.error)}
           </p>
         )}
         {properties.data && (

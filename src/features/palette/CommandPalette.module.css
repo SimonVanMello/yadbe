@@ -229,3 +229,9 @@
     opacity: 0;
   }
 }
+
+.pin {
+  margin-right: var(--space-1);
+  color: var(--accent);
+  vertical-align: text-bottom;
+}

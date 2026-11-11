@@ -122,7 +122,8 @@ export function factsOf(
 ): Fact[] {
   const facts: Fact[] = [];
   const add = (key: MessageKey, value: string | null, hint?: MessageKey) => {
-    if (value !== null && value.trim() !== '') facts.push({ key, value, ...(hint ? { hint } : {}) });
+    if (value !== null && value.trim() !== '')
+      facts.push({ key, value, ...(hint ? { hint } : {}) });
   };
   const bytes = (n: number | null) => (n === null ? null : formatBytes(n, locale));
   add('objects.props.owner', properties.owner);

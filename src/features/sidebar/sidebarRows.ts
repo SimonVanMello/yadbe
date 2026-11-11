@@ -1,4 +1,4 @@
-import type { Capabilities, Engine } from '../../ipc';
+import type { Capabilities, Engine, PinnedObject } from '../../ipc';
 import { buildSidebarRows, searchConnections } from '../connections/connectionRows';
 import type { ConnectionGroup, ConnectionState, ConnectionSummary } from '../connections/model';
 import {
@@ -44,6 +44,8 @@ export interface SidebarInput {
   /** Expanded nodes of each connection. */
   expanded: Readonly<Record<string, ReadonlySet<string>>>;
   showSystem: boolean;
+  /** Pinned objects of every connection (F-027): shown first under their connection. */
+  pins?: readonly PinnedObject[];
   /** Where the tree of a connection reads its data. */
   sourceFor: (connectionId: string) => MetaSource;
   /**
@@ -83,6 +85,7 @@ function explorerRows(
     showSystem: input.showSystem,
     expanded,
     source: input.sourceFor(connection.id),
+    pins: (input.pins ?? []).filter((pin) => pin.connectionId === connection.id),
   };
   // Only a connection that is up loads anything: the rest shows what it already holds.
   const fetching = state === 'connected' && open;

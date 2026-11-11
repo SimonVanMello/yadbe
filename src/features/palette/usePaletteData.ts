@@ -170,8 +170,8 @@ export function usePaletteData(raw: string) {
               : tab.ddl
                 ? ddlTargetName(tab.ddl)
                 : filePath
-                ? fileNameOf(filePath)
-                : t('tab.query', { number: tab.ordinal }),
+                  ? fileNameOf(filePath)
+                  : t('tab.query', { number: tab.ordinal }),
         connectionName: connection?.name ?? null,
       };
     });
