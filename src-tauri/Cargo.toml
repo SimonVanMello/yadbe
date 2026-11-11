@@ -52,6 +52,10 @@ rustls-native-certs = "0.8"
 tiberius = { path = "vendor/tiberius", default-features = false, features = ["tds80", "rustls", "sql-browser-tokio"] }
 # `compat`: tiberius speaks futures-io; tokio's TcpStream goes through this adapter.
 tokio-util = { version = "0.7", features = ["compat"] }
+# MySQL / MariaDB. No default features: TLS through the rustls + ring stack already used
+# above (no OpenSSL, no aws-lc-rs), pure-Rust zlib, none of mysql_common's optional value
+# conversions (chrono, time, bigdecimal…): yadbe decodes the wire values itself.
+mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust", "rustls-tls", "ring", "tls12"] }
 rusqlite = { version = "0.41", features = ["bundled", "column_decltype"] }
 keyring = "4.2"
 zeroize = "1"

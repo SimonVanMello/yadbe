@@ -1048,3 +1048,306 @@ async fn mssql_conformance_and_specifics() {
             .any(|r| r.name == "archive_invoices" && r.kind == ObjectKind::Procedure)
     );
 }
+
+// --- MySQL / MariaDB ------------------------------------------------------------------------
+
+/// Creates the fixture database and loads `meta_mysql.sql` into it, statement by statement.
+async fn mysql_fixture(
+    url: &str,
+) -> (
+    common::MysqlDatabase,
+    Shop,
+    ConnectionDefinition,
+    Option<Secret>,
+) {
+    let guard = common::MysqlDatabase::create(url, "m31").await;
+    let (def, password) = guard.definition();
+    let conn = common::open(&def, password.as_ref())
+        .await
+        .expect("connect to the fixture database");
+    let script = include_str!("fixtures/meta_mysql.sql");
+    let syntax = Engine::Mysql.dialect().syntax();
+    for statement in yadbe_lib::db::split::split(script, &syntax) {
+        let sql = &script[statement.range()];
+        conn.query(sql, 0)
+            .await
+            .unwrap_or_else(|e| panic!("{sql}: {e:?}"));
+    }
+    conn.close().await;
+    let shop = Shop {
+        engine: Engine::Mysql,
+        database: guard.name.clone(),
+        shop: None,
+        sales: None,
+        odd: None,
+    };
+    (guard, shop, def, password)
+}
+
+#[tokio::test]
+async fn mysql_conformance_and_specifics() {
+    let Some(url) = common::mysql_url("mysql_conformance_and_specifics") else {
+        return;
+    };
+    let (guard, shop, def, password) = mysql_fixture(&url).await;
+    let h = harness();
+    let id = h.open(&def, password.clone()).await;
+    conformance::check(&h.ctx(&id), &shop).await;
+
+    let meta: &MetaService = &h.meta;
+    let manager = &h.manager;
+    let db = shop.database.as_str();
+    let version = manager
+        .session(&id)
+        .and_then(|s| s.connection())
+        .expect("connection")
+        .server_version()
+        .to_owned();
+    let mariadb = version.starts_with("MariaDB");
+
+    // Comments, exact types, identity, defaults written as SQL.
+    let customers = h.ctx(&id).table(&shop.shop("customers")).await;
+    assert_eq!(customers.comment.as_deref(), Some("People who ordered"));
+    assert_eq!(customers.columns[0].identity, Some(Identity::ByDefault));
+    assert_eq!(customers.columns[1].comment.as_deref(), Some("Lower-cased"));
+    assert_eq!(customers.columns[2].type_name, "varchar(200)");
+    assert_eq!(customers.columns[3].type_name, "datetime(3)");
+    assert_eq!(customers.columns[3].kind, ValueKind::Timestamp);
+    assert!(
+        customers.columns[3]
+            .default
+            .as_deref()
+            .is_some_and(|d| d.to_ascii_lowercase().starts_with("current_timestamp(3)")),
+        "{:?}",
+        customers.columns[3]
+    );
+    let products = h.ctx(&id).table(&shop.shop("products")).await;
+    let status = &products.columns[4];
+    assert_eq!(status.type_name, "enum('draft','active','archived')");
+    assert_eq!(status.kind, ValueKind::Text);
+    assert_eq!(status.default.as_deref(), Some("'draft'"));
+    assert_eq!(products.columns[3].kind, ValueKind::Decimal);
+    let invoices = h.ctx(&id).table(&shop.sales("invoices")).await;
+    assert_eq!(invoices.columns[0].type_name, "bigint unsigned");
+    assert_eq!(invoices.columns[0].kind, ValueKind::Int);
+    let orders = h.ctx(&id).table(&shop.shop("orders")).await;
+    let total = &orders.columns[4];
+    assert!(total.default.is_none());
+    assert!(total.generated.as_ref().is_some_and(|g| g.stored));
+    assert_eq!(orders.columns[3].default.as_deref(), Some("0.00"));
+    assert!(
+        orders.triggers[0].definition.as_deref().is_some_and(|d| d
+            .starts_with("CREATE TRIGGER `orders_touch` BEFORE UPDATE ON `orders` FOR EACH ROW")),
+        "{:?}",
+        orders.triggers
+    );
+    let index = orders
+        .indexes
+        .iter()
+        .find(|i| i.name == "orders_created_at_idx")
+        .expect("index");
+    assert_eq!(index.method.as_deref(), Some("btree"));
+    assert!(
+        orders
+            .checks
+            .iter()
+            .any(|c| c.name.as_deref() == Some("orders_subtotal_check")),
+        "{:?}",
+        orders.checks
+    );
+    // The index MySQL creates for a foreign key is listed, not taken for a unique key.
+    assert!(orders.unique_keys.is_empty(), "{:?}", orders.unique_keys);
+
+    // Functions apart from procedures, with their signatures.
+    let connection = id.as_str();
+    let list = |kind| async move {
+        meta.objects(manager, None, connection, db, None, kind)
+            .await
+            .expect("objects")
+    };
+    let functions = list(ObjectKind::Function).await;
+    let Some(ObjectDetail::Routine(total_fn)) = functions
+        .iter()
+        .find(|f| f.name == "order_total")
+        .map(|f| &f.detail)
+    else {
+        panic!("order_total in {functions:?}");
+    };
+    assert_eq!(total_fn.arguments, "p_order_id int");
+    assert_eq!(total_fn.return_type.as_deref(), Some("decimal(13,2)"));
+    assert_eq!(functions[0].comment.as_deref(), Some("Total of an order"));
+    let procedures = list(ObjectKind::Procedure).await;
+    let Some(ObjectDetail::Routine(procedure)) = procedures.first().map(|p| &p.detail) else {
+        panic!("procedure in {procedures:?}");
+    };
+    assert_eq!(procedure.arguments, "IN p_before date, OUT p_archived int");
+    assert_eq!(procedure.identity_arguments, "date, int");
+    assert!(procedure.return_type.is_none());
+    let counts = meta
+        .object_counts(manager, None, &id, db, None)
+        .await
+        .expect("counts");
+    let count_of = |kind| counts.iter().find(|c| c.kind == kind).map(|c| c.count);
+    assert_eq!(count_of(ObjectKind::Table), Some(6));
+    assert_eq!(count_of(ObjectKind::View), Some(1));
+    assert_eq!(count_of(ObjectKind::Procedure), Some(1));
+
+    // Databases: the server's own are flagged system and read on the same connection.
+    let databases = meta.databases(manager, None, &id).await.expect("databases");
+    assert!(
+        databases
+            .iter()
+            .any(|d| d.name == "information_schema" && d.system && !d.current)
+    );
+    assert!(
+        databases
+            .iter()
+            .any(|d| d.name == db && d.current && !d.system)
+    );
+    let system = meta
+        .objects(
+            manager,
+            None,
+            &id,
+            "information_schema",
+            None,
+            ObjectKind::View,
+        )
+        .await
+        .expect("information_schema views");
+    assert!(
+        system
+            .iter()
+            .any(|v| v.name.eq_ignore_ascii_case("tables") && v.system)
+    );
+    let error = meta
+        .object_counts(manager, None, &id, "yadbe_no_such_db_m31", None)
+        .await
+        .expect_err("unknown database");
+    assert_eq!(error.code, ErrorCode::UnknownDatabase);
+    let catalog = meta
+        .completion_catalog(manager, None, &id, db, true)
+        .await
+        .expect("catalog");
+    assert!(catalog.schemas.is_empty() && catalog.search_path.is_empty());
+    assert!(
+        catalog
+            .routines
+            .iter()
+            .any(|r| r.name == "archive_invoices" && r.kind == ObjectKind::Procedure)
+    );
+
+    // MySQL 8 indexes expressions (functional key parts); MariaDB does not.
+    if !mariadb {
+        let conn = common::open(&def, password.as_ref())
+            .await
+            .expect("connect");
+        conn.query(
+            "CREATE INDEX customers_lower_email_idx ON customers ((lower(email)))",
+            0,
+        )
+        .await
+        .expect("functional index");
+        conn.close().await;
+        meta.refresh(
+            &id,
+            MetaNode::Table {
+                table: shop.shop("customers"),
+            },
+        );
+        let customers = h.ctx(&id).table(&shop.shop("customers")).await;
+        let lower = customers
+            .indexes
+            .iter()
+            .find(|i| i.name == "customers_lower_email_idx")
+            .expect("expression index");
+        assert_eq!(lower.columns, ["lower(`email`)"]);
+        assert!(!lower.unique);
+        assert_eq!(
+            customers.unique_keys.len(),
+            1,
+            "an expression index is no key"
+        );
+    }
+    drop(guard);
+}
+
+#[tokio::test]
+#[ignore = "P-02 measurement: cargo test --test introspection p02 -- --ignored --nocapture"]
+async fn p02_mysql() {
+    let Some(url) = common::mysql_url("p02_mysql") else {
+        return;
+    };
+    let guard = common::MysqlDatabase::create(&url, "p02").await;
+    let (def, password) = guard.definition();
+    let conn = common::open(&def, password.as_ref())
+        .await
+        .expect("connect");
+    for t in 0..500 {
+        let mut cols = vec!["id int PRIMARY KEY".to_owned()];
+        if t > 0 {
+            cols.push("parent_id int".to_owned());
+            cols.push(format!(
+                "FOREIGN KEY (parent_id) REFERENCES table_{:05} (id)",
+                t - 1
+            ));
+        }
+        for c in 2..10 {
+            let ty = ["text", "int", "decimal(12,2)", "datetime", "boolean"][c % 5];
+            cols.push(format!("col_{c:02} {ty}"));
+        }
+        conn.query(
+            &format!("CREATE TABLE table_{t:05} ({})", cols.join(", ")),
+            0,
+        )
+        .await
+        .expect("generate");
+    }
+    conn.close().await;
+    let h = harness();
+    let started = Instant::now();
+    let id = h.open(&def, password).await;
+    let connect = started.elapsed();
+    let level = first_level(&h, &id, &def.database, None).await;
+    let started = Instant::now();
+    let details = h
+        .meta
+        .table_details(
+            &h.manager,
+            None,
+            &id,
+            &ObjectRef {
+                database: def.database.clone(),
+                schema: None,
+                name: "table_00042".into(),
+            },
+        )
+        .await
+        .expect("details");
+    let details_time = started.elapsed();
+    assert_eq!(details.columns.len(), 10);
+    let logged = h.log.entries().len();
+    let started = Instant::now();
+    let catalog = h
+        .meta
+        .completion_catalog(&h.manager, None, &id, &def.database, false)
+        .await
+        .expect("catalog");
+    let catalog_time = started.elapsed();
+    print_statements(&h.log, logged);
+    println!(
+        "P-02 {} 500 tables: connect {} ms; first level {} ms; table details {} ms; \
+         catalog {} ms ({} relations)",
+        h.manager
+            .session(&id)
+            .and_then(|s| s.connection())
+            .map(|c| c.server_version().to_owned())
+            .unwrap_or_default(),
+        ms(connect),
+        ms(level),
+        ms(details_time),
+        ms(catalog_time),
+        catalog.relations.len(),
+    );
+    drop(guard);
+}

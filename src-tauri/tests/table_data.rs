@@ -398,7 +398,39 @@ fn kind_values(engine: Engine) -> Vec<(&'static str, Value, &'static str)> {
             ),
             ("doc", text(r#"{"a": 1}"#), r#"{"a": 1}"#),
         ],
-        Engine::Sqlite | Engine::Mysql => vec![
+        Engine::Mysql => vec![
+            ("flag", Value::Bool(true), "true"),
+            ("small", int(-32768), "-32768"),
+            ("big", int(i64::MAX), "9223372036854775807"),
+            (
+                "amount",
+                Value::Decimal("12345678901234567890.0123456789".into()),
+                "12345678901234567890.0123456789",
+            ),
+            ("ratio", Value::Float("0.1".into()), "0.1"),
+            ("label", text(label), label),
+            ("code", text("abc"), "abc"),
+            ("raw", Value::bytes(&[0, 255, 16]), "00ff10"),
+            ("day", Value::Date("2024-02-29".into()), "2024-02-29"),
+            (
+                "at_time",
+                Value::Time("23:59:59.123456".into()),
+                "23:59:59.123456",
+            ),
+            (
+                "local_at",
+                Value::Timestamp("2025-02-28 12:34:56.789012".into()),
+                "2025-02-28 12:34:56.789012",
+            ),
+            (
+                "ref",
+                Value::Uuid("5f0c00a1-7b2e-4c3d-9e8f-000000000001".into()),
+                "5f0c00a1-7b2e-4c3d-9e8f-000000000001",
+            ),
+            ("doc", Value::Json(r#"{"a": 1}"#.into()), r#"{"a": 1}"#),
+            ("mood", text("happy"), "happy"),
+        ],
+        Engine::Sqlite => vec![
             ("flag", Value::Bool(true), "1"),
             ("small", int(-32768), "-32768"),
             ("big", int(i64::MAX), "9223372036854775807"),
@@ -518,8 +550,9 @@ async fn editability(b: &Bench, conn: &str, fx: &Fixture) {
     assert!(kinds.info.read_only_reasons.is_empty());
     let reason = |name: &str| kinds.info.columns[kinds.col(name)].read_only_reason;
     let id_reason = match fx.engine {
-        // `INTEGER PRIMARY KEY` aliases the rowid: generated when omitted, writable.
-        Engine::Sqlite => None,
+        // `INTEGER PRIMARY KEY` aliases the rowid, `AUTO_INCREMENT` fills an omitted value:
+        // generated when omitted, writable.
+        Engine::Sqlite | Engine::Mysql => None,
         _ => Some(ColumnReadOnlyReason::Identity),
     };
     assert_eq!(reason("id"), id_reason);
@@ -532,11 +565,17 @@ async fn editability(b: &Bench, conn: &str, fx: &Fixture) {
             Some(ColumnReadOnlyReason::UnsupportedType)
         );
     }
-    if fx.engine == Engine::Postgres {
+    if fx.engine == Engine::Mysql {
+        // Spatial values are shown as WKT, not written back.
+        assert_eq!(reason("spot"), Some(ColumnReadOnlyReason::UnsupportedType));
+    }
+    if matches!(fx.engine, Engine::Postgres | Engine::Mysql) {
         assert_eq!(
             kinds.info.columns[kinds.col("mood")].enum_values,
             Some(vec!["sad".to_owned(), "ok".to_owned(), "happy".to_owned()])
         );
+    }
+    if fx.engine == Engine::Postgres {
         assert_eq!(
             reason("spot"),
             None,
@@ -667,6 +706,9 @@ async fn round_trips(b: &Bench, conn: &str, fx: &Fixture) {
     let mut cells = vec![update(vec![id.clone()], "label", text(""))];
     if fx.engine != Engine::Sqlite {
         cells.push(update(vec![id.clone()], "small", text("42")));
+    }
+    // MySQL's TINYINT(1) takes `0` / `1`, not the words (strict mode refuses `'false'`).
+    if !matches!(fx.engine, Engine::Sqlite | Engine::Mysql) {
         cells.push(update(vec![id.clone()], "flag", text("false")));
     }
     tab.applied(updates(cells)).await;
@@ -674,14 +716,16 @@ async fn round_trips(b: &Bench, conn: &str, fx: &Fixture) {
     assert_eq!(read[tab.col("label")], text(""));
     if fx.engine != Engine::Sqlite {
         assert_eq!(read[tab.col("small")], int(42));
-        assert_eq!(read[tab.col("flag")], Value::Bool(false));
-        // A value the engine cannot convert.
+        if fx.engine != Engine::Mysql {
+            assert_eq!(read[tab.col("flag")], Value::Bool(false));
+        }
+        // A value the engine cannot convert (MySQL has no UUID type: a number).
+        let (column, bad) = match fx.engine {
+            Engine::Mysql => ("small", "not-a-number"),
+            _ => ("ref", "not-a-uuid"),
+        };
         let failure = tab
-            .failed(updates(vec![update(
-                vec![id.clone()],
-                "ref",
-                text("not-a-uuid"),
-            )]))
+            .failed(updates(vec![update(vec![id.clone()], column, text(bad))]))
             .await;
         assert_eq!(failure.error.code, ErrorCode::InvalidValue, "{failure:?}");
         assert!(failure.server.is_some());
@@ -1168,6 +1212,7 @@ async fn cancellation(b: &Bench, conn: &str, fx: &Fixture) {
     let mut blocker = None;
     let raw = match fx.engine {
         Engine::Postgres => "pg_sleep(30) IS NOT NULL".to_owned(),
+        Engine::Mysql => "SLEEP(30) = 0".to_owned(),
         Engine::Sqlite => "(WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) \
 SELECT max(x) FROM c) > 0"
             .to_owned(),
@@ -1384,4 +1429,34 @@ async fn mssql_table_data_and_edits() {
         schema: Some("edits".into()),
     };
     suite(&fx).await;
+}
+
+#[tokio::test]
+async fn mysql_table_data_and_edits() {
+    let Some(url) = common::mysql_url("mysql_table_data_and_edits") else {
+        return;
+    };
+    let database = common::MysqlDatabase::create(&url, "m22").await;
+    let (def, password) = database.definition();
+    let conn = common::open(&def, password.as_ref())
+        .await
+        .expect("connect");
+    let script = include_str!("fixtures/edit_mysql.sql");
+    let syntax = Engine::Mysql.dialect().syntax();
+    for statement in yadbe_lib::db::split::split(script, &syntax) {
+        let sql = &script[statement.range()];
+        conn.query(sql, 0)
+            .await
+            .unwrap_or_else(|e| panic!("{sql}: {e:?}"));
+    }
+    conn.close().await;
+    let fx = Fixture {
+        engine: Engine::Mysql,
+        def,
+        password,
+        database: database.name.clone(),
+        schema: None,
+    };
+    suite(&fx).await;
+    drop(database);
 }

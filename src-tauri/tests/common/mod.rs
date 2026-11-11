@@ -23,6 +23,8 @@ pub const PG_URL_ENV: &str = "YADBE_TEST_PG_URL";
 pub const PG_CA_ENV: &str = "YADBE_TEST_PG_CA";
 pub const MSSQL_URL_ENV: &str = "YADBE_TEST_MSSQL_URL";
 pub const MSSQL_CA_ENV: &str = "YADBE_TEST_MSSQL_CA";
+pub const MYSQL_URL_ENV: &str = "YADBE_TEST_MYSQL_URL";
+pub const MYSQL_CA_ENV: &str = "YADBE_TEST_MYSQL_CA";
 
 /// Prints a skip notice that `cargo test` does not capture (it only captures the print
 /// macros), so a skipped test is visible, never silently passed.
@@ -61,6 +63,99 @@ pub fn mssql_ca(test: &str) -> Option<String> {
             skip(test, &format!("{MSSQL_CA_ENV} is not set"));
             None
         }
+    }
+}
+
+/// The MySQL / MariaDB test URL, or `None` after printing a skip notice.
+pub fn mysql_url(test: &str) -> Option<String> {
+    match std::env::var(MYSQL_URL_ENV) {
+        Ok(url) if !url.trim().is_empty() => Some(url),
+        _ => {
+            skip(test, &format!("{MYSQL_URL_ENV} is not set"));
+            None
+        }
+    }
+}
+
+/// The CA that signs the MySQL test server's `localhost` certificate (`dev/compose.yml`
+/// installs the one of `dev/tls-certs.sh`).
+pub fn mysql_ca(test: &str) -> Option<String> {
+    match std::env::var(MYSQL_CA_ENV) {
+        Ok(path) if !path.trim().is_empty() => Some(path),
+        _ => {
+            skip(test, &format!("{MYSQL_CA_ENV} is not set"));
+            None
+        }
+    }
+}
+
+/// A database name unique to this run (`yadbe_<tag>_<pid>_<time>`), for fixtures on servers
+/// other sessions share.
+pub fn unique_database(tag: &str) -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    format!(
+        "yadbe_{tag}_{}_{:x}",
+        std::process::id(),
+        nanos & 0xffff_ffff_ffff
+    )
+}
+
+/// A MySQL database created for one test and dropped when the guard goes.
+pub struct MysqlDatabase {
+    pub url: String,
+    pub name: String,
+}
+
+impl MysqlDatabase {
+    /// Creates a uniquely named database on the server of `url`.
+    pub async fn create(url: &str, tag: &str) -> MysqlDatabase {
+        let name = unique_database(tag);
+        let (def, password) = from_url(url);
+        let conn = open(&def, password.as_ref()).await.expect("connect");
+        conn.query(
+            &format!("CREATE DATABASE `{name}` CHARACTER SET utf8mb4"),
+            0,
+        )
+        .await
+        .expect("create database");
+        conn.close().await;
+        MysqlDatabase {
+            url: url.to_owned(),
+            name,
+        }
+    }
+
+    /// The test URL's definition, on this database.
+    pub fn definition(&self) -> (ConnectionDefinition, Option<Secret>) {
+        let (mut def, password) = from_url(&self.url);
+        def.database = self.name.clone();
+        (def, password)
+    }
+}
+
+impl Drop for MysqlDatabase {
+    fn drop(&mut self) {
+        let url = self.url.clone();
+        let name = self.name.clone();
+        // A runtime of its own: the test's runtime may be shutting down.
+        let _ = std::thread::spawn(move || {
+            let Ok(rt) = tokio::runtime::Runtime::new() else {
+                return;
+            };
+            rt.block_on(async {
+                let (def, password) = from_url(&url);
+                if let Ok(conn) = open(&def, password.as_ref()).await {
+                    let sql = format!("DROP DATABASE `{name}`");
+                    if let Err(err) = conn.query(&sql, 0).await {
+                        skip("dropping the fixture database", &format!("{name}: {err:?}"));
+                    }
+                    conn.close().await;
+                }
+            });
+        })
+        .join();
     }
 }
 

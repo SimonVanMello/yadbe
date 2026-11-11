@@ -46,12 +46,12 @@ fn arity_error(column: &str) -> YadbeError {
     )
 }
 
-/// `%`, `_`, `[` and the escape character itself, escaped for `LIKE … ESCAPE '\'`.
-fn escape_like(text: &str) -> String {
+/// `%`, `_`, `[` and the escape character itself, escaped for `LIKE … ESCAPE '<escape>'`.
+fn escape_like(text: &str, escape: char) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
-        if matches!(c, '\\' | '%' | '_' | '[') {
-            out.push('\\');
+        if c == escape || matches!(c, '%' | '_' | '[') {
+            out.push(escape);
         }
         out.push(c);
     }
@@ -93,7 +93,8 @@ fn push_condition(
         }
         FilterOp::Contains | FilterOp::StartsWith | FilterOp::EndsWith => {
             count(1)?;
-            let text = escape_like(&plain_text(&values[0]).unwrap_or_default());
+            let escape = dialect.like_escape();
+            let text = escape_like(&plain_text(&values[0]).unwrap_or_default(), escape);
             let pattern = match filter.op {
                 FilterOp::Contains => format!("%{text}%"),
                 FilterOp::StartsWith => format!("{text}%"),
@@ -104,7 +105,7 @@ fn push_condition(
                 .push(dialect.like_operator())
                 .push(" ")
                 .value(&Value::Text(pattern), None)
-                .push(" ESCAPE '\\'");
+                .push(&format!(" ESCAPE '{escape}'"));
         }
         FilterOp::In => {
             if values.is_empty() {
