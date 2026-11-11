@@ -5,7 +5,7 @@ mod connection;
 pub mod history_hook;
 pub mod history_writer;
 pub mod library;
-mod manager;
+pub mod manager;
 pub mod meta_cache;
 mod model;
 pub mod query_model;
@@ -20,6 +20,7 @@ pub mod table_data;
 pub mod table_model;
 pub mod table_shape;
 pub mod table_sql;
+pub mod tunnel;
 
 pub use connection::{ConnectionSession, SessionConfig};
 pub use manager::ConnectionManager;

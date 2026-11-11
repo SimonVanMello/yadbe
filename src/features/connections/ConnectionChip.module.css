@@ -37,3 +37,9 @@
   font-size: var(--text-xs);
   text-overflow: ellipsis;
 }
+
+.tunnel {
+  display: inline-flex;
+  flex: none;
+  color: var(--fg-secondary);
+}

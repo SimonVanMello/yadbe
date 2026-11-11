@@ -10,6 +10,8 @@ import { TextInput } from '../../ui/TextInput';
 import { ColorPicker } from './ColorPicker';
 import styles from './ConnectionForm.module.css';
 import { ServerFields } from './ServerFields';
+import { SshFields } from './SshFields';
+import type { SshHopName, SshSecretLocations } from './sshModel';
 import { defaultTagColor } from './tagColors';
 import { SqliteFields } from './SqliteFields';
 import {
@@ -34,6 +36,10 @@ interface ConnectionFormProps {
   onPasteConnectionString: (text: string) => void;
   /** Picks another database file with the native picker (file engines). */
   onPickFile: () => void;
+  /** Where the SSH secrets of the connection being edited are kept. */
+  sshSecretLocations?: SshSecretLocations;
+  /** Picks the private key file of an SSH hop with the native picker. */
+  onPickKey?: (hop: SshHopName) => void;
 }
 
 /** The connection form (F-001, F-005 to F-009): engine, engine-specific fields, identity. */
@@ -47,6 +53,8 @@ export function ConnectionForm({
   onChange,
   onPasteConnectionString,
   onPickFile,
+  sshSecretLocations = {},
+  onPickKey = () => undefined,
 }: ConnectionFormProps) {
   const t = useT();
   const id = useId();
@@ -78,15 +86,27 @@ export function ConnectionForm({
         <SqliteFields draft={draft} errors={errors} onChange={patch} onPickFile={onPickFile} />
       ) : (
         info && (
-          <ServerFields
-            draft={draft}
-            info={info}
-            errors={errors}
-            passwordLocation={passwordLocation}
-            keychainAvailable={keychainAvailable}
-            onChange={patch}
-            onPasteConnectionString={onPasteConnectionString}
-          />
+          <>
+            <ServerFields
+              draft={draft}
+              info={info}
+              errors={errors}
+              passwordLocation={passwordLocation}
+              keychainAvailable={keychainAvailable}
+              onChange={patch}
+              onPasteConnectionString={onPasteConnectionString}
+            />
+            <SshFields
+              ssh={draft.ssh}
+              errors={errors.ssh ?? {}}
+              secretLocations={sshSecretLocations}
+              keychainAvailable={keychainAvailable}
+              onChange={(ssh) => {
+                patch({ ssh });
+              }}
+              onPickKey={onPickKey}
+            />
+          </>
         )
       )}
 

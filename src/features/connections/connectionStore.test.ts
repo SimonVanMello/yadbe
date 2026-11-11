@@ -18,6 +18,7 @@ function session(patch: Partial<SessionInfo>): SessionInfo {
     serverVersion: 'PostgreSQL 16.4',
     error: null,
     reconnectAttempt: null,
+    tunnel: null,
     ...patch,
   };
 }

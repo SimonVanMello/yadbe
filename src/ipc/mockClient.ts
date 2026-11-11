@@ -12,6 +12,7 @@ import type {
   SessionInfo,
   StatementLogEntry,
   TabsState,
+  TunnelSecretInput,
   Value,
   YadbeError,
 } from './bindings';
@@ -34,6 +35,7 @@ import { createMockMeta } from './mock/meta';
 import type { LargeCatalogOptions } from './mock/metaCatalog';
 import { cellValue, createMockQuery } from './mockQuery';
 import { createMockReferences } from './mock/references';
+import { createMockSsh, tunnelStatus } from './mock/ssh';
 import { createMockTableData } from './mock/tableData';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
@@ -136,6 +138,7 @@ function createMockBackend() {
   let nextId = 1;
   const secrets = new Map<string, { value: string; location: SecretLocation }>();
   const pending = new Map<string, { value: string; at: number }>();
+  const ssh = createMockSsh();
   const sessions = new Map<string, SessionInfo>();
   const attempts = new Map<string, AbortController>();
   const tests = new Map<string, AbortController>();
@@ -274,6 +277,50 @@ function createMockBackend() {
     return secrets.get(secretKey(connectionId, 'password'))?.value ?? null;
   }
 
+  function defaultPort(def: ConnectionDefinition): number {
+    return MOCK_ENGINES.find((e) => e.engine === def.engine)?.capabilities.defaultPort ?? 0;
+  }
+
+  /** The SSH secrets typed for this attempt, else those kept for the connection. */
+  function tunnelSecrets(
+    typed: TunnelSecretInput[],
+    connectionId: string | null,
+  ): Map<SecretKind, string> | YadbeError {
+    const found = new Map<SecretKind, string>();
+    for (const input of typed) {
+      const value = resolveSecret(input.secret, false);
+      if (isError(value)) return value;
+      found.set(input.kind, value);
+    }
+    if (connectionId !== null) {
+      for (const kind of [
+        'sshPassword',
+        'sshPassphrase',
+        'jumpPassword',
+        'jumpPassphrase',
+      ] as const) {
+        const stored = secrets.get(secretKey(connectionId, kind));
+        if (!found.has(kind) && stored) found.set(kind, stored.value);
+      }
+    }
+    return found;
+  }
+
+  /** Opens the tunnel of `def` (if any) after the mock latency; logs it like the backend. */
+  async function openTunnel(
+    def: ConnectionDefinition,
+    found: Map<SecretKind, string>,
+    connectionId: string | null,
+    signal: AbortSignal,
+  ): Promise<YadbeError | null> {
+    const described = ssh.describe(def, defaultPort(def));
+    if (described === null) return null;
+    if (!(await sleep(latency, signal))) return mockErrors.cancelled();
+    const failure = ssh.open(def, (kind) => found.get(kind) ?? null, defaultPort(def));
+    logStatement(connectionId, def.name, `-- SSH tunnel open: ${described}`, failure);
+    return failure;
+  }
+
   /**
    * Simulates a dropped link followed by an automatic reconnection (`stayLost`: the link stays
    * lost, for a screen that shows it).
@@ -358,6 +405,80 @@ function createMockBackend() {
     const conn = findConnection(connectionId);
     if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
     return { engine: conn.definition.engine };
+  }
+
+  async function connectWith(
+    connectionId: string,
+    password: SecretInput | null,
+    typedTunnel: TunnelSecretInput[],
+  ): Result<SessionInfo> {
+    const conn = findConnection(connectionId);
+    if (!conn) return fail(mockErrors.connectionNotFound(connectionId));
+    const existing = sessions.get(connectionId);
+    if (existing && existing.state !== 'lost') return ok(clone(existing));
+    const unsupported = unsupportedEngine(conn.definition);
+    if (unsupported) return fail(unsupported);
+    let secret: string | null;
+    if (password) {
+      const resolved = resolveSecret(password, true);
+      if (isError(resolved)) return fail(resolved);
+      secret = resolved;
+    } else {
+      secret = storedPassword(connectionId);
+    }
+    if (conn.definition.auth === 'password' && secret === null) {
+      return fail(mockErrors.passwordRequired());
+    }
+    const found = tunnelSecrets(typedTunnel, connectionId);
+    if (isError(found)) return fail(found);
+    const base: SessionInfo = {
+      connectionId,
+      state: 'connecting',
+      serverVersion: null,
+      error: null,
+      reconnectAttempt: null,
+      tunnel: tunnelStatus(conn.definition, 'down'),
+    };
+    setSession(base);
+    const controller = new AbortController();
+    attempts.set(connectionId, controller);
+    if (conn.definition.ssh) {
+      setSession({ ...base, tunnel: tunnelStatus(conn.definition, 'opening') });
+      const failure = await openTunnel(conn.definition, found, connectionId, controller.signal);
+      if (failure) {
+        attempts.delete(connectionId);
+        setSession({ ...base, state: 'closed', error: failure });
+        return fail(failure);
+      }
+      setSession({ ...base, tunnel: tunnelStatus(conn.definition, 'open') });
+    }
+    const result = await handshake(conn.definition, secret, connectionId, controller.signal);
+    attempts.delete(connectionId);
+    if (isError(result)) {
+      setSession({ ...base, state: 'closed', error: result });
+      return fail(result);
+    }
+    // A password typed at connect time is kept for the session, like the backend does.
+    if (password && secret !== null) {
+      secrets.set(secretKey(connectionId, 'password'), { value: secret, location: 'session' });
+    }
+    for (const input of typedTunnel) {
+      const value = found.get(input.kind);
+      if (value !== undefined) {
+        secrets.set(secretKey(connectionId, input.kind), { value, location: 'session' });
+      }
+    }
+    conn.lastConnectedAt = now();
+    const info = setSession({
+      ...base,
+      state: 'connected',
+      serverVersion: result,
+      tunnel: tunnelStatus(conn.definition, 'open'),
+    });
+    if (conn.definition.host === 'fail-lost') {
+      void sleep(3000).then(() => dropConnection(connectionId));
+    }
+    return ok(clone(info));
   }
 
   const commands: YadbeClient['commands'] = {
@@ -515,7 +636,7 @@ function createMockBackend() {
       return ok(null);
     },
 
-    testConnection: async (requestId, definition, password, connectionId) => {
+    testConnection: async (requestId, definition, password, connectionId, typedTunnel) => {
       const def = normalized(definition);
       if (isError(def)) return fail(def);
       const unsupported = unsupportedEngine(def);
@@ -529,9 +650,16 @@ function createMockBackend() {
         secret = storedPassword(connectionId);
       }
       if (def.auth === 'password' && secret === null) return fail(mockErrors.passwordRequired());
+      const found = tunnelSecrets(typedTunnel ?? [], connectionId);
+      if (isError(found)) return fail(found);
       const controller = new AbortController();
       tests.set(requestId, controller);
       const started = performance.now();
+      const tunnelFailure = await openTunnel(def, found, connectionId, controller.signal);
+      if (tunnelFailure) {
+        tests.delete(requestId);
+        return fail(tunnelFailure);
+      }
       const result = await handshake(def, secret, connectionId, controller.signal);
       tests.delete(requestId);
       if (isError(result)) return fail(result);
@@ -544,51 +672,19 @@ function createMockBackend() {
       return ok(null);
     },
 
-    connect: async (connectionId, password) => {
-      const conn = findConnection(connectionId);
-      if (!conn) return fail(mockErrors.connectionNotFound(connectionId));
-      const existing = sessions.get(connectionId);
-      if (existing && existing.state !== 'lost') return ok(clone(existing));
-      const unsupported = unsupportedEngine(conn.definition);
-      if (unsupported) return fail(unsupported);
-      let secret: string | null;
-      if (password) {
-        const resolved = resolveSecret(password, true);
-        if (isError(resolved)) return fail(resolved);
-        secret = resolved;
-      } else {
-        secret = storedPassword(connectionId);
-      }
-      if (conn.definition.auth === 'password' && secret === null) {
-        return fail(mockErrors.passwordRequired());
-      }
-      const base: SessionInfo = {
-        connectionId,
-        state: 'connecting',
-        serverVersion: null,
-        error: null,
-        reconnectAttempt: null,
-      };
-      setSession(base);
-      const controller = new AbortController();
-      attempts.set(connectionId, controller);
-      const result = await handshake(conn.definition, secret, connectionId, controller.signal);
-      attempts.delete(connectionId);
-      if (isError(result)) {
-        setSession({ ...base, state: 'closed', error: result });
-        return fail(result);
-      }
-      // A password typed at connect time is kept for the session, like the backend does.
-      if (password && secret !== null) {
-        secrets.set(secretKey(connectionId, 'password'), { value: secret, location: 'session' });
-      }
-      conn.lastConnectedAt = now();
-      const info = setSession({ ...base, state: 'connected', serverVersion: result });
-      if (conn.definition.host === 'fail-lost') {
-        void sleep(3000).then(() => dropConnection(connectionId));
-      }
-      return ok(clone(info));
+    connect: (connectionId, password) => connectWith(connectionId, password, []),
+
+    connectWithSecrets: (connectionId, password, typedTunnel) =>
+      connectWith(connectionId, password, typedTunnel),
+
+    listKnownHosts: () => ok(ssh.list()),
+
+    trustHostKey: (host, port, keyType, fingerprint) => {
+      const trusted = ssh.trust(host, port, keyType, fingerprint);
+      return isError(trusted) ? fail(trusted) : ok(trusted);
     },
+
+    forgetHostKey: (host, port, keyType) => ok(ssh.forget(host, port, keyType)),
 
     disconnect: (connectionId) => {
       attempts.get(connectionId)?.abort();
@@ -702,6 +798,7 @@ function createMockBackend() {
     nextId = 1;
     pending.clear();
     sessions.clear();
+    ssh.seed();
     meta.reset();
     query.reset();
     history.reset();

@@ -23,6 +23,12 @@ export interface JsonFilePickerLabels {
   allFiles: string;
 }
 
+/** Labels of the private key picker. */
+export interface KeyFilePickerLabels {
+  title: string;
+  allFiles: string;
+}
+
 /**
  * Native file dialogs (SPEC §9: file access only through explicit open / save dialogs). Not part
  * of the generated contract: they go through Tauri's dialog plugin, with a browser stand-in in
@@ -40,6 +46,8 @@ export interface FileDialog {
   pickJsonFile: (labels: JsonFilePickerLabels) => Promise<string | null>;
   /** Asks where to export the query library; `null` when dismissed. */
   pickJsonSavePath: (labels: JsonFilePickerLabels, defaultName: string) => Promise<string | null>;
+  /** Asks for an SSH private key file (only its path is kept, never its content). */
+  pickKeyFile: (labels: KeyFilePickerLabels) => Promise<string | null>;
 }
 
 const SQLITE_EXTENSIONS = ['sqlite', 'sqlite3', 'db', 'db3', 's3db', 'sl3'];
@@ -90,6 +98,15 @@ const tauriFileDialog: FileDialog = {
   async pickJsonSavePath(labels, defaultName) {
     return save({ title: labels.title, defaultPath: defaultName, filters: jsonFilters(labels) });
   },
+  async pickKeyFile(labels) {
+    // Key files have no extension (id_ed25519) or various ones (.pem, .key, .ppk).
+    return open({
+      title: labels.title,
+      multiple: false,
+      directory: false,
+      filters: [{ name: labels.allFiles, extensions: ['*'] }],
+    });
+  },
 };
 
 /** What a browser can offer: a file chooser, never a real path (the mock makes one up). */
@@ -136,6 +153,10 @@ const browserFileDialog: FileDialog = {
   },
   pickJsonSavePath(_labels, defaultName) {
     return Promise.resolve(`/home/ana/exports/${defaultName}`);
+  },
+  async pickKeyFile() {
+    const file = await chooseBrowserFile('');
+    return file ? `/home/ana/.ssh/${file.name}` : null;
   },
 };
 

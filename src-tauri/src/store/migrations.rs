@@ -144,6 +144,18 @@ const MIGRATIONS: &[&str] = &[
         INSERT INTO saved_queries_fts(rowid, name, sql, description, tags)
         VALUES (new.seq, new.name, new.sql, new.description, new.tags);
     END;",
+    // v4: SSH tunnels (F-010). The tunnel of a connection is a JSON column (no secret in it:
+    // passwords and passphrases live in the keychain); host keys the user accepted are kept
+    // by fingerprint, one row per host, port and key type.
+    "ALTER TABLE connections ADD COLUMN ssh_tunnel TEXT;
+    CREATE TABLE ssh_known_hosts (
+        host TEXT NOT NULL,
+        port INTEGER NOT NULL,
+        key_type TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        added_at INTEGER NOT NULL,
+        PRIMARY KEY (host, port, key_type)
+    );",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {

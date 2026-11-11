@@ -1,6 +1,7 @@
 //! Connection definitions: what the user saves (without any secret) and what a driver needs
 //! to connect.
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -9,6 +10,7 @@ use specta::Type;
 
 use crate::db::dialect::Engine;
 use crate::db::errors::YadbeError;
+use crate::tunnel::SshTunnel;
 
 /// Connect timeout when the definition does not set one.
 pub const DEFAULT_CONNECT_TIMEOUT_SECS: u32 = 15;
@@ -197,6 +199,9 @@ pub struct ConnectionDefinition {
     /// opts out; absent in older payloads.
     #[serde(default = "default_true")]
     pub history_enabled: bool,
+    /// SSH tunnel in front of a server connection (F-010); absent in older payloads.
+    #[serde(default)]
+    pub ssh: Option<SshTunnel>,
 }
 
 fn default_true() -> bool {
@@ -280,6 +285,16 @@ impl ConnectionDefinition {
             option.key = option.key.trim().to_owned();
         }
         self.environment = normalized_environment(self.environment)?;
+        self.ssh = match self.ssh {
+            Some(_) if caps.uses_file => None,
+            ssh => ssh.map(SshTunnel::normalized).transpose()?,
+        };
+        if self.ssh.is_some() && self.host.starts_with('/') {
+            return Err(YadbeError::invalid_argument(
+                "A Unix socket cannot be reached through an SSH tunnel: give a host name.",
+                "Un socket Unix ne peut pas être joint par un tunnel SSH : indiquez un nom d'hôte.",
+            ));
+        }
         Ok(self)
     }
 
@@ -306,6 +321,7 @@ impl ConnectionDefinition {
             )),
             options: self.options.clone(),
             read_only: self.read_only,
+            dial: None,
         }
     }
 }
@@ -358,6 +374,10 @@ pub struct ConnectTarget {
     pub options: Vec<ConnectionOption>,
     /// The session must refuse writes (F-008): drivers set the engine's read-only mode.
     pub read_only: bool,
+    /// The local end of an SSH tunnel to `host:port`: drivers open their TCP connection
+    /// there instead, and keep `host` for everything else (TLS server name and certificate
+    /// checks, messages).
+    pub dial: Option<SocketAddr>,
 }
 
 #[cfg(test)]
@@ -393,6 +413,7 @@ pub(crate) fn sample_definition(engine: Engine) -> ConnectionDefinition {
         read_only: false,
         remember_password: true,
         history_enabled: true,
+        ssh: None,
     }
 }
 

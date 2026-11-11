@@ -3,7 +3,7 @@
 //! the link fails for its caller, and the session only re-establishes the connection.
 
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -14,7 +14,9 @@ use crate::db::errors::YadbeError;
 use crate::db::value::QueryResult;
 use crate::events::{BackendEvent, ConnectionStateChanged, EventSink};
 use crate::secrets::Secret;
+use crate::session::tunnel::{self, TunnelSlot};
 use crate::session::{ConnectionState, SessionInfo};
+use crate::tunnel::{Tunnel, TunnelPhase};
 
 /// Reconnection policy.
 #[derive(Debug, Clone)]
@@ -47,6 +49,8 @@ pub struct ConnectionSession {
     conn: RwLock<Option<Arc<dyn Connection>>>,
     shutdown: watch::Sender<bool>,
     monitor: Mutex<Option<JoinHandle<()>>>,
+    /// The SSH tunnel every connection of the session goes through, if any.
+    tunnel: Option<TunnelSlot>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -56,6 +60,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl ConnectionSession {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: String,
         driver: Arc<dyn Driver>,
@@ -64,6 +69,7 @@ impl ConnectionSession {
         recorder: Arc<dyn StatementRecorder>,
         sink: Arc<dyn EventSink>,
         config: SessionConfig,
+        tunnel: Option<TunnelSlot>,
     ) -> Arc<Self> {
         let state = SessionInfo {
             connection_id: id.clone(),
@@ -71,6 +77,7 @@ impl ConnectionSession {
             server_version: None,
             error: None,
             reconnect_attempt: None,
+            tunnel: tunnel.as_ref().map(|t| t.status(TunnelPhase::Down)),
         };
         Arc::new(Self {
             id,
@@ -84,6 +91,7 @@ impl ConnectionSession {
             conn: RwLock::new(None),
             shutdown: watch::channel(false).0,
             monitor: Mutex::new(None),
+            tunnel,
         })
     }
 
@@ -147,16 +155,51 @@ impl ConnectionSession {
         )
     }
 
-    async fn open_link(&self) -> Result<Arc<dyn Connection>, YadbeError> {
+    /// Opens the tunnel first when the session has one (state events say so).
+    async fn route(&self) -> Result<Option<Arc<Tunnel>>, YadbeError> {
+        let Some(slot) = &self.tunnel else {
+            return Ok(None);
+        };
+        let tunnel = slot
+            .ensure(&*self.recorder, || {
+                self.set_state(|s| s.tunnel = Some(slot.status(TunnelPhase::Opening)));
+            })
+            .await
+            .inspect_err(|_| self.set_state(|s| s.tunnel = Some(slot.status(TunnelPhase::Down))))?;
+        Ok(Some(tunnel))
+    }
+
+    /// A driver connection with the session's settings, through the tunnel if any.
+    async fn dial(&self, database: Option<&str>) -> Result<Box<dyn Connection>, YadbeError> {
+        let started = Instant::now();
+        let tunnel = self.route().await?;
+        let mut target = self.target.clone();
+        if let Some(database) = database {
+            database.clone_into(&mut target.database);
+        }
+        target.dial = tunnel.as_ref().map(|t| t.local_addr());
         let request = ConnectRequest {
-            target: &self.target,
+            target: &target,
             password: self.password.as_ref(),
             recorder: Arc::clone(&self.recorder),
         };
+        self.driver
+            .connect(request)
+            .await
+            .map_err(|err| tunnel::explain(err, tunnel.as_deref(), started))
+    }
+
+    async fn open_link(&self) -> Result<Arc<dyn Connection>, YadbeError> {
         let mut shutdown = self.shutdown.subscribe();
         tokio::select! {
-            result = self.driver.connect(request) => result.map(Arc::from),
+            result = self.dial(None) => result.map(Arc::from),
             _ = shutdown.wait_for(|closed| *closed) => Err(YadbeError::cancelled()),
+        }
+    }
+
+    fn tunnel_open(&self, s: &mut SessionInfo) {
+        if let Some(slot) = &self.tunnel {
+            s.tunnel = Some(slot.status(TunnelPhase::Open));
         }
     }
 
@@ -174,6 +217,7 @@ impl ConnectionSession {
             s.server_version = Some(version);
             s.error = None;
             s.reconnect_attempt = None;
+            self.tunnel_open(s);
         });
         let session = Arc::clone(self);
         *lock(&self.monitor) = Some(tokio::spawn(async move { session.watch().await }));
@@ -197,10 +241,14 @@ impl ConnectionSession {
             }
             self.install(None);
             tracing::warn!(connection = %self.id, "connection lost");
+            let tunnel_down = self.tunnel.as_ref().filter(|slot| slot.is_down());
             self.set_state(|s| {
                 s.state = ConnectionState::Lost;
                 s.error = Some(YadbeError::connection_lost());
                 s.reconnect_attempt = None;
+                if let Some(slot) = tunnel_down {
+                    s.tunnel = Some(slot.status(TunnelPhase::Down));
+                }
             });
             if !self.reconnect().await {
                 return;
@@ -236,6 +284,7 @@ impl ConnectionSession {
                         s.server_version = Some(version);
                         s.error = None;
                         s.reconnect_attempt = None;
+                        self.tunnel_open(s);
                     });
                     return true;
                 }
@@ -296,18 +345,9 @@ impl ConnectionSession {
         database: Option<&str>,
     ) -> Result<Box<dyn Connection>, YadbeError> {
         self.connection()?;
-        let mut target = self.target.clone();
-        if let Some(database) = database {
-            database.clone_into(&mut target.database);
-        }
-        let request = ConnectRequest {
-            target: &target,
-            password: self.password.as_ref(),
-            recorder: Arc::clone(&self.recorder),
-        };
         let mut shutdown = self.shutdown.subscribe();
         tokio::select! {
-            result = self.driver.connect(request) => result,
+            result = self.dial(database) => result,
             _ = shutdown.wait_for(|closed| *closed) => Err(YadbeError::not_connected()),
         }
     }
@@ -327,6 +367,9 @@ impl ConnectionSession {
         }
         if let Some(monitor) = monitor {
             monitor.abort();
+        }
+        if let Some(slot) = &self.tunnel {
+            slot.close(&*self.recorder).await;
         }
     }
 }

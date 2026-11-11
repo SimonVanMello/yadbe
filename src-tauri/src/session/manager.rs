@@ -15,8 +15,13 @@ use crate::events::EventSink;
 use crate::secrets::{Secret, SecretKind, SecretStore};
 use crate::session::connection::{ConnectionSession, SessionConfig};
 use crate::session::statement_log::StatementLog;
+use crate::session::tunnel::{self, TunnelSlot};
 use crate::session::{ConnectionState, SessionInfo, TestConnectionResult};
 use crate::store::Store;
+use crate::tunnel::{AgentLocation, HostKeys, TunnelConfig, TunnelPhase};
+
+/// SSH passwords and key passphrases typed for one attempt (prompt, or a test from the form).
+pub type TunnelSecrets = HashMap<SecretKind, Secret>;
 
 pub struct ConnectionManager {
     store: Arc<Store>,
@@ -27,6 +32,8 @@ pub struct ConnectionManager {
     config: SessionConfig,
     sessions: Mutex<HashMap<String, Arc<ConnectionSession>>>,
     tests: Mutex<HashMap<String, Arc<Notify>>>,
+    host_keys: Arc<HostKeys>,
+    agent: AgentLocation,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -51,7 +58,6 @@ impl ConnectionManager {
         sink: Arc<dyn EventSink>,
     ) -> Self {
         Self {
-            store,
             secrets,
             log,
             sink,
@@ -62,7 +68,27 @@ impl ConnectionManager {
             config: SessionConfig::default(),
             sessions: Mutex::new(HashMap::new()),
             tests: Mutex::new(HashMap::new()),
+            // Tests never read the user's `~/.ssh`: the app sets it (`with_user_known_hosts`).
+            host_keys: Arc::new(HostKeys::new(Arc::clone(&store), None)),
+            agent: AgentLocation::default(),
+            store,
         }
+    }
+
+    /// Also trusts the host keys of an OpenSSH `known_hosts` file (read only).
+    pub fn with_user_known_hosts(mut self, path: Option<std::path::PathBuf>) -> Self {
+        self.host_keys = Arc::new(HostKeys::new(Arc::clone(&self.store), path));
+        self
+    }
+
+    /// Uses this SSH agent socket instead of `SSH_AUTH_SOCK` (tests).
+    pub fn with_agent(mut self, location: AgentLocation) -> Self {
+        self.agent = location;
+        self
+    }
+
+    pub fn host_keys(&self) -> Arc<HostKeys> {
+        Arc::clone(&self.host_keys)
     }
 
     /// Replaces the driver of its engine (tests).
@@ -130,6 +156,93 @@ impl ConnectionManager {
             .ok_or_else(YadbeError::password_required)
     }
 
+    /// The tunnel of a definition, its secrets taken from `provided`, else the stored ones.
+    async fn tunnel_config(
+        &self,
+        definition: &ConnectionDefinition,
+        connection_id: Option<&str>,
+        provided: &TunnelSecrets,
+        connect_timeout: std::time::Duration,
+    ) -> Result<Option<TunnelConfig>, YadbeError> {
+        let Some(ssh) = &definition.ssh else {
+            return Ok(None);
+        };
+        let target = definition.target();
+        let mut kinds = Vec::new();
+        for (hop, which) in [
+            (Some(&ssh.server), crate::tunnel::TunnelHop::Server),
+            (ssh.jump.as_ref(), crate::tunnel::TunnelHop::Jump),
+        ] {
+            if let Some(hop) = hop {
+                kinds.push((hop.clone(), which));
+            }
+        }
+        let mut hops = Vec::new();
+        for (hop, which) in kinds {
+            let (password_kind, passphrase_kind) = which.secret_kinds();
+            let reference = crate::tunnel::errors::HopRef {
+                hop: which,
+                host: hop.host.clone(),
+                port: hop.port(),
+            };
+            let auth = match hop.auth {
+                crate::tunnel::SshAuthMethod::Password => crate::tunnel::HopAuth::Password(
+                    self.stored_secret(connection_id, provided, password_kind)
+                        .await?
+                        .ok_or_else(|| {
+                            YadbeError::ssh_secret_required(&reference, password_kind)
+                        })?,
+                ),
+                crate::tunnel::SshAuthMethod::Key => crate::tunnel::HopAuth::Key {
+                    path: hop.key_path.clone().unwrap_or_default(),
+                    passphrase: self
+                        .stored_secret(connection_id, provided, passphrase_kind)
+                        .await?,
+                },
+                crate::tunnel::SshAuthMethod::Agent => crate::tunnel::HopAuth::Agent,
+            };
+            hops.push(crate::tunnel::HopConfig {
+                hop: which,
+                host: hop.host.clone(),
+                port: hop.port(),
+                username: hop.username.clone(),
+                auth,
+            });
+        }
+        let server = hops.remove(0);
+        let jump = hops.pop();
+        let keepalive = ssh
+            .keepalive_secs
+            .unwrap_or(crate::tunnel::model::DEFAULT_KEEPALIVE_SECS);
+        Ok(Some(TunnelConfig {
+            server,
+            jump,
+            keepalive: (keepalive > 0)
+                .then(|| std::time::Duration::from_secs(u64::from(keepalive))),
+            connect_timeout,
+            target_host: target.host,
+            target_port: target.port,
+            agent: self.agent.clone(),
+        }))
+    }
+
+    async fn stored_secret(
+        &self,
+        connection_id: Option<&str>,
+        provided: &TunnelSecrets,
+        kind: SecretKind,
+    ) -> Result<Option<Secret>, YadbeError> {
+        if let Some(secret) = provided.get(&kind) {
+            return Ok(Some(secret.clone()));
+        }
+        let Some(id) = connection_id else {
+            return Ok(None);
+        };
+        let secrets = Arc::clone(&self.secrets);
+        let id = id.to_owned();
+        blocking(move || secrets.get(&id, kind)).await
+    }
+
     /// Connects with an unsaved definition, reads the version, pings and closes.
     pub async fn test(
         &self,
@@ -138,29 +251,89 @@ impl ConnectionManager {
         password: Option<Secret>,
         connection_id: Option<String>,
     ) -> Result<TestConnectionResult, YadbeError> {
+        self.test_with_tunnel(
+            request_id,
+            definition,
+            password,
+            connection_id,
+            TunnelSecrets::new(),
+        )
+        .await
+    }
+
+    /// [`Self::test`] with SSH secrets typed in the form. Goes through the definition's SSH
+    /// tunnel when it has one; a failure names the hop (`error.tunnel`).
+    pub async fn test_with_tunnel(
+        &self,
+        request_id: String,
+        definition: ConnectionDefinition,
+        password: Option<Secret>,
+        connection_id: Option<String>,
+        tunnel_secrets: TunnelSecrets,
+    ) -> Result<TestConnectionResult, YadbeError> {
         let driver = self.driver(definition.engine)?;
         let password = self
             .password(&definition, connection_id.as_deref(), password)
             .await?;
         let cancel = Arc::new(Notify::new());
         lock(&self.tests).insert(request_id.clone(), Arc::clone(&cancel));
-        let target = definition.target_with_timeout(self.default_connect_timeout().await);
+        let mut target = definition.target_with_timeout(self.default_connect_timeout().await);
+        let tunnel_config = self
+            .tunnel_config(
+                &definition,
+                connection_id.as_deref(),
+                &tunnel_secrets,
+                target.connect_timeout,
+            )
+            .await?;
         let recorder = self
             .log
             .recorder(connection_id.clone(), definition.name.clone());
         let started = Instant::now();
+        let slot = tunnel_config.map(|config| {
+            let template = definition
+                .ssh
+                .as_ref()
+                .map(|ssh| ssh.status(TunnelPhase::Down));
+            TunnelSlot::new(
+                config,
+                Arc::clone(&self.host_keys),
+                template.unwrap_or(crate::tunnel::TunnelStatus {
+                    phase: TunnelPhase::Down,
+                    endpoint: String::new(),
+                    jump: None,
+                }),
+            )
+        });
         let attempt = async {
-            let conn = driver
-                .connect(ConnectRequest {
-                    target: &target,
-                    password: password.as_ref(),
-                    recorder,
-                })
-                .await?;
-            let ping = conn.ping().await;
-            let version = conn.server_version().to_owned();
-            conn.close().await;
-            ping.map(|()| version)
+            let tunnel = match &slot {
+                Some(slot) => {
+                    let tunnel = slot.ensure(&*recorder, || {}).await?;
+                    target.dial = Some(tunnel.local_addr());
+                    Some(tunnel)
+                }
+                None => None,
+            };
+            let dialed = Instant::now();
+            let result = async {
+                let conn = driver
+                    .connect(ConnectRequest {
+                        target: &target,
+                        password: password.as_ref(),
+                        recorder: Arc::clone(&recorder),
+                    })
+                    .await
+                    .map_err(|err| tunnel::explain(err, tunnel.as_deref(), dialed))?;
+                let ping = conn.ping().await;
+                let version = conn.server_version().to_owned();
+                conn.close().await;
+                ping.map(|()| version)
+            }
+            .await;
+            if let Some(slot) = &slot {
+                slot.close(&*recorder).await;
+            }
+            result
         };
         let result = tokio::select! {
             result = attempt => result,
@@ -186,6 +359,18 @@ impl ConnectionManager {
         connection_id: &str,
         password: Option<Secret>,
     ) -> Result<SessionInfo, YadbeError> {
+        self.connect_with_tunnel(connection_id, password, TunnelSecrets::new())
+            .await
+    }
+
+    /// [`Self::connect`] with SSH secrets typed at connect time (kept for the session once
+    /// they worked).
+    pub async fn connect_with_tunnel(
+        &self,
+        connection_id: &str,
+        password: Option<Secret>,
+        tunnel_secrets: TunnelSecrets,
+    ) -> Result<SessionInfo, YadbeError> {
         let store = Arc::clone(&self.store);
         let id = connection_id.to_owned();
         let saved = blocking(move || store.connection(&id)).await?;
@@ -206,6 +391,30 @@ impl ConnectionManager {
         let target = saved
             .definition
             .target_with_timeout(self.default_connect_timeout().await);
+        let tunnel = self
+            .tunnel_config(
+                &saved.definition,
+                Some(connection_id),
+                &tunnel_secrets,
+                target.connect_timeout,
+            )
+            .await?
+            .map(|config| {
+                let template = saved
+                    .definition
+                    .ssh
+                    .as_ref()
+                    .map(|ssh| ssh.status(TunnelPhase::Down));
+                TunnelSlot::new(
+                    config,
+                    Arc::clone(&self.host_keys),
+                    template.unwrap_or(crate::tunnel::TunnelStatus {
+                        phase: TunnelPhase::Down,
+                        endpoint: String::new(),
+                        jump: None,
+                    }),
+                )
+            });
         let session = ConnectionSession::new(
             connection_id.to_owned(),
             driver,
@@ -217,6 +426,7 @@ impl ConnectionManager {
             ),
             Arc::clone(&self.sink),
             self.config.clone(),
+            tunnel,
         );
         lock(&self.sessions).insert(connection_id.to_owned(), Arc::clone(&session));
         session.announce();
@@ -225,6 +435,10 @@ impl ConnectionManager {
                 if let Some(typed) = typed {
                     self.secrets
                         .set_session(connection_id, SecretKind::Password, typed);
+                }
+                // Like the database password: typed secrets are kept once they worked.
+                for (kind, secret) in tunnel_secrets {
+                    self.secrets.set_session(connection_id, kind, secret);
                 }
                 let store = Arc::clone(&self.store);
                 let id = connection_id.to_owned();

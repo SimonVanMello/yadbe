@@ -28,6 +28,8 @@ export interface ErrorContext {
   editConnection?: () => void;
   changeTlsMode?: () => void;
   chooseFile?: () => void;
+  /** Shows the SSH host key fingerprint of the error (`tunnel`) and asks to trust it. */
+  trustHostKey?: () => void;
 }
 
 export interface ResolvedErrorAction {
@@ -59,6 +61,7 @@ export function resolveErrorAction(
     editConnection: context.editConnection ?? openForm(),
     changeTlsMode: context.changeTlsMode ?? openForm(),
     chooseFile: context.chooseFile,
+    trustHostKey: context.trustHostKey,
   };
   const run = handlers[action];
   return run ? { label: t(`error.action.${action}`), run } : null;

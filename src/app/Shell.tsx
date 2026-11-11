@@ -4,6 +4,7 @@ import { ConnectionDialog } from '../features/connections/ConnectionDialog';
 import { useConnection } from '../features/connections/connectionStore';
 import { GroupDialog } from '../features/connections/GroupDialog';
 import { tintOf } from '../features/connections/model';
+import { HostKeyDialog } from '../features/connections/HostKeyDialog';
 import { PasswordPromptDialog } from '../features/connections/PasswordPromptDialog';
 import { refreshNode } from '../features/explorer/explorerActions';
 import { useExplorerStore } from '../features/explorer/explorerStore';
@@ -211,6 +212,7 @@ export function Shell() {
       <StableStatusBar />
       <ConnectionDialog />
       <PasswordPromptDialog />
+      <HostKeyDialog />
       <GroupDialog />
       <ExportDialog />
       <SaveQueryDialog />

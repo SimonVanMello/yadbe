@@ -113,6 +113,7 @@ export type SettingId =
   | 'connectTimeoutSecs'
   | 'tlsRule'
   | 'keychain'
+  | 'sshKnownHosts'
   | 'version'
   | 'platform'
   | 'license';
@@ -338,6 +339,13 @@ export const SETTINGS: readonly SettingSpec[] = [
     key: null,
     control: custom,
     keywords: 'password secret',
+  },
+  {
+    id: 'sshKnownHosts',
+    section: 'connections',
+    key: null,
+    control: custom,
+    keywords: 'ssh tunnel host key fingerprint known_hosts',
   },
 
   { id: 'version', section: 'about', key: null, control: custom },

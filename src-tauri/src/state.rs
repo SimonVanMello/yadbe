@@ -44,12 +44,15 @@ impl AppState {
             inner: sink,
             meta: Arc::clone(&meta),
         });
-        let connections = Arc::new(ConnectionManager::new(
-            Arc::clone(&store),
-            Arc::clone(&secrets),
-            Arc::clone(&log),
-            Arc::clone(&sink),
-        ));
+        let connections = Arc::new(
+            ConnectionManager::new(
+                Arc::clone(&store),
+                Arc::clone(&secrets),
+                Arc::clone(&log),
+                Arc::clone(&sink),
+            )
+            .with_user_known_hosts(crate::tunnel::HostKeys::default_user_known_hosts()),
+        );
         let history = StoreHistory::new(Arc::clone(&store), Arc::clone(&sink));
         let queries = Arc::new(QueryRunner::new(
             Arc::clone(&connections),

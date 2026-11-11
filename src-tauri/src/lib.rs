@@ -7,6 +7,7 @@ pub mod secrets;
 pub mod session;
 pub mod state;
 pub mod store;
+pub mod tunnel;
 
 use std::sync::Arc;
 
@@ -38,6 +39,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::sessions::test_connection,
             commands::sessions::cancel_test_connection,
             commands::sessions::connect,
+            commands::sessions::connect_with_secrets,
             commands::sessions::disconnect,
             commands::sessions::list_sessions,
             commands::secrets::keychain_status,
@@ -113,6 +115,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::references::count_referencing_rows,
             commands::references::search_referenced_rows,
             commands::references::cancel_reference_lookup,
+            commands::ssh::list_known_hosts,
+            commands::ssh::trust_host_key,
+            commands::ssh::forget_host_key,
         ])
         .events(collect_events![
             events::AppReady,
