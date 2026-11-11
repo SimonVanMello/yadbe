@@ -1212,7 +1212,8 @@ async fn cancellation(b: &Bench, conn: &str, fx: &Fixture) {
     let mut blocker = None;
     let raw = match fx.engine {
         Engine::Postgres => "pg_sleep(30) IS NOT NULL".to_owned(),
-        Engine::Mysql => "SLEEP(30) = 0".to_owned(),
+        // MariaDB ends an interrupted SLEEP() early and goes on with the next row.
+        Engine::Mysql => "BENCHMARK(1000000000, SHA2('x', 256)) = 0".to_owned(),
         Engine::Sqlite => "(WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) \
 SELECT max(x) FROM c) > 0"
             .to_owned(),

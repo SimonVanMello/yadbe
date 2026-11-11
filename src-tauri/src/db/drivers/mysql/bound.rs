@@ -181,11 +181,15 @@ impl Inner {
                 }
             }
         }
+        let killed = running.killed();
         drop(running);
         self.track_transaction(conn).await;
         drop(guard);
         if let Some(err) = failed {
             return Err(failure(self, &err));
+        }
+        if killed {
+            return Err(YadbeError::cancelled().into());
         }
         let (columns, rows, truncated) = match last_set {
             Some(set) => (set.columns, set.rows, set.truncated),

@@ -1128,7 +1128,12 @@ async fn mysql_conformance_and_specifics() {
     assert_eq!(status.default.as_deref(), Some("'draft'"));
     assert_eq!(products.columns[3].kind, ValueKind::Decimal);
     let invoices = h.ctx(&id).table(&shop.sales("invoices")).await;
-    assert_eq!(invoices.columns[0].type_name, "bigint unsigned");
+    // MariaDB keeps the display width (`bigint(20) unsigned`).
+    let id_type = &invoices.columns[0].type_name;
+    assert!(
+        id_type.starts_with("bigint") && id_type.ends_with(" unsigned"),
+        "{id_type}"
+    );
     assert_eq!(invoices.columns[0].kind, ValueKind::Int);
     let orders = h.ctx(&id).table(&shop.shop("orders")).await;
     let total = &orders.columns[4];
@@ -1173,15 +1178,20 @@ async fn mysql_conformance_and_specifics() {
     else {
         panic!("order_total in {functions:?}");
     };
-    assert_eq!(total_fn.arguments, "p_order_id int");
+    // MariaDB keeps display widths: `int(11)`.
+    let widthless = |s: &str| s.replace("(11)", "");
+    assert_eq!(widthless(&total_fn.arguments), "p_order_id int");
     assert_eq!(total_fn.return_type.as_deref(), Some("decimal(13,2)"));
     assert_eq!(functions[0].comment.as_deref(), Some("Total of an order"));
     let procedures = list(ObjectKind::Procedure).await;
     let Some(ObjectDetail::Routine(procedure)) = procedures.first().map(|p| &p.detail) else {
         panic!("procedure in {procedures:?}");
     };
-    assert_eq!(procedure.arguments, "IN p_before date, OUT p_archived int");
-    assert_eq!(procedure.identity_arguments, "date, int");
+    assert_eq!(
+        widthless(&procedure.arguments),
+        "IN p_before date, OUT p_archived int"
+    );
+    assert_eq!(widthless(&procedure.identity_arguments), "date, int");
     assert!(procedure.return_type.is_none());
     let counts = meta
         .object_counts(manager, None, &id, db, None)

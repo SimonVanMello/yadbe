@@ -17,7 +17,7 @@ mod execute;
 mod introspect;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use mysql_async::consts::StatusFlags;
@@ -209,17 +209,20 @@ fn install_crypto_provider() {
     });
 }
 
-async fn open(opts: Opts, target: &ConnectTarget) -> Result<Conn, YadbeError> {
+/// The connection and the options it was opened with (the `KILL QUERY` connection reuses
+/// them, plain text included when `prefer` fell back to it).
+async fn open(opts: Opts, target: &ConnectTarget) -> Result<(Conn, Opts), YadbeError> {
     match Conn::new(opts.clone()).await {
-        Ok(conn) => Ok(conn),
+        Ok(conn) => Ok((conn, opts)),
         // `prefer` falls back to plain text when the server offers no TLS.
         Err(MyError::Driver(DriverError::NoClientSslFlagFromServer))
             if target.tls_mode == TlsMode::Prefer =>
         {
-            let plain = OptsBuilder::from_opts(opts).ssl_opts(None::<SslOpts>);
-            Conn::new(plain)
+            let plain = Opts::from(OptsBuilder::from_opts(opts).ssl_opts(None::<SslOpts>));
+            let conn = Conn::new(plain.clone())
                 .await
-                .map_err(|e| classify_connect(&e, target))
+                .map_err(|e| classify_connect(&e, target))?;
+            Ok((conn, plain))
         }
         Err(err) => Err(classify_connect(&err, target)),
     }
@@ -261,7 +264,7 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
     let builder = builder(target, password)
         .ssl_opts(ssl_opts(target.tls_mode, target.ca_cert_path.as_deref())?);
     let opts = Opts::from(builder);
-    let mut conn = open(opts.clone(), target).await?;
+    let (mut conn, opts) = open(opts, target).await?;
 
     let recorder = request.recorder;
     let version = recorded(&*recorder, VERSION_SQL, |_| Some(1), async {
@@ -291,7 +294,8 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
         connection_id: conn.id(),
         recorder: Arc::clone(&recorder),
         latest: AtomicU64::new(0),
-        running: Mutex::new(None),
+        running: AtomicBool::new(false),
+        killed: AtomicBool::new(false),
     });
     Ok(Box::new(MysqlConnection {
         inner: Arc::new(Inner {
@@ -314,25 +318,23 @@ pub(super) struct Killer {
     recorder: Arc<dyn StatementRecorder>,
     /// The epoch of the newest cancel handle.
     latest: AtomicU64,
-    /// The epoch current when the running statement started, while one runs.
-    running: Mutex<Option<u64>>,
+    /// A statement runs.
+    running: AtomicBool,
+    /// `KILL QUERY` was sent for the running statement. MariaDB lets a statement whose
+    /// `SLEEP()` was interrupted finish normally: it still ends as cancelled.
+    killed: AtomicBool,
 }
 
 impl Killer {
-    fn running(&self) -> std::sync::MutexGuard<'_, Option<u64>> {
-        self.running
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
     /// Marks a statement as running until the guard drops.
     pub(super) fn start(&self) -> RunningGuard<'_> {
-        *self.running() = Some(self.latest.load(Ordering::SeqCst));
+        self.killed.store(false, Ordering::SeqCst);
+        self.running.store(true, Ordering::SeqCst);
         RunningGuard(self)
     }
 
     fn busy(&self) -> bool {
-        self.running().is_some()
+        self.running.load(Ordering::SeqCst)
     }
 
     /// `KILL QUERY` when a statement runs and no newer handle superseded `epoch`: a late
@@ -357,9 +359,13 @@ impl Killer {
                 tracing::debug!(error = %err, "closing the KILL connection");
             }
             match outcome {
+                Ok(()) => {
+                    self.killed.store(true, Ordering::SeqCst);
+                    Ok(())
+                }
                 // The statement ended meanwhile.
                 Err(MyError::Server(e)) if e.code == 1094 => Ok(()),
-                other => other.map_err(|e| classify_query(&e)),
+                Err(e) => Err(classify_query(&e)),
             }
         })
         .await
@@ -368,9 +374,16 @@ impl Killer {
 
 pub(super) struct RunningGuard<'a>(&'a Killer);
 
+impl RunningGuard<'_> {
+    /// Whether `KILL QUERY` was sent while the statement ran.
+    pub(super) fn killed(&self) -> bool {
+        self.0.killed.load(Ordering::SeqCst)
+    }
+}
+
 impl Drop for RunningGuard<'_> {
     fn drop(&mut self) {
-        *self.0.running() = None;
+        self.0.running.store(false, Ordering::SeqCst);
     }
 }
 
@@ -555,11 +568,16 @@ impl Inner {
 
     /// A statement of yadbe's own, buffered.
     async fn run(&self, sql: &str, max_rows: usize) -> Result<QueryResult, YadbeError> {
-        let (mut guard, _running) = self.lock().await?;
+        let (mut guard, running) = self.lock().await?;
         let conn = guard.as_mut().ok_or_else(|| self.closed())?;
         let result = buffered_text(conn, sql, max_rows).await;
+        let killed = running.killed();
+        drop(running);
         self.track_transaction(conn).await;
-        result.map_err(|e| self.failed(&e))
+        match result {
+            Ok(_) if killed => Err(YadbeError::cancelled()),
+            other => other.map_err(|e| self.failed(&e)),
+        }
     }
 }
 

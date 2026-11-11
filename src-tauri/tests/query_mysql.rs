@@ -567,14 +567,36 @@ async fn connection_failures_are_typed() {
         return;
     };
     let (def, password) = from_url(&url);
-    // Encryption as each mode asks; the test server's certificate is not trusted by the OS.
+    let probe = common::open(&def, password.as_ref())
+        .await
+        .expect("connect");
+    let have_ssl = probe
+        .query("SHOW VARIABLES LIKE 'have_ssl'", 1)
+        .await
+        .expect("have_ssl")
+        .rows
+        .first()
+        .and_then(|r| r.get(1).cloned());
+    probe.close().await;
+    // MySQL 8.4 dropped the variable: it always offers TLS.
+    let tls = have_ssl.is_none_or(|v| v == yadbe_lib::db::value::Value::Text("YES".into()));
+    // Encryption as each mode asks; prefer falls back to plain text on a server without
+    // TLS. The test server's certificate is not trusted by the OS.
     for (mode, encrypted) in [
         (TlsMode::Disable, false),
-        (TlsMode::Prefer, true),
+        (TlsMode::Prefer, tls),
         (TlsMode::Require, true),
     ] {
         let mut ok = def.clone();
         ok.tls_mode = mode;
+        if mode == TlsMode::Require && !tls {
+            let error = common::open(&ok, password.as_ref())
+                .await
+                .err()
+                .expect("no TLS on the server");
+            assert_eq!(error.code, ErrorCode::TlsNotSupported, "{error:?}");
+            continue;
+        }
         let conn = common::open(&ok, password.as_ref())
             .await
             .unwrap_or_else(|e| panic!("{mode:?}: {e:?}"));
@@ -603,7 +625,12 @@ async fn connection_failures_are_typed() {
         .await
         .err()
         .expect("certificate unknown to the OS");
-    assert_eq!(error.code, ErrorCode::TlsFailed, "{error:?}");
+    let expected = if tls {
+        ErrorCode::TlsFailed
+    } else {
+        ErrorCode::TlsNotSupported
+    };
+    assert_eq!(error.code, expected, "{error:?}");
 
     let wrong = yadbe_lib::secrets::Secret::new("not-the-password".to_owned());
     let error = common::open(&def, Some(&wrong)).await.err().expect("auth");
