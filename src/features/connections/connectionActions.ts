@@ -3,45 +3,119 @@ import { showError } from '../../app/errors/presentError';
 import { queryClient } from '../../app/queryClient';
 import { openConnectionTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { translate, useI18nStore, type MessageKey, type MessageParams } from '../../i18n/i18n';
-import { YadbeIpcError } from '../../ipc';
+import { YadbeIpcError, type SecretInput, type SecretKind, type TunnelFailure } from '../../ipc';
 import { toast } from '../../ui/toastStore';
 import { connectionsApi } from './connectionsApi';
 import { connectionKeys, refreshConnections, stateOf, useSessions } from './connectionStore';
 import type { ConnectionSummary } from './model';
-import { askPassword } from './passwordPromptStore';
+import { askTrustHostKey } from './hostKeyPromptStore';
+import { askPassword, type PromptedPassword } from './passwordPromptStore';
+import { endpointOfHop } from './sshModel';
 
 function t(key: MessageKey, params?: MessageParams): string {
   return translate(useI18nStore.getState().locale, key, params);
 }
 
-/** Opens the password prompt, then connects with what was typed. */
-async function connectWithPrompt(connection: ConnectionSummary): Promise<boolean> {
-  const secret = await askPassword(connection);
+/** Secrets typed in the prompts of one connection attempt, and whether each goes to the keychain. */
+interface TypedSecrets {
+  password: PromptedPassword | null;
+  tunnel: Map<SecretKind, PromptedPassword>;
+}
+
+/** Endpoint of the SSH hop a failure is about, as the prompt names it. */
+function endpointOf(connection: ConnectionSummary, failure: TunnelFailure): string {
+  const ssh = connection.definition.ssh;
+  const hop = failure.hop === 'jump' ? ssh?.jump : ssh?.server;
+  return hop ? endpointOfHop(hop) : `${failure.host}:${String(failure.port)}`;
+}
+
+async function askTunnelSecret(
+  connection: ConnectionSummary,
+  failure: TunnelFailure,
+  typed: TypedSecrets,
+): Promise<boolean> {
+  const kind = failure.secret;
+  if (kind === null) return false;
+  const secret = await askPassword(connection, { kind, endpoint: endpointOf(connection, failure) });
   if (!secret) return false;
-  const sessions = useSessions.getState();
-  sessions.clearError(connection.id);
-  try {
-    // The password is kept for the session by the backend; the keychain only gets it once it
-    // is known to work, so a wrong password is never stored.
-    await connectionsApi.connect(connection.id, { kind: 'value', value: secret.password });
-  } catch (error) {
-    reportConnectFailure(connection, error);
-    return false;
-  }
-  if (secret.remember) {
+  typed.tunnel.set(kind, secret);
+  return true;
+}
+
+/** Keeps in the keychain the typed secrets the user asked to remember, once they worked. */
+async function rememberTyped(connection: ConnectionSummary, typed: TypedSecrets): Promise<void> {
+  const remembered: [SecretKind, PromptedPassword][] = [...typed.tunnel.entries()];
+  if (typed.password) remembered.push(['password', typed.password]);
+  for (const [kind, secret] of remembered) {
+    if (!secret.remember) continue;
     try {
-      await connectionsApi.setPassword(connection.id, secret.password, true);
+      await connectionsApi.setSecret(connection.id, kind, secret.password, true);
     } catch (error) {
       showError(error, { title: t('connection.rememberFailed') });
     }
   }
-  return true;
+}
+
+/**
+ * Connects, asking for what the backend lacks on the way: the database password, an SSH
+ * password or key passphrase, the trust of an unknown SSH host key (F-005, F-010). Typed secrets
+ * are kept for the session by the backend; the keychain only gets them once they worked, so a
+ * wrong one is never stored.
+ */
+async function attempt(connection: ConnectionSummary, typed: TypedSecrets): Promise<boolean> {
+  const sessions = useSessions.getState();
+  // Each round answers one question; a few cover a jump host, the server and the database.
+  for (let round = 0; round < 8; round += 1) {
+    sessions.clearError(connection.id);
+    const password: SecretInput | null = typed.password
+      ? { kind: 'value', value: typed.password.password }
+      : null;
+    try {
+      if (typed.tunnel.size === 0) {
+        await connectionsApi.connect(connection.id, password);
+      } else {
+        await connectionsApi.connectWithSecrets(
+          connection.id,
+          password,
+          [...typed.tunnel.entries()].map(([kind, secret]) => ({
+            kind,
+            secret: { kind: 'value', value: secret.password },
+          })),
+        );
+      }
+    } catch (error) {
+      const failure = error instanceof YadbeIpcError ? error.error : null;
+      if (failure?.code === 'passwordRequired') {
+        const secret = await askPassword(connection);
+        if (!secret) return false;
+        typed.password = secret;
+        continue;
+      }
+      if (failure?.code === 'sshSecretRequired' && failure.tunnel) {
+        if (!(await askTunnelSecret(connection, failure.tunnel, typed))) return false;
+        continue;
+      }
+      if (failure?.code === 'sshHostKeyUnknown' && failure.tunnel) {
+        if (!(await askTrustHostKey(failure.tunnel))) return false;
+        continue;
+      }
+      reportConnectFailure(connection, error);
+      return false;
+    }
+    await rememberTyped(connection, typed);
+    return true;
+  }
+  return false;
+}
+
+function freshTyped(): TypedSecrets {
+  return { password: null, tunnel: new Map() };
 }
 
 function reportConnectFailure(connection: ConnectionSummary, error: unknown): void {
-  if (error instanceof YadbeIpcError) {
-    useSessions.getState().setError(connection.id, error.error);
-  }
+  const typedError = error instanceof YadbeIpcError ? error.error : null;
+  if (typedError) useSessions.getState().setError(connection.id, typedError);
+  const tunnel = typedError?.tunnel ?? null;
   showError(error, {
     title: t('connection.connectFailed', { name: connection.name }),
     retry: () => {
@@ -51,15 +125,29 @@ function reportConnectFailure(connection: ConnectionSummary, error: unknown): vo
       void connectTo(connection);
     },
     enterPassword: () => {
-      void connectWithPrompt(connection);
+      const typed = freshTyped();
+      // A refused SSH secret is asked again; otherwise the database password.
+      const asked =
+        tunnel?.secret != null
+          ? askTunnelSecret(connection, tunnel, typed)
+          : askPassword(connection).then((secret) => {
+              typed.password = secret;
+              return secret !== null;
+            });
+      void asked.then((ok) => (ok ? attempt(connection, typed) : false));
     },
+    trustHostKey: tunnel
+      ? () => {
+          void askTrustHostKey(tunnel).then((trusted) => (trusted ? connectTo(connection) : false));
+        }
+      : undefined,
     connectionId: connection.id,
   });
 }
 
 /**
- * Connects, asking for the password when the backend has none for this connection (F-005).
- * Returns whether the connection is open.
+ * Connects, asking for the password (and SSH secrets) when the backend has none for this
+ * connection (F-005, F-010). Returns whether the connection is open.
  */
 export async function connectTo(connection: ConnectionSummary): Promise<boolean> {
   const sessions = useSessions.getState();
@@ -67,17 +155,7 @@ export async function connectTo(connection: ConnectionSummary): Promise<boolean>
   if (state === 'connected') return true;
   // An attempt (or an automatic reconnection) is already running: let it finish.
   if (state === 'connecting' || state === 'reconnecting') return false;
-  sessions.clearError(connection.id);
-  try {
-    await connectionsApi.connect(connection.id, null);
-    return true;
-  } catch (error) {
-    if (error instanceof YadbeIpcError && error.error.code === 'passwordRequired') {
-      return connectWithPrompt(connection);
-    }
-    reportConnectFailure(connection, error);
-    return false;
-  }
+  return attempt(connection, freshTyped());
 }
 
 export async function disconnectFrom(connection: ConnectionSummary): Promise<void> {

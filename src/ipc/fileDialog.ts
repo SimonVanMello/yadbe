@@ -16,6 +16,12 @@ export interface SqlFilePickerLabels {
   allFiles: string;
 }
 
+/** Labels of the private key picker. */
+export interface KeyFilePickerLabels {
+  title: string;
+  allFiles: string;
+}
+
 /**
  * Native file dialogs (SPEC §9: file access only through explicit open / save dialogs). Not part
  * of the generated contract: they go through Tauri's dialog plugin, with a browser stand-in in
@@ -29,6 +35,8 @@ export interface FileDialog {
   pickSqlFile: (labels: SqlFilePickerLabels) => Promise<string | null>;
   /** Asks where to save a SQL script; `null` when dismissed. */
   pickSqlSavePath: (labels: SqlFilePickerLabels, defaultName: string) => Promise<string | null>;
+  /** Asks for an SSH private key file (only its path is kept, never its content). */
+  pickKeyFile: (labels: KeyFilePickerLabels) => Promise<string | null>;
 }
 
 const SQLITE_EXTENSIONS = ['sqlite', 'sqlite3', 'db', 'db3', 's3db', 'sl3'];
@@ -62,6 +70,15 @@ const tauriFileDialog: FileDialog = {
   },
   async pickSqlSavePath(labels, defaultName) {
     return save({ title: labels.title, defaultPath: defaultName, filters: sqlFilters(labels) });
+  },
+  async pickKeyFile(labels) {
+    // Key files have no extension (id_ed25519) or various ones (.pem, .key, .ppk).
+    return open({
+      title: labels.title,
+      multiple: false,
+      directory: false,
+      filters: [{ name: labels.allFiles, extensions: ['*'] }],
+    });
   },
 };
 
@@ -99,6 +116,10 @@ const browserFileDialog: FileDialog = {
   pickSqlSavePath(_labels, defaultName) {
     // No save dialog in a browser: the mock saves next to the other scripts.
     return Promise.resolve(`/home/ana/queries/${defaultName}`);
+  },
+  async pickKeyFile() {
+    const file = await chooseBrowserFile('');
+    return file ? `/home/ana/.ssh/${file.name}` : null;
   },
 };
 

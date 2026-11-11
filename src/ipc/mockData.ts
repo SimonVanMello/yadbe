@@ -105,6 +105,7 @@ export function blankDefinition(engine: Engine, name = ''): ConnectionDefinition
     readOnly: false,
     rememberPassword: true,
     historyEnabled: true,
+    ssh: null,
   };
 }
 

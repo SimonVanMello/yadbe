@@ -5,6 +5,7 @@ import { Icon } from '../../ui/Icon';
 import { Tooltip } from '../../ui/Tooltip';
 import { useConnection, useEngineInfo, useSession, stateOf } from '../connections/connectionStore';
 import { StateDot } from '../connections/StateDot';
+import { endpointOfHop } from '../connections/sshModel';
 import { failedCount, isFailed, useStatementLog } from '../statement-log/statementLogStore';
 import { CursorPosition } from './CursorPosition';
 import { TableStatus } from '../table-data/TableStatus';
@@ -33,10 +34,36 @@ export function StatusBar() {
           <>
             <StateDot state={state} decorative />
             <span>
-              {connection.name} · {t(`connection.state.${state}`)}
+              {connection.name} ·{' '}
+              {session?.tunnel?.phase === 'opening' &&
+              (state === 'connecting' || state === 'reconnecting')
+                ? t('connection.state.openingTunnel')
+                : t(`connection.state.${state}`)}
             </span>
             {state === 'connected' && session?.serverVersion && (
               <span className={styles.muted}>{session.serverVersion}</span>
+            )}
+            {connection.definition.ssh && (
+              <Tooltip
+                content={
+                  <>
+                    {connection.definition.ssh.jump
+                      ? t('connection.tunnel.viaJump', {
+                          endpoint: endpointOfHop(connection.definition.ssh.server),
+                          jump: endpointOfHop(connection.definition.ssh.jump),
+                        })
+                      : t('connection.tunnel.via', {
+                          endpoint: endpointOfHop(connection.definition.ssh.server),
+                        })}
+                    <br />
+                    {t(`connection.tunnel.phase.${session?.tunnel?.phase ?? 'down'}`)}
+                  </>
+                }
+              >
+                <span className={styles.badge} tabIndex={0} data-testid="tunnel-badge">
+                  {t('connection.tunnel.badge')}
+                </span>
+              </Tooltip>
             )}
             {connection.readOnly && (
               <Tooltip

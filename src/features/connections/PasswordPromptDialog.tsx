@@ -1,6 +1,8 @@
 import { useState, type SubmitEvent } from 'react';
 
+import type { MessageKey } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
+import type { SecretKind } from '../../ipc';
 import { Button } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { Field } from '../../ui/Field';
@@ -9,10 +11,24 @@ import { TextInput } from '../../ui/TextInput';
 import { ConnectionBanner } from './ConnectionBanner';
 import { useKeychainAvailable } from './connectionStore';
 import type { ConnectionSummary } from './model';
-import { usePasswordPrompt } from './passwordPromptStore';
+import { usePasswordPrompt, type PromptedSecretRequest } from './passwordPromptStore';
+import { isPassphrase } from './sshModel';
 import styles from './PasswordPromptDialog.module.css';
 
-function PromptForm({ connection }: { connection: ConnectionSummary }) {
+const PROMPT_TITLES: Partial<Record<SecretKind, MessageKey>> = {
+  sshPassword: 'connection.ssh.prompt.sshPassword',
+  sshPassphrase: 'connection.ssh.prompt.sshPassphrase',
+  jumpPassword: 'connection.ssh.prompt.jumpPassword',
+  jumpPassphrase: 'connection.ssh.prompt.jumpPassphrase',
+};
+
+function PromptForm({
+  connection,
+  secret,
+}: {
+  connection: ConnectionSummary;
+  secret: PromptedSecretRequest | null;
+}) {
   const t = useT();
   const settle = usePasswordPrompt((state) => state.settle);
   const keychainAvailable = useKeychainAvailable();
@@ -30,10 +46,16 @@ function PromptForm({ connection }: { connection: ConnectionSummary }) {
       onOpenChange={(open) => {
         if (!open) settle(null);
       }}
-      title={t('connection.password.prompt.title', { name: connection.name })}
-      description={t('connection.password.prompt.description', {
-        target: connection.target,
-      })}
+      title={
+        t((secret && PROMPT_TITLES[secret.kind]) ?? 'connection.password.prompt.title', {
+          name: connection.name,
+        })
+      }
+      description={
+        secret
+          ? t('connection.ssh.prompt.description', { endpoint: secret.endpoint })
+          : t('connection.password.prompt.description', { target: connection.target })
+      }
       footer={
         <>
           <Button
@@ -52,7 +74,16 @@ function PromptForm({ connection }: { connection: ConnectionSummary }) {
     >
       <ConnectionBanner connection={connection} />
       <form id="password-form" className={styles.form} onSubmit={submit}>
-        <Field label={t('connection.password')} htmlFor="prompt-password">
+        <Field
+          label={
+            secret === null
+              ? t('connection.password')
+              : isPassphrase(secret.kind)
+                ? t('connection.ssh.prompt.passphrase')
+                : t('connection.ssh.prompt.password')
+          }
+          htmlFor="prompt-password"
+        >
           <TextInput
             id="prompt-password"
             type="password"
@@ -85,5 +116,11 @@ function PromptForm({ connection }: { connection: ConnectionSummary }) {
 export function PasswordPromptDialog() {
   const pending = usePasswordPrompt((state) => state.pending);
   if (!pending) return null;
-  return <PromptForm key={pending.connection.id} connection={pending.connection} />;
+  return (
+    <PromptForm
+      key={`${pending.connection.id}:${pending.secret?.kind ?? 'password'}`}
+      connection={pending.connection}
+      secret={pending.secret}
+    />
+  );
 }

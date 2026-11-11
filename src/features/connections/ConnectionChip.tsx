@@ -1,10 +1,14 @@
 import type { CSSProperties } from 'react';
 
+import { useT } from '../../i18n/useT';
+import { Icon } from '../../ui/Icon';
+
 import styles from './ConnectionChip.module.css';
 import { EnvTag } from './EnvTag';
 import { EngineBadge } from './EngineBadge';
 import { StateDot } from './StateDot';
 import { tintOf, type ConnectionState, type ConnectionSummary } from './model';
+import { endpointOfHop } from './sshModel';
 
 interface ConnectionChipProps {
   connection: ConnectionSummary;
@@ -17,7 +21,17 @@ interface ConnectionChipProps {
  * visible"): in the toolbar and in the body of each tab.
  */
 export function ConnectionChip({ connection, state, size = 'sm' }: ConnectionChipProps) {
+  const t = useT();
   const tint = tintOf(connection);
+  const ssh = connection.definition.ssh;
+  const via = ssh
+    ? ssh.jump
+      ? t('connection.tunnel.viaJump', {
+          endpoint: endpointOfHop(ssh.server),
+          jump: endpointOfHop(ssh.jump),
+        })
+      : t('connection.tunnel.via', { endpoint: endpointOfHop(ssh.server) })
+    : null;
   return (
     <span
       className={styles.chip}
@@ -29,6 +43,11 @@ export function ConnectionChip({ connection, state, size = 'sm' }: ConnectionChi
       <EngineBadge engine={connection.engine} />
       <span className={styles.name}>{connection.name}</span>
       {connection.database && <span className={styles.database}>{connection.database}</span>}
+      {via && (
+        <span className={styles.tunnel} title={via} aria-label={via} data-testid="tunnel-indicator">
+          <Icon name="tunnel" />
+        </span>
+      )}
       {connection.environment && (
         <EnvTag
           environment={connection.environment}

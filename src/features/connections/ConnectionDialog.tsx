@@ -33,7 +33,10 @@ import {
   type DraftErrors,
   type EngineInfo,
 } from './model';
+import { askTrustHostKey } from './hostKeyPromptStore';
 import { pickDatabaseFile } from './pickDatabaseFile';
+import { pickKeyFile } from './pickKeyFile';
+import { activeHops, type SshHopName } from './sshModel';
 import { TestResultView, type TestState } from './TestResultView';
 
 function toYadbeError(error: unknown): YadbeError {
@@ -79,6 +82,12 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
     gcTime: 0,
   });
   const passwordLocation = passwordQuery.data ?? null;
+  const sshSecretsQuery = useQuery({
+    queryKey: ['connection-ssh-secrets', initial.id],
+    queryFn: () => (initial.id === null ? {} : connectionsApi.sshSecretLocations(initial.id)),
+    gcTime: 0,
+  });
+  const sshSecretLocations = sshSecretsQuery.data ?? {};
 
   const forgetPending = () => {
     const id = pendingId.current;
@@ -152,7 +161,14 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
         dropExpiredPending(error);
         // A test the user cancelled, or replaced by another one, is not worth showing.
         if (testRequest.current !== requestId) return;
-        setTest({ status: 'error', error: toYadbeError(error) });
+        const failure = toYadbeError(error);
+        setTest({ status: 'error', error: failure });
+        // An unknown host key is asked about at once: trusted, the test runs again.
+        if (failure.code === 'sshHostKeyUnknown' && failure.tunnel) {
+          void askTrustHostKey(failure.tunnel).then((trusted) => {
+            if (trusted) retest.current();
+          });
+        }
       })
       .finally(() => {
         if (testRequest.current === requestId) testRequest.current = null;
@@ -164,6 +180,32 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
     testRequest.current = null;
     setTest({ status: 'idle' });
     if (requestId !== null) void connectionsApi.cancelTest(requestId).catch(() => undefined);
+  };
+
+  const pickKey = (hop: SshHopName) => {
+    void pickKeyFile().then((keyPath) => {
+      if (keyPath) {
+        setDraft((current) => ({
+          ...current,
+          ssh: { ...current.ssh, [hop]: { ...current.ssh[hop], keyPath } },
+        }));
+        setTest({ status: 'idle' });
+      }
+    });
+  };
+
+  // The latest `runTest`, for the host key prompt that resolves after a re-render.
+  const retest = useRef(runTest);
+  retest.current = runTest;
+
+  /** The field of the hop an error is about: the SSH host or secret, else the database's. */
+  const focusHop = (error: YadbeError, what: 'host' | 'secret') => {
+    const hop = error.tunnel?.hop;
+    if (hop === 'jump' || hop === 'server') {
+      focusField(`ssh-${hop}-${what}`);
+      return true;
+    }
+    return false;
   };
 
   const pickFile = () => {
@@ -179,7 +221,7 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
     if (Object.keys(found).length > 0 || saving || !info) return;
     setSaving(true);
     connectionsApi
-      .save(draft, info, passwordLocation)
+      .save(draft, info, passwordLocation, sshSecretLocations)
       .then(async (saved) => {
         // The backend consumed the held password with this save.
         pendingId.current = null;
@@ -221,18 +263,31 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
         test.status === 'idle' ? undefined : (
           <TestResultView
             state={test}
+            hops={info?.capabilities.usesFile ? [] : activeHops(draft.ssh).map(([name]) => name)}
             context={{
               retry: runTest,
               editConnection: () => {
+                if (test.status === 'error' && focusHop(test.error, 'host')) return;
                 focusField(info?.capabilities.usesFile ? 'file' : 'host');
               },
               changeTlsMode: () => {
                 focusField('tls');
               },
               enterPassword: () => {
+                if (test.status === 'error' && focusHop(test.error, 'secret')) return;
                 focusField('password');
               },
               chooseFile: pickFile,
+              trustHostKey:
+                test.status === 'error' && test.error.tunnel
+                  ? () => {
+                      const { tunnel } = test.error;
+                      if (!tunnel) return;
+                      void askTrustHostKey(tunnel).then((trusted) => {
+                        if (trusted) runTest();
+                      });
+                    }
+                  : undefined,
             }}
           />
         )
@@ -315,6 +370,8 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
           onChange={update}
           onPasteConnectionString={fillFrom}
           onPickFile={pickFile}
+          sshSecretLocations={sshSecretLocations}
+          onPickKey={pickKey}
         />
       </form>
     </Dialog>

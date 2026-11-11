@@ -6,6 +6,7 @@ import { Button } from '../../ui/Button';
 import { Select } from '../../ui/Select';
 import { useKeychainAvailable } from '../connections/connectionStore';
 import { ClearHistoryDialog } from '../history/ClearHistoryDialog';
+import { KnownHostsSetting } from './KnownHostsSetting';
 import styles from './SettingRow.module.css';
 import type { SettingId } from './settingsIndex';
 
@@ -103,6 +104,8 @@ export function CustomSetting({ id, label, hint }: CustomSettingProps) {
       return <ClearHistoryRow label={label} hint={hint} />;
     case 'keychain':
       return <KeychainRow label={label} hint={hint} />;
+    case 'sshKnownHosts':
+      return <KnownHostsSetting label={label} hint={hint} />;
     case 'version':
     case 'platform':
       return <AboutRow id={id} label={label} hint={hint} />;
