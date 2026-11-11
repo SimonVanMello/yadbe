@@ -9,7 +9,11 @@ export function ImportPreviewTable({ preview }: { preview: ImportPreview }) {
     return <p className={styles.muted}>{t('import.preview.empty')}</p>;
   }
   return (
-    <div className={styles.previewWrap} role="region" aria-label={t('import.preview.title')}>
+    <div
+      className={styles.previewWrap}
+      role="region"
+      aria-label={t('import.preview.title', { count: preview.rows.length })}
+    >
       <table className={styles.previewTable}>
         <thead>
           <tr>
