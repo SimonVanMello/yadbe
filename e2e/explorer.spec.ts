@@ -92,6 +92,18 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'sqlite');
     });
 
+    test('MySQL: databases are the namespaces, no schema level', async ({ page }) => {
+      await connect(page, /^wordpress,/);
+      await expand(item(page, /^wordpress$/));
+      // System databases are hidden by default.
+      await expect(item(page, /^information_schema$/)).toHaveCount(0);
+      await expand(item(page, /^Tables \(/));
+      await expand(item(page, /^wp_posts$/));
+      await expand(item(page, /^Columns \(/));
+      await expect(item(page, /^ID, bigint unsigned/)).toBeVisible();
+      await capture(page, name, 'mysql');
+    });
+
     test('the filter keeps the ancestors of the loaded matches', async ({ page }) => {
       await openOrders(page);
       await page.getByRole('textbox', { name: 'Filter connections' }).fill('ord');

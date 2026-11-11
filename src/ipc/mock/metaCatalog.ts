@@ -41,8 +41,9 @@ export const MOCK_OBJECT_KINDS: Record<string, ObjectKind[]> = {
 export function kindOfType(typeName: string): ValueKind {
   const t = typeName.toLowerCase();
   if (t.endsWith('[]')) return 'array';
-  if (t === 'boolean' || t === 'bool') return 'bool';
-  if (/^(small|big)?int(eger)?\b|^serial|^int[248]?$/.test(t)) return 'int';
+  if (t === 'boolean' || t === 'bool' || t.startsWith('tinyint(1)')) return 'bool';
+  if (/^(tiny|small|medium|big)?int(eger)?\b|^serial|^int[248]?$/.test(t)) return 'int';
+  if (/^(tiny|medium|long)text$|^enum\(/.test(t)) return 'text';
   if (t.startsWith('numeric') || t.startsWith('decimal') || t === 'money') return 'decimal';
   if (t === 'real' || t.startsWith('double') || t.startsWith('float')) return 'float';
   if (t === 'bytea' || t === 'blob') return 'bytes';
@@ -858,6 +859,142 @@ const APP_SQLITE: SchemaDef[] = [
     ],
   },
 ];
+
+/** A WordPress database on a MySQL server: databases are the namespaces, no schema level. */
+const WORDPRESS_MYSQL: SchemaDef[] = [
+  {
+    name: null,
+    tables: [
+      table(
+        'wp_posts',
+        18_532,
+        [
+          c('ID', 'bigint unsigned', { identity: 'byDefault' }),
+          c('post_author', 'bigint unsigned', { default: '0' }),
+          c('post_date', 'datetime', { default: "'0000-00-00 00:00:00'" }),
+          c('post_content', 'longtext'),
+          c('post_title', 'text'),
+          c('post_status', 'varchar(20)', { default: "'publish'" }),
+          c('comment_status', 'varchar(20)', { default: "'open'" }),
+          c('post_name', 'varchar(200)', { default: "''" }),
+          c('post_parent', 'bigint unsigned', { default: '0' }),
+          c('post_type', 'varchar(20)', { default: "'post'" }),
+          c('comment_count', 'bigint', { default: '0' }),
+        ],
+        {
+          primaryKey: ['ID'],
+          indexes: [
+            { name: 'post_name', columns: ['post_name'] },
+            { name: 'type_status_date', columns: ['post_type', 'post_status', 'post_date'] },
+          ],
+        },
+      ),
+      table(
+        'wp_users',
+        412,
+        [
+          c('ID', 'bigint unsigned', { identity: 'byDefault' }),
+          c('user_login', 'varchar(60)', { default: "''" }),
+          c('user_email', 'varchar(100)', { default: "''" }),
+          c('user_registered', 'datetime', { default: "'0000-00-00 00:00:00'" }),
+          c('user_status', 'int', { default: '0' }),
+          c('display_name', 'varchar(250)', { default: "''" }),
+        ],
+        { primaryKey: ['ID'], unique: [['user_login']] },
+      ),
+      table(
+        'wp_comments',
+        52_009,
+        [
+          c('comment_ID', 'bigint unsigned', { identity: 'byDefault' }),
+          c('comment_post_ID', 'bigint unsigned', { default: '0' }),
+          c('comment_author', 'tinytext'),
+          c('comment_date', 'datetime', { default: "'0000-00-00 00:00:00'" }),
+          c('comment_content', 'text'),
+          c('comment_approved', 'varchar(20)', { default: "'1'" }),
+          c('user_id', 'bigint unsigned', { default: '0' }),
+        ],
+        { primaryKey: ['comment_ID'] },
+      ),
+      table(
+        'wp_options',
+        684,
+        [
+          c('option_id', 'bigint unsigned', { identity: 'byDefault' }),
+          c('option_name', 'varchar(191)', { default: "''" }),
+          c('option_value', 'longtext'),
+          c('autoload', "enum('yes','no','on','off','auto')", { default: "'yes'" }),
+        ],
+        { primaryKey: ['option_id'], unique: [['option_name']] },
+      ),
+      table(
+        'wp_postmeta',
+        131_877,
+        [
+          c('meta_id', 'bigint unsigned', { identity: 'byDefault' }),
+          c('post_id', 'bigint unsigned', { default: '0' }),
+          opt('meta_key', 'varchar(255)'),
+          opt('meta_value', 'longtext'),
+        ],
+        { primaryKey: ['meta_id'] },
+      ),
+      table(
+        'wp_wc_orders',
+        3_120,
+        [
+          c('id', 'bigint unsigned'),
+          opt('status', 'varchar(20)'),
+          opt('currency', 'varchar(10)'),
+          opt('total_amount', 'decimal(26,8)'),
+          opt('customer_id', 'bigint unsigned'),
+          opt('is_paid', 'tinyint(1)'),
+          opt('date_created_gmt', 'datetime'),
+        ],
+        { foreignKeys: [fk('customer_id', 'wp_users')] },
+      ),
+      {
+        name: 'published_posts',
+        kind: 'view',
+        columns: [
+          opt('ID', 'bigint unsigned'),
+          opt('post_title', 'text'),
+          opt('post_date', 'datetime'),
+        ],
+      },
+    ],
+    functions: [
+      {
+        name: 'post_word_count',
+        args: 'p_post_id bigint unsigned',
+        identity: 'bigint unsigned',
+        returns: 'int',
+        language: 'SQL',
+      },
+    ],
+    procedures: [
+      {
+        name: 'purge_revisions',
+        args: 'IN p_before datetime, OUT p_deleted int',
+        identity: 'datetime, int',
+        returns: null,
+        language: 'SQL',
+      },
+    ],
+  },
+];
+
+/** The databases a mock MySQL server holds; `current` is the connection's database. */
+export function mysqlServer(current: string): MockDatabase[] {
+  const main = current || 'wordpress';
+  const empty: SchemaDef[] = [{ name: null, tables: [] }];
+  return [
+    database(main, WORDPRESS_MYSQL, { current: true }),
+    database('information_schema', empty, { system: true }),
+    database('mysql', empty, { system: true }),
+    database('performance_schema', empty, { system: true }),
+    database('sys', empty, { system: true }),
+  ].sort((a, b) => a.info.name.localeCompare(b.info.name));
+}
 
 // --- Building the model --------------------------------------------------------------------
 

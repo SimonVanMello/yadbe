@@ -237,6 +237,7 @@ impl Inner {
 
 #[cfg(test)]
 mod tests {
+    use super::super::server_detail;
     use super::*;
 
     #[test]

@@ -139,6 +139,12 @@ ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION";
 
 type Row = Vec<Value>;
 
+/// One index read from `STATISTICS`: name, unique, key parts, plain columns only, method.
+type IndexRows = Vec<(String, bool, Vec<String>, bool, Option<String>)>;
+
+/// Foreign keys by (table, constraint): (from, from column, to, to column) per key part.
+type ForeignKeyRows = Vec<((String, String), Vec<[String; 4]>)>;
+
 /// A cell as text. `information_schema` columns are text, but some come with the binary
 /// character set on MySQL 8: their hexadecimal form is turned back into text.
 fn text(row: &Row, index: usize) -> Option<String> {
@@ -546,8 +552,7 @@ impl MysqlConnection {
 
     async fn add_indexes(&self, details: &mut TableDetails, sql: &str) -> Result<(), YadbeError> {
         let (db, name) = (details.table.database.clone(), details.table.name.clone());
-        // Rows come by index, in key order: (name, unique, parts, plain columns only, type).
-        let mut indexes: Vec<(String, bool, Vec<String>, bool, Option<String>)> = Vec::new();
+        let mut indexes: IndexRows = Vec::new();
         for row in &self.meta(sql, &[&db, &name]).await? {
             let index = text_req(row, 0)?;
             let unique = !flag(row, 1);
@@ -730,7 +735,7 @@ impl MysqlConnection {
         }
 
         // Rows come by constraint, in key order: (from, from column, to, to column).
-        let mut constraints: Vec<((String, String), Vec<[String; 4]>)> = Vec::new();
+        let mut constraints: ForeignKeyRows = Vec::new();
         for row in &foreign_keys {
             let id = (text_req(row, 1)?, text_req(row, 0)?);
             let pair = [

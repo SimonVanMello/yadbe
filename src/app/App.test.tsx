@@ -60,15 +60,16 @@ describe('App', () => {
     expect(items[0]).toHaveAccessibleName(/^wordpress,/);
   });
 
-  it('shows the unavailable engines of this build with a notice in the connection form', async () => {
+  it('shows the MySQL form with its defaults and no availability notice', async () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByRole('tree', { name: 'Connections' });
     await user.click(screen.getAllByRole('button', { name: 'New connection' })[0] as HTMLElement);
     const dialog = await screen.findByRole('dialog', { name: 'New connection' });
     await user.click(await within(dialog).findByRole('radio', { name: 'MySQL / MariaDB' }));
-    expect(within(dialog).getByRole('note')).toHaveTextContent(/MySQL \/ MariaDB is not available/);
+    expect(within(dialog).queryByText(/is not available/)).toBeNull();
     expect(within(dialog).getByRole('textbox', { name: 'Port' })).toHaveValue('3306');
+    expect(within(dialog).getByRole('textbox', { name: 'User' })).toHaveValue('root');
   });
 
   it('shows the primitives page on #primitives', async () => {
