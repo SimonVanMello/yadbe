@@ -42,6 +42,7 @@ export function FileStep({ wizard }: { wizard: ImportWizard }) {
         </div>
         <Button
           variant={path ? 'secondary' : 'primary'}
+          disabled={wizard.target === null}
           onClick={() => {
             void wizard.chooseFile();
           }}

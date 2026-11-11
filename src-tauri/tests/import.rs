@@ -943,6 +943,81 @@ async fn throughput(fx: &Fixture, label: &str) {
     fx.clear("imp_big").await;
 }
 
+/// Peak resident memory of this process in KiB (Linux), `0` elsewhere.
+fn peak_rss_kib() -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status
+                .lines()
+                .find_map(|l| l.strip_prefix("VmHWM:"))
+                .and_then(|v| v.split_whitespace().next().and_then(|n| n.parse().ok()))
+        })
+        .unwrap_or(0)
+}
+
+/// A 1 GiB CSV file into SQLite: the file is streamed, never loaded, so the peak memory
+/// stays a few tens of MiB. Needs about 2.5 GiB of disk. Prints rows per second and the
+/// peak memory.
+#[tokio::test]
+#[ignore = "benchmark: 1 GiB file"]
+async fn large_file_one_gib_sqlite() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = dir.path().join("large.sqlite");
+    let mut def = blank(Engine::Sqlite, "large.sqlite");
+    def.file_path = db.display().to_string();
+    rusqlite::Connection::open(&db)
+        .and_then(|c| c.execute_batch(ddl(Engine::Sqlite)))
+        .expect("fixture");
+    let fx = Fixture {
+        engine: Engine::Sqlite,
+        def,
+        password: None,
+        database: "main".into(),
+        schema: None,
+    };
+    let path = dir.path().join("large.csv");
+    let padding = "x".repeat(200);
+    let mut rows = 0_u64;
+    {
+        let mut out = std::io::BufWriter::new(std::fs::File::create(&path).expect("file"));
+        writeln!(out, "id,a,b,c").expect("write");
+        let mut written = 0_u64;
+        while written < 1024 * 1024 * 1024 {
+            rows += 1;
+            let line = format!("{rows},{padding}{rows},{},{}.25\n", rows % 1000, rows % 977);
+            written += line.len() as u64;
+            out.write_all(line.as_bytes()).expect("write");
+        }
+        out.flush().expect("flush");
+    }
+    let before = peak_rss_kib();
+    let b = bench();
+    let conn = fx.connect(&b, false).await;
+    let req = request(
+        &fx,
+        &conn,
+        "imp_big",
+        &path.display().to_string(),
+        &["id", "a", "b", "c"],
+    );
+    let started = std::time::Instant::now();
+    let done = finish(&b, req).await;
+    let elapsed = started.elapsed();
+    assert_eq!(done.status, ImportStatus::Done, "{:?}", done.error);
+    assert_eq!(u64::from(done.inserted), rows);
+    #[allow(clippy::cast_precision_loss)]
+    {
+        println!(
+            "Large file: {rows} rows (1 GiB CSV) in {:.1} s = {:.0} rows/s; peak memory {} MiB (before the import: {} MiB)",
+            elapsed.as_secs_f64(),
+            rows as f64 / elapsed.as_secs_f64(),
+            peak_rss_kib() / 1024,
+            before / 1024
+        );
+    }
+}
+
 #[tokio::test]
 #[ignore = "benchmark: 1M rows"]
 async fn throughput_sqlite() {

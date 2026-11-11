@@ -1355,7 +1355,7 @@
   "import.columns.sourceOf": "Valeur de {column}",
   "import.columns.summary": "{mapped} colonnes écrites sur {total}, {file} colonnes dans le fichier",
   "import.columns.missing": "Ces colonnes exigent une valeur et n’ont pas de défaut : {columns}. Associez-les ou donnez-leur une constante.",
-  "import.source.skip": "Non importée",
+  "import.source.skip": "Non importée (valeur par défaut)",
   "import.source.null": "NULL",
   "import.source.constant": "Valeur constante…",
   "import.source.constantOf": "Constante pour {column}",

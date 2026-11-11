@@ -1355,7 +1355,7 @@
   "import.columns.sourceOf": "Value of {column}",
   "import.columns.summary": "{mapped} of {total} columns written, {file} columns in the file",
   "import.columns.missing": "These columns need a value and have no default: {columns}. Map them or give them a constant.",
-  "import.source.skip": "Not imported",
+  "import.source.skip": "Not imported (server default)",
   "import.source.null": "NULL",
   "import.source.constant": "Constant value…",
   "import.source.constantOf": "Constant for {column}",
