@@ -1,6 +1,7 @@
 //! Tauri command handlers. Keep them thin: validate, call a service, map errors.
 
 pub mod app;
+pub mod connection_import;
 pub mod connections;
 pub mod edit;
 pub mod export;
