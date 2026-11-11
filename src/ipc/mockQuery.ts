@@ -1,9 +1,11 @@
 import type {
   ColumnMeta,
   Engine,
+  ExecuteScope,
   ExecutionDelta,
   ExecutionSnapshot,
   ExecutionStatus,
+  ParameterValue,
   PauseReason,
   QueryMessage,
   QueryTabInfo,
@@ -26,6 +28,12 @@ import type { EventEmitter } from './emitter';
 import type { MockHistoryRecord } from './mock/history';
 import { mockErrors } from './mockErrors';
 import { mockSplit, mockStatementAt } from './mockSplit';
+import {
+  mockExplainSent,
+  mockPlan,
+  mockQueryParameters,
+  mockScopeStatements,
+} from './mock/queryTools';
 
 /**
  * Query execution of the mock backend (M1-3 contract). The SQL decides what happens:
@@ -62,7 +70,9 @@ type QueryCommandName =
   | 'setTransactionMode'
   | 'commitTransaction'
   | 'rollbackTransaction'
-  | 'closeQueryTab';
+  | 'closeQueryTab'
+  | 'queryParameters'
+  | 'explainQuery';
 
 type QueryCommands = Pick<YadbeCommands, QueryCommandName>;
 
@@ -425,6 +435,25 @@ function readOnlyRefusal(sql: string): string | null {
   if (write?.[1]) return write[1].toUpperCase();
   if (/\bfor\s+(update|share|no\s+key\s+update|key\s+share)\b/i.test(words)) return 'FOR UPDATE';
   return null;
+}
+
+/** The backend's refusal of a run whose parameters lack a value, `null` when none does. */
+function missingParameters(
+  engine: Engine,
+  text: string,
+  scope: ExecuteScope,
+  given: readonly ParameterValue[],
+): YadbeError | null {
+  const names = new Set(given.map((p) => p.name));
+  const missing = mockQueryParameters(engine, text, scope)
+    .filter((p) => !names.has(p.name))
+    .map((p) => (p.style === 'positional' ? `? #${p.name}` : p.label));
+  if (missing.length === 0) return null;
+  const list = missing.join(', ');
+  return mockErrors.invalidArgument(
+    `These parameters have no value: ${list}. Nothing was run.`,
+    `Ces paramètres n'ont pas de valeur : ${list}. Rien n'a été exécuté.`,
+  );
 }
 
 export function createMockQuery(host: MockQueryHost) {
@@ -982,6 +1011,9 @@ export function createMockQuery(host: MockQueryHost) {
     }
   });
 
+  /** Explains in progress, by tab: `cancelQuery` aborts them. */
+  const explaining = new Map<string, AbortController>();
+
   const commands: QueryCommands = {
     splitStatements: (engine, text) =>
       ok(mockSplit(engine, text).map(({ from, to }) => ({ from, to }))),
@@ -1018,6 +1050,8 @@ export function createMockQuery(host: MockQueryHost) {
         statements = found ? [found] : [];
       }
       statements = statements.map(({ from, to }) => ({ from, to }));
+      const missing = missingParameters(engine, text, scope, request.parameters ?? []);
+      if (missing) return fail(missing);
       if (statements.length === 0) {
         return fail(
           mockErrors.invalidArgument(
@@ -1062,6 +1096,7 @@ export function createMockQuery(host: MockQueryHost) {
     },
 
     cancelQuery: (tabId) => {
+      explaining.get(tabId)?.abort();
       const tab = tabs.get(tabId);
       if (tab && running(tab)) tab.execution?.controller.abort();
       return ok(null);
@@ -1152,6 +1187,68 @@ export function createMockQuery(host: MockQueryHost) {
       const tab = tabs.get(tabId);
       if (tab) closeTab(tab);
       return ok(null);
+    },
+
+    queryParameters: (engine, text, scope) => ok(mockQueryParameters(engine, text, scope)),
+
+    explainQuery: async (request) => {
+      const conn = host.connection(request.connectionId);
+      if (!conn) return fail(mockErrors.connectionNotFound(request.connectionId));
+      if (host.session(request.connectionId)?.state !== 'connected') {
+        return fail(mockErrors.notConnected());
+      }
+      const tab = tabOf(request.tabId);
+      if (running(tab) || explaining.has(tab.id)) return fail(mockErrors.executionRunning());
+      const engine = conn.definition.engine;
+      if (request.analyze && engine === 'sqlite') {
+        return fail(
+          mockErrors.invalidArgument(
+            'SQLite cannot show this kind of plan.',
+            'SQLite ne sait pas montrer ce type de plan.',
+          ),
+        );
+      }
+      const statements = mockScopeStatements(engine, request.text, request.scope);
+      const [statement] = statements;
+      if (!statement || statements.length > 1) {
+        return fail(
+          statement
+            ? mockErrors.invalidArgument(
+                'Explain one statement at a time: put the cursor in it or select it alone.',
+                'Expliquez une instruction à la fois : placez le curseur dedans ou sélectionnez-la seule.',
+              )
+            : mockErrors.invalidArgument(
+                'There is no statement to explain.',
+                "Il n'y a aucune instruction à expliquer.",
+              ),
+        );
+      }
+      const sql = request.text.slice(statement.from, statement.to);
+      if (request.analyze && conn.definition.readOnly) {
+        const refusal = readOnlyRefusal(sql);
+        if (refusal !== null) return fail(mockErrors.readOnlyViolation(refusal));
+      }
+      const missing = missingParameters(
+        engine,
+        request.text,
+        request.scope,
+        request.parameters ?? [],
+      );
+      if (missing) return fail(missing);
+      const controller = new AbortController();
+      explaining.set(tab.id, controller);
+      const started = performance.now();
+      const done = await sleep(request.analyze ? tick * 6 : tick * 2, controller.signal);
+      explaining.delete(tab.id);
+      if (!done) return fail(mockErrors.cancelled());
+      const sent = mockExplainSent(engine, sql, request.analyze);
+      host.logStatement(conn.id, conn.definition.name, sent);
+      return ok({
+        statement: { from: statement.from, to: statement.to },
+        plan: mockPlan(engine, sql, request.analyze),
+        sent,
+        durationMs: Math.round((performance.now() - started) * 10) / 10,
+      });
     },
   };
 

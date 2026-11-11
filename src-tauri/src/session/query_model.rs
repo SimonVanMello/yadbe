@@ -83,6 +83,10 @@ pub struct ExecuteRequest {
     pub scope: ExecuteScope,
     /// `null`: 100 000 rows / 256 MB per result.
     pub limits: Option<ResultLimits>,
+    /// Values of the statements' parameters (F-048), from `query_parameters`. A statement
+    /// whose parameters lack a value fails the whole run before anything is sent.
+    #[serde(default)]
+    pub parameters: Vec<ParameterValue>,
 }
 
 /// Returned as soon as an execution is accepted; everything else arrives as events.
@@ -337,4 +341,72 @@ pub struct ResultWindow {
     pub row_count: u32,
     /// One entry per column of the result, in order.
     pub columns: Vec<WindowColumn>,
+}
+
+/// The type a query parameter's value is given as (F-048).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ParameterKind {
+    Text,
+    /// Digits, optionally a sign, a decimal part and an exponent.
+    Number,
+    /// `true` / `false`.
+    Boolean,
+    /// SQL `NULL`; the value is ignored.
+    Null,
+    /// `YYYY-MM-DD`, `HH:MM[:SS[.ffffff]]` or both, with an optional offset.
+    DateTime,
+}
+
+/// The value given for one query parameter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ParameterValue {
+    /// `QueryParameter::name`.
+    pub name: String,
+    pub kind: ParameterKind,
+    pub value: String,
+}
+
+/// A parameter of the statements a run would send (F-048).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryParameter {
+    /// What the value is given for: the name without its sigil (`id`), the number of a
+    /// numbered one (`2`), the order of a `?` in the run (`1`, `2`…).
+    pub name: String,
+    /// As written the first time (`:id`, `@id`, `$2`, `?`).
+    pub label: String,
+    pub style: crate::db::params::ParameterStyle,
+    /// Where it appears in the editor text.
+    pub occurrences: Vec<TextRange>,
+}
+
+/// Explain the statement of a scope (F-053).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplainRequest {
+    /// Runs on the tab's own connection (its transaction, temporary tables, settings).
+    pub tab_id: String,
+    pub connection_id: String,
+    pub database: Option<String>,
+    pub text: String,
+    /// Must hold exactly one statement.
+    pub scope: ExecuteScope,
+    /// Run the statement and report actual rows and times (`EXPLAIN ANALYZE`, actual
+    /// execution plan). A statement that writes does write.
+    pub analyze: bool,
+    #[serde(default)]
+    pub parameters: Vec<ParameterValue>,
+}
+
+/// A plan and what was run to get it.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplainResult {
+    pub statement: TextRange,
+    pub plan: crate::db::plan::QueryPlan,
+    /// What yadbe sent (also in the statement log), e.g. `EXPLAIN (FORMAT JSON) …`.
+    pub sent: String,
+    pub duration_ms: f64,
 }

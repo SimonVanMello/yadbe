@@ -8,8 +8,8 @@ use crate::db::errors::YadbeError;
 use crate::db::split::{Utf16Map, split, statement_at as db_statement_at};
 use crate::db::value::Value;
 use crate::session::query_model::{
-    ExecuteRequest, ExecutionStarted, QueryTabInfo, ResultWindow, ResumeMode, TextRange,
-    TransactionMode, TransactionState,
+    ExecuteRequest, ExecuteScope, ExecutionStarted, ExplainRequest, ExplainResult, QueryParameter,
+    QueryTabInfo, ResultWindow, ResumeMode, TextRange, TransactionMode, TransactionState,
 };
 use crate::state::AppState;
 
@@ -150,6 +150,34 @@ pub async fn rollback_transaction(
     tab_id: String,
 ) -> Result<TransactionState, YadbeError> {
     state.queries.end_transaction(&tab_id, false).await
+}
+
+/// The query parameters (`:name`, `@name`, `$1`, `?`… as the engine reads them) of the
+/// statements a run of `scope` would send, merged by name, in order of first appearance
+/// (F-048). Their values go in `ExecuteRequest::parameters`.
+#[tauri::command]
+#[specta::specta]
+pub async fn query_parameters(
+    engine: Engine,
+    text: String,
+    scope: ExecuteScope,
+) -> Result<Vec<QueryParameter>, YadbeError> {
+    Ok(crate::session::query_runner::query_parameters(
+        engine, &text, scope,
+    ))
+}
+
+/// The plan of one statement (F-053), on the tab's own connection: estimated, or with
+/// `analyze` actual (the statement runs). What yadbe sends goes to the statement log.
+/// Cancelled by `cancel_query`. Fails with `executionRunning` while the tab runs,
+/// `readOnlyViolation` for an analyze that may write on a read-only connection.
+#[tauri::command]
+#[specta::specta]
+pub async fn explain_query(
+    state: State<'_, AppState>,
+    request: ExplainRequest,
+) -> Result<ExplainResult, YadbeError> {
+    state.queries.explain(request).await
 }
 
 /// The tab closed: cancels its execution, closes its connection (an open transaction is

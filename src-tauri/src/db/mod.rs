@@ -11,6 +11,8 @@ pub mod driver;
 pub mod drivers;
 pub mod edit_dialect;
 pub mod errors;
+pub mod params;
+pub mod plan;
 pub mod split;
 pub mod value;
 

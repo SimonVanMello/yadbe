@@ -23,6 +23,8 @@ use tokio::sync::watch;
 use crate::db::config::ConnectTarget;
 use crate::db::dialect::Engine;
 use crate::db::errors::{ConstraintViolation, YadbeError};
+use crate::db::params::ParamStatement;
+use crate::db::plan::RawPlan;
 use crate::db::value::{ColumnMeta, QueryResult, Value};
 use crate::secrets::Secret;
 pub use crate::session::query_model::ServerMessage;
@@ -225,6 +227,39 @@ pub trait Connection: Send + Sync {
     fn in_transaction(&self) -> Option<bool> {
         None
     }
+
+    /// Runs one user statement with its query parameters bound (F-048), like `execute`.
+    /// `statement.sql` is sent as it is (see `db::params` for what the engine needs).
+    fn execute_params<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+        events: ExecSender,
+    ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
+        if statement.params.is_empty() {
+            return self.execute(&statement.sql, events);
+        }
+        Box::pin(async { Err(ExecError::from(YadbeError::not_implemented())) })
+    }
+
+    /// The plan of one user statement in the engine's native form (F-053); with `analyze`,
+    /// the statement runs and the plan carries actual figures. What yadbe sends is recorded
+    /// in the statement log.
+    fn explain<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+        analyze: bool,
+    ) -> BoxFuture<'a, Result<Explained, ExecError>> {
+        let _ = (statement, analyze);
+        Box::pin(async { Err(ExecError::from(YadbeError::not_implemented())) })
+    }
+}
+
+/// A plan as the engine gave it, and what was sent to get it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Explained {
+    pub raw: RawPlan,
+    /// The statements yadbe ran, in order, for the user to read.
+    pub sent: String,
 }
 
 /// What a running user statement produces, in order.

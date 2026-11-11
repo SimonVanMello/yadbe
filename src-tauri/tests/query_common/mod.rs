@@ -174,6 +174,7 @@ impl Bench {
             text: text.to_owned(),
             scope,
             limits: None,
+            parameters: Vec::new(),
         }
     }
 
