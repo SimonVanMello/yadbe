@@ -446,7 +446,7 @@ mod tests {
         assert!(sql.contains("CONSTRAINT \"orders_pkey\" PRIMARY KEY (\"id\")"));
         assert!(sql.contains("CONSTRAINT \"pos\" CHECK (total >= 0)"));
         assert!(sql.contains(
-            "CREATE INDEX \"orders_note_idx\" ON \"sales\".\"orders\" (\"note\") WHERE note IS NOT NULL;"
+            "CREATE INDEX \"orders_note_idx\" ON \"sales\".\"orders\" (note) WHERE note IS NOT NULL;"
         ));
         assert_eq!(
             sql.matches("CREATE INDEX").count(),

@@ -1329,7 +1329,7 @@
   "objects.ddl.readOnly": "Read-only",
   "objects.ddl.noConnection": "The connection of this tab is not open.",
   "objects.props.title": "Properties of {name}",
-  "objects.props.description": "What the server says about {name}.",
+  "objects.props.description": "What the server says about it.",
   "objects.props.loading": "Reading the properties…",
   "objects.props.failed": "Could not read the properties",
   "objects.props.facts": "Facts",

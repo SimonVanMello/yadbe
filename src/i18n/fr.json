@@ -1329,7 +1329,7 @@
   "objects.ddl.readOnly": "Lecture seule",
   "objects.ddl.noConnection": "La connexion de cet onglet n'est pas ouverte.",
   "objects.props.title": "Propriétés de {name}",
-  "objects.props.description": "Ce que le serveur indique sur {name}.",
+  "objects.props.description": "Ce que le serveur indique à son sujet.",
   "objects.props.loading": "Lecture des propriétés…",
   "objects.props.failed": "Impossible de lire les propriétés",
   "objects.props.facts": "Faits",

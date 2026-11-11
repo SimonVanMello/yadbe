@@ -367,3 +367,79 @@ describe('filter', () => {
     ).toHaveLength(1);
   });
 });
+
+describe('pinned objects (F-027)', () => {
+  const pinOrders = {
+    connectionId: 'c',
+    database: 'app_dev',
+    schema: 'shop',
+    kind: 'table' as const,
+    name: 'orders',
+    id: 'orders',
+  };
+  const gone = { ...pinOrders, name: 'vanished', id: 'vanished' };
+  const schemaPin = { ...pinOrders, kind: null, name: 'shop', id: 'shop' };
+
+  function pinned(expanded: string[], pins = [pinOrders, gone, schemaPin], exhaustive = false) {
+    const { source } = pg();
+    const open = new Set(expanded);
+    const nodes = buildNodes(
+      { levels: PG_LEVELS, showSystem: false, expanded: open, source, exhaustive, pins },
+      true,
+    );
+    return flattenNodes(nodes, { connectionId: 'c', level: 2, expanded: open, open: false });
+  }
+
+  it('sit first under the connection, in a group that opens like any node', () => {
+    const closed = pinned([]);
+    expect(closed[0]).toMatchObject({ type: 'pinnedGroup', count: 3, expanded: false });
+    expect(closed[1]?.type).toBe('database');
+    const open = pinned([nodeKeys.pinnedGroup]);
+    expect(open.slice(0, 4).map((row) => row.type)).toEqual([
+      'pinnedGroup',
+      'pinned',
+      'pinned',
+      'pinned',
+    ]);
+    expect(open[1]).toMatchObject({ level: 3, ref: ORDERS });
+  });
+
+  it('show no group without pins, and none while filtering', () => {
+    expect(pinned([], []).some((row) => row.type === 'pinnedGroup')).toBe(false);
+    expect(
+      pinned([nodeKeys.pinnedGroup], undefined, true).some((r) => r.type === 'pinnedGroup'),
+    ).toBe(false);
+  });
+
+  it('say an object is missing only when its list is loaded and lacks it', () => {
+    const rowsOf = pinned([
+      nodeKeys.pinnedGroup,
+      nodeKeys.database('app_dev'),
+      nodeKeys.schema('app_dev', 'shop'),
+      nodeKeys.kind('app_dev', 'shop', 'table'),
+    ]);
+    const pins = rowsOf.filter((row) => row.type === 'pinned');
+    expect(pins.map((row) => [row.pin.name, row.missing])).toEqual([
+      ['orders', false],
+      ['vanished', true],
+      ['shop', false],
+    ]);
+    // Nothing loaded says nothing: the pin stays as it is.
+    const unloaded = catalogSource('postgres', postgresServer('app_dev', null), {
+      loading: (request) => request.type === 'objects',
+    });
+    const nodes = buildNodes(
+      {
+        levels: PG_LEVELS,
+        showSystem: false,
+        expanded: new Set([nodeKeys.pinnedGroup]),
+        source: unloaded.source,
+        exhaustive: false,
+        pins: [gone],
+      },
+      false,
+    );
+    const group = nodes[0];
+    expect(group?.children?.[0]?.body).toMatchObject({ type: 'pinned', missing: false });
+  });
+});

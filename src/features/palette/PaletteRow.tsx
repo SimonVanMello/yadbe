@@ -67,7 +67,11 @@ function ObjectPin({ item }: { item: Extract<PaletteItem, { kind: 'object' }> })
   const t = useT();
   const pinned = usePinStore((state) => pinnedAs(state.pins, item) !== undefined);
   if (!pinned) return null;
-  return <Icon name="pin" className={styles.pin} aria-label={t('palette.pinned')} />;
+  return (
+    <span role="img" aria-label={t('palette.pinned')} className={styles.pin}>
+      <Icon name="pin" />
+    </span>
+  );
 }
 
 function Content({ item, indices }: { item: PaletteItem; indices: readonly number[] }) {

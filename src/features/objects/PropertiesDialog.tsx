@@ -14,7 +14,7 @@ import { metaKeys } from '../explorer/metaKeys';
 import { tableLabel } from '../table-data/tableNames';
 import { showObjectDdl } from './ddlActions';
 import { fetchProperties } from './objectsApi';
-import { factsOf, structureOf, toolKindKey } from './objectsModel';
+import { factsOf, structureOf } from './objectsModel';
 import styles from './PropertiesDialog.module.css';
 import { usePropertiesStore, type PropertiesTarget } from './propertiesStore';
 
@@ -63,7 +63,7 @@ function Properties({ target }: { target: PropertiesTarget }) {
         if (!open) close();
       }}
       title={t('objects.props.title', { name })}
-      description={t('objects.props.description', { name: t(toolKindKey(kind)) })}
+      description={t('objects.props.description')}
       footer={
         <>
           <Button
