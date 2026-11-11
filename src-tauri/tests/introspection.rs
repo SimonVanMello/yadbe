@@ -1316,9 +1316,16 @@ async fn p02_mysql() {
     conn.close().await;
     let h = harness();
     let started = Instant::now();
-    let id = h.open(&def, password).await;
+    let id = h.open(&def, password.clone()).await;
     let connect = started.elapsed();
+    let before = h.log.entries().len();
     let level = first_level(&h, &id, &def.database, None).await;
+    print_statements(&h.log, before);
+    // The first read of a new table's statistics (`TABLE_ROWS`) computes them; MySQL keeps
+    // them (`information_schema_stats_expiry`): the usual case is the second session's.
+    let again = harness();
+    let again_id = again.open(&def, password.clone()).await;
+    let warm = first_level(&again, &again_id, &def.database, None).await;
     let started = Instant::now();
     let details = h
         .meta
@@ -1346,7 +1353,8 @@ async fn p02_mysql() {
     let catalog_time = started.elapsed();
     print_statements(&h.log, logged);
     println!(
-        "P-02 {} 500 tables: connect {} ms; first level {} ms; table details {} ms; \
+        "P-02 {} 500 tables: connect {} ms; first level {} ms (statistics read before: {} ms); \
+         table details {} ms; \
          catalog {} ms ({} relations)",
         h.manager
             .session(&id)
@@ -1355,6 +1363,7 @@ async fn p02_mysql() {
             .unwrap_or_default(),
         ms(connect),
         ms(level),
+        ms(warm),
         ms(details_time),
         ms(catalog_time),
         catalog.relations.len(),
