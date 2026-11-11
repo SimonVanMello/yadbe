@@ -8,7 +8,7 @@ use crate::db::errors::YadbeError;
 use crate::db::meta::ObjectKind;
 use crate::db::meta::ObjectRef;
 use crate::db::object_model::{
-    DdlSource, DdlTarget, Dependent, ObjectDdl, ObjectDependents, ObjectProperties,
+    DdlSource, DdlTarget, DependencyLink, Dependent, ObjectDdl, ObjectDependents, ObjectProperties,
 };
 
 const DEFINITION_SQL: &str = "\
@@ -194,7 +194,9 @@ impl MssqlConnection {
             for row in &self.meta(db, REFERENCING_KEYS_SQL, &params).await? {
                 items.push(Dependent {
                     kind: ObjectKind::Table,
-                    via: Some(format!("foreign key {}", text_req(row, 2)?)),
+                    via: Some(DependencyLink::ForeignKey {
+                        name: text_req(row, 2)?,
+                    }),
                     object: at(text_req(row, 0)?, text_req(row, 1)?),
                 });
             }

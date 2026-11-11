@@ -20,7 +20,7 @@ use crate::db::meta::{
     ObjectKind, ObjectRef, RelationSummary, SchemaInfo, TableDetails, TriggerInfo,
 };
 use crate::db::object_model::{
-    DdlSource, DdlTarget, Dependent, ObjectDdl, ObjectDependents, ObjectProperties,
+    DdlSource, DdlTarget, DependencyLink, Dependent, ObjectDdl, ObjectDependents, ObjectProperties,
 };
 
 const MAIN: &str = "main";
@@ -720,10 +720,9 @@ impl Meta<'_> {
             .filter(|key| key.table.name != table.name)
             .map(|key| Dependent {
                 kind: ObjectKind::Table,
-                via: Some(format!(
-                    "foreign key ({})",
-                    key.foreign_key.columns.join(", ")
-                )),
+                via: Some(DependencyLink::ForeignKey {
+                    name: key.foreign_key.columns.join(", "),
+                }),
                 object: key.table,
             })
             .collect();

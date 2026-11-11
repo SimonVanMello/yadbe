@@ -8,7 +8,7 @@ use crate::db::dialect::PostgresDialect;
 use crate::db::errors::YadbeError;
 use crate::db::meta::{ObjectDetail, ObjectInfo, ObjectKind, ObjectRef, qualified_name};
 use crate::db::object_model::{
-    DdlSource, DdlTarget, Dependent, ObjectDdl, ObjectDependents, ObjectProperties,
+    DdlSource, DdlTarget, DependencyLink, Dependent, ObjectDdl, ObjectDependents, ObjectProperties,
 };
 
 const VIEW_DEFINITION_SQL: &str = "\
@@ -244,12 +244,12 @@ impl PgConnection {
                         }
                         items.push(Dependent {
                             kind: ObjectKind::Table,
-                            via: Some(format!(
-                                "foreign key {}",
-                                key.foreign_key
+                            via: Some(DependencyLink::ForeignKey {
+                                name: key
+                                    .foreign_key
                                     .name
-                                    .unwrap_or_else(|| key.foreign_key.columns.join(", "))
-                            )),
+                                    .unwrap_or_else(|| key.foreign_key.columns.join(", ")),
+                            }),
                             object: key.table,
                         });
                     }
@@ -260,7 +260,7 @@ impl PgConnection {
                     items.push(Dependent {
                         kind: relation_kind(&get::<String>(row, 0)?),
                         object: at(get(row, 1)?, get(row, 2)?),
-                        via: Some(format!("column {}", get::<String>(row, 3)?)),
+                        via: Some(DependencyLink::Column { name: get(row, 3)? }),
                     });
                 }
             }

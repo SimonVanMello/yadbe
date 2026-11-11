@@ -820,13 +820,20 @@ export type DdlTarget =
 
 export type Density = "comfortable" | "compact";
 
+/**  What ties a dependent object to the one it depends on. */
+export type DependencyLink = 
+/**  A foreign key of the dependent table, by its name (its columns when it has none). */
+{ type: "foreignKey"; name: string } | 
+/**  A column of the dependent table declared with the type. */
+{ type: "column"; name: string };
+
 /**  An object that depends on another one: it would break, or block the action. */
 export type Dependent = {
 	/**  What the dependent object is (a view, a table with a foreign key…). */
 	kind: ObjectKind,
 	object: ObjectRef,
-	/**  How it depends: `foreign key orders_customer_fk`; `null` for a plain reference. */
-	via: string | null,
+	/**  How it depends; `null` for a plain reference (a view reading a table). */
+	via: DependencyLink | null,
 };
 
 /**  The SQL Apply would run (F-085). */

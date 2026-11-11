@@ -6,6 +6,7 @@ import { restoreAndPersistPreferences } from '../features/preferences/preference
 import { restoreAndPersistQueryUi, startQueryFeature } from '../features/query/queryFeature';
 import { useQueryTabStore } from '../features/query/queryTabStore';
 import { startStatementLogFeed } from '../features/statement-log/statementLogStore';
+import { startObjectsFeature } from '../features/objects/objectsFeature';
 import { startTableDataFeature } from '../features/table-data/tableFeature';
 import { useTableTabStore } from '../features/table-data/tableTabStore';
 import { initI18n, translate, useI18nStore } from '../i18n/i18n';
@@ -148,6 +149,7 @@ export function startup(): Promise<void> {
     startMetaFeed();
     startQueryFeature();
     startTableDataFeature();
+    startObjectsFeature();
     startExportFeed();
     await restorePreferences();
     await Promise.all([

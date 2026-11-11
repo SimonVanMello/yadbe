@@ -15,7 +15,9 @@ use yadbe_lib::db::dialect::Engine;
 use yadbe_lib::db::driver::Connection;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::db::meta::{MetaNode, ObjectKind, ObjectRef, qualified_name};
-use yadbe_lib::db::object_model::{DdlSource, DdlTarget, ObjectAction, ObjectActionRequest};
+use yadbe_lib::db::object_model::{
+    DdlSource, DdlTarget, DependencyLink, ObjectAction, ObjectActionRequest,
+};
 use yadbe_lib::db::split::{SqlSyntax, split};
 use yadbe_lib::events::{BackendEvent, EventSink, MetaRefreshReason, RecordingSink};
 use yadbe_lib::secrets::{MemoryKeychain, Secret, SecretStore};
@@ -408,7 +410,7 @@ async fn check_actions(
             .items
             .iter()
             .any(|d| d.object.name == "scratch_child"
-                && d.via.as_deref().is_some_and(|v| v.contains("foreign key"))),
+                && matches!(d.via, Some(DependencyLink::ForeignKey { .. }))),
         "{:?}",
         plan.dependents
     );

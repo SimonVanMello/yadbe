@@ -337,7 +337,7 @@ export function createMockObjects(deps: ObjectDeps) {
             items.push({
               kind: 'table',
               object: other.table,
-              via: `foreign key ${fk.name ?? fk.columns.join(', ')}`,
+              via: { type: 'foreignKey', name: fk.name ?? fk.columns.join(', ') },
             });
           }
         }

@@ -105,8 +105,18 @@ pub struct Dependent {
     /// What the dependent object is (a view, a table with a foreign key…).
     pub kind: ObjectKind,
     pub object: ObjectRef,
-    /// How it depends: `foreign key orders_customer_fk`; `null` for a plain reference.
-    pub via: Option<String>,
+    /// How it depends; `null` for a plain reference (a view reading a table).
+    pub via: Option<DependencyLink>,
+}
+
+/// What ties a dependent object to the one it depends on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum DependencyLink {
+    /// A foreign key of the dependent table, by its name (its columns when it has none).
+    ForeignKey { name: String },
+    /// A column of the dependent table declared with the type.
+    Column { name: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

@@ -9,7 +9,7 @@ use crate::db::dialect::{Dialect, MysqlDialect};
 use crate::db::errors::YadbeError;
 use crate::db::meta::{ObjectKind, ObjectRef};
 use crate::db::object_model::{
-    DdlSource, DdlTarget, Dependent, ObjectDdl, ObjectDependents, ObjectProperties,
+    DdlSource, DdlTarget, DependencyLink, Dependent, ObjectDdl, ObjectDependents, ObjectProperties,
 };
 
 const PROPERTIES_SQL: &str = "\
@@ -138,7 +138,9 @@ impl MysqlConnection {
             for row in &self.meta(REFERENCING_KEYS_SQL, &[db, name]).await? {
                 items.push(Dependent {
                     kind: ObjectKind::Table,
-                    via: Some(format!("foreign key {}", text(row, 2).unwrap_or_default())),
+                    via: Some(DependencyLink::ForeignKey {
+                        name: text(row, 2).unwrap_or_default(),
+                    }),
                     object: in_db(
                         text(row, 0).unwrap_or_default(),
                         text(row, 1).unwrap_or_default(),
