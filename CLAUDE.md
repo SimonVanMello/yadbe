@@ -35,16 +35,17 @@ Do not add a dependency outside this list without justifying it in the commit me
 src/                      Frontend
   app/                    Shell: window, title bar and tabs, layout, actions and shortcuts, errors, startup and restore
   features/<feature>/     One feature = components + hooks + styles + tests:
-    connections/          Connection list model, dialog and forms, password prompt, connection chip
-    sidebar/              Sidebar views (Connections / History), the virtualized tree of connections + explorer
+    connections/          Connection list model, dialog and forms (SSH tunnel section), password / SSH secret / host key prompts, connection chip
+    sidebar/              Sidebar views (Connections / History / Saved), the virtualized tree of connections + explorer
     explorer/             Explorer rows (pure tree building and filter), metadata queries, context menu, Script as, the shared catalog cache (catalogCache.ts: palette + autocomplete)
     query/                Query tab: SQL editor (CodeMirror), run / cancel, transactions, results area, files, danger guard
     grid/                 Data grid (results and table tabs), selection and copy formats, cell viewer
-    table-data/           Table tab: pages, count, filter bar, sort, cell editors, pending changes, SQL preview, apply, table export
+    table-data/           Table tab: pages, count, filter bar, sort, cell editors, pending changes, SQL preview, apply, table export, foreign key navigation (peek, jump, referencing rows, lookup editor, back / forward trail)
     completion/           Editor autocomplete: SQL context analysis, suggestions, quoting, index over the shared catalog
     palette/              Command palette: fuzzy matcher, sources (actions, connections, objects, tabs, history)
     preferences/          Preferences screen, schema and store; user-facing settings are read with `usePreference` / `getPreference`
     export/               Export dialog, options, progress toasts (result or table source)
+    library/              Saved queries and snippets: Saved view, save dialog, snippet expansion, built-in snippets
     history/              History panel, search and filters, open / insert, clear
     statement-log/        Statement log panel
     statusbar/, toolbar/, welcome/   Bottom bar (run status, Ln/Col), query toolbar, welcome screen
@@ -60,16 +61,18 @@ src-tauri/
   src/
     commands/             Tauri handlers: thin, no logic (validation → service call → error mapping)
     db/                   value.rs (Value model), driver.rs (traits), dialect.rs + edit_dialect.rs (paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
-      drivers/<engine>/   postgres, mssql, sqlite (mysql in M3): the only place a driver crate is used
-    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs
+      drivers/<engine>/   postgres, mssql, sqlite, mysql: the only place a driver crate is used
+    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs, ReferenceService (references.rs: foreign key lookups), Library (library.rs: saved queries), tunnel.rs (SSH tunnel of a session)
+    tunnel/               SSH tunnels (russh): hops, authentication, host key checks, the loopback listener drivers dial
     edit/                 Change set → EditPlanner → parameterized DML, SQL preview
     secrets/              Keychain access, Secret type
-    store/                SQLite: connections, tabs, history, preferences (saved queries later)
+    store/                SQLite: connections, tabs, history, preferences, saved queries, SSH known hosts
     export/               Streaming exports: sources (result, table), CSV / JSON encoders, the background job manager
   examples/               export_bindings.rs (`pnpm bindings`)
   tests/                  Integration tests (common/, query_common/, conformance/) + fixture schema scripts (fixtures/)
   vendor/tiberius/        tiberius 0.13.0, pristine commit then yadbe's patches (PATCHES.md says which and why)
-dev/                      compose.yml (test engines), tls-certs.sh, mssql.conf
+  vendor/russh/           russh 0.65.1, same scheme (per-channel flow control; PATCHES.md)
+dev/                      compose.yml (test engines), tls-certs.sh, mssql.conf, mysql-init.sql, ssh-test.sh (throwaway sshd servers)
 docs/                     SPEC.md, PLAN.md, validation/Mx.md (manual checklists)
 ```
 
@@ -102,6 +105,12 @@ pnpm perf:palette   # P-06: palette search over 10 000 objects on the mock (prod
 pnpm perf:completion  # P-05: autocomplete source over a 10 000-object catalog on the mock, CPU ×1 and ×4
 pnpm tauri build --bundles deb   # P-10: installer size (Linux .deb; macOS / Windows bundles on their OS)
 cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… cargo test --test table_data --test export   # table browsing / edit plans on the three engines, exports
+cd src-tauri && YADBE_TEST_MYSQL_URL=mysql://yadbe:yadbe-test-pw@localhost:53306/yadbe_test YADBE_TEST_MYSQL_CA=../dev/certs/ca.crt cargo test --test query_mysql --test introspection --test table_data --test export   # MySQL (compose service; `up -d -V mysql` the first time so the init grants run); P-02: `p02_mysql`
+cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… cargo test --test references   # foreign key lookups (SQLite always runs)
+dev/ssh-test.sh [dir]   # Throwaway OpenSSH servers (tunnel 2222, jump host 2223, no forwarding 2224) + ssh-agent; needs openssh-server and root; `dev/ssh-test.sh stop [dir]`
+cd src-tauri && YADBE_TEST_SSH_DIR=/tmp/yadbe-sshd YADBE_TEST_PG_URL=… YADBE_TEST_PG_CA=… cargo test --test ssh_tunnel   # SSH tunnels (unset: SKIPPED; YADBE_TEST_SSH_PORT defaults to 2222)
+cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test table_data p_table_export -- --ignored --nocapture   # table export of 1M rows (keyset paging)
+pnpm screenshots    # README screenshots (docs/assets/*.png) on the mocked backend; quantize the PNGs afterwards (ImageMagick, 128 colours)
 pnpm perf:explorer  # Explorer tree on the mock: first level with 500 tables, scroll, filter (at once and a key at a time) on 10k objects (YADBE_PERF_PORT / YADBE_MOCK_PORT when the default port is taken)
 cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test query_postgres p03 -- --ignored --nocapture   # P-03: query sent → first 500-row window readable, 1M rows
 ```
