@@ -106,9 +106,9 @@ pnpm perf:completion  # P-05: autocomplete source over a 10 000-object catalog o
 pnpm tauri build --bundles deb   # P-10: installer size (Linux .deb; macOS / Windows bundles on their OS)
 cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… cargo test --test table_data --test export   # table browsing / edit plans on the three engines, exports
 cd src-tauri && YADBE_TEST_MYSQL_URL=mysql://yadbe:yadbe-test-pw@localhost:53306/yadbe_test YADBE_TEST_MYSQL_CA=../dev/certs/ca.crt cargo test --test query_mysql --test introspection --test table_data --test export   # MySQL (compose service; `up -d -V mysql` the first time so the init grants run); P-02: `p02_mysql`
-cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… cargo test --test references   # foreign key lookups (SQLite always runs)
+cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… cargo test --test references   # foreign key lookups (SQLite always runs)
 dev/ssh-test.sh [dir]   # Throwaway OpenSSH servers (tunnel 2222, jump host 2223, no forwarding 2224) + ssh-agent; needs openssh-server and root; `dev/ssh-test.sh stop [dir]`
-cd src-tauri && YADBE_TEST_SSH_DIR=/tmp/yadbe-sshd YADBE_TEST_PG_URL=… YADBE_TEST_PG_CA=… cargo test --test ssh_tunnel   # SSH tunnels (unset: SKIPPED; YADBE_TEST_SSH_PORT defaults to 2222)
+cd src-tauri && YADBE_TEST_SSH_DIR=/tmp/yadbe-sshd YADBE_TEST_PG_URL=… YADBE_TEST_PG_CA=… [YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… YADBE_TEST_MYSQL_CA=…] cargo test --test ssh_tunnel   # SSH tunnels on every engine set (unset: SKIPPED; YADBE_TEST_SSH_PORT defaults to 2222)
 cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test table_data p_table_export -- --ignored --nocapture   # table export of 1M rows (keyset paging)
 pnpm screenshots    # README screenshots (docs/assets/*.png) on the mocked backend; quantize the PNGs afterwards (ImageMagick, 128 colours)
 pnpm perf:explorer  # Explorer tree on the mock: first level with 500 tables, scroll, filter (at once and a key at a time) on 10k objects (YADBE_PERF_PORT / YADBE_MOCK_PORT when the default port is taken)
