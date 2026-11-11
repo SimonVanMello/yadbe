@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useState, type CSSProperties } from 'react';
 
 import { ConnectionDialog } from '../features/connections/ConnectionDialog';
 import { useConnection } from '../features/connections/connectionStore';
@@ -19,7 +19,6 @@ import { useTableActions } from '../features/table-data/useTableActions';
 import { SidebarViews } from '../features/sidebar/SidebarViews';
 import { StatementLogPanel } from '../features/statement-log/StatementLogPanel';
 import { StatusBar } from '../features/statusbar/StatusBar';
-import { Toolbar } from '../features/toolbar/Toolbar';
 import { useI18nStore } from '../i18n/i18n';
 import { nativeWindow } from '../ipc/nativeWindow';
 import { useThemeStore } from '../theme/themeStore';
@@ -33,9 +32,10 @@ import { useShellStore } from './shellStore';
 import { startup } from './startup';
 import { TabContent } from './tabs/TabContent';
 import { openNewTab, selectActiveTab, useTabsStore } from './tabs/tabsStore';
+import { ActiveToolbar } from './ActiveToolbar';
 import { TitleBar } from './titlebar/TitleBar';
 import { useShortcuts } from './useShortcuts';
-import { useWindowTitle } from './useWindowTitle';
+import { WindowTitleSync } from './WindowTitleSync';
 
 /** Longest wait for the restored session before showing the (hidden) window anyway. */
 const SHOW_WINDOW_TIMEOUT_MS = 1500;
@@ -142,6 +142,15 @@ function useShellActions(): void {
   );
 }
 
+/**
+ * The parts of the shell that do not depend on what the shell renders: a switch to a tab of
+ * another connection re-renders the shell (tint), and these stay as they are.
+ */
+const StableTitleBar = memo(TitleBar);
+const StableSidebar = memo(SidebarViews);
+const StableStatusBar = memo(StatusBar);
+const StableLog = memo(StatementLogPanel);
+
 /** Main window: title bar with tabs, toolbar, sidebar, active tab, bottom panel, status bar. */
 export function Shell() {
   useShortcuts();
@@ -151,10 +160,10 @@ export function Shell() {
   useExportActions();
   useHistoryActions();
   usePaletteActions();
-  useWindowTitle();
   const ready = useStartup();
-  const tab = useTabsStore(selectActiveTab);
-  const connection = useConnection(tab.connectionId);
+  // Only the connection, not the tab: a tab switch must not re-render the whole shell.
+  const connectionId = useTabsStore((state) => selectActiveTab(state).connectionId);
+  const connection = useConnection(connectionId);
   const panels = useLayoutStore((state) => state.panels);
   const [mainRef, size] = useElementSize<HTMLDivElement>();
 
@@ -168,12 +177,13 @@ export function Shell() {
       data-environment={connection?.environment ?? undefined}
       style={{ '--shell-tint': tint ?? 'transparent' } as CSSProperties}
     >
-      <TitleBar />
-      {tab.connectionId !== null && <Toolbar connection={connection} tabId={tab.id} />}
+      <WindowTitleSync />
+      <StableTitleBar />
+      <ActiveToolbar />
       <div ref={mainRef} className={styles.main}>
         {sidebarWidth > 0 && (
           <div className={styles.sidebar} style={{ width: sidebarWidth }}>
-            <SidebarViews />
+            <StableSidebar />
           </div>
         )}
         <PanelResizer
@@ -190,12 +200,12 @@ export function Shell() {
           />
           {bottomHeight > 0 && (
             <div className={styles.bottom} style={{ height: bottomHeight }}>
-              <StatementLogPanel />
+              <StableLog />
             </div>
           )}
         </div>
       </div>
-      <StatusBar />
+      <StableStatusBar />
       <ConnectionDialog />
       <PasswordPromptDialog />
       <GroupDialog />
