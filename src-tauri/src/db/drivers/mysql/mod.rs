@@ -172,21 +172,30 @@ fn builder(target: &ConnectTarget, password: Option<&str>) -> OptsBuilder {
         .wait_timeout(Some(28_800))
         .client_found_rows(true)
         .connect_attribute("program_name", APPLICATION_NAME);
-    if cfg!(unix) && target.host.starts_with('/') {
+    let host = target.host.trim_start_matches('[').trim_end_matches(']');
+    if let Some(dial) = target.dial {
+        // An SSH tunnel's local end: TCP goes there, the host name stays for TLS.
+        builder = builder
+            .ip_or_hostname(host)
+            .tcp_port(dial.port())
+            .resolved_ips(Some(vec![dial.ip()]));
+    } else if cfg!(unix) && target.host.starts_with('/') {
         builder = builder
             .ip_or_hostname("localhost")
             .socket(Some(target.host.clone()));
     } else {
-        builder = builder
-            .ip_or_hostname(target.host.trim_start_matches('[').trim_end_matches(']'))
-            .tcp_port(target.port);
+        builder = builder.ip_or_hostname(host).tcp_port(target.port);
     }
     builder
 }
 
 async fn resolve(target: &ConnectTarget) -> Result<(), YadbeError> {
     let host = target.host.trim_start_matches('[').trim_end_matches(']');
-    if target.host.starts_with('/') || host.parse::<std::net::IpAddr>().is_ok() {
+    // Through a tunnel, the SSH server resolves the host.
+    if target.dial.is_some()
+        || target.host.starts_with('/')
+        || host.parse::<std::net::IpAddr>().is_ok()
+    {
         return Ok(());
     }
     let found = tokio::net::lookup_host((host, target.port))

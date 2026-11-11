@@ -845,3 +845,54 @@ async fn sql_server_through_the_tunnel() {
     assert_eq!(run.status, ExecutionStatus::Cancelled);
     assert!(started.elapsed() < Duration::from_secs(5));
 }
+
+#[tokio::test]
+async fn mysql_through_the_tunnel() {
+    let test = "mysql_through_the_tunnel";
+    let Some(ssh) = ssh(test) else { return };
+    let Some(url) = common::mysql_url(test) else {
+        return;
+    };
+    let (mut def, password) = common::from_url(&url);
+    let env = env(&ssh);
+    env.trust_all(&ssh);
+    def.ssh = Some(tunnel(ssh.hop(ssh.port, SshAuthMethod::Agent, None)));
+    let version = env
+        .test(&def, password.as_ref(), TunnelSecrets::new())
+        .await
+        .expect("MySQL through the tunnel");
+    assert!(
+        version.starts_with("MySQL") || version.starts_with("MariaDB"),
+        "{version}"
+    );
+    // Verify-full names the definition's host, not the tunnel's 127.0.0.1 end.
+    if let Ok(ca) = std::env::var(common::MYSQL_CA_ENV) {
+        let mut strict = def.clone();
+        strict.host = "localhost".into();
+        strict.tls_mode = TlsMode::VerifyFull;
+        strict.ca_cert_path = Some(ca);
+        env.test(&strict, password.as_ref(), TunnelSecrets::new())
+            .await
+            .expect("verify-full through the tunnel");
+    }
+    let (b, _) = env.bench(def, password, TunnelSecrets::new()).await;
+    let run = b.run("tab", "SELECT 41 + 1").await;
+    assert_eq!(run.status, ExecutionStatus::Succeeded, "{run:?}");
+    // KILL QUERY comes from a second connection: through the tunnel as well.
+    let (id, _) = b
+        .start(b.request(
+            "sleep",
+            "SELECT BENCHMARK(1000000000, SHA2('x', 256))",
+            ExecuteScope::All,
+        ))
+        .expect("start");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let started = Instant::now();
+    b.runner.cancel("sleep").await;
+    let run = b.wait(id).await;
+    assert_eq!(run.status, ExecutionStatus::Cancelled);
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(b.logged().iter().any(|sql| sql.starts_with("KILL QUERY ")));
+    let again = b.run("sleep", "SELECT 2").await;
+    assert_eq!(again.status, ExecutionStatus::Succeeded, "{again:?}");
+}
