@@ -15,7 +15,9 @@ import { ipc, unwrap, type Engine } from '../../ipc';
 import { mockBackend } from '../../ipc/mockClient';
 import { startMetaFeed } from '../explorer/metaFeed';
 import { ensureCatalog, resetCatalogStore } from './catalogStore';
+import { completionRunGuard } from './completionExtension';
 import { sqlCompletionSource, type CompletionHost } from './completionSource';
+import { markRun } from '../query/editorFields';
 import { quotingFor } from './completionTestKit';
 
 const PG = 'conn-local-pg';
@@ -161,6 +163,7 @@ describe('the catalog', () => {
       }),
       parent: document.body,
     });
+    view.focus();
     startCompletion(view);
     // Nothing to show while the schema is not there…
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -169,6 +172,44 @@ describe('the catalog', () => {
     await vi.waitFor(() => {
       expect(currentCompletions(view.state).map((option) => option.label)[0]).toBe('orders');
     });
+    view.destroy();
+  });
+
+  it('does not re-ask an editor that is not focused', async () => {
+    mockBackend.setMetaLatency(30);
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: 'select * from ord',
+        selection: { anchor: 17 },
+        extensions: autocompletion({ override: [sqlCompletionSource(host)] }),
+      }),
+      parent: document.body,
+    });
+    startCompletion(view);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await load();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(currentCompletions(view.state)).toEqual([]);
+    view.destroy();
+  });
+
+  it('does not re-ask after a run: the catalog arriving late opens nothing unasked', async () => {
+    mockBackend.setMetaLatency(30);
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: 'select * from ord',
+        selection: { anchor: 17 },
+        extensions: [autocompletion({ override: [sqlCompletionSource(host)] }), completionRunGuard],
+      }),
+      parent: document.body,
+    });
+    view.focus();
+    startCompletion(view);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    view.dispatch({ effects: markRun.of(null) });
+    await load();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(currentCompletions(view.state)).toEqual([]);
     view.destroy();
   });
 
@@ -182,6 +223,7 @@ describe('the catalog', () => {
       }),
       parent: document.body,
     });
+    view.focus();
     startCompletion(view);
     await new Promise((resolve) => setTimeout(resolve, 5));
     view.dispatch({ selection: { anchor: 3 } });

@@ -1,9 +1,15 @@
 import { acceptCompletion, autocompletion } from '@codemirror/autocomplete';
 import { Prec, type Extension } from '@codemirror/state';
-import { keymap } from '@codemirror/view';
+import { EditorView, keymap } from '@codemirror/view';
 
 import { translate, useI18nStore, type MessageKey } from '../../i18n/i18n';
-import { sqlCompletionSource, type CompletionHost } from './completionSource';
+import { markRun } from '../query/editorFields';
+import {
+  settleCompletion,
+  sqlCompletionSource,
+  wakeCompletion,
+  type CompletionHost,
+} from './completionSource';
 
 /** One-letter marks of the kinds of suggestion; the full name is the mark's tooltip. */
 const GLYPHS: Record<string, string> = {
@@ -36,6 +42,17 @@ function kindMark(type: string | undefined): Node | null {
 }
 
 /**
+ * A run is the user moving on: a catalog that arrives after it must not open the list, until
+ * they type or move the cursor again.
+ */
+export const completionRunGuard: Extension = EditorView.updateListener.of((update) => {
+  if (update.docChanged || update.selectionSet) wakeCompletion(update.view);
+  if (update.transactions.some((tr) => tr.effects.some((effect) => effect.is(markRun)))) {
+    settleCompletion(update.view);
+  }
+});
+
+/**
  * Schema-aware completion for a SQL editor (F-043): suggestions while typing and on
  * `Ctrl+Space`, `Esc` closes, `Enter` and `Tab` accept. `Mod+Enter` (run) is bound above this and
  * is never swallowed.
@@ -50,6 +67,7 @@ export function completionExtension(host: CompletionHost): Extension {
       addToOptions: [{ render: (completion) => kindMark(completion.type), position: 20 }],
       optionClass: (completion) => `cm-yadbe-option cm-yadbe-option-${completion.type ?? 'none'}`,
     }),
+    completionRunGuard,
     // Tab accepts a suggestion when one is open; with none, it indents as before.
     Prec.high(keymap.of([{ key: 'Tab', run: acceptCompletion }])),
   ];

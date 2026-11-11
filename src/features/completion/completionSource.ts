@@ -34,6 +34,30 @@ declare global {
   }
 }
 
+/**
+ * Requests that found the catalog missing, per editor: asked again when it arrives, if the user
+ * is still where they were (see `dropPendingCompletion`).
+ */
+const pending = new WeakMap<EditorView, { doc: Text; pos: number }>();
+
+/**
+ * Editors whose user moved on (ran the script) and has not typed or moved the cursor since:
+ * CodeMirror asks a pending source again after every transaction, which must not make a late
+ * catalog open the list unasked.
+ */
+const settled = new WeakSet<EditorView>();
+
+/** The user ran the script: a catalog that arrives from now on opens nothing by itself. */
+export function settleCompletion(view: EditorView): void {
+  pending.delete(view);
+  settled.add(view);
+}
+
+/** The user typed or moved the cursor: completion is theirs to ask again. */
+export function wakeCompletion(view: EditorView): void {
+  settled.delete(view);
+}
+
 /** Where the editor's statements run: enough to find the catalog to complete from. */
 export interface CompletionTarget {
   connectionId: string;
@@ -87,8 +111,6 @@ export function sqlCompletionSource(host: CompletionHost): CompletionSource {
   let lastDoc: Text | null = null;
   let lastEngine: Engine | null = null;
   let version = 0;
-  /** A request that found the catalog missing: asked again when it arrives. */
-  let waiting: { view: EditorView; doc: Text; pos: number } | null = null;
   const databases = new Map<string, Promise<string | null>>();
   /** File engines: the database the server calls current, once known. */
   const knownDatabases = new Map<string, string>();
@@ -114,15 +136,22 @@ export function sqlCompletionSource(host: CompletionHost): CompletionSource {
   const catalogFor = (target: CompletionTarget, cm: CmContext): CatalogIndex | null => {
     const load = (database: string, forRequest: boolean) => {
       if (!target.connected || !needsCatalog(target.connectionId, database)) return;
-      if (forRequest && cm.view) waiting = { view: cm.view, doc: cm.state.doc, pos: cm.pos };
+      const { view } = cm;
+      if (forRequest && view && (cm.explicit || !settled.has(view))) {
+        pending.set(view, { doc: cm.state.doc, pos: cm.pos });
+      }
       void ensureCatalog(target.connectionId, database).then(() => {
-        const request = waiting;
-        waiting = null;
+        if (!view) return;
+        const request = pending.get(view);
+        pending.delete(view);
         if (!request) return;
-        // Still where the request was made: show what the catalog brings.
-        const { state } = request.view;
-        if (state.doc === request.doc && state.selection.main.head === request.pos) {
-          startCompletion(request.view);
+        // Still where the request was made, in the editor the user is working in (a list that
+        // pops up unasked, after a run or in another tab's editor, is noise): show what the
+        // catalog brings.
+        const { state } = view;
+        const focused = view.dom.contains(view.dom.ownerDocument.activeElement);
+        if (focused && state.doc === request.doc && state.selection.main.head === request.pos) {
+          startCompletion(view);
         }
       });
     };
