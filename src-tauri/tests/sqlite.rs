@@ -234,24 +234,14 @@ async fn testing_an_unsaved_definition_reports_the_version() {
 }
 
 #[tokio::test]
-async fn engines_without_driver_are_refused() {
+async fn every_engine_ships_a_driver() {
     let h = harness();
-    let engines = h.manager.engines();
-    let available: Vec<Engine> = engines
+    let available: Vec<Engine> = h
+        .manager
+        .engines()
         .iter()
         .filter(|e| e.available)
         .map(|e| e.engine)
         .collect();
-    assert_eq!(
-        available,
-        vec![Engine::Postgres, Engine::Mssql, Engine::Sqlite]
-    );
-    let mut def = blank(Engine::Mysql, "wp");
-    def.host = "localhost".into();
-    let error = h
-        .manager
-        .test("req".into(), def, None, None)
-        .await
-        .expect_err("not supported");
-    assert_eq!(error.code, ErrorCode::EngineNotSupported);
+    assert_eq!(available, Engine::ALL.to_vec());
 }

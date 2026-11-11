@@ -133,3 +133,40 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
       - run: cargo test --locked --test query_mssql --test introspection --no-fail-fast
+
+  # Integration tests against a real MySQL (the matrix above skips them with a notice). The
+  # tests create databases of their own: the root account, which also may create stored
+  # functions while binary logging is on.
+  rust-mysql:
+    name: rust (mysql)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: yadbe-test-root
+          MYSQL_DATABASE: yadbe_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -uroot -pyadbe-test-root"
+          --health-interval 2s
+          --health-retries 30
+    env:
+      YADBE_TEST_MYSQL_URL: mysql://root:yadbe-test-root@127.0.0.1:3306/yadbe_test
+    defaults:
+      run:
+        shell: bash
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: cargo test --locked --test query_mysql --test introspection --test table_data --test export --no-fail-fast
