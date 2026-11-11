@@ -490,6 +490,7 @@ impl TableDataService {
         let session = self.manager.session(&tab.connection_id)?;
         let conn: Arc<dyn Connection> =
             Arc::from(session.open_dedicated(tab.database.as_deref()).await?);
+        let keyset = table_sql::keyset_pageable(&tab.shape, &order);
         Ok(TableExportRows {
             columns: tab.shape.column_meta(),
             tab,
@@ -498,6 +499,8 @@ impl TableDataService {
             order,
             batch: self.export_batch_rows,
             offset: 0,
+            last: None,
+            keyset,
             done: false,
         })
     }
@@ -702,9 +705,11 @@ fn rolled_back(
 }
 
 /// The rows of a table export: pages of `EXPORT_BATCH_ROWS` (by default) in the export's order, each one a
-/// bound statement recorded in the statement log. Pages are read one after the other, not in
-/// one snapshot: rows changed meanwhile by others can be missed or read twice, as when paging
-/// in the grid.
+/// bound statement recorded in the statement log. When the order only holds identity columns
+/// (the default order, mostly) a page starts after the last key read (keyset paging: constant
+/// cost per page, no row read twice or skipped when rows are added behind the cursor);
+/// otherwise it starts at an `OFFSET`. Pages are read one after the other, not in one
+/// snapshot: rows changed meanwhile by others can be missed or read twice.
 pub struct TableExportRows {
     tab: Arc<TableTab>,
     conn: Arc<dyn Connection>,
@@ -713,6 +718,9 @@ pub struct TableExportRows {
     order: Vec<SortKey>,
     batch: u32,
     offset: u32,
+    /// The last row's values for the order's columns, in keyset mode.
+    last: Option<Vec<Value>>,
+    keyset: bool,
     done: bool,
 }
 
@@ -727,11 +735,12 @@ impl TableExportRows {
             return Ok(None);
         }
         let tab = &self.tab;
-        let statement = table_sql::page(
+        let statement = table_sql::page_after(
             tab.dialect,
             &tab.shape,
             &self.filter,
             &self.order,
+            self.last.as_deref(),
             self.offset,
             self.batch,
         )?;
@@ -747,6 +756,11 @@ impl TableExportRows {
         rows.truncate(self.batch as usize);
         self.offset = self.offset.saturating_add(to_u32(rows.len()));
         tab.shape.normalize(&mut rows);
+        if self.keyset
+            && let Some(last) = rows.last()
+        {
+            self.last = table_sql::keyset_of(&tab.shape, &self.order, last);
+        }
         Ok((!rows.is_empty()).then_some(rows))
     }
 }

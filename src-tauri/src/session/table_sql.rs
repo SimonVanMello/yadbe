@@ -174,6 +174,17 @@ fn push_where(
     shape: &TableShape,
     filter: &TableFilter,
 ) -> Result<(), YadbeError> {
+    push_where_after(b, shape, filter, None)
+}
+
+/// ` WHERE …` for the filter and, for keyset paging, the rows after `after` (the values of
+/// the order's columns, in the order's sequence).
+fn push_where_after(
+    b: &mut SqlBuilder<'_>,
+    shape: &TableShape,
+    filter: &TableFilter,
+    after: Option<(&[SortKey], &[Value])>,
+) -> Result<(), YadbeError> {
     let raw = filter
         .raw_where
         .as_deref()
@@ -187,7 +198,7 @@ fn push_where(
             "La condition WHERE contient plus d'une instruction.",
         ));
     }
-    if filter.conditions.is_empty() && raw.is_none() {
+    if filter.conditions.is_empty() && raw.is_none() && after.is_none() {
         return Ok(());
     }
     b.push(" WHERE ");
@@ -204,7 +215,70 @@ fn push_where(
         // On lines of its own: a trailing `--` comment cannot swallow the parenthesis.
         b.push("(\n").push(raw).push("\n)");
     }
+    if let Some((order, last)) = after {
+        if !filter.conditions.is_empty() || raw.is_some() {
+            b.push(" AND ");
+        }
+        push_after(b, shape, order, last);
+    }
     Ok(())
+}
+
+/// `(k1 > $1) OR (k1 = $1 AND k2 > $2) …`: the rows after `last` in `order` (`<` for a
+/// descending key). Row values are not used: SQL Server has no tuple comparison.
+fn push_after(b: &mut SqlBuilder<'_>, shape: &TableShape, order: &[SortKey], last: &[Value]) {
+    let column_of = |key: &SortKey| shape.details.columns.iter().find(|c| c.name == key.column);
+    b.push("(");
+    for (n, key) in order.iter().enumerate() {
+        if n > 0 {
+            b.push(" OR ");
+        }
+        b.push("(");
+        for (earlier, value) in order.iter().zip(last).take(n) {
+            b.ident(&earlier.column)
+                .push(" = ")
+                .value(value, column_of(earlier));
+            b.push(" AND ");
+        }
+        if let Some(value) = last.get(n) {
+            b.ident(&key.column)
+                .push(match key.direction {
+                    SortDirection::Asc => " > ",
+                    SortDirection::Desc => " < ",
+                })
+                .value(value, column_of(key));
+        }
+        b.push(")");
+    }
+    b.push(")");
+}
+
+/// Whether an order can be paged by keyset: it only holds identity columns (whose values are
+/// unique and never NULL), so that "after the last row" is exact.
+pub fn keyset_pageable(shape: &TableShape, order: &[SortKey]) -> bool {
+    !shape.identity.is_empty()
+        && !order.is_empty()
+        && order.iter().all(|key| {
+            shape
+                .identity
+                .iter()
+                .any(|&i| shape.details.columns[i].name == key.column)
+        })
+}
+
+/// The values of `row` for the columns of `order`, to continue after it.
+pub fn keyset_of(shape: &TableShape, order: &[SortKey], row: &[Value]) -> Option<Vec<Value>> {
+    order
+        .iter()
+        .map(|key| {
+            let at = shape
+                .details
+                .columns
+                .iter()
+                .position(|c| c.name == key.column)?;
+            row.get(at).cloned()
+        })
+        .collect()
 }
 
 fn push_order(b: &mut SqlBuilder<'_>, order: &[SortKey]) {
@@ -227,11 +301,26 @@ pub fn page(
     offset: u32,
     limit: u32,
 ) -> Result<BoundStatement, YadbeError> {
+    page_after(dialect, shape, filter, order, None, offset, limit)
+}
+
+/// Like [`page`], for the rows after `after` (see [`keyset_pageable`]) instead of an offset:
+/// the cost of a page does not grow with its position.
+pub fn page_after(
+    dialect: &dyn Dialect,
+    shape: &TableShape,
+    filter: &TableFilter,
+    order: &[SortKey],
+    after: Option<&[Value]>,
+    offset: u32,
+    limit: u32,
+) -> Result<BoundStatement, YadbeError> {
+    let offset = if after.is_some() { 0 } else { offset };
     let mut b = SqlBuilder::new(dialect);
     b.push("SELECT ");
     shape.select_list(&mut b, "");
     b.push(" FROM ").table(&shape.details.table);
-    push_where(&mut b, shape, filter)?;
+    push_where_after(&mut b, shape, filter, after.map(|last| (order, last)))?;
     push_order(&mut b, order);
     let fetch = u64::from(limit) + 1;
     match dialect.paging() {

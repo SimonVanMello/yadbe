@@ -50,6 +50,11 @@ struct Bench {
 }
 
 fn bench() -> Bench {
+    // Small export pages: a table export of a few rows reads several pages.
+    bench_with_batch(5)
+}
+
+fn bench_with_batch(export_batch_rows: u32) -> Bench {
     let db = Arc::new(Store::open_in_memory().expect("store"));
     let secrets = Arc::new(SecretStore::new(Arc::new(MemoryKeychain::default())));
     let sink = Arc::new(RecordingSink::default());
@@ -61,10 +66,9 @@ fn bench() -> Bench {
         sink.clone(),
     ));
     let store = Arc::new(ResultStore::default());
-    // Small export pages: a table export of a few rows reads several pages.
     let tables = Arc::new(
         TableDataService::new(Arc::clone(&manager), Arc::clone(&store), sink.clone())
-            .with_export_batch_rows(5),
+            .with_export_batch_rows(export_batch_rows),
     );
     let runner = Arc::new(QueryRunner::new(
         Arc::clone(&manager),
@@ -741,6 +745,67 @@ async fn keys_and_identifiers(b: &Bench, conn: &str, fx: &Fixture) {
     .await;
     let row = tab.row(vec![int(1), text("z")]).await.expect("row");
     assert_eq!(row[tab.col("value")], text("new"));
+
+    // Keyset paging over a composite key with mixed directions (pages of 5).
+    let grid: Vec<RowInsert> = (2..=4)
+        .flat_map(|a| {
+            ["p", "q", "r"]
+                .into_iter()
+                .map(move |s| insert(&[("a", int(a)), ("b", text(s)), ("value", text("grid"))]))
+        })
+        .collect();
+    tab.applied(inserts(grid)).await;
+    let out = tempfile::tempdir().expect("tempdir");
+    let path = out.path().join("composite.csv");
+    let started = b
+        .exports
+        .start(ExportRequest {
+            source: ExportSourceSpec::Table {
+                tab_id: "composite".into(),
+                filter: TableFilter::default(),
+                sort: vec![SortKey {
+                    column: "a".into(),
+                    direction: SortDirection::Desc,
+                }],
+            },
+            format: ExportFormat::Csv {
+                options: CsvOptions::default(),
+            },
+            path: path.display().to_string(),
+        })
+        .await
+        .expect("start");
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let found = b.sink.events().into_iter().find_map(|e| match e {
+            BackendEvent::ExportFinished(done) if done.export_id == started.export_id => Some(done),
+            _ => None,
+        });
+        if let Some(done) = found {
+            assert_eq!(done.status, ExportStatus::Done, "{done:?}");
+            assert_eq!(done.rows, 11);
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "export not finished");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let exported = std::fs::read_to_string(&path).expect("read export");
+    let keys: Vec<String> = exported
+        .lines()
+        .skip(1)
+        .map(|line| {
+            let mut cells = line.split(',');
+            let a = cells.next().unwrap_or_default();
+            format!("{a}{}", cells.next().unwrap_or_default())
+        })
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "4p", "4q", "4r", "3p", "3q", "3r", "2p", "2q", "2r", "1x", "1z"
+        ],
+        "a descending, then the key"
+    );
     b.tables.close("composite").await;
 
     // Identifiers that need quoting.
@@ -1104,8 +1169,8 @@ async fn exporting(b: &Bench, conn: &str, fx: &Fixture) {
     };
     assert_eq!(done.status, ExportStatus::Done, "{done:?}");
     assert_eq!(done.rows, 18, "qty 0 left out by the raw WHERE");
-    let text = std::fs::read_to_string(&path).expect("read export");
-    let mut lines = text.lines();
+    let exported = std::fs::read_to_string(&path).expect("read export");
+    let mut lines = exported.lines();
     let header: Vec<&str> = tab.info.columns.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(lines.next(), Some(header.join(",").as_str()));
     let sku = tab.col("sku");
@@ -1126,6 +1191,69 @@ async fn exporting(b: &Bench, conn: &str, fx: &Fixture) {
         .filter(|sql| sql.starts_with("SELECT ") && sql.contains("'exp-%'"))
         .collect();
     assert_eq!(pages.len(), 4, "{pages:?}");
+
+    // The default order is the key: the pages continue after the last key read.
+    let keyed = ExportSourceSpec::Table {
+        tab_id: "export".into(),
+        filter: filter(
+            vec![("sku", FilterOp::StartsWith, vec![text("exp-")])],
+            Some("qty > 0"),
+        ),
+        sort: Vec::new(),
+    };
+    let keyed_path = out.path().join("keyed.csv");
+    let logged_before = b.log.entries().len();
+    let started = b
+        .exports
+        .start(ExportRequest {
+            source: keyed,
+            format: ExportFormat::Csv {
+                options: CsvOptions::default(),
+            },
+            path: keyed_path.display().to_string(),
+        })
+        .await
+        .expect("start keyed");
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let found = b.sink.events().into_iter().find_map(|e| match e {
+            BackendEvent::ExportFinished(done) if done.export_id == started.export_id => Some(done),
+            _ => None,
+        });
+        if let Some(done) = found {
+            assert_eq!(done.status, ExportStatus::Done, "{done:?}");
+            assert_eq!(done.rows, 18);
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "export not finished");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let keyed_text = std::fs::read_to_string(&keyed_path).expect("read keyed export");
+    let keyed_skus: Vec<String> = keyed_text
+        .lines()
+        .skip(1)
+        .map(|line| line.split(',').nth(sku).unwrap_or_default().to_owned())
+        .collect();
+    let in_key_order: Vec<String> = [
+        1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15, 17, 18, 19, 21, 22, 23,
+    ]
+    .iter()
+    .map(|n| format!("exp-{n:02}"))
+    .collect();
+    assert_eq!(keyed_skus, in_key_order, "every row once, in key order");
+    let keyed_pages: Vec<String> = b.log.entries()[logged_before..]
+        .iter()
+        .map(|e| e.sql.clone())
+        .filter(|sql| sql.starts_with("SELECT ") && sql.contains("'exp-%'"))
+        .collect();
+    assert_eq!(keyed_pages.len(), 4, "{keyed_pages:?}");
+    assert!(
+        keyed_pages.iter().all(|sql| !sql.contains("OFFSET 5")
+            && !sql.contains("OFFSET 10")
+            && !sql.contains("OFFSET 15")),
+        "{keyed_pages:?}"
+    );
+    assert!(keyed_pages[1..].iter().all(|sql| sql.contains(" > ")));
 
     let preview = b
         .exports
@@ -1384,4 +1512,90 @@ async fn mssql_table_data_and_edits() {
         schema: Some("edits".into()),
     };
     suite(&fx).await;
+}
+
+/// Export of a 1M-row table with the default pages, CSV, on PostgreSQL (rows per second).
+/// `cargo test --release --test table_data p_table_export -- --ignored --nocapture`
+#[tokio::test]
+#[ignore = "benchmark: needs PostgreSQL and takes a while"]
+async fn p_table_export_one_million_rows() {
+    let Some(url) = pg_url("p_table_export_one_million_rows") else {
+        return;
+    };
+    let (mut def, password) = pg_definition(&url);
+    if let Ok(ca) = std::env::var(common::PG_CA_ENV) {
+        def.ca_cert_path = Some(ca);
+    }
+    let schema = unique_name();
+    let conn = common::open(&def, password.as_ref())
+        .await
+        .expect("connect");
+    for sql in [
+        format!("CREATE SCHEMA \"{schema}\""),
+        format!(
+            "CREATE TABLE \"{schema}\".big AS SELECT g AS id, 'name-' || g AS name, g % 97 AS qty, \
+             (g * 1.37)::numeric(12,2) AS price, now() AS made FROM generate_series(1, 1000000) g"
+        ),
+        format!("ALTER TABLE \"{schema}\".big ADD PRIMARY KEY (id)"),
+        format!("ANALYZE \"{schema}\".big"),
+    ] {
+        conn.query(&sql, 0)
+            .await
+            .unwrap_or_else(|e| panic!("{sql}: {e:?}"));
+    }
+    conn.close().await;
+    let _guard = DropAfter {
+        def: def.clone(),
+        password: password
+            .as_ref()
+            .map(|s| Secret::new(s.expose().to_owned())),
+        sql: format!("DROP SCHEMA \"{schema}\" CASCADE"),
+    };
+    let b = bench_with_batch(10_000);
+    let id = b.connect(&def, password).await;
+    let table = ObjectRef {
+        database: def.database.clone(),
+        schema: Some(schema),
+        name: "big".into(),
+    };
+    let _tab = open(&b, &id, table, "bench").await;
+    let out = tempfile::tempdir().expect("tempdir");
+    let path = out.path().join("big.csv");
+    let started = std::time::Instant::now();
+    let export = b
+        .exports
+        .start(ExportRequest {
+            source: ExportSourceSpec::Table {
+                tab_id: "bench".into(),
+                filter: TableFilter::default(),
+                sort: Vec::new(),
+            },
+            format: ExportFormat::Csv {
+                options: CsvOptions::default(),
+            },
+            path: path.display().to_string(),
+        })
+        .await
+        .expect("start");
+    let done = loop {
+        let found = b.sink.events().into_iter().find_map(|e| match e {
+            BackendEvent::ExportFinished(done) if done.export_id == export.export_id => Some(done),
+            _ => None,
+        });
+        if let Some(done) = found {
+            break done;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let elapsed = started.elapsed();
+    assert_eq!(done.status, ExportStatus::Done, "{done:?}");
+    assert_eq!(done.rows, 1_000_000);
+    let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
+    println!(
+        "P-export table: {} rows in {:.2} s = {:.0} rows/s ({} MB)",
+        done.rows,
+        elapsed.as_secs_f64(),
+        1_000_000.0 / elapsed.as_secs_f64(),
+        bytes / 1_000_000
+    );
 }
