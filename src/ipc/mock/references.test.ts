@@ -162,4 +162,35 @@ describe('mock foreign key navigation', () => {
     await commands.cancelReferenceLookup('slow');
     expect(await errorCode(pending)).toBe('cancelled');
   });
+
+  it('navigates MySQL foreign keys (databases are the namespaces)', async () => {
+    const WP = 'conn-wordpress';
+    const wp = (name: string): ObjectRef => ({ database: 'wordpress', schema: null, name });
+    await unwrap(commands.connect(WP, null));
+    const users = await unwrap(commands.getIncomingForeignKeys(null, WP, wp('wp_users')));
+    expect(users.supported).toBe(true);
+    expect(users.keys.map((k) => [k.table.name, k.foreignKey.columns])).toEqual([
+      ['wp_wc_orders', ['customer_id']],
+    ]);
+    await unwrap(commands.openTableData('table-tab-wp', WP, wp('wp_wc_orders')));
+    const page = await unwrap(
+      commands.fetchTablePage('table-tab-wp', {
+        filter: {
+          conditions: [{ column: 'customer_id', op: 'isNotNull', values: [] }],
+          rawWhere: null,
+        },
+        sort: [],
+        offset: 0,
+        limit: 5,
+      }),
+    );
+    expect(page.rowCount).toBeGreaterThan(0);
+    const customer = column(page.window, 4)[0] ?? '';
+    const peek = await unwrap(
+      commands.fetchReferencedRow('table-tab-wp', 'peek', wp('wp_users'), [
+        { column: 'ID', value: int(customer) },
+      ]),
+    );
+    expect(peek.matches).toBe(1);
+  });
 });
