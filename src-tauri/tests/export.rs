@@ -1,5 +1,5 @@
-//! Exports (M2-7) through the real `QueryRunner` on SQLite (always) and PostgreSQL
-//! (`YADBE_TEST_PG_URL`): results streamed to disk past their in-memory limit, with the
+//! Exports (M2-7) through the real `QueryRunner` on SQLite (always), PostgreSQL
+//! (`YADBE_TEST_PG_URL`) and MySQL (`YADBE_TEST_MYSQL_URL`): results streamed to disk past their in-memory limit, with the
 //! stored result left untouched, cancellation, and the stream of a result that still runs.
 
 mod common;
@@ -375,4 +375,59 @@ async fn postgres_cancelling_an_export_removes_the_partial_file() {
         return;
     };
     cancelling_removes_the_partial_file(&b, MILLION_PG).await;
+}
+
+/// 1 to 1 000 000 in order, without a table or a recursion limit (MySQL and MariaDB).
+fn million_mysql() -> String {
+    let digits = "(SELECT 0 AS d UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 \
+UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 \
+UNION ALL SELECT 9)";
+    let from: Vec<String> = (0..6).map(|p| format!("{digits} p{p}")).collect();
+    let n = "p0.d + 10 * p1.d + 100 * p2.d + 1000 * p3.d + 10000 * p4.d + 100000 * p5.d + 1";
+    format!(
+        "SELECT {n} AS n, CONCAT('row ', {n}) AS label FROM {} ORDER BY n",
+        from.join(" CROSS JOIN ")
+    )
+}
+
+async fn mysql(test: &str) -> Option<Bench> {
+    let url = common::mysql_url(test)?;
+    let (def, password) = common::from_url(&url);
+    Some(bench(def, password).await)
+}
+
+#[tokio::test]
+async fn mysql_exports_small_results_and_selections() {
+    let Some(b) = mysql("export_small").await else {
+        return;
+    };
+    exports_a_small_result_as_csv_and_json(
+        &b,
+        "SELECT 1 AS id, 'a,b' AS name UNION ALL SELECT 2, NULL UNION ALL SELECT 3, ''",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn mysql_exports_a_paused_million_rows_without_growing_the_result() {
+    let Some(b) = mysql("export_paused").await else {
+        return;
+    };
+    exports_a_paused_result_without_growing_it(&b, &million_mysql()).await;
+}
+
+#[tokio::test]
+async fn mysql_exports_a_streaming_result() {
+    let Some(b) = mysql("export_streaming").await else {
+        return;
+    };
+    exports_a_result_that_is_still_streaming(&b, &million_mysql()).await;
+}
+
+#[tokio::test]
+async fn mysql_cancelling_an_export_removes_the_partial_file() {
+    let Some(b) = mysql("export_cancel").await else {
+        return;
+    };
+    cancelling_removes_the_partial_file(&b, &million_mysql()).await;
 }

@@ -7,6 +7,7 @@
 #   export YADBE_TEST_MSSQL_URL='sqlserver://localhost:51433;database=master;user=sa;password=Yadbe-test-pw1;trustServerCertificate=true'
 #   export YADBE_TEST_MSSQL_CA=../dev/certs/ca.crt
 #   export YADBE_TEST_MYSQL_URL=mysql://yadbe:yadbe-test-pw@localhost:53306/yadbe_test
+#   export YADBE_TEST_MYSQL_CA=../dev/certs/ca.crt
 #   cargo test
 # Ports are offset from the defaults so a local server keeps its own. Throwaway
 # credentials: never reuse them.
@@ -68,6 +69,20 @@ services:
       MYSQL_DATABASE: yadbe_test
     ports:
       - '53306:3306'
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/server.crt:/certs/server.crt:ro
+      - ./certs/server.key:/certs/server.key.src:ro
+      - ./mysql-init.sql:/docker-entrypoint-initdb.d/yadbe-init.sql:ro
+    # Serves the dev CA's `localhost` certificate (the TLS tests verify it); the key is
+    # copied first so the server user can read it.
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        install -o mysql -g mysql -m 600 /certs/server.key.src /tmp/server.key &&
+        exec docker-entrypoint.sh mysqld --ssl-ca=/certs/ca.crt
+        --ssl-cert=/certs/server.crt --ssl-key=/tmp/server.key --disable-log-bin
     healthcheck:
       test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uyadbe', '-pyadbe-test-pw']
       interval: 2s

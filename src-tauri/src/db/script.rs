@@ -52,7 +52,7 @@ pub fn script(dialect: &dyn Dialect, table: &TableDetails, kind: ScriptKind) -> 
             let columns: Vec<&ColumnInfo> =
                 table.columns.iter().filter(|c| insertable(c)).collect();
             if columns.is_empty() {
-                return format!("INSERT INTO {name} DEFAULT VALUES;");
+                return format!("INSERT INTO {name} {};", dialect.default_values());
             }
             format!(
                 "INSERT INTO {name} (\n{}\n) VALUES (\n{}\n);",

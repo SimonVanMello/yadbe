@@ -41,7 +41,9 @@ const KEYWORDS: Record<Engine, string[]> = {
     tran waitfor offset fetch`),
   mysql: split(`show describe explain use ignore replace duplicate straight_join auto_increment
     engine charset collate unsigned zerofill delimiter procedure function trigger databases tables
-    status variables`),
+    status variables call event regexp rlike div xor binary character modify change after first
+    processlist warnings errors kill high_priority low_priority sql_calc_found_rows lock share mode
+    generated virtual stored`),
   sqlite: split(`pragma vacuum attach detach analyze reindex replace glob autoincrement without
     rowid virtual temp temporary if exists indexed`),
 };
@@ -64,7 +66,11 @@ const FUNCTIONS: Record<Engine, string[]> = {
     openjson ascii char nchar reverse space str`),
   mysql: split(`now curdate curtime date_add date_sub date_format datediff timestampdiff str_to_date
     ifnull if concat_ws group_concat char_length locate instr lpad rpad find_in_set json_extract
-    json_object json_arrayagg uuid last_insert_id found_rows rand truncate`),
+    json_object json_arrayagg uuid last_insert_id found_rows rand truncate json_unquote json_contains
+    json_array json_objectagg json_table json_set json_length regexp_replace regexp_like
+    unix_timestamp from_unixtime convert_tz date year month day hour minute second week weekday
+    dayname monthname last_day timestampadd md5 sha1 sha2 hex unhex database version connection_id
+    sleep row_count st_astext st_geomfromtext uuid_to_bin bin_to_uuid`),
   sqlite: split(`date time datetime julianday strftime ifnull iif instr substr printf random
     randomblob typeof total group_concat json json_extract json_group_array json_object
     last_insert_rowid changes unixepoch`),

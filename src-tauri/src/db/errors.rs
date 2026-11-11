@@ -706,6 +706,36 @@ pub fn from_mssql_login_error(
     Some(error.with_detail(message))
 }
 
+/// Classification of a MySQL / MariaDB error number returned while connecting.
+pub fn from_mysql_connect_error(
+    code: u16,
+    user: &str,
+    database: &str,
+    message: &str,
+) -> Option<YadbeError> {
+    let error = match code {
+        // Access denied (wrong password, unknown user, host not allowed, no password sent,
+        // account locked, expired password, authentication method refused).
+        1045 | 1130 | 1698 | 1251 | 1862 | 3118 | 1820 => YadbeError::auth_failed(user),
+        // Unknown database; access denied to it (how MySQL answers an unprivileged user
+        // about a database that may not exist).
+        1049 | 1044 => YadbeError::unknown_database(database),
+        _ => return None,
+    };
+    Some(error.with_detail(message))
+}
+
+/// Classification of a MySQL / MariaDB error number returned by a statement.
+pub fn from_mysql_query_error(code: u16, message: &str) -> Option<YadbeError> {
+    match code {
+        // Cannot execute statement in a READ ONLY transaction.
+        1792 => Some(YadbeError::read_only_refused_by_engine().with_detail(message)),
+        // The server runs with --read-only / --super-read-only; MariaDB's read-only mode.
+        1290 | 1836 => Some(YadbeError::database_read_only().with_detail(message)),
+        _ => None,
+    }
+}
+
 /// Removes secrets from a technical message: the password of URLs
 /// (`scheme://user:secret@host`) and the value of `password=` / `pwd=` pairs.
 pub fn redact(text: &str) -> String {

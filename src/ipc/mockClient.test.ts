@@ -111,8 +111,9 @@ describe('mock sessions', () => {
     expect(
       await errorCode(unwrap(commands.connect('conn-fail-auth', { kind: 'value', value: 'x' }))),
     ).toBe('authFailed');
-    expect(await errorCode(unwrap(commands.connect('conn-wordpress', null)))).toBe(
-      'engineNotSupported',
+    // MySQL is available: its remembered password opens it.
+    expect((await unwrap(commands.connect('conn-wordpress', null))).serverVersion).toBe(
+      'MySQL 8.4.2',
     );
     const test = (host: string) =>
       errorCode(

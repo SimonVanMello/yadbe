@@ -85,7 +85,10 @@ impl TableShape {
                 } else {
                     column_reason(dialect, c)
                 },
-                enum_values: enums.get(&c.name).cloned(),
+                enum_values: enums
+                    .get(&c.name)
+                    .cloned()
+                    .or_else(|| dialect.enum_labels(c)),
             })
             .collect();
         let identity: Vec<usize> = identity_names

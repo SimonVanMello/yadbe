@@ -500,6 +500,8 @@ pub struct MetaCapabilities {
     pub row_triggers: bool,
     /// Foreign keys have a `RESTRICT` action distinct from `NO ACTION`.
     pub restrict_action: bool,
+    /// Indexes can cover part of the rows (`WHERE …`).
+    pub partial_indexes: bool,
 }
 
 /// How object names are qualified in generated SQL.
@@ -550,6 +552,7 @@ impl MetaDialect for PostgresDialect {
             expression_indexes: true,
             row_triggers: true,
             restrict_action: true,
+            partial_indexes: true,
         }
     }
 }
@@ -570,6 +573,7 @@ impl MetaDialect for MssqlDialect {
             expression_indexes: false,
             row_triggers: false,
             restrict_action: false,
+            partial_indexes: true,
         }
     }
 }
@@ -585,9 +589,11 @@ impl MetaDialect for MysqlDialect {
             ],
             connection_per_database: false,
             row_limit: RowLimitSyntax::Limit,
-            expression_indexes: true,
+            // MySQL 8.0.13+ has functional key parts, MariaDB none.
+            expression_indexes: false,
             row_triggers: true,
             restrict_action: true,
+            partial_indexes: false,
         }
     }
 }
@@ -601,6 +607,7 @@ impl MetaDialect for SqliteDialect {
             expression_indexes: true,
             row_triggers: true,
             restrict_action: true,
+            partial_indexes: true,
         }
     }
 }

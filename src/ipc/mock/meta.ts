@@ -15,6 +15,7 @@ import { MOCK_ENGINES } from '../mockData';
 import {
   LARGE_CATALOG,
   MOCK_OBJECT_KINDS,
+  mysqlServer,
   postgresServer,
   sqliteFile,
   type LargeCatalogOptions,
@@ -195,7 +196,9 @@ export function mockScript(engine: Engine, table: TableDetails, kind: ScriptKind
         : `SELECT\n${columns}\nFROM ${name}\nLIMIT ${SCRIPT_SELECT_LIMIT};`;
     }
     case 'insert':
-      if (insertable.length === 0) return `INSERT INTO ${name} DEFAULT VALUES;`;
+      if (insertable.length === 0) {
+        return `INSERT INTO ${name} ${engine === 'mysql' ? '() VALUES ()' : 'DEFAULT VALUES'};`;
+      }
       return `INSERT INTO ${name} (\n${insertable.map((c) => `  ${quote(c.name)}`).join(',\n')}\n) VALUES (\n${insertable.map((c) => `  ${placeholder(c)}`).join(',\n')}\n);`;
     case 'update': {
       let set = updatable.filter((c) => !key.some((k) => k.name === c.name));
@@ -220,7 +223,12 @@ export function createMockMeta(deps: MetaDeps) {
   function server(connectionId: string, engine: Engine, database: string): MockDatabase[] {
     let databases = servers.get(connectionId);
     if (!databases) {
-      databases = engine === 'sqlite' ? sqliteFile() : postgresServer(database, large);
+      databases =
+        engine === 'sqlite'
+          ? sqliteFile()
+          : engine === 'mysql' && !large
+            ? mysqlServer(database)
+            : postgresServer(database, large);
       servers.set(connectionId, databases);
     }
     return databases;

@@ -107,13 +107,11 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'dialog-sqlite');
     });
 
-    test('connection dialog: an engine this build cannot connect to, a custom environment', async ({
-      page,
-    }) => {
+    test('connection dialog: MySQL, a custom environment', async ({ page }) => {
       await newConnection(page);
       const dialog = page.getByRole('dialog', { name: 'New connection' });
       await dialog.getByRole('radio', { name: 'MySQL / MariaDB' }).click();
-      await expect(dialog.getByRole('note')).toContainText('MySQL / MariaDB is not available');
+      await expect(dialog.getByText(/is not available/)).toHaveCount(0);
       await expect(dialog.getByLabel('Port')).toHaveValue('3306');
       await expect(dialog.getByLabel('User')).toHaveValue('root');
       await dialog.getByRole('radio', { name: 'Custom' }).click();
@@ -253,14 +251,11 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'connect-failed');
     });
 
-    test('a connection the build cannot open shows the typed error in its tab', async ({
-      page,
-    }) => {
+    test('a MySQL connection opens in a tab', async ({ page }) => {
       await openFromSidebar(page, 'wordpress');
-      const panel = page.getByRole('tabpanel').getByRole('alert');
-      await expect(panel).toContainText('Could not connect to wordpress');
-      await expect(panel).toContainText('not supported');
-      await capture(page, name, 'tab-connect-error');
+      await expect(sidebarItem(page, 'wordpress')).toHaveAccessibleName(/Connected/);
+      await expect(tab(page, /wordpress/)).toBeVisible();
+      await capture(page, name, 'mysql-tab');
     });
   });
 }

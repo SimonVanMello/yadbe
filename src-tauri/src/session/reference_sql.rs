@@ -168,7 +168,8 @@ pub fn lookup(
         .map(str::trim)
         .filter(|s| !s.is_empty());
     if let Some(search) = search {
-        let pattern = Value::Text(format!("%{}%", escape_like(search)));
+        let escape = dialect.like_escape();
+        let pattern = Value::Text(format!("%{}%", escape_like(search, escape)));
         b.push(" WHERE ");
         for (n, &index) in indices.iter().enumerate() {
             if n > 0 {
@@ -180,7 +181,7 @@ pub fn lookup(
                 .push(dialect.like_operator())
                 .push(" ")
                 .value(&pattern, None)
-                .push(" ESCAPE '\\'");
+                .push(&format!(" ESCAPE '{escape}'"));
         }
     }
     for (n, name) in request.key_columns.iter().enumerate() {

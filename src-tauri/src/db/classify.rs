@@ -153,6 +153,8 @@ const WRITE_FUNCTIONS: &[&str] = &[
 const GUARD_SETTINGS: &[&str] = &[
     "default_transaction_read_only",
     "transaction_read_only",
+    // MariaDB's name for it (MySQL 5.7 too).
+    "tx_read_only",
     "query_only",
     "global",
     "persist",
@@ -644,6 +646,22 @@ mod tests {
         assert_eq!(
             check(Engine::Mysql, "SET GLOBAL max_connections = 10").as_deref(),
             Some("SET")
+        );
+        assert_eq!(
+            check(Engine::Mysql, "/*M!100000 DELETE FROM t */").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            check(Engine::Mysql, "SET tx_read_only = 0").as_deref(),
+            Some("SET")
+        );
+        assert_eq!(
+            check(Engine::Mysql, "SET @@session.transaction_read_only = OFF").as_deref(),
+            Some("SET")
+        );
+        assert_eq!(
+            check(Engine::Mysql, "START TRANSACTION READ WRITE").as_deref(),
+            Some("START")
         );
         assert_eq!(
             check(Engine::Mssql, "SELECT 1; EXEC sp_who").as_deref(),

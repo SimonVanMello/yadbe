@@ -62,7 +62,7 @@ export const MOCK_ENGINES: EngineInfo[] = [
       foldsUnquotedToLower: false,
     },
     defaultUsername: 'root',
-    available: false,
+    available: true,
   },
   {
     engine: 'sqlite',
@@ -202,7 +202,12 @@ export const MOCK_CONNECTIONS: SavedConnection[] = [
 ];
 
 /** Connections whose password the mock keychain already holds. */
-export const MOCK_REMEMBERED_PASSWORDS = ['conn-shop-prod', 'conn-shop-staging', 'conn-local-pg'];
+export const MOCK_REMEMBERED_PASSWORDS = [
+  'conn-shop-prod',
+  'conn-shop-staging',
+  'conn-local-pg',
+  'conn-wordpress',
+];
 
 export const MOCK_SERVER_VERSIONS: Record<Engine, string> = {
   postgres: 'PostgreSQL 16.4',

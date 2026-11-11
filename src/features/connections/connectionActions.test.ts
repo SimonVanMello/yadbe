@@ -95,9 +95,21 @@ describe('connectTo', () => {
     expect(await connectionsApi.passwordLocation(saved.id)).toBeNull();
   });
 
-  it('shows the typed error of an engine the build cannot open', async () => {
-    expect(await connectTo(connection('conn-wordpress'))).toBe(false);
-    expect(useSessions.getState().errors['conn-wordpress']?.code).toBe('engineNotSupported');
+  it('shows the typed error of a server that refuses the connection', async () => {
+    const saved = await connectionsApi.save(
+      {
+        ...draftOf('conn-local-pg'),
+        id: null,
+        name: 'refused',
+        host: 'fail-refused',
+        password: 'pw',
+        rememberPassword: true,
+      },
+      postgres,
+      null,
+    );
+    expect(await connectTo(summarize(saved))).toBe(false);
+    expect(useSessions.getState().errors[saved.id]?.code).toBe('connectionRefused');
   });
 
   it('trusts an unknown SSH host key, asks for the SSH password, then connects', async () => {

@@ -1,6 +1,7 @@
 //! Engine drivers: the only place a driver crate is used.
 
 mod mssql;
+mod mysql;
 mod postgres;
 mod sqlite;
 
@@ -13,6 +14,7 @@ pub fn builtin() -> Vec<Arc<dyn Driver>> {
     vec![
         Arc::new(postgres::PostgresDriver),
         Arc::new(mssql::MssqlDriver),
+        Arc::new(mysql::MysqlDriver),
         Arc::new(sqlite::SqliteDriver),
     ]
 }

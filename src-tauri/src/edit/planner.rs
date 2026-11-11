@@ -184,7 +184,7 @@ fn insert_statement(
         shape.select_list(&mut b, "INSERTED.");
     }
     if values.is_empty() {
-        b.push(" DEFAULT VALUES");
+        b.push(" ").push(dialect.default_values());
     } else {
         b.push(" VALUES (");
         for (n, (index, value)) in values.iter().enumerate() {

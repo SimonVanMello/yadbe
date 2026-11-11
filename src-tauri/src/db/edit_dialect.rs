@@ -80,6 +80,23 @@ pub trait EditDialect {
         "LIKE"
     }
 
+    /// The character of `LIKE … ESCAPE`.
+    fn like_escape(&self) -> char {
+        '\\'
+    }
+
+    /// What follows `INSERT INTO <table>` to insert a row of defaults only.
+    fn default_values(&self) -> &'static str {
+        "DEFAULT VALUES"
+    }
+
+    /// The labels of an enum column read from its type alone (MySQL `enum('a','b')`), in
+    /// their order.
+    fn enum_labels(&self, column: &ColumnInfo) -> Option<Vec<String>> {
+        let _ = column;
+        None
+    }
+
     /// `value` written as a SQL literal, for reading only (preview, statement log).
     fn literal(&self, value: &Value) -> String;
 
@@ -321,18 +338,86 @@ WHERE p.object_id = OBJECT_ID({p}) AND p.index_id IN (0, 1)",
     }
 }
 
+/// The labels of `enum('a','it''s')` (quotes doubled, as `COLUMN_TYPE` writes them).
+fn mysql_enum_labels(type_name: &str) -> Option<Vec<String>> {
+    let body = type_name
+        .get(..5)
+        .filter(|p| p.eq_ignore_ascii_case("enum("))
+        .and_then(|_| type_name[5..].strip_suffix(')'))?;
+    let mut labels = Vec::new();
+    let mut chars = body.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\'' {
+            continue;
+        }
+        let mut label = String::new();
+        loop {
+            match chars.next()? {
+                '\'' if chars.peek() == Some(&'\'') => {
+                    chars.next();
+                    label.push('\'');
+                }
+                '\'' => break,
+                other => label.push(other),
+            }
+        }
+        labels.push(label);
+    }
+    Some(labels)
+}
+
+/// `decimal(p,s)` of a MySQL column type (`decimal(10,2) unsigned` included).
+fn mysql_decimal(type_name: &str) -> Option<&str> {
+    let end = type_name.find(')')?;
+    let head = &type_name[..=end];
+    head.get(..8)
+        .is_some_and(|p| p.eq_ignore_ascii_case("decimal("))
+        .then_some(head)
+}
+
 impl EditDialect for MysqlDialect {
     fn paging(&self) -> PagingSyntax {
         PagingSyntax::LimitOffset
     }
+    // MariaDB 10.5+ has `INSERT … RETURNING`, MySQL none: one form for both.
     fn insert_returning(&self) -> InsertReturning {
         InsertReturning::ReadBack
     }
     fn last_identity(&self) -> Option<&'static str> {
         Some("LAST_INSERT_ID()")
     }
+    fn bind_expression(&self, column: Option<&ColumnInfo>, placeholder: &str) -> String {
+        // MySQL compares a decimal column with a text value as floating point: an exact key
+        // of more than 15 digits would match the wrong row, or none.
+        match column {
+            Some(column) if column.kind == ValueKind::Decimal => {
+                match mysql_decimal(&column.type_name) {
+                    Some(decimal) => format!("CAST({placeholder} AS {decimal})"),
+                    None => placeholder.to_owned(),
+                }
+            }
+            _ => placeholder.to_owned(),
+        }
+    }
+    fn select_expression(&self, column: &ColumnInfo, quoted: &str) -> Option<String> {
+        // Spatial values arrive as SRID + WKB bytes: their WKT is readable (and read-only).
+        (column.kind == ValueKind::Other).then(|| format!("ST_AsText({quoted})"))
+    }
     fn text_expression(&self, quoted: &str) -> String {
         format!("CAST({quoted} AS CHAR)")
+    }
+    // A backslash escapes the closing quote of a MySQL string literal: `'\'` never ends.
+    fn like_escape(&self) -> char {
+        '!'
+    }
+    fn column_read_only(&self, column: &ColumnInfo) -> Option<ColumnReadOnlyReason> {
+        (column.kind == ValueKind::Other).then_some(ColumnReadOnlyReason::UnsupportedType)
+    }
+    fn default_values(&self) -> &'static str {
+        "() VALUES ()"
+    }
+    fn enum_labels(&self, column: &ColumnInfo) -> Option<Vec<String>> {
+        mysql_enum_labels(&column.type_name)
     }
     fn literal(&self, value: &Value) -> String {
         match value {
@@ -477,5 +562,42 @@ mod tests {
                 .column_read_only(&column("point", ValueKind::Other)),
             None
         );
+    }
+
+    #[test]
+    fn mysql_binds_decimals_exactly_and_reads_enum_labels() {
+        let d = Engine::Mysql.dialect();
+        assert_eq!(
+            d.bind_expression(
+                Some(&column("decimal(30,10) unsigned", ValueKind::Decimal)),
+                "?"
+            ),
+            "CAST(? AS decimal(30,10))"
+        );
+        assert_eq!(
+            d.bind_expression(Some(&column("int", ValueKind::Int)), "?"),
+            "?"
+        );
+        assert_eq!(
+            d.enum_labels(&column("enum('a','it''s','b,c')", ValueKind::Text)),
+            Some(vec!["a".to_owned(), "it's".to_owned(), "b,c".to_owned()])
+        );
+        assert_eq!(d.enum_labels(&column("varchar(10)", ValueKind::Text)), None);
+        assert_eq!(
+            d.select_expression(&column("point", ValueKind::Other), "`p`")
+                .as_deref(),
+            Some("ST_AsText(`p`)")
+        );
+        assert_eq!(
+            d.column_read_only(&column("point", ValueKind::Other)),
+            Some(ColumnReadOnlyReason::UnsupportedType)
+        );
+        assert_eq!(d.like_escape(), '!');
+        assert_eq!(d.default_values(), "() VALUES ()");
+        assert_eq!(
+            Engine::Postgres.dialect().default_values(),
+            "DEFAULT VALUES"
+        );
+        assert_eq!(d.literal(&Value::Text("a\\'b".into())), "'a\\\\''b'");
     }
 }

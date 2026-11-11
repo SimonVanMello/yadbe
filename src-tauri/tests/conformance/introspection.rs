@@ -236,13 +236,15 @@ pub async fn check(ctx: &Ctx<'_>, shop: &Shop) {
         .iter()
         .find(|i| i.name == "orders_created_at_idx")
         .expect("partial index");
-    assert!(
-        partial
-            .predicate
-            .as_deref()
-            .is_some_and(|p| bare(p).contains("total>0")),
-        "{partial:?}"
-    );
+    if meta_caps.partial_indexes {
+        assert!(
+            partial
+                .predicate
+                .as_deref()
+                .is_some_and(|p| bare(p).contains("total>0")),
+            "{partial:?}"
+        );
+    }
     assert_eq!(orders.triggers.len(), 1);
     let trigger = &orders.triggers[0];
     assert_eq!(trigger.name, "orders_touch");

@@ -351,6 +351,9 @@ export function quote(engine: Engine, ident: string): string {
 }
 
 export function qualified(engine: Engine, table: ObjectRef): string {
+  if (engine === 'mysql' && table.database) {
+    return `${quote(engine, table.database)}.${quote(engine, table.name)}`;
+  }
   return table.schema === null
     ? quote(engine, table.name)
     : `${quote(engine, table.schema)}.${quote(engine, table.name)}`;
@@ -1164,11 +1167,17 @@ export function createMockTableData(deps: TableDataDeps) {
       const literals = [...values.values()].map((v) => mockLiteral(tab.engine, v));
       const body = values.size
         ? `(${names.join(', ')}) VALUES (${literals.join(', ')})`
-        : 'DEFAULT VALUES';
+        : tab.engine === 'mysql'
+          ? '() VALUES ()'
+          : 'DEFAULT VALUES';
+      // Mirrors the dialects: OUTPUT (SQL Server), a read-back (MySQL), RETURNING (others).
+      const identity = tab.info.rowIdentity?.[0];
       const sql =
         tab.engine === 'mssql'
           ? `INSERT INTO ${from} ${values.size ? `(${names.join(', ')}) ` : ''}OUTPUT ${returning.map((c) => `INSERTED.${c}`).join(', ')} ${values.size ? `VALUES (${literals.join(', ')})` : 'DEFAULT VALUES'}`
-          : `INSERT INTO ${from} ${body} RETURNING ${returning.join(', ')}`;
+          : tab.engine === 'mysql'
+            ? `INSERT INTO ${from} ${body}${identity ? `; SELECT ${returning.join(', ')} FROM ${from} WHERE ${quote(tab.engine, identity)} = LAST_INSERT_ID()` : ''}`
+            : `INSERT INTO ${from} ${body} RETURNING ${returning.join(', ')}`;
       const statement = { change: { kind: 'insert', insert: index } as PlannedChange, sql };
       const position = planned.length;
       planned.push({

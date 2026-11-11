@@ -170,7 +170,10 @@ pub fn next_token(text: &str, pos: usize, syntax: &SqlSyntax) -> Token {
         return token(TokenKind::Comment, line_end(bytes, pos));
     }
     if b == b'/' && next == Some(b'*') {
-        let code = syntax.executable_comments && matches!(bytes.get(pos + 2), Some(b'!' | b'+'));
+        // `/*! … */` (MySQL and MariaDB), `/*M! … */` (MariaDB only), `/*+ … */` (hints).
+        let code = syntax.executable_comments
+            && (matches!(bytes.get(pos + 2), Some(b'!' | b'+'))
+                || bytes.get(pos + 2..pos + 4) == Some(b"M!".as_slice()));
         let mut depth = 1;
         let mut i = pos + 2;
         while i < bytes.len() && depth > 0 {
