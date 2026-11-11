@@ -140,3 +140,23 @@ export function snippetCompletionSource(host: CompletionHost): CompletionSource 
     return { from: word.from, to: word.to, filter: false, options };
   };
 }
+
+/**
+ * The SQL source and the snippet source as one: snippets follow the SQL suggestions (`Tab` on
+ * `sel` must still give `select`), except when the typed word is exactly a trigger word, which then
+ * leads. Results that do not start at the same place cannot be merged and keep the SQL one.
+ */
+export function withSnippets(sql: CompletionSource, snippets: CompletionSource): CompletionSource {
+  return async (cm) => {
+    const [base, extra] = await Promise.all([sql(cm), snippets(cm)]);
+    if (!extra) return base;
+    if (!base) return extra;
+    if (base.from !== extra.from) return base;
+    const word = cm.state.sliceDoc(extra.from, cm.pos).toLowerCase();
+    const exact = extra.options.some((option) => option.label.toLowerCase() === word);
+    return {
+      ...base,
+      options: exact ? [...extra.options, ...base.options] : [...base.options, ...extra.options],
+    };
+  };
+}
