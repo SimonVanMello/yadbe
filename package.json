@@ -17,6 +17,7 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "check": "node scripts/check-case.mjs && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test",
+    "screenshots": "playwright test --config playwright.screenshots.config.ts",
     "test:ui": "playwright test",
     "perf:startup": "node scripts/measure-startup.mjs",
     "perf:tabs": "playwright test --config playwright.perf.config.ts perf.spec",
