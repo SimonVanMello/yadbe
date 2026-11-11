@@ -17,9 +17,10 @@ use crate::db::introspect::{Introspector, MetaFuture, TypeInterner, index_u32};
 use crate::db::meta::{
     CatalogForeignKey, CatalogRelation, CatalogRoutine, CatalogSchema, CheckConstraint, ColumnInfo,
     ColumnRef, CompletionCatalog, DatabaseInfo, ForeignKey, ForeignKeyAction, Generated, Identity,
-    IndexInfo, KeyConstraint, ObjectCount, ObjectDetail, ObjectInfo, ObjectKind, ObjectRef,
-    RelationSummary, RoutineSignature, SchemaInfo, SequenceSummary, TableDetails, TriggerEvent,
-    TriggerInfo, TriggerTiming, TypeAttribute, TypeCategory, TypeSummary,
+    IncomingForeignKey, IncomingForeignKeys, IndexInfo, KeyConstraint, ObjectCount, ObjectDetail,
+    ObjectInfo, ObjectKind, ObjectRef, RelationSummary, RoutineSignature, SchemaInfo,
+    SequenceSummary, TableDetails, TriggerEvent, TriggerInfo, TriggerTiming, TypeAttribute,
+    TypeCategory, TypeSummary,
 };
 use crate::db::value::ValueKind;
 
@@ -119,6 +120,22 @@ LEFT JOIN pg_class fc ON fc.oid = con.confrelid
 LEFT JOIN pg_namespace fn ON fn.oid = fc.relnamespace
 WHERE con.conrelid = $1 AND con.contype IN ('p', 'u', 'f', 'c')
 ORDER BY con.conname";
+
+/// Foreign keys referencing a table, partition clones left out (`conparentid`).
+const INCOMING_FOREIGN_KEYS_SQL: &str = "\
+SELECT n.nspname::text, c.relname::text, con.conname::text,
+       ARRAY(SELECT a.attname::text FROM unnest(con.conkey) WITH ORDINALITY k(n, o)
+             JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.n ORDER BY k.o),
+       ARRAY(SELECT a.attname::text FROM unnest(con.confkey) WITH ORDINALITY k(n, o)
+             JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.n ORDER BY k.o),
+       con.confupdtype::text, con.confdeltype::text, con.condeferrable
+FROM pg_constraint con
+JOIN pg_class c ON c.oid = con.conrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_class rc ON rc.oid = con.confrelid
+JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+WHERE con.contype = 'f' AND con.conparentid = 0 AND rn.nspname = $1 AND rc.relname = $2
+ORDER BY n.nspname, c.relname, con.conname";
 
 const INDEXES_SQL: &str = "\
 SELECT ic.relname::text, i.indisunique, i.indisprimary, am.amname::text,
@@ -621,6 +638,38 @@ impl PgConnection {
         Ok(details)
     }
 
+    async fn incoming(&self, table: &ObjectRef) -> Result<IncomingForeignKeys, YadbeError> {
+        let schema = schema_of(table.schema.as_deref())?;
+        let rows = self
+            .meta(INCOMING_FOREIGN_KEYS_SQL, &[&schema, &table.name])
+            .await?;
+        let keys = rows
+            .iter()
+            .map(|row| {
+                Ok(IncomingForeignKey {
+                    table: ObjectRef {
+                        database: table.database.clone(),
+                        schema: get(row, 0)?,
+                        name: get(row, 1)?,
+                    },
+                    foreign_key: ForeignKey {
+                        name: get(row, 2)?,
+                        columns: get(row, 3)?,
+                        referenced_table: table.clone(),
+                        referenced_columns: get(row, 4)?,
+                        on_update: fk_action(&get::<String>(row, 5)?),
+                        on_delete: fk_action(&get::<String>(row, 6)?),
+                        deferrable: get(row, 7)?,
+                    },
+                })
+            })
+            .collect::<Result<_, YadbeError>>()?;
+        Ok(IncomingForeignKeys {
+            supported: true,
+            keys,
+        })
+    }
+
     async fn catalog(
         &self,
         database: &str,
@@ -874,6 +923,13 @@ impl Introspector for PgConnection {
         include_system: bool,
     ) -> MetaFuture<'a, CompletionCatalog> {
         Box::pin(self.catalog(database, include_system))
+    }
+
+    fn incoming_foreign_keys<'a>(
+        &'a self,
+        table: &'a ObjectRef,
+    ) -> MetaFuture<'a, IncomingForeignKeys> {
+        Box::pin(self.incoming(table))
     }
 }
 

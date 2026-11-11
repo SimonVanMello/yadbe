@@ -47,7 +47,7 @@ fn arity_error(column: &str) -> YadbeError {
 }
 
 /// `%`, `_`, `[` and the escape character itself, escaped for `LIKE … ESCAPE '\'`.
-fn escape_like(text: &str) -> String {
+pub(crate) fn escape_like(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         if matches!(c, '\\' | '%' | '_' | '[') {

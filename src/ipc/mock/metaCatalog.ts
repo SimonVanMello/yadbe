@@ -605,11 +605,22 @@ const SHOP_SCHEMAS: SchemaDef[] = [
         [
           id(),
           c('invoice_id', 'integer'),
+          opt('line_no', 'smallint', { comment: 'The refunded line, when not the whole invoice' }),
           c('amount', 'numeric(12,2)'),
           opt('reason', 'text'),
           createdAt(),
         ],
-        { foreignKeys: [fk('invoice_id', 'invoices')] },
+        {
+          foreignKeys: [
+            fk('invoice_id', 'invoices'),
+            // A composite key: the line of the invoice (F-088 fills both columns together).
+            {
+              columns: ['invoice_id', 'line_no'],
+              references: 'invoice_lines',
+              referencedColumns: ['invoice_id', 'line_no'],
+            },
+          ],
+        },
       ),
       table('tax_rates', 9, [
         id(),

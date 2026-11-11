@@ -94,5 +94,6 @@ pub async fn close_table_data(
     tab_id: String,
 ) -> Result<(), YadbeError> {
     state.tables.close(&tab_id).await;
+    state.references.close(&tab_id).await;
     Ok(())
 }

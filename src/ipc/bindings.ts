@@ -274,6 +274,35 @@ export const commands = {
 	 *  `table-data-changed` and returns the inserted rows as stored.
 	 */
 	applyTableChanges: (tabId: string, changes: ChangeSet) => typedError<ApplyOutcome, YadbeError>(__TAURI_INVOKE("apply_table_changes", { tabId, changes })),
+	/**
+	 *  The foreign keys of every table of `table`'s database that reference it, self-references
+	 *  and other schemas included (cached metadata). `supported: false` on an engine whose
+	 *  driver cannot list them yet.
+	 */
+	getIncomingForeignKeys: (requestId: string | null, connectionId: string, table: ObjectRef) => typedError<IncomingForeignKeys, YadbeError>(__TAURI_INVOKE("get_incoming_foreign_keys", { requestId, connectionId, table })),
+	/**
+	 *  The row of `table` whose columns equal `key` (a foreign key value, composite or not): the
+	 *  window holds it (none when nothing matches, two when the key is not unique). Fails with
+	 *  `invalidArgument` for an unknown column or a `NULL` value, `objectNotFound` when the
+	 *  table no longer exists.
+	 */
+	fetchReferencedRow: (tabId: string, requestId: string, table: ObjectRef, key: KeyValue[]) => typedError<ReferencedRow, YadbeError>(__TAURI_INVOKE("fetch_referenced_row", { tabId, requestId, table, key })),
+	/**
+	 *  Counts the rows of `table` whose columns equal `key` (the rows referencing a row through
+	 *  one foreign key), stopping after `limit` rows (1 to 100 000): exact below it, `more`
+	 *  above.
+	 */
+	countReferencingRows: (tabId: string, requestId: string, table: ObjectRef, key: KeyValue[], limit: number) => typedError<BoundedCount, YadbeError>(__TAURI_INVOKE("count_referencing_rows", { tabId, requestId, table, key, limit })),
+	/**
+	 *  A page of a referenced table for the foreign key cell editor: its key and display
+	 *  columns, ordered by the key, rows whose columns contain `search` (bound).
+	 */
+	searchReferencedRows: (tabId: string, requestId: string, request: LookupRequest) => typedError<LookupPage, YadbeError>(__TAURI_INVOKE("search_referenced_rows", { tabId, requestId, request })),
+	/**
+	 *  Stops a lookup or an incoming foreign keys read started with `requestId`. Does nothing
+	 *  when it already ended.
+	 */
+	cancelReferenceLookup: (requestId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("cancel_reference_lookup", { requestId })),
 };
 
 /** Events */
@@ -330,6 +359,15 @@ export type AuthMethod =
 
 /**  How binary values are written. */
 export type BinaryEncoding = "hex" | "base64";
+
+/**  How many rows hold a value, counted up to a bound. */
+export type BoundedCount = {
+	/**  Exact when `more` is false, else the bound. */
+	count: number,
+	/**  More rows than the bound match ("1 000+"). */
+	more: boolean,
+	durationMs: number | null,
+};
 
 /**  What an engine supports, as data the services and the UI can branch on. */
 export type Capabilities = {
@@ -1064,6 +1102,31 @@ export type Identity =
  */
 "byDefault";
 
+/**
+ *  A foreign key that references a given table, seen from that table (F-088: "rows
+ *  referencing this row"). Self-references and keys of other schemas are included.
+ */
+export type IncomingForeignKey = {
+	/**  The referencing table (may be the table itself). */
+	table: ObjectRef,
+	/**
+	 *  The key as the referencing table declares it: `columns` are the referencing table's,
+	 *  `referencedColumns` the referenced table's, in the same order.
+	 */
+	foreignKey: ForeignKey,
+};
+
+/**  The foreign keys that reference a table. */
+export type IncomingForeignKeys = {
+	/**
+	 *  `false`: this engine's driver cannot list them (yet); `keys` is then empty without
+	 *  meaning that nothing references the table.
+	 */
+	supported: boolean,
+	/**  By referencing schema, table and key name. */
+	keys: IncomingForeignKey[],
+};
+
 export type IndexInfo = {
 	name: string,
 	/**  Key columns in order; an expression key is given as its text. */
@@ -1121,6 +1184,12 @@ export type KeyConstraint = {
 	columns: string[],
 };
 
+/**  A column and the value it must equal: one per column of a (possibly composite) key. */
+export type KeyValue = {
+	column: string,
+	value: Value,
+};
+
 export type KeychainStatus = {
 	/**  `false`: "remember password" is not possible, secrets are kept for the session only. */
 	available: boolean,
@@ -1136,6 +1205,33 @@ export type Locale = "en" | "fr";
 export type LocalizedText = {
 	en: string,
 	fr: string,
+};
+
+export type LookupPage = {
+	/**  `keyColumns` then `displayColumns`. */
+	columns: ColumnMeta[],
+	window: ResultWindow,
+	offset: number,
+	hasMore: boolean,
+	durationMs: number | null,
+};
+
+/**  A page of a referenced table, for the foreign key cell editor. */
+export type LookupRequest = {
+	/**  The referenced table (same database as the tab's table). */
+	table: ObjectRef,
+	/**  The referenced key columns: the page is ordered by them and they come first. */
+	keyColumns: string[],
+	/**  A few columns that tell rows apart for a person (name, title…), after the key. */
+	displayColumns: string[],
+	/**
+	 *  Rows whose key or display columns contain this text, case-insensitively (compared as
+	 *  text, `LIKE` wildcards escaped, bound). Blank: every row.
+	 */
+	search: string | null,
+	offset: number,
+	/**  1 to 500. */
+	limit: number,
 };
 
 export type MessageBody = {
@@ -1336,6 +1432,20 @@ export type QueryTabInfo = {
 	database: string | null,
 	/**  The running or last execution. */
 	execution: ExecutionSnapshot | null,
+};
+
+/**  The row a foreign key value references (the peek). */
+export type ReferencedRow = {
+	/**  The referenced table's columns, in table order (as a table tab describes them). */
+	columns: TableColumn[],
+	/**
+	 *  The matching row (none when the value references nothing, e.g. a constraint not
+	 *  enforced or a row deleted meanwhile; at most one more when the key is not unique).
+	 */
+	window: ResultWindow,
+	/**  Rows that matched, up to 2. */
+	matches: number,
+	durationMs: number | null,
 };
 
 /**  Rows read again by their identity (after an apply). */
@@ -1679,6 +1789,8 @@ export type TableDataInfo = {
 	defaultOrder: SortKey[],
 	/**  The planner's estimate from the cached metadata, when the engine has one. */
 	rowEstimate: number | null,
+	/**  Outgoing foreign keys (F-088: a cell of one leads to the referenced row). */
+	foreignKeys: ForeignKey[],
 };
 
 /**

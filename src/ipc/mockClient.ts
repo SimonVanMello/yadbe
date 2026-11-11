@@ -2,6 +2,7 @@ import type {
   AppInfo,
   ConnectionDefinition,
   ConnectionGroup,
+  Engine,
   ObjectRef,
   Preferences,
   SavedConnection,
@@ -31,6 +32,7 @@ import { createMockHistory } from './mock/history';
 import { createMockMeta } from './mock/meta';
 import type { LargeCatalogOptions } from './mock/metaCatalog';
 import { cellValue, createMockQuery } from './mockQuery';
+import { createMockReferences } from './mock/references';
 import { createMockTableData } from './mock/tableData';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
@@ -335,6 +337,26 @@ function createMockBackend() {
       query.freeResults(ids);
     },
   });
+
+  const references = createMockReferences({
+    session: (connectionId) => tableDataSession(connectionId),
+    tablesOf: (connectionId, database) => meta.tablesOf(connectionId, database),
+    rowsFor: (connectionId, table) => tableData.rowsFor(connectionId, table),
+    tabTarget: (tabId) => tableData.tabTarget(tabId),
+    logStatement: (connectionId, sql, error = null) => {
+      logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
+    },
+    storeRows: (columns, rows) => query.storeRows(columns, rows),
+    freeResults: (ids) => {
+      query.freeResults(ids);
+    },
+  });
+
+  function tableDataSession(connectionId: string): { engine: Engine } | null {
+    const conn = findConnection(connectionId);
+    if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
+    return { engine: conn.definition.engine };
+  }
 
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
@@ -652,6 +674,11 @@ function createMockBackend() {
     ...query.commands,
     ...history.commands,
     ...tableData.commands,
+    ...references.commands,
+    closeTableData: (tabId) => {
+      references.close(tabId);
+      return tableData.commands.closeTableData(tabId);
+    },
 
     ...files.commands,
     ...exporter.commands,
@@ -675,6 +702,7 @@ function createMockBackend() {
     query.reset();
     history.reset();
     tableData.reset();
+    references.reset();
     files.reset();
     exporter.reset();
     clearReloadState();
@@ -773,6 +801,7 @@ function createMockBackend() {
     /** Time a table data statement takes, in ms (0 in unit tests). */
     setTableDataLatency(ms: number): void {
       tableData.setLatency(ms);
+      references.setLatency(ms);
     },
     /**
      * Deletes a row of a table open in a table tab as another session would: the next update

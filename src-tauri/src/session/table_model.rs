@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::db::meta::{ObjectKind, ObjectRef};
+use crate::db::meta::{ForeignKey, ObjectKind, ObjectRef};
 use crate::db::value::{ColumnMeta, Value, ValueKind};
 use crate::session::query_model::ResultWindow;
 
@@ -153,6 +153,8 @@ pub struct TableDataInfo {
     pub default_order: Vec<SortKey>,
     /// The planner's estimate from the cached metadata, when the engine has one.
     pub row_estimate: Option<f64>,
+    /// Outgoing foreign keys (F-088: a cell of one leads to the referenced row).
+    pub foreign_keys: Vec<ForeignKey>,
 }
 
 /// One page of rows.

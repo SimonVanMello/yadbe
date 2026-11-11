@@ -13,10 +13,11 @@ use crate::db::errors::YadbeError;
 use crate::db::introspect::{Introspector, MetaFuture, TypeInterner, index_u32};
 use crate::db::meta::{
     CatalogForeignKey, CatalogRelation, CatalogRoutine, CatalogSchema, CheckConstraint, ColumnInfo,
-    CompletionCatalog, DatabaseInfo, ForeignKey, ForeignKeyAction, Generated, Identity, IndexInfo,
-    KeyConstraint, ObjectCount, ObjectDetail, ObjectInfo, ObjectKind, ObjectRef, RelationSummary,
-    RoutineSignature, SchemaInfo, SequenceSummary, TableDetails, TriggerEvent, TriggerInfo,
-    TriggerTiming, TypeAttribute, TypeCategory, TypeSummary,
+    CompletionCatalog, DatabaseInfo, ForeignKey, ForeignKeyAction, Generated, Identity,
+    IncomingForeignKey, IncomingForeignKeys, IndexInfo, KeyConstraint, ObjectCount, ObjectDetail,
+    ObjectInfo, ObjectKind, ObjectRef, RelationSummary, RoutineSignature, SchemaInfo,
+    SequenceSummary, TableDetails, TriggerEvent, TriggerInfo, TriggerTiming, TypeAttribute,
+    TypeCategory, TypeSummary,
 };
 use crate::db::value::ValueKind;
 
@@ -279,6 +280,22 @@ JOIN {db}.sys.columns rc
   ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id
 WHERE fk.parent_object_id = @P1
 ORDER BY fk.name, fkc.constraint_column_id";
+
+const INCOMING_FOREIGN_KEYS_SQL: &str = "\
+SELECT ps.name, pt.name, fk.name, pc.name, rc.name,
+       CAST(fk.update_referential_action AS int), CAST(fk.delete_referential_action AS int)
+FROM {db}.sys.foreign_keys fk
+JOIN {db}.sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+JOIN {db}.sys.objects pt ON pt.object_id = fk.parent_object_id
+JOIN {db}.sys.schemas ps ON ps.schema_id = pt.schema_id
+JOIN {db}.sys.columns pc
+  ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
+JOIN {db}.sys.objects rt ON rt.object_id = fk.referenced_object_id
+JOIN {db}.sys.schemas rs ON rs.schema_id = rt.schema_id
+JOIN {db}.sys.columns rc
+  ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id
+WHERE rs.name = @P1 AND rt.name = @P2
+ORDER BY ps.name, pt.name, fk.name, fkc.constraint_column_id";
 
 const CHECKS_SQL: &str = "\
 SELECT cc.name, cc.definition
@@ -853,6 +870,55 @@ impl MssqlConnection {
         Ok(details)
     }
 
+    async fn incoming(&self, table: &ObjectRef) -> Result<IncomingForeignKeys, YadbeError> {
+        let schema = schema_of(table.schema.as_deref())?;
+        let rows = self
+            .meta(
+                &table.database,
+                INCOMING_FOREIGN_KEYS_SQL,
+                &[schema.into(), table.name.as_str().into()],
+            )
+            .await?;
+        let mut keys: Vec<IncomingForeignKey> = Vec::new();
+        for row in &rows {
+            let owner = text(row, 0)?;
+            let name = text_req(row, 1)?;
+            let key = text_req(row, 2)?;
+            let column = text_req(row, 3)?;
+            let referenced = text_req(row, 4)?;
+            match keys.last_mut() {
+                Some(last)
+                    if last.table.schema == owner
+                        && last.table.name == name
+                        && last.foreign_key.name.as_deref() == Some(key.as_str()) =>
+                {
+                    last.foreign_key.columns.push(column);
+                    last.foreign_key.referenced_columns.push(referenced);
+                }
+                _ => keys.push(IncomingForeignKey {
+                    table: ObjectRef {
+                        database: table.database.clone(),
+                        schema: owner,
+                        name,
+                    },
+                    foreign_key: ForeignKey {
+                        name: Some(key),
+                        columns: vec![column],
+                        referenced_table: table.clone(),
+                        referenced_columns: vec![referenced],
+                        on_update: fk_action(int(row, 5)?),
+                        on_delete: fk_action(int(row, 6)?),
+                        deferrable: false,
+                    },
+                }),
+            }
+        }
+        Ok(IncomingForeignKeys {
+            supported: true,
+            keys,
+        })
+    }
+
     async fn catalog(
         &self,
         database: &str,
@@ -1103,6 +1169,13 @@ impl Introspector for MssqlConnection {
         include_system: bool,
     ) -> MetaFuture<'a, CompletionCatalog> {
         Box::pin(self.catalog(database, include_system))
+    }
+
+    fn incoming_foreign_keys<'a>(
+        &'a self,
+        table: &'a ObjectRef,
+    ) -> MetaFuture<'a, IncomingForeignKeys> {
+        Box::pin(self.incoming(table))
     }
 }
 

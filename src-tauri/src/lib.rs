@@ -92,6 +92,11 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::table_data::close_table_data,
             commands::edit::preview_table_changes,
             commands::edit::apply_table_changes,
+            commands::references::get_incoming_foreign_keys,
+            commands::references::fetch_referenced_row,
+            commands::references::count_referencing_rows,
+            commands::references::search_referenced_rows,
+            commands::references::cancel_reference_lookup,
         ])
         .events(collect_events![
             events::AppReady,

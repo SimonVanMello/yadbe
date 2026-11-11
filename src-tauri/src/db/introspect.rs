@@ -5,8 +5,8 @@
 use crate::db::driver::BoxFuture;
 use crate::db::errors::YadbeError;
 use crate::db::meta::{
-    CompletionCatalog, DatabaseInfo, ObjectCount, ObjectInfo, ObjectKind, ObjectRef, SchemaInfo,
-    TableDetails,
+    CompletionCatalog, DatabaseInfo, IncomingForeignKeys, ObjectCount, ObjectInfo, ObjectKind,
+    ObjectRef, SchemaInfo, TableDetails,
 };
 
 pub type MetaFuture<'a, T> = BoxFuture<'a, Result<T, YadbeError>>;
@@ -50,6 +50,15 @@ pub trait Introspector: Send + Sync {
         database: &'a str,
         include_system: bool,
     ) -> MetaFuture<'a, CompletionCatalog>;
+
+    /// The foreign keys of every table of `table`'s database that reference `table`
+    /// (F-088). A driver that cannot list them answers `supported: false`.
+    fn incoming_foreign_keys<'a>(
+        &'a self,
+        _table: &'a ObjectRef,
+    ) -> MetaFuture<'a, IncomingForeignKeys> {
+        Box::pin(async { Ok(IncomingForeignKeys::unsupported()) })
+    }
 }
 
 /// Interns column type names for a [`CompletionCatalog`].

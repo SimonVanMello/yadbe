@@ -8,6 +8,7 @@ use crate::export::ExportManager;
 use crate::secrets::{KeychainBackend, SecretStore};
 use crate::session::history_writer::StoreHistory;
 use crate::session::meta_cache::{MetaService, ObservingSink};
+use crate::session::references::ReferenceService;
 use crate::session::statement_log::StatementLog;
 use crate::session::table_data::TableDataService;
 use crate::session::{ConnectionManager, QueryRunner};
@@ -26,6 +27,7 @@ pub struct AppState {
     pub history: Arc<StoreHistory>,
     pub exports: Arc<ExportManager>,
     pub tables: Arc<TableDataService>,
+    pub references: Arc<ReferenceService>,
 }
 
 impl AppState {
@@ -57,6 +59,12 @@ impl AppState {
             queries.shared_store(),
             Arc::clone(&sink),
         ));
+        let references = Arc::new(ReferenceService::new(
+            Arc::clone(&connections),
+            Arc::clone(&meta),
+            Arc::clone(&tables),
+            queries.shared_store(),
+        ));
         let exports = Arc::new(ExportManager::new(
             Arc::clone(&queries),
             Arc::clone(&tables),
@@ -72,6 +80,7 @@ impl AppState {
             history,
             exports,
             tables,
+            references,
         }
     }
 }

@@ -15,9 +15,9 @@ use crate::db::errors::YadbeError;
 use crate::db::introspect::{Introspector, MetaFuture, TypeInterner, index_u32};
 use crate::db::meta::{
     CatalogForeignKey, CatalogRelation, CheckConstraint, ColumnInfo, CompletionCatalog,
-    DatabaseInfo, ForeignKey, ForeignKeyAction, Generated, Identity, IndexInfo, KeyConstraint,
-    ObjectCount, ObjectDetail, ObjectInfo, ObjectKind, ObjectRef, RelationSummary, SchemaInfo,
-    TableDetails, TriggerInfo,
+    DatabaseInfo, ForeignKey, ForeignKeyAction, Generated, Identity, IncomingForeignKey,
+    IncomingForeignKeys, IndexInfo, KeyConstraint, ObjectCount, ObjectDetail, ObjectInfo,
+    ObjectKind, ObjectRef, RelationSummary, SchemaInfo, TableDetails, TriggerInfo,
 };
 
 const MAIN: &str = "main";
@@ -77,6 +77,13 @@ SELECT t.name, f.id, f.\"table\", f.\"from\", f.\"to\"
 FROM pragma_table_list t
 JOIN pragma_foreign_key_list(t.name, 'main') f
 WHERE t.schema = 'main' AND t.type = 'table'
+ORDER BY t.name, f.id, f.seq";
+
+const INCOMING_FOREIGN_KEYS_SQL: &str = "\
+SELECT t.name, f.id, f.\"from\", f.\"to\", f.on_update, f.on_delete
+FROM pragma_table_list t
+JOIN pragma_foreign_key_list(t.name, 'main') f
+WHERE t.schema = 'main' AND t.type = 'table' AND f.\"table\" = ?1 COLLATE NOCASE
 ORDER BY t.name, f.id, f.seq";
 
 /// An index from the pragmas: name, unique, origin, statement, key columns (`None` for an
@@ -552,6 +559,66 @@ impl Meta<'_> {
     }
 }
 
+impl Meta<'_> {
+    fn incoming(&self, table: &ObjectRef) -> Result<IncomingForeignKeys, YadbeError> {
+        let rows = self.rows(INCOMING_FOREIGN_KEYS_SQL, [table.name.as_str()], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+            ))
+        })?;
+        let mut keys: Vec<IncomingForeignKey> = Vec::new();
+        let mut current: Option<(String, i64)> = None;
+        for (name, id, from, to, on_update, on_delete) in rows {
+            let key = (name.clone(), id);
+            if current.as_ref() != Some(&key) {
+                current = Some(key);
+                keys.push(IncomingForeignKey {
+                    table: ObjectRef {
+                        database: table.database.clone(),
+                        schema: None,
+                        name,
+                    },
+                    foreign_key: ForeignKey {
+                        name: None,
+                        columns: Vec::new(),
+                        referenced_table: table.clone(),
+                        referenced_columns: Vec::new(),
+                        on_update: fk_action(&on_update),
+                        on_delete: fk_action(&on_delete),
+                        deferrable: false,
+                    },
+                });
+            }
+            if let Some(last) = keys.last_mut() {
+                last.foreign_key.columns.push(from);
+                last.foreign_key.referenced_columns.extend(to);
+            }
+        }
+        // `REFERENCES parent` without columns targets the parent's primary key.
+        if keys
+            .iter()
+            .any(|k| k.foreign_key.referenced_columns.len() != k.foreign_key.columns.len())
+        {
+            let pk: Vec<String> =
+                self.rows(PRIMARY_KEY_SQL, [table.name.as_str()], |r| r.get(0))?;
+            for key in &mut keys {
+                if key.foreign_key.referenced_columns.len() != key.foreign_key.columns.len() {
+                    key.foreign_key.referenced_columns.clone_from(&pk);
+                }
+            }
+        }
+        Ok(IncomingForeignKeys {
+            supported: true,
+            keys,
+        })
+    }
+}
+
 impl Introspector for SqliteConnection {
     fn databases(&self) -> MetaFuture<'_, Vec<DatabaseInfo>> {
         Box::pin(async {
@@ -612,6 +679,17 @@ impl Introspector for SqliteConnection {
             check_database(database)?;
             self.with_conn(move |meta| meta.catalog(include_system))
                 .await
+        })
+    }
+
+    fn incoming_foreign_keys<'a>(
+        &'a self,
+        table: &'a ObjectRef,
+    ) -> MetaFuture<'a, IncomingForeignKeys> {
+        Box::pin(async move {
+            check_database(&table.database)?;
+            let table = table.clone();
+            self.with_conn(move |meta| meta.incoming(&table)).await
         })
     }
 }
