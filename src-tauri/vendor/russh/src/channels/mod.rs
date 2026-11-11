@@ -140,11 +140,17 @@ impl WindowSizeRef {
     }
 }
 
+/// Reports bytes of `Data` / `ExtendedData` the consumer took (yadbe patch 1).
+pub(crate) type ReadCredit = Arc<dyn Fn(u32) + Send + Sync>;
+
 /// A handle to the reading part of a session channel.
 ///
 /// Allows you to read from a channel without borrowing the session
 pub struct ChannelReadHalf {
     pub(crate) receiver: Receiver<ChannelMsg>,
+    /// Set on channels whose receive window follows consumption (yadbe patch 1): the session
+    /// re-opens the window only for data that left this receiver.
+    pub(crate) credit: Option<ReadCredit>,
 }
 
 impl std::fmt::Debug for ChannelReadHalf {
@@ -156,7 +162,22 @@ impl std::fmt::Debug for ChannelReadHalf {
 impl ChannelReadHalf {
     /// Awaits an incoming [`ChannelMsg`], this method returns [`None`] if the channel has been closed.
     pub async fn wait(&mut self) -> Option<ChannelMsg> {
-        self.receiver.recv().await
+        let msg = self.receiver.recv().await;
+        if let Some(msg) = &msg {
+            self.consumed(msg);
+        }
+        msg
+    }
+
+    /// The consumer is done with `msg`: its data no longer counts against the window.
+    pub(crate) fn consumed(&self, msg: &ChannelMsg) {
+        if let Some(credit) = &self.credit {
+            let len = match msg {
+                ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. } => data.len(),
+                _ => return,
+            };
+            credit(u32::try_from(len).unwrap_or(u32::MAX));
+        }
     }
 
     /// Make a reader for the [`Channel`] to receive [`ChannelMsg::Data`]
@@ -470,7 +491,10 @@ impl<S: From<(ChannelId, ChannelMsg)> + Send + Sync + 'static> Channel<S> {
     ) -> (Self, ChannelRef) {
         let (tx, rx) = tokio::sync::mpsc::channel(channel_buffer_size);
         let window_size = WindowSizeRef::new(window_size);
-        let read_half = ChannelReadHalf { receiver: rx };
+        let read_half = ChannelReadHalf {
+            receiver: rx,
+            credit: None,
+        };
         let write_half = ChannelWriteHalf {
             id,
             sender,

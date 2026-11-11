@@ -34,7 +34,7 @@ resolver = "2"
 all-features = true
 
 [features]
-_bench = ["dep:criterion"]
+_bench = []
 aws-lc-rs = ["dep:aws-lc-rs"]
 default = [
     "flate2",
@@ -54,111 +54,6 @@ serde = ["ssh-key/serde"]
 [lib]
 name = "russh"
 path = "src/lib.rs"
-
-[[example]]
-name = "client_exec_interactive"
-path = "examples/client_exec_interactive.rs"
-
-[[example]]
-name = "client_exec_simple"
-path = "examples/client_exec_simple.rs"
-
-[[example]]
-name = "client_open_direct_tcpip"
-path = "examples/client_open_direct_tcpip.rs"
-
-[[example]]
-name = "echoserver"
-path = "examples/echoserver.rs"
-
-[[example]]
-name = "echoserver_certificates"
-path = "examples/echoserver_certificates.rs"
-
-[[example]]
-name = "ratatui_app"
-path = "examples/ratatui_app.rs"
-
-[[example]]
-name = "ratatui_shared_app"
-path = "examples/ratatui_shared_app.rs"
-
-[[example]]
-name = "sftp_client"
-path = "examples/sftp_client.rs"
-
-[[example]]
-name = "sftp_server"
-path = "examples/sftp_server.rs"
-
-[[example]]
-name = "test"
-path = "examples/test.rs"
-
-[[test]]
-name = "auth_agent_req_channel_reply"
-path = "tests/auth_agent_req_channel_reply.rs"
-
-[[test]]
-name = "auth_partial_success"
-path = "tests/auth_partial_success.rs"
-
-[[test]]
-name = "auth_signer_failure"
-path = "tests/auth_signer_failure.rs"
-
-[[test]]
-name = "auth_state_reset"
-path = "tests/auth_state_reset.rs"
-
-[[test]]
-name = "test_agent_session_bind"
-path = "tests/test_agent_session_bind.rs"
-
-[[test]]
-name = "test_backpressure"
-path = "tests/test_backpressure.rs"
-
-[[test]]
-name = "test_contention"
-path = "tests/test_contention.rs"
-
-[[test]]
-name = "test_data_stream"
-path = "tests/test_data_stream.rs"
-
-[[test]]
-name = "test_keepalive_before_auth"
-path = "tests/test_keepalive_before_auth.rs"
-
-[[test]]
-name = "test_kex_shared_secret"
-path = "tests/test_kex_shared_secret.rs"
-
-[[test]]
-name = "test_max_channel_packet_size"
-path = "tests/test_max_channel_packet_size.rs"
-
-[[test]]
-name = "test_mlkem_kex"
-path = "tests/test_mlkem_kex.rs"
-
-[[test]]
-name = "test_rekey_strict_kex"
-path = "tests/test_rekey_strict_kex.rs"
-
-[[test]]
-name = "test_server_cert"
-path = "tests/test_server_cert.rs"
-
-[[test]]
-name = "test_window_adjust"
-path = "tests/test_window_adjust.rs"
-
-[[bench]]
-name = "ciphers"
-path = "benches/ciphers.rs"
-harness = false
 
 [dependencies.aes]
 version = "0.9"
@@ -189,11 +84,6 @@ version = "0.2"
 
 [dependencies.cipher]
 version = "0.5.1"
-
-[dependencies.criterion]
-version = "0.7"
-features = ["html_reports"]
-optional = true
 
 [dependencies.crypto-bigint]
 version = "0.7.3"
@@ -404,42 +294,6 @@ version = "0.6.1"
 [dependencies.zeroize]
 version = "1.7"
 
-[dev-dependencies.anyhow]
-version = "1.0.4"
-
-[dev-dependencies.clap]
-version = "4"
-features = ["derive"]
-
-[dev-dependencies.env_logger]
-version = "0.11"
-
-[dev-dependencies.rand]
-version = "0.10"
-features = ["thread_rng"]
-
-[dev-dependencies.ratatui]
-version = "0.30"
-
-[dev-dependencies.shell-escape]
-version = "0.1"
-
-[dev-dependencies.tempfile]
-version = "3.14.0"
-
-[dev-dependencies.tokio]
-version = "1.17.0"
-features = [
-    "io-std",
-    "io-util",
-    "rt-multi-thread",
-    "time",
-    "net",
-    "sync",
-    "macros",
-    "process",
-]
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
 version = "1.17.0"
 features = [
@@ -448,25 +302,6 @@ features = [
     "time",
     "net",
 ]
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies.russh-sftp]
-version = "2.3.0"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies.tokio]
-version = "1.17.0"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies.tokio-stream]
-version = "0.1.3"
-features = [
-    "net",
-    "sync",
-]
-
-[target.'cfg(not(target_os = "windows"))'.dev-dependencies.termion]
-version = "4"
-
-[target.'cfg(not(target_os = "windows"))'.dev-dependencies.tokio-fd]
-version = "0.3"
 
 [target."cfg(windows)".dependencies.pageant]
 version = "0.2"

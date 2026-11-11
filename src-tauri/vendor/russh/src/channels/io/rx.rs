@@ -53,6 +53,8 @@ where
 
                 if idx != data.len() {
                     self.buffer = Some((msg, idx));
+                } else {
+                    self.channel.borrow_mut().consumed(&msg);
                 }
 
                 Poll::Ready(Ok(()))
@@ -67,6 +69,8 @@ where
 
                 if idx != data.len() {
                     self.buffer = Some((msg, idx));
+                } else {
+                    self.channel.borrow_mut().consumed(&msg);
                 }
 
                 Poll::Ready(Ok(()))
@@ -77,6 +81,8 @@ where
                 Poll::Ready(Ok(()))
             }
             _ => {
+                // Skipped (the other stream of the channel): taken all the same.
+                self.channel.borrow_mut().consumed(&msg);
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }

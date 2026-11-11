@@ -302,6 +302,42 @@ impl Encrypted {
         }
     }
 
+    /// Accounts for received data on a consumer-driven channel (yadbe patch 1): the window
+    /// shrinks, and grows again with [`Self::grant_window`].
+    pub fn consume_window(&mut self, channel: ChannelId, data: &[u8]) {
+        if let Some(channel) = self.channels.get_mut(&channel) {
+            let len = u32::try_from(data.len()).unwrap_or(u32::MAX);
+            // Ignore extra data, as `adjust_window_size` does (RFC 4254 §5.2).
+            if len <= channel.sender_window_size {
+                channel.sender_window_size -= len;
+            }
+        }
+    }
+
+    /// Grants `credit` consumed bytes back once the window is below half of `target`.
+    /// Returns whether it was sent (else the credit waits for more).
+    pub fn grant_window(
+        &mut self,
+        channel: ChannelId,
+        credit: u32,
+        target: u32,
+    ) -> Result<bool, crate::Error> {
+        let Some(channel) = self.channels.get_mut(&channel) else {
+            return Ok(true);
+        };
+        if credit == 0 || channel.sender_window_size >= target / 2 {
+            return Ok(false);
+        }
+        let credit = credit.min(target.saturating_sub(channel.sender_window_size));
+        push_packet!(self.write, {
+            self.write.push(msg::CHANNEL_WINDOW_ADJUST);
+            channel.recipient_channel.encode(&mut self.write)?;
+            credit.encode(&mut self.write)?;
+        });
+        channel.sender_window_size += credit;
+        Ok(true)
+    }
+
     pub fn adjust_window_size(
         &mut self,
         channel: ChannelId,

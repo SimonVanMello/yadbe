@@ -103,6 +103,9 @@ pub struct Session {
     server_sig_algs: Option<Vec<Algorithm>>,
     /// Number of EXT_INFO messages received (RFC 8308 allows at most two).
     ext_info_count: u8,
+    /// Channels opened through the handle, whose window follows consumption (yadbe patch 1),
+    /// with the bytes consumed and not yet granted back to the server.
+    consumer_windows: HashMap<ChannelId, u32>,
 }
 
 impl Drop for Session {
@@ -150,6 +153,11 @@ enum Reply {
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum Msg {
+    /// The consumer of channel `id` took `bytes` of data (yadbe patch 1).
+    ReadCredit {
+        id: ChannelId,
+        bytes: u32,
+    },
     Authenticate {
         user: String,
         method: auth::Method,
@@ -315,6 +323,9 @@ pub enum DisconnectReason<E: From<crate::Error> + Send> {
 /// the request/response cycle.
 pub struct Handle<H: Handler> {
     sender: Sender<Msg>,
+    /// Unbounded, like the session's priority queue it feeds: a credit is never lost or
+    /// waited for, and their number is bounded by the data the window let in.
+    credit_sender: UnboundedSender<Msg>,
     receiver: UnboundedReceiver<Reply>,
     join: russh_util::runtime::JoinHandle<Result<(), H::Error>>,
     channel_buffer_size: usize,
@@ -752,6 +763,10 @@ impl<H: Handler> Handle<H> {
                 }) => {
                     window_size_ref.grow(window_size).await;
 
+                    let credit_sender = self.credit_sender.clone();
+                    let credit: crate::channels::ReadCredit = Arc::new(move |bytes| {
+                        let _ = credit_sender.send(Msg::ReadCredit { id, bytes });
+                    });
                     return Ok(Channel {
                         write_half: ChannelWriteHalf {
                             id,
@@ -759,7 +774,10 @@ impl<H: Handler> Handle<H> {
                             max_packet_size,
                             window_size: window_size_ref,
                         },
-                        read_half: ChannelReadHalf { receiver },
+                        read_half: ChannelReadHalf {
+                            receiver,
+                            credit: Some(credit),
+                        },
                     });
                 }
                 Some(ChannelMsg::OpenFailure(reason)) => {
@@ -1257,6 +1275,7 @@ where
         session_sender,
     );
     session.begin_rekey()?;
+    let credit_sender = session.priority_sender.clone();
     let (kex_done_signal, kex_done_signal_rx) = oneshot::channel();
     let join = russh_util::runtime::spawn(session.run(stream, handler, Some(kex_done_signal)));
 
@@ -1273,6 +1292,7 @@ where
 
     Ok(Handle {
         sender: handle_sender,
+        credit_sender,
         receiver: handle_receiver,
         join,
         channel_buffer_size,
@@ -1335,6 +1355,7 @@ impl Session {
             open_global_requests: VecDeque::new(),
             server_sig_algs: None,
             ext_info_count: 0,
+            consumer_windows: HashMap::new(),
         }
     }
 
@@ -1620,8 +1641,26 @@ impl Session {
         Ok(())
     }
 
+    /// Grants consumed bytes back to the server once the window it sees is below half: the
+    /// server never has more than the window of unread data in flight on that channel, and a
+    /// consumer that stops reading stops its channel only, not the whole session.
+    fn read_credit(&mut self, id: ChannelId, bytes: u32) -> Result<(), crate::Error> {
+        let Some(pending) = self.consumer_windows.get_mut(&id) else {
+            return Ok(());
+        };
+        *pending = pending.saturating_add(bytes);
+        let target = self.common.config.window_size;
+        if let Some(ref mut enc) = self.common.encrypted
+            && enc.grant_window(id, *pending, target)?
+        {
+            *pending = 0;
+        }
+        Ok(())
+    }
+
     fn handle_msg(&mut self, msg: Msg) -> Result<(), crate::Error> {
         match msg {
+            Msg::ReadCredit { id, bytes } => self.read_credit(id, bytes)?,
             Msg::Authenticate { user, method } => {
                 self.write_auth_request_if_needed(&user, method)?;
             }
@@ -1645,6 +1684,7 @@ impl Session {
             Msg::ChannelOpenSession { channel_ref } => {
                 let id = self.channel_open_session()?;
                 self.channels.insert(id, channel_ref);
+                self.consumer_windows.insert(id, 0);
             }
             Msg::ChannelOpenX11 {
                 originator_address,
@@ -1653,6 +1693,7 @@ impl Session {
             } => {
                 let id = self.channel_open_x11(&originator_address, originator_port)?;
                 self.channels.insert(id, channel_ref);
+                self.consumer_windows.insert(id, 0);
             }
             Msg::ChannelOpenDirectTcpIp {
                 host_to_connect,
@@ -1668,6 +1709,7 @@ impl Session {
                     originator_port,
                 )?;
                 self.channels.insert(id, channel_ref);
+                self.consumer_windows.insert(id, 0);
             }
             Msg::ChannelOpenDirectStreamLocal {
                 socket_path,
@@ -1675,6 +1717,7 @@ impl Session {
             } => {
                 let id = self.channel_open_direct_streamlocal(&socket_path)?;
                 self.channels.insert(id, channel_ref);
+                self.consumer_windows.insert(id, 0);
             }
             Msg::TcpIpForward {
                 reply_channel,

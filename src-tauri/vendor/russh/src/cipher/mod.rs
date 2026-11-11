@@ -379,6 +379,8 @@ const MAXIMUM_PACKET_LEN_HEADROOM: usize =
 const MAXIMUM_PACKET_LEN: usize = MAXIMUM_PACKET_LEN_BASELINE + MAXIMUM_PACKET_LEN_HEADROOM;
 // Keep post-decompression growth within the same packet-acceptance model as
 // the transport read path.
+// Only read with the `flate2` feature (yadbe patch 3: no warning without it).
+#[cfg_attr(not(feature = "flate2"), allow(dead_code))]
 pub(crate) const MAXIMUM_DECOMPRESSED_PACKET_LEN: usize = MAXIMUM_PACKET_LEN;
 
 #[cfg(feature = "_bench")]

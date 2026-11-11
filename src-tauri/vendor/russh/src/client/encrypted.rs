@@ -541,6 +541,7 @@ impl Session {
                     let _ = chan.send(ChannelMsg::Close).await;
                 }
                 self.channels.remove(&channel_num);
+                self.consumer_windows.remove(&channel_num);
                 client.channel_close(channel_num, self).await
             }
             Some((&msg::CHANNEL_EOF, mut r)) => {
@@ -575,6 +576,7 @@ impl Session {
                     return Ok(());
                 }
 
+                self.consumer_windows.remove(&channel_num);
                 if let Some(sender) = self.channels.remove(&channel_num) {
                     let _ = sender
                         .send(ChannelMsg::OpenFailure(reason_code.clone()))
@@ -596,9 +598,12 @@ impl Session {
                     return Ok(());
                 }
                 let target = self.common.config.window_size;
+                let consumer_window = self.consumer_windows.contains_key(&channel_num);
                 #[allow(clippy::collapsible_if)]
                 if let Some(ref mut enc) = self.common.encrypted {
-                    if enc.adjust_window_size(channel_num, &data, target)? {
+                    if consumer_window {
+                        enc.consume_window(channel_num, &data);
+                    } else if enc.adjust_window_size(channel_num, &data, target)? {
                         let next_window =
                             client.adjust_window(channel_num, self.target_window_size);
                         if next_window > 0 {
@@ -623,9 +628,12 @@ impl Session {
                     return Ok(());
                 }
                 let target = self.common.config.window_size;
+                let consumer_window = self.consumer_windows.contains_key(&channel_num);
                 #[allow(clippy::collapsible_if)]
                 if let Some(ref mut enc) = self.common.encrypted {
-                    if enc.adjust_window_size(channel_num, &data, target)? {
+                    if consumer_window {
+                        enc.consume_window(channel_num, &data);
+                    } else if enc.adjust_window_size(channel_num, &data, target)? {
                         let next_window =
                             client.adjust_window(channel_num, self.target_window_size);
                         if next_window > 0 {
