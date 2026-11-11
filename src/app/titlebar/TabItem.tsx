@@ -7,7 +7,11 @@ import type {
 } from 'react';
 
 import { useConnection, useConnectionState } from '../../features/connections/connectionStore';
-import { useIsDirty, useTabFileName } from '../../features/query/queryTabStore';
+import {
+  useDiffersFromSaved,
+  useIsDirty,
+  useTabFileName,
+} from '../../features/query/queryTabStore';
 import { tableLabel } from '../../features/table-data/tableNames';
 import { usePendingCount } from '../../features/table-data/tableSessionStore';
 import { EnvTag } from '../../features/connections/EnvTag';
@@ -45,6 +49,7 @@ export function TabItem({
   const state = useConnectionState(tab.connectionId);
   const fileName = useTabFileName(tab.id);
   const edited = useIsDirty(tab.id);
+  const savedChanged = useDiffersFromSaved(tab.id);
   const pending = usePendingCount(tab.id);
 
   const isWelcome = tab.connectionId === null;
@@ -101,6 +106,7 @@ export function TabItem({
           ...(dirty && !isWelcome
             ? [table ? t('tableData.pending', { count: pending }) : t('tab.unsaved')]
             : []),
+          ...(savedChanged && !table && !isWelcome ? [t('tab.savedChanged')] : []),
           ...(connection ? [connection.name] : []),
           ...(pinned ? [t('tab.pinned')] : []),
         ].join(', ')}
@@ -130,6 +136,14 @@ export function TabItem({
             className={styles.dirty}
             role="img"
             aria-label={table ? t('tableData.pending', { count: pending }) : t('tab.unsaved')}
+          />
+        )}
+        {savedChanged && !table && !isWelcome && (
+          <span
+            className={styles.savedChanged}
+            role="img"
+            aria-label={t('tab.savedChanged')}
+            title={t('tab.savedChanged')}
           />
         )}
         {!isWelcome && connection && <span className={styles.connection}>{connection.name}</span>}

@@ -1,5 +1,5 @@
 import type { SavedTab } from '../../ipc';
-import { newQueryTabState, type QueryTabState } from './queryTabStore';
+import { differsFromSaved, newQueryTabState, type QueryTabState } from './queryTabStore';
 
 /** The store refuses a tab whose text is larger than this (`MAX_TAB_CONTENT_BYTES`). */
 export const MAX_SAVED_CONTENT_BYTES = 8 * 1024 * 1024;
@@ -35,6 +35,9 @@ export function editorToSaved(state: QueryTabState): SavedEditor {
             // Unsaved changes of a file-bound tab: the saved text itself is the file's.
             dirty: state.savedContent === null || state.content !== state.savedContent,
           }),
+      ...(state.origin === null
+        ? {}
+        : { origin: { id: state.origin.queryId, differs: differsFromSaved(state) } }),
     },
   };
 }
@@ -65,6 +68,7 @@ export function editorFromSaved(
   const clamp = (offset: number) => Math.max(0, Math.min(length, Math.floor(offset)));
   const hash = ui['fileHash'];
   const bound = saved.filePath !== null;
+  const origin = ui['origin'] as { id?: unknown; differs?: unknown } | null | undefined;
   return {
     ...newQueryTabState(),
     content: saved.content,
@@ -78,5 +82,10 @@ export function editorFromSaved(
     scrollLeft: finite(scroll[1]),
     database: saved.database,
     filePath: saved.filePath,
+    // A tab saved with changes to its saved query has no baseline to compare with.
+    origin:
+      typeof origin?.id === 'string'
+        ? { queryId: origin.id, baseline: origin.differs === true ? null : saved.content }
+        : null,
   };
 }

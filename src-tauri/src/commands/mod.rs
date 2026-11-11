@@ -9,6 +9,7 @@ pub mod history;
 pub mod meta;
 pub mod query;
 pub mod references;
+pub mod saved_queries;
 pub mod secrets;
 pub mod sessions;
 pub mod store;

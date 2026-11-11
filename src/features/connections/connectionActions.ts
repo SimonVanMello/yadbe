@@ -5,6 +5,7 @@ import { openConnectionTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { translate, useI18nStore, type MessageKey, type MessageParams } from '../../i18n/i18n';
 import { YadbeIpcError } from '../../ipc';
 import { toast } from '../../ui/toastStore';
+import { refreshLibrary } from '../library/useLibrary';
 import { connectionsApi } from './connectionsApi';
 import { connectionKeys, refreshConnections, stateOf, useSessions } from './connectionStore';
 import type { ConnectionSummary } from './model';
@@ -127,6 +128,8 @@ export async function deleteConnection(
   useSessions.getState().forget(connection.id);
   useTabsStore.getState().closeConnectionTabs(connection.id);
   await refreshConnections();
+  // The queries bound to it are global ones now.
+  void refreshLibrary();
   toast({ variant: 'success', title: t('connection.deleted', { name: connection.name }) });
   return true;
 }

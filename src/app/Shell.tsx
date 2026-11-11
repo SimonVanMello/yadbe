@@ -8,6 +8,8 @@ import { PasswordPromptDialog } from '../features/connections/PasswordPromptDial
 import { refreshNode } from '../features/explorer/explorerActions';
 import { useExplorerStore } from '../features/explorer/explorerStore';
 import { useHistoryActions } from '../features/history/useHistoryActions';
+import { SaveQueryDialog } from '../features/library/SaveQueryDialog';
+import { useLibraryActions } from '../features/library/useLibraryActions';
 import { ExportDialog } from '../features/export/ExportDialog';
 import { useExportActions } from '../features/export/useExportActions';
 import { CommandPalette } from '../features/palette/CommandPalette';
@@ -159,6 +161,7 @@ export function Shell() {
   useTableActions();
   useExportActions();
   useHistoryActions();
+  useLibraryActions();
   usePaletteActions();
   const ready = useStartup();
   // Only the connection, not the tab: a tab switch must not re-render the whole shell.
@@ -210,6 +213,7 @@ export function Shell() {
       <PasswordPromptDialog />
       <GroupDialog />
       <ExportDialog />
+      <SaveQueryDialog />
       <CommandPalette />
       <PreferencesDialog />
     </div>

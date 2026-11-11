@@ -91,6 +91,12 @@ pub struct TransactionStateChanged {
 #[serde(rename_all = "camelCase")]
 pub struct HistoryChanged {}
 
+/// The query library changed: a query or folder was created, edited, moved or deleted, or a
+/// file was imported. Not sent when a query is merely used (`last_used_at`).
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedQueriesChanged {}
+
 /// Changes were applied to a table (M2-2): table tabs showing it, in this tab or another,
 /// should read their rows again.
 #[derive(Debug, Clone, Serialize, Type, Event)]
@@ -119,6 +125,7 @@ pub enum BackendEvent {
     ExportProgress(ExportProgress),
     ExportFinished(ExportFinished),
     TableDataChanged(TableDataChanged),
+    SavedQueriesChanged(SavedQueriesChanged),
 }
 
 pub trait EventSink: Send + Sync {
@@ -174,6 +181,7 @@ impl EventSink for TauriSink {
             BackendEvent::ExportProgress(e) => e.emit(app),
             BackendEvent::ExportFinished(e) => e.emit(app),
             BackendEvent::TableDataChanged(e) => e.emit(app),
+            BackendEvent::SavedQueriesChanged(e) => e.emit(app),
         };
         if let Err(err) = result {
             tracing::warn!(error = %err, "failed to emit event");

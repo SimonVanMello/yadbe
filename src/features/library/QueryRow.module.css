@@ -1,0 +1,73 @@
+.row {
+  --depth: 0;
+
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--row-height);
+  /* The chevron of a folder is the space before its icon: queries line up with folder names. */
+  padding: 0 var(--space-3) 0
+    calc(var(--space-2) + var(--icon-size-sm) + var(--space-2) + var(--depth) * var(--space-4));
+  border-radius: var(--radius-md);
+  color: var(--fg-primary);
+  font-size: var(--text-sm);
+  cursor: default;
+  user-select: none;
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.row[data-active] {
+  background: var(--bg-selected);
+}
+
+/* Where a drop would land: next to this query, in its folder. */
+.row[data-drop] {
+  background: var(--accent-soft);
+}
+
+:global([role='tree']:focus-visible) .row[data-active] {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+.icon {
+  color: var(--fg-muted);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trigger {
+  flex: none;
+  max-width: 40%;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope {
+  flex: none;
+  max-width: 38%;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--bg-active);
+  color: var(--fg-secondary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

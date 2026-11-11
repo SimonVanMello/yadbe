@@ -1,0 +1,17 @@
+.tree {
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--space-2) var(--space-3);
+  overflow-y: auto;
+  outline: none;
+}
+
+/* A drop on the empty part of the list goes to the root of the library. */
+.tree[data-drop-root] {
+  background: var(--accent-soft);
+}
+
+.inner {
+  position: relative;
+  width: 100%;
+}

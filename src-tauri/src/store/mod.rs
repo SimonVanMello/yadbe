@@ -2,7 +2,9 @@
 //! preferences (SPEC §8). History, saved queries and the change journal arrive with M1/M3.
 
 mod history;
+mod library_io;
 mod migrations;
+mod saved_queries;
 mod types;
 
 use std::path::Path;
@@ -17,6 +19,8 @@ use crate::db::config::{
 use crate::db::dialect::Engine;
 use crate::db::errors::YadbeError;
 pub use history::*;
+pub use library_io::ImportReport;
+pub use saved_queries::*;
 pub use types::*;
 
 /// File name of the database inside the app config folder.
@@ -825,5 +829,7 @@ fn enum_text<T: serde::Serialize>(value: &T) -> Result<String, YadbeError> {
 
 #[cfg(test)]
 mod history_tests;
+#[cfg(test)]
+mod saved_queries_tests;
 #[cfg(test)]
 mod tests;

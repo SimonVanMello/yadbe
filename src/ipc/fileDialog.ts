@@ -16,6 +16,13 @@ export interface SqlFilePickerLabels {
   allFiles: string;
 }
 
+/** Labels of the open / save dialogs of a library file (JSON). */
+export interface JsonFilePickerLabels {
+  title: string;
+  jsonFiles: string;
+  allFiles: string;
+}
+
 /**
  * Native file dialogs (SPEC §9: file access only through explicit open / save dialogs). Not part
  * of the generated contract: they go through Tauri's dialog plugin, with a browser stand-in in
@@ -29,6 +36,10 @@ export interface FileDialog {
   pickSqlFile: (labels: SqlFilePickerLabels) => Promise<string | null>;
   /** Asks where to save a SQL script; `null` when dismissed. */
   pickSqlSavePath: (labels: SqlFilePickerLabels, defaultName: string) => Promise<string | null>;
+  /** Asks for an exported query library; `null` when dismissed. */
+  pickJsonFile: (labels: JsonFilePickerLabels) => Promise<string | null>;
+  /** Asks where to export the query library; `null` when dismissed. */
+  pickJsonSavePath: (labels: JsonFilePickerLabels, defaultName: string) => Promise<string | null>;
 }
 
 const SQLITE_EXTENSIONS = ['sqlite', 'sqlite3', 'db', 'db3', 's3db', 'sl3'];
@@ -36,6 +47,11 @@ const SQL_EXTENSIONS = ['sql', 'ddl', 'dml', 'psql', 'pgsql', 'tsql', 'txt'];
 
 const sqlFilters = (labels: SqlFilePickerLabels) => [
   { name: labels.sqlFiles, extensions: SQL_EXTENSIONS },
+  { name: labels.allFiles, extensions: ['*'] },
+];
+
+const jsonFilters = (labels: JsonFilePickerLabels) => [
+  { name: labels.jsonFiles, extensions: ['json'] },
   { name: labels.allFiles, extensions: ['*'] },
 ];
 
@@ -62,6 +78,17 @@ const tauriFileDialog: FileDialog = {
   },
   async pickSqlSavePath(labels, defaultName) {
     return save({ title: labels.title, defaultPath: defaultName, filters: sqlFilters(labels) });
+  },
+  async pickJsonFile(labels) {
+    return open({
+      title: labels.title,
+      multiple: false,
+      directory: false,
+      filters: jsonFilters(labels),
+    });
+  },
+  async pickJsonSavePath(labels, defaultName) {
+    return save({ title: labels.title, defaultPath: defaultName, filters: jsonFilters(labels) });
   },
 };
 
@@ -99,6 +126,16 @@ const browserFileDialog: FileDialog = {
   pickSqlSavePath(_labels, defaultName) {
     // No save dialog in a browser: the mock saves next to the other scripts.
     return Promise.resolve(`/home/ana/queries/${defaultName}`);
+  },
+  async pickJsonFile() {
+    const file = await chooseBrowserFile('.json,application/json');
+    if (!file) return null;
+    const path = `/home/ana/exports/${file.name}`;
+    mockBackend.setFile(path, await file.text());
+    return path;
+  },
+  pickJsonSavePath(_labels, defaultName) {
+    return Promise.resolve(`/home/ana/exports/${defaultName}`);
   },
 };
 

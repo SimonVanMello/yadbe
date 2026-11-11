@@ -15,6 +15,11 @@ export interface EditorController {
   replaceContent: (text: string) => void;
   /** Replaces the selection (an empty one is the cursor) with `text` and leaves the cursor after it. */
   insertAtCursor: (text: string) => void;
+  /**
+   * Replaces the selection with a snippet template (`${1:name}` tab stops) and starts it: `Tab`
+   * moves between the fields (F-050).
+   */
+  insertSnippet: (template: string) => void;
 }
 
 const editors = new Map<string, EditorController>();

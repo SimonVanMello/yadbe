@@ -2,10 +2,12 @@ import { ACTION_IDS, ACTION_LABELS, shortcutFor, type ActionId } from '../../app
 import type { ShellTab } from '../../app/tabs/tabsStore';
 import type { MessageKey, MessageParams } from '../../i18n/i18n';
 import type { ConnectionState, ConnectionSummary } from '../connections/model';
+import type { SavedQuery } from '../../ipc';
 import type { HistoryEntry } from '../history/historyModel';
+import { folderPath, type Library } from '../library/libraryModel';
 import { searchable } from './matcher';
 import { disabledReason, type ActionContext } from './actionAvailability';
-import type { ActionItem, ConnectionItem, HistoryItem, TabItem } from './paletteItems';
+import type { ActionItem, ConnectionItem, HistoryItem, SavedItem, TabItem } from './paletteItems';
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -96,4 +98,18 @@ export function buildHistoryItems(entries: readonly HistoryEntry[]): HistoryItem
     ...searchable(oneLine(entry.sql)),
     entry,
   }));
+}
+
+/** The saved queries, most recently used first: what `*` lists before anything is typed. */
+export function buildSavedItems(library: Library): SavedItem[] {
+  const recent = (query: SavedQuery) => query.lastUsedAt ?? 0;
+  return [...library.queries]
+    .sort((a, b) => recent(b) - recent(a) || a.name.localeCompare(b.name))
+    .map((query) => ({
+      kind: 'saved',
+      key: `saved:${query.id}`,
+      ...searchable(query.name),
+      query,
+      folder: folderPath(library.folders, query.folderId),
+    }));
 }

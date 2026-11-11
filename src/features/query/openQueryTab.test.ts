@@ -45,6 +45,7 @@ function controller(inserted: string[]): EditorController {
     markRunStart: () => undefined,
     setErrors: () => undefined,
     replaceContent: () => undefined,
+    insertSnippet: () => undefined,
     insertAtCursor: (text) => {
       inserted.push(text);
     },

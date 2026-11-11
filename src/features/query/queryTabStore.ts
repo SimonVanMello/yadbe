@@ -24,6 +24,18 @@ export interface QueryTabState {
   /** `null`: the connection's own database. */
   database: string | null;
   filePath: string | null;
+  /** The saved query the tab was opened from or saved to (F-050); `null` for a plain tab. */
+  origin: SavedOrigin | null;
+}
+
+/** Where a tab's text comes from in the query library. */
+export interface SavedOrigin {
+  queryId: string;
+  /**
+   * The text the saved query had when the tab last read or wrote it. `null`: unknown, because
+   * the tab was restored with unsaved changes: it differs until it is updated.
+   */
+  baseline: string | null;
 }
 
 export function newQueryTabState(): QueryTabState {
@@ -36,6 +48,7 @@ export function newQueryTabState(): QueryTabState {
     scrollLeft: 0,
     database: null,
     filePath: null,
+    origin: null,
   };
 }
 
@@ -56,6 +69,14 @@ export function hashText(text: string): string {
 
 export function isDirty(state: QueryTabState): boolean {
   return state.savedContent === null || state.content !== state.savedContent;
+}
+
+/** The tab has a saved query behind it and its text is not that query's any more. */
+export function differsFromSaved(state: QueryTabState): boolean {
+  return (
+    state.origin !== null &&
+    (state.origin.baseline === null || state.content !== state.origin.baseline)
+  );
 }
 
 /** File name of a path, for the tab title. */
@@ -81,6 +102,8 @@ interface QueryTabStore {
   setFileHash: (tabId: string, fileHash: string) => void;
   /** The file is gone or the user detached the tab from it: the tab keeps its text. */
   detachFile: (tabId: string) => void;
+  /** Links the tab to a saved query (or unlinks it with `null`). */
+  setOrigin: (tabId: string, origin: SavedOrigin | null) => void;
   remove: (tabId: string) => void;
 }
 
@@ -175,6 +198,10 @@ export function createQueryTabStore() {
       );
     },
 
+    setOrigin: (tabId, origin) => {
+      set(update(tabId, (state) => ({ ...state, origin })));
+    },
+
     remove: (tabId) => {
       set((store) => {
         if (!(tabId in store.tabs)) return store;
@@ -203,6 +230,13 @@ export function useIsDirty(tabId: string): boolean {
   return useQueryTabStore((store) => {
     const state = store.tabs[tabId];
     return state !== undefined && isDirty(state);
+  });
+}
+
+export function useDiffersFromSaved(tabId: string): boolean {
+  return useQueryTabStore((store) => {
+    const state = store.tabs[tabId];
+    return state !== undefined && differsFromSaved(state);
   });
 }
 

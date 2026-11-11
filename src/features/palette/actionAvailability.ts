@@ -5,6 +5,8 @@ import type { MessageKey } from '../../i18n/i18n';
 export interface ActionContext {
   /** The active tab is a query tab (a welcome tab has no editor). */
   queryTab: boolean;
+  /** The active tab's text differs from the saved query it was opened from (F-050). */
+  savedDiffers?: boolean;
   /** The active tab is a table tab (F-080). */
   tableTab?: boolean;
   /** The active tab's connection is up. */
@@ -23,6 +25,8 @@ const NEEDS_QUERY_TAB: ReadonlySet<ActionId> = new Set([
   'query.open',
   'query.save',
   'query.saveAs',
+  'query.saveToLibrary',
+  'query.updateSavedQuery',
   'tab.togglePin',
 ]);
 
@@ -32,6 +36,8 @@ export function disabledReason(id: ActionId, context: ActionContext): MessageKey
   if (NEEDS_QUERY_TAB.has(id) && !context.queryTab) return 'palette.disabled.noQueryTab';
   if (id.startsWith('table.') && context.tableTab !== true) return 'palette.disabled.noTableTab';
   switch (id) {
+    case 'query.updateSavedQuery':
+      return context.savedDiffers === true ? null : 'palette.disabled.noSavedQuery';
     case 'query.cancel':
       return context.running ? null : 'palette.disabled.notRunning';
     case 'query.commit':

@@ -35,6 +35,22 @@ export const mockErrors = {
       null,
       `group id ${id}`,
     ),
+  savedQueryNotFound: (id: string) =>
+    error(
+      'savedQueryNotFound',
+      'This saved query no longer exists.',
+      "Cette requête enregistrée n'existe plus.",
+      null,
+      `saved query id ${id}`,
+    ),
+  queryFolderNotFound: (id: string) =>
+    error(
+      'queryFolderNotFound',
+      'This folder no longer exists.',
+      "Ce dossier n'existe plus.",
+      null,
+      `folder id ${id}`,
+    ),
   engineNotSupported: (label: string) =>
     error(
       'engineNotSupported',

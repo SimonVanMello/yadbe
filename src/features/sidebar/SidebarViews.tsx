@@ -5,6 +5,7 @@ import { useT } from '../../i18n/useT';
 import { Icon, type IconName } from '../../ui/Icon';
 import { Tooltip } from '../../ui/Tooltip';
 import { HistoryPanel } from '../history/HistoryPanel';
+import { LibraryPanel } from '../library/LibraryPanel';
 import { ConnectionSidebar } from './ConnectionSidebar';
 import styles from './SidebarViews.module.css';
 import { useSidebarView, type SidebarView } from './sidebarViewStore';
@@ -12,6 +13,7 @@ import { useSidebarView, type SidebarView } from './sidebarViewStore';
 const VIEWS: readonly { view: SidebarView; icon: IconName }[] = [
   { view: 'connections', icon: 'database' },
   { view: 'history', icon: 'history' },
+  { view: 'library', icon: 'bookmark' },
 ];
 
 /** The sidebar: a switcher between its views (connections, history) and the view itself. */
@@ -23,6 +25,7 @@ export function SidebarViews() {
   const labels: Record<SidebarView, string> = {
     connections: t('sidebar.connections'),
     history: t('history.title'),
+    library: t('library.tab'),
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -51,6 +54,7 @@ export function SidebarViews() {
               role="tab"
               id={`sidebar-tab-${view}`}
               aria-selected={selected}
+              aria-label={labels[view]}
               aria-controls="sidebar-view"
               tabIndex={selected ? 0 : -1}
               className={styles.tab}
@@ -59,15 +63,24 @@ export function SidebarViews() {
               }}
             >
               <Icon name={icon} />
-              {labels[view]}
+              <span className={styles.label}>{labels[view]}</span>
             </button>
           );
-          return view === 'history' ? (
-            <Tooltip key={view} content={t('history.show')} shortcut={shortcutOf('view.history')}>
+          if (view === 'history') {
+            return (
+              <Tooltip key={view} content={t('history.show')} shortcut={shortcutOf('view.history')}>
+                {tab}
+              </Tooltip>
+            );
+          }
+          return view === 'library' ? (
+            <Tooltip key={view} content={t('library.show')} shortcut={shortcutOf('view.library')}>
               {tab}
             </Tooltip>
           ) : (
-            tab
+            <Tooltip key={view} content={labels[view]}>
+              {tab}
+            </Tooltip>
           );
         })}
       </div>
@@ -77,7 +90,9 @@ export function SidebarViews() {
         aria-labelledby={`sidebar-tab-${current}`}
         className={styles.view}
       >
-        {current === 'connections' ? <ConnectionSidebar /> : <HistoryPanel />}
+        {current === 'connections' && <ConnectionSidebar />}
+        {current === 'history' && <HistoryPanel />}
+        {current === 'library' && <LibraryPanel />}
       </div>
     </div>
   );

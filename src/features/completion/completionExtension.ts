@@ -3,6 +3,7 @@ import { Prec, type Extension } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 
 import { translate, useI18nStore, type MessageKey } from '../../i18n/i18n';
+import { snippetCompletionSource, withSnippets } from '../library/snippetCompletion';
 import { markRun } from '../query/editorFields';
 import {
   settleCompletion,
@@ -25,6 +26,7 @@ const GLYPHS: Record<string, string> = {
   alias: 'A',
   cte: 'W',
   join: 'J',
+  snippet: '{}',
 };
 
 /** Pause after a keystroke before the suggestions start: short, the source is what takes time. */
@@ -60,7 +62,7 @@ export const completionRunGuard: Extension = EditorView.updateListener.of((updat
 export function completionExtension(host: CompletionHost): Extension {
   return [
     autocompletion({
-      override: [sqlCompletionSource(host)],
+      override: [withSnippets(sqlCompletionSource(host), snippetCompletionSource(host))],
       icons: false,
       activateOnTypingDelay: TYPING_DELAY_MS,
       maxRenderedOptions: 60,

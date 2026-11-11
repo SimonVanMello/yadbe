@@ -7,7 +7,7 @@ import { blankDefinition } from '../../ipc/mockData';
 import type { ConnectionSummary } from '../connections/model';
 import { buildObjectItems } from './objectItems';
 import { createSearcher } from './matcher';
-import { parseQuery, type PaletteItem } from './paletteItems';
+import { parseQuery, type PaletteItem, type SavedItem } from './paletteItems';
 import { buildResults, type PaletteSources, type ResultRow } from './paletteResults';
 import { buildActionItems, buildConnectionItems, buildTabItems } from './paletteSources';
 import type { ActionContext } from './actionAvailability';
@@ -90,11 +90,14 @@ function sources(): PaletteSources {
     tabs,
     objects,
     history: [],
+    saved: [],
+    savedTextIds: [],
     searchers: {
       actions: createSearcher(actions),
       connections: createSearcher(connections),
       tabs: createSearcher(tabs),
       objects: createSearcher(objects),
+      saved: createSearcher<SavedItem>([]),
     },
   };
 }

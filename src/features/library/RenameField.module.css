@@ -1,0 +1,14 @@
+.field {
+  flex: 1;
+  min-width: 0;
+  height: calc(var(--row-height) - var(--space-2));
+  padding: 0 var(--space-2);
+  border: var(--border-width) solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--fg-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  outline: none;
+}

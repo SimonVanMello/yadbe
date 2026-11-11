@@ -114,6 +114,21 @@ function Content({ item, indices }: { item: PaletteItem; indices: readonly numbe
           <span className={styles.aside}>{kindLabel(t, item.objectKind)}</span>
         </>
       );
+    case 'saved':
+      return (
+        <>
+          <span className={styles.label}>
+            <Highlight text={item.text} indices={indices} />
+          </span>
+          <span className={styles.detail}>
+            {item.folder}
+            {item.query.snippetTrigger === null
+              ? ''
+              : `${item.folder === '' ? '' : ' · '}${item.query.snippetTrigger}`}
+          </span>
+          <RowEnvironment connectionId={item.query.connectionId} />
+        </>
+      );
     case 'history':
       return (
         <>
