@@ -18,9 +18,10 @@ use crate::db::errors::YadbeError;
 use crate::db::introspect::{Introspector, MetaFuture, TypeInterner, index_u32};
 use crate::db::meta::{
     CatalogForeignKey, CatalogRelation, CatalogRoutine, CheckConstraint, ColumnInfo,
-    CompletionCatalog, DatabaseInfo, ForeignKey, ForeignKeyAction, Generated, Identity, IndexInfo,
-    KeyConstraint, ObjectCount, ObjectDetail, ObjectInfo, ObjectKind, ObjectRef, RelationSummary,
-    RoutineSignature, SchemaInfo, TableDetails, TriggerEvent, TriggerInfo, TriggerTiming,
+    CompletionCatalog, DatabaseInfo, ForeignKey, ForeignKeyAction, Generated, Identity,
+    IncomingForeignKey, IncomingForeignKeys, IndexInfo, KeyConstraint, ObjectCount, ObjectDetail,
+    ObjectInfo, ObjectKind, ObjectRef, RelationSummary, RoutineSignature, SchemaInfo, TableDetails,
+    TriggerEvent, TriggerInfo, TriggerTiming,
 };
 use crate::db::value::Value;
 
@@ -136,6 +137,27 @@ REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
 FROM information_schema.KEY_COLUMN_USAGE
 WHERE TABLE_SCHEMA = ? AND REFERENCED_TABLE_SCHEMA = ?
 ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION";
+
+/// The foreign keys referencing a table. MySQL 8 indexes the data dictionary's foreign keys
+/// by referenced table: every database is searched. MariaDB would open every table of the
+/// server to answer that: only the referenced table's own database is searched there.
+fn incoming_sql(same_database: bool) -> String {
+    format!(
+        "SELECT k.TABLE_SCHEMA, k.TABLE_NAME, k.CONSTRAINT_NAME, k.COLUMN_NAME, \
+k.REFERENCED_COLUMN_NAME, r.UPDATE_RULE, r.DELETE_RULE
+FROM information_schema.KEY_COLUMN_USAGE k
+JOIN information_schema.REFERENTIAL_CONSTRAINTS r ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA
+  AND r.TABLE_NAME = k.TABLE_NAME AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+WHERE k.REFERENCED_TABLE_SCHEMA = ? AND k.REFERENCED_TABLE_NAME = ?
+  AND r.UNIQUE_CONSTRAINT_SCHEMA = ? AND r.REFERENCED_TABLE_NAME = ?{}
+ORDER BY k.TABLE_SCHEMA, k.TABLE_NAME, k.CONSTRAINT_NAME, k.ORDINAL_POSITION",
+        if same_database {
+            "\n  AND k.TABLE_SCHEMA = ? AND r.CONSTRAINT_SCHEMA = ?"
+        } else {
+            ""
+        }
+    )
+}
 
 type Row = Vec<Value>;
 
@@ -673,6 +695,54 @@ impl MysqlConnection {
         Ok(())
     }
 
+    async fn incoming(&self, table: &ObjectRef) -> Result<IncomingForeignKeys, YadbeError> {
+        let (db, name) = (table.database.as_str(), table.name.as_str());
+        let mariadb = self.inner.flavor().mariadb;
+        let mut params = vec![db, name, db, name];
+        if mariadb {
+            params.extend([db, db]);
+        }
+        let rows = self.meta(&incoming_sql(mariadb), &params).await?;
+        let mut keys: Vec<IncomingForeignKey> = Vec::new();
+        for row in &rows {
+            let database = text_req(row, 0)?;
+            let owner = text_req(row, 1)?;
+            let key = text_req(row, 2)?;
+            let column = text_req(row, 3)?;
+            let referenced = text_req(row, 4)?;
+            match keys.last_mut() {
+                Some(last)
+                    if last.table.database == database
+                        && last.table.name == owner
+                        && last.foreign_key.name.as_deref() == Some(key.as_str()) =>
+                {
+                    last.foreign_key.columns.push(column);
+                    last.foreign_key.referenced_columns.push(referenced);
+                }
+                _ => keys.push(IncomingForeignKey {
+                    table: ObjectRef {
+                        database,
+                        schema: None,
+                        name: owner,
+                    },
+                    foreign_key: ForeignKey {
+                        name: Some(key),
+                        columns: vec![column],
+                        referenced_table: table.clone(),
+                        referenced_columns: vec![referenced],
+                        on_update: fk_action(text(row, 5).as_deref()),
+                        on_delete: fk_action(text(row, 6).as_deref()),
+                        deferrable: false,
+                    },
+                }),
+            }
+        }
+        Ok(IncomingForeignKeys {
+            supported: true,
+            keys,
+        })
+    }
+
     async fn catalog(&self, database: &str) -> Result<CompletionCatalog, YadbeError> {
         let relations = self.meta(CATALOG_RELATIONS_SQL, &[database]).await?;
         let columns = self.meta(CATALOG_COLUMNS_SQL, &[database]).await?;
@@ -879,6 +949,16 @@ impl Introspector for MysqlConnection {
     ) -> MetaFuture<'a, CompletionCatalog> {
         // Objects are flagged system by their database only: a database's catalog is whole.
         Box::pin(self.catalog(database))
+    }
+
+    fn incoming_foreign_keys<'a>(
+        &'a self,
+        table: &'a ObjectRef,
+    ) -> MetaFuture<'a, IncomingForeignKeys> {
+        Box::pin(async move {
+            no_schema(table.schema.as_deref())?;
+            self.incoming(table).await
+        })
     }
 }
 

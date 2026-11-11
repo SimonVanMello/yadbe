@@ -345,6 +345,16 @@ WHERE CAST(\"Key A\" AS text) ILIKE $1 ESCAPE '\\' OR CAST(\"key b\" AS text) IL
 OR CAST(\"name\" AS text) ILIKE $3 ESCAPE '\\' ORDER BY \"Key A\" ASC, \"key b\" ASC LIMIT 21 OFFSET 40"
         );
         assert_eq!(s.params[0], Value::Text("%50\\%\\_off%".into()));
+        // MySQL reads a backslash in a literal as an escape: its LIKE escape is `!`.
+        let shape = parents(Engine::Mysql);
+        let s = lookup(Engine::Mysql.dialect(), &shape, &request).expect("sql");
+        assert!(
+            s.sql.contains("CAST(`Key A` AS CHAR) LIKE ? ESCAPE '!' OR"),
+            "{}",
+            s.sql
+        );
+        assert!(!s.sql.contains('\\'), "{}", s.sql);
+        assert_eq!(s.params[0], Value::Text("%50!%!_off%".into()));
         let shape = parents(Engine::Mssql);
         let s = lookup(Engine::Mssql.dialect(), &shape, &request).expect("sql");
         assert!(

@@ -2,7 +2,7 @@
 //! table (self-references, composite keys, other schemas), the referenced row of a value,
 //! bounded counts of referencing rows, the lookup page of the foreign key editor (search
 //! with bound values), and cancellation. SQLite always runs; PostgreSQL and SQL Server when
-//! their URLs are set.
+//! their URLs are set, MySQL too.
 
 mod common;
 
@@ -81,6 +81,27 @@ struct Fixture {
     schema: Option<String>,
     /// The schema of the cross-schema `remote` table, on engines with schemas.
     other_schema: Option<String>,
+    /// The database of the cross-database `remote` table, on MySQL (no schemas).
+    other_database: Option<String>,
+}
+
+impl Fixture {
+    /// The `remote` table, in another schema or another database, if the engine has one.
+    fn remote(&self) -> Option<ObjectRef> {
+        match (&self.other_schema, &self.other_database) {
+            (Some(schema), _) => Some(ObjectRef {
+                database: self.database.clone(),
+                schema: Some(schema.clone()),
+                name: "remote".into(),
+            }),
+            (None, Some(database)) => Some(ObjectRef {
+                database: database.clone(),
+                schema: None,
+                name: "remote".into(),
+            }),
+            (None, None) => None,
+        }
+    }
 }
 
 impl Fixture {
@@ -173,12 +194,23 @@ async fn incoming(b: &Bench, conn: &str, fx: &Fixture) {
     let mut parent = of("parent").await;
     parent.sort();
     let mut expected = vec![format!("{schema}.child(parent_id)->(id)")];
-    match &fx.other_schema {
-        Some(other) => expected.push(format!("{other}.remote(parent_id)->(id)")),
+    match fx.remote() {
+        Some(remote) => expected.push(format!(
+            "{}.remote(parent_id)->(id)",
+            remote.schema.as_deref().unwrap_or("-")
+        )),
         None => expected.push("-.implicit(parent_id)->(id)".to_owned()),
     }
     expected.sort();
     assert_eq!(parent, expected);
+    if let Some(remote) = fx.remote() {
+        let found = b
+            .meta
+            .incoming_foreign_keys(&b.manager, None, conn, &fx.table("parent"))
+            .await
+            .expect("incoming");
+        assert!(found.keys.iter().any(|k| k.table == remote), "{found:?}");
+    }
     assert_eq!(
         of("Odd \"Parent\"").await,
         [format!("{schema}.child(a,b)->(Key A,key b)")]
@@ -328,12 +360,7 @@ async fn counts(b: &Bench, fx: &Fixture) {
         .await
         .expect("count");
     assert_eq!((tree.count, tree.more), (2, false));
-    if let Some(other) = &fx.other_schema {
-        let remote = ObjectRef {
-            database: fx.database.clone(),
-            schema: Some(other.clone()),
-            name: "remote".into(),
-        };
+    if let Some(remote) = fx.remote() {
         let c = b
             .refs
             .count_rows(
@@ -445,6 +472,8 @@ async fn cancellation(b: &Bench, conn: &str, fx: &Fixture) {
             yadbe_lib::db::meta::qualified_name(fx.engine.dialect(), &fx.table("parent"))
         ),
         Engine::Mssql => "SELECT TOP (1) id FROM fk.parent WITH (TABLOCKX, HOLDLOCK)".to_owned(),
+        // InnoDB reads do not wait for row locks: a table lock (released with the session).
+        Engine::Mysql => "LOCK TABLES parent WRITE".to_owned(),
         // A writer blocks SQLite readers through its busy handler only: no wait to cancel.
         _ => {
             let _ = conn;
@@ -523,6 +552,7 @@ async fn sqlite_foreign_key_navigation() {
         database: "main".into(),
         schema: None,
         other_schema: None,
+        other_database: None,
     })
     .await;
 }
@@ -615,6 +645,7 @@ async fn postgres_foreign_key_navigation() {
         password,
         schema: Some(schema),
         other_schema: Some(other),
+        other_database: None,
     })
     .await;
 }
@@ -663,6 +694,45 @@ async fn mssql_foreign_key_navigation() {
         database: name,
         schema: Some("fk".into()),
         other_schema: Some("fk2".into()),
+        other_database: None,
     })
     .await;
+}
+
+#[tokio::test]
+async fn mysql_foreign_key_navigation() {
+    let Some(url) = common::mysql_url("mysql_foreign_key_navigation") else {
+        return;
+    };
+    let database = common::MysqlDatabase::create(&url, "fk").await;
+    let other = common::MysqlDatabase::create(&url, "fk2").await;
+    let (def, password) = database.definition();
+    let conn = common::open(&def, password.as_ref())
+        .await
+        .expect("connect");
+    let quote = |name: &str| Engine::Mysql.dialect().quote_identifier(name);
+    let script = include_str!("fixtures/fk_mysql.sql")
+        .replace("{db2}", &quote(&other.name))
+        .replace("{db}", &quote(&database.name));
+    let syntax = Engine::Mysql.dialect().syntax();
+    for statement in yadbe_lib::db::split::split(&script, &syntax) {
+        let sql = &script[statement.range()];
+        conn.query(sql, 0)
+            .await
+            .unwrap_or_else(|e| panic!("{sql}: {e:?}"));
+    }
+    conn.close().await;
+    suite(&Fixture {
+        engine: Engine::Mysql,
+        def,
+        password,
+        database: database.name.clone(),
+        schema: None,
+        other_schema: None,
+        other_database: Some(other.name.clone()),
+    })
+    .await;
+    // The referencing database first: its foreign key holds the other one.
+    drop(other);
+    drop(database);
 }

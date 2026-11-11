@@ -26,7 +26,7 @@ use tokio::task::JoinHandle;
 
 use crate::db::driver::{BoundStatement, CancelHandle, Connection};
 use crate::db::errors::YadbeError;
-use crate::db::meta::ObjectRef;
+use crate::db::meta::{ObjectRef, Qualifier};
 use crate::db::value::{ColumnMeta, QueryResult, Value};
 use crate::session::ConnectionManager;
 use crate::session::meta_cache::MetaService;
@@ -153,7 +153,8 @@ impl ReferenceService {
     }
 
     /// The referenced table as a tab of `tab_id` would see it: its target and shape. The table
-    /// must be in the tab's database (foreign keys never cross databases).
+    /// must be in the tab's database, unless the engine names objects by their database
+    /// (MySQL: one connection reaches every database, and foreign keys may cross them).
     async fn describe(
         &self,
         tab_id: &str,
@@ -161,7 +162,9 @@ impl ReferenceService {
         table: &ObjectRef,
     ) -> Result<(TabTarget, TableShape), YadbeError> {
         let target = self.tables.tab_target(tab_id)?;
-        if table.database != target.table.database {
+        let qualified_by_database =
+            Qualifier::of(&target.dialect.capabilities()) == Qualifier::Database;
+        if table.database != target.table.database && !qualified_by_database {
             return Err(YadbeError::invalid_argument(
                 "The table is in another database than the tab's.",
                 "La table est dans une autre base que celle de l'onglet.",

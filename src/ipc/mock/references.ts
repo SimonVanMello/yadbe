@@ -133,7 +133,8 @@ export function createMockReferences(deps: ReferenceDeps) {
   function target(tabId: string, table: ObjectRef) {
     const tab = deps.tabTarget(tabId);
     if (isError(tab)) return tab;
-    if (tab.table.database !== table.database) {
+    // MySQL names tables by their database: its foreign keys may cross databases.
+    if (tab.table.database !== table.database && tab.engine !== 'mysql') {
       return mockErrors.invalidArgument(
         "The table is in another database than the tab's.",
         "La table est dans une autre base que celle de l'onglet.",
@@ -193,10 +194,11 @@ export function createMockReferences(deps: ReferenceDeps) {
       const sql =
         session.engine === 'sqlite'
           ? `SELECT t.name, f.id, f."from", f."to" FROM pragma_table_list t JOIN pragma_foreign_key_list(t.name, 'main') f WHERE f."table" = '${table.name.replace(/'/g, "''")}'`
-          : `SELECT n.nspname, c.relname, con.conname, … FROM pg_constraint con … WHERE con.contype = 'f' AND rn.nspname = $1 AND rc.relname = $2`;
+          : session.engine === 'mysql'
+            ? `SELECT k.TABLE_SCHEMA, k.TABLE_NAME, k.CONSTRAINT_NAME, … FROM information_schema.KEY_COLUMN_USAGE k … WHERE k.REFERENCED_TABLE_SCHEMA = ? AND k.REFERENCED_TABLE_NAME = ?`
+            : `SELECT n.nspname, c.relname, con.conname, … FROM pg_constraint con … WHERE con.contype = 'f' AND rn.nspname = $1 AND rc.relname = $2`;
       if (!(await serverTime(requestId))) return fail(mockErrors.cancelled());
       deps.logStatement(connectionId, sql);
-      if (session.engine === 'mysql') return ok({ supported: false, keys: [] });
       const tables = deps.tablesOf(connectionId, table.database) ?? [];
       const keys: IncomingForeignKey[] = tables.flatMap((details) =>
         details.foreignKeys
