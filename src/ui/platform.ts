@@ -15,12 +15,16 @@ const MAC_SYMBOLS: Record<string, string> = {
   Shift: '⇧',
   Enter: '↵',
   Escape: 'Esc',
+  ArrowLeft: '←',
+  ArrowRight: '→',
 };
 
 const OTHER_NAMES: Record<string, string> = {
   Mod: 'Ctrl',
   Enter: 'Enter',
   Escape: 'Esc',
+  ArrowLeft: '←',
+  ArrowRight: '→',
 };
 
 /** Splits a shortcut like `Mod+Shift+K` into display keys for the given platform. */

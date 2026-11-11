@@ -125,6 +125,7 @@ export function GridHeader({
         title={[
           column.typeName ? `${column.name} · ${column.typeName}` : column.name,
           ...(column.readOnlyReason ? [column.readOnlyReason] : []),
+          ...(column.link ? [t('grid.column.linkHint')] : []),
           ...(sort ? [t('grid.sort.hint')] : []),
         ].join('\n')}
         className={[
@@ -176,6 +177,9 @@ export function GridHeader({
         }}
       >
         {readOnly && <Icon name="lock" className={styles.headerIcon} />}
+        {column.link && (
+          <Icon name="link" className={styles.headerIcon} aria-label={t('grid.column.link')} />
+        )}
         <span className={styles.headerName}>{column.name}</span>
         {column.typeName && <span className={styles.headerType}>{column.typeName}</span>}
         {sortKey && (

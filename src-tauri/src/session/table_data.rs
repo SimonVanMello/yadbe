@@ -74,6 +74,16 @@ fn not_open() -> YadbeError {
     )
 }
 
+/// The connection, database and table of a table tab.
+pub struct TabTarget {
+    pub connection_id: String,
+    /// The database its server connections open on (`None`: the session's).
+    pub database: Option<String>,
+    pub table: ObjectRef,
+    pub read_only: bool,
+    pub dialect: &'static dyn Dialect,
+}
+
 /// A tab's own server connection.
 struct TabConnection {
     conn: Arc<dyn Connection>,
@@ -658,6 +668,18 @@ impl TableDataService {
             statements: applied,
             inserted: InsertedRows { window, positions },
             duration_ms: ms(started),
+        })
+    }
+
+    /// Where a table tab reads its rows: lookups on its database (F-088) go there too.
+    pub fn tab_target(&self, tab_id: &str) -> Result<TabTarget, YadbeError> {
+        let tab = self.tab(tab_id)?;
+        Ok(TabTarget {
+            connection_id: tab.connection_id.clone(),
+            database: tab.database.clone(),
+            table: tab.shape.details.table.clone(),
+            read_only: tab.read_only,
+            dialect: tab.dialect,
         })
     }
 

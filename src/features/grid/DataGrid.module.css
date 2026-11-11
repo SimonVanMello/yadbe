@@ -426,3 +426,21 @@
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* Over a cell (its action button, a popover's anchor): only its children take the pointer. */
+.cellOverlay {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.cellOverlay > * {
+  pointer-events: auto;
+}
+
+.cellOverlay[data-align='start'] {
+  justify-content: flex-start;
+}

@@ -23,8 +23,8 @@ use crate::db::driver::{BoxFuture, Connection};
 use crate::db::errors::YadbeError;
 use crate::db::introspect::Introspector;
 use crate::db::meta::{
-    CompletionCatalog, DatabaseInfo, MetaNode, ObjectCount, ObjectInfo, ObjectKind, ObjectRef,
-    SchemaInfo, TableDetails,
+    CompletionCatalog, DatabaseInfo, IncomingForeignKeys, MetaNode, ObjectCount, ObjectInfo,
+    ObjectKind, ObjectRef, SchemaInfo, TableDetails,
 };
 use crate::db::script::{ScriptKind, script};
 use crate::events::{BackendEvent, EventSink, MetaRefreshReason, MetaRefreshed};
@@ -45,6 +45,8 @@ struct DbCache {
     objects: HashMap<(Option<String>, ObjectKind), Vec<ObjectInfo>>,
     tables: HashMap<(Option<String>, String), TableDetails>,
     catalogs: HashMap<bool, Arc<CompletionCatalog>>,
+    /// Foreign keys referencing a table; they depend on every table of the database.
+    incoming: HashMap<(Option<String>, String), IncomingForeignKeys>,
 }
 
 #[derive(Default)]
@@ -80,6 +82,7 @@ impl CacheData {
                     db.objects.retain(|(s, _), _| s != schema);
                     db.tables.retain(|(s, _), _| s != schema);
                     db.catalogs.clear();
+                    db.incoming.clear();
                 }
             }
             MetaNode::Objects {
@@ -93,6 +96,7 @@ impl CacheData {
                     db.tables
                         .retain(|(s, _), t| !(s == schema && t.kind == *kind));
                     db.catalogs.clear();
+                    db.incoming.clear();
                 }
             }
             MetaNode::Table { table } => {
@@ -100,6 +104,7 @@ impl CacheData {
                     db.tables
                         .remove(&(table.schema.clone(), table.name.clone()));
                     db.catalogs.clear();
+                    db.incoming.clear();
                 }
             }
         }
@@ -585,6 +590,45 @@ impl MetaService {
                         .completion_catalog(&db, include_system)
                         .await
                         .map(Arc::new)
+                })
+            },
+        )
+        .await
+    }
+
+    /// The foreign keys referencing `table` (F-088), cached until a refresh of its database.
+    pub async fn incoming_foreign_keys(
+        &self,
+        manager: &ConnectionManager,
+        request_id: Option<&str>,
+        connection_id: &str,
+        table: &ObjectRef,
+    ) -> Result<IncomingForeignKeys, YadbeError> {
+        Self::check_database(&table.database)?;
+        let session = Self::session(manager, connection_id)?;
+        Self::check_schema(&session, table.schema.as_deref())?;
+        let cache = self.cache(&session);
+        let key = (table.schema.clone(), table.name.clone());
+        let owned = table.clone();
+        let database = table.database.as_str();
+        self.cached(
+            request_id,
+            &session,
+            &cache,
+            Some(database),
+            |d| {
+                d.per_db
+                    .get(database)
+                    .and_then(|c| c.incoming.get(&key).cloned())
+            },
+            |d, v| {
+                d.db(database).incoming.insert(key.clone(), v);
+            },
+            move |conn| {
+                Box::pin(async move {
+                    Self::introspector(&*conn)?
+                        .incoming_foreign_keys(&owned)
+                        .await
                 })
             },
         )

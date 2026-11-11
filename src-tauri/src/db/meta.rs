@@ -321,6 +321,38 @@ pub struct ForeignKey {
     pub deferrable: bool,
 }
 
+/// A foreign key that references a given table, seen from that table (F-088: "rows
+/// referencing this row"). Self-references and keys of other schemas are included.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct IncomingForeignKey {
+    /// The referencing table (may be the table itself).
+    pub table: ObjectRef,
+    /// The key as the referencing table declares it: `columns` are the referencing table's,
+    /// `referencedColumns` the referenced table's, in the same order.
+    pub foreign_key: ForeignKey,
+}
+
+/// The foreign keys that reference a table.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct IncomingForeignKeys {
+    /// `false`: this engine's driver cannot list them (yet); `keys` is then empty without
+    /// meaning that nothing references the table.
+    pub supported: bool,
+    /// By referencing schema, table and key name.
+    pub keys: Vec<IncomingForeignKey>,
+}
+
+impl IncomingForeignKeys {
+    pub fn unsupported() -> Self {
+        Self {
+            supported: false,
+            keys: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckConstraint {

@@ -42,6 +42,7 @@ import {
   type ChangeTrace,
   type Pending,
 } from './pendingChanges';
+import { clearPendingFocus, peekPendingFocus } from './pendingFocus';
 import { looseRows, TableRowSource, type LooseRow } from './tableRowSource';
 import { getTableSession, useTableSessionStore, type TableSession } from './tableSessionStore';
 import { getTableTabState, useTableTabStore, type TableTabState } from './tableTabStore';
@@ -89,6 +90,24 @@ export function tableSource(tabId: string): TableRowSource | undefined {
 export function registerGrid(tabId: string, api: DataGridApi | null): void {
   if (api) grids.set(tabId, api);
   else grids.delete(tabId);
+  if (api) revealPendingFocus(tabId);
+}
+
+/** Focuses the cell a navigation asked for (F-088), once the grid and the new page are there. */
+export function revealPendingFocus(tabId: string): void {
+  const focus = peekPendingFocus(tabId);
+  const grid = grids.get(tabId);
+  const source = sources.get(tabId);
+  const { info, page, loadingSince } = getTableSession(tabId);
+  if (!focus || !grid || !source || !info || !page || loadingSince !== null) return;
+  clearPendingFocus(tabId);
+  if (source.rowCount === 0) return;
+  const dataCol = Math.max(
+    0,
+    info.columns.findIndex((column) => column.name === focus.column),
+  );
+  grid.focusCell({ row: Math.min(focus.row, source.rowCount - 1), dataCol });
+  grid.focus();
 }
 
 export function gridOf(tabId: string): DataGridApi | undefined {
@@ -132,6 +151,7 @@ function gridColumns(info: TableDataInfo): GridColumn[] {
       typeName: column.typeName,
       kind: column.kind,
       readOnlyReason: reason && info.readOnlyReasons.length === 0 ? columnReasonText(reason) : null,
+      link: info.foreignKeys.some((fk) => fk.columns.includes(column.name)),
     };
   });
 }
@@ -279,6 +299,7 @@ export async function loadPage(
         : {}),
   });
   if (options.recount && known === null) void countRows(tabId, 'estimate');
+  revealPendingFocus(tabId);
   return true;
 }
 
@@ -304,7 +325,8 @@ export function cancelTableWork(tabId: string): void {
   void ipc.commands.cancelTableData(tabId);
 }
 
-export type DiscardReason = 'page' | 'filter' | 'sort' | 'refresh' | 'close' | 'pageSize';
+export type DiscardReason =
+  'page' | 'filter' | 'sort' | 'refresh' | 'close' | 'pageSize' | 'navigate';
 
 /** Asks before pending changes are lost; `true` when there are none or the user agrees. */
 export function confirmDiscard(tabIds: readonly string[], reason: DiscardReason): Promise<boolean> {
@@ -973,6 +995,7 @@ export function forgetTableTab(tabId: string): void {
   grids.delete(tabId);
   traces.delete(tabId);
   pageRequests.delete(tabId);
+  clearPendingFocus(tabId);
   useTableSessionStore.getState().remove(tabId);
   void ipc.commands.closeTableData(tabId).catch((error: unknown) => {
     if (!(error instanceof YadbeIpcError)) console.warn('Could not close the table tab', error);

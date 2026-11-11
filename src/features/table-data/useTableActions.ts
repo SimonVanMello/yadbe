@@ -4,6 +4,7 @@ import { registerActions } from '../../app/actions';
 import { showError } from '../../app/errors/presentError';
 import { translate, useI18nStore } from '../../i18n/i18n';
 import { useFilterRequests } from './filterRequests';
+import { goToReference, moveInTrail, openReferencingPanel, peekReference } from './fkNavigation';
 import { openTableExport } from './tableExport';
 import {
   activeTableTabId,
@@ -89,6 +90,16 @@ export function useTableActions(): void {
       }, 'grid'),
       'table.revertCells': onTable(revertSelectedCells, 'grid'),
       'table.revertRows': onTable(revertSelectedRows, 'grid'),
+      'table.goToReference': onTable((tabId) => {
+        void goToReference(tabId);
+      }, 'grid'),
+      'table.peekReference': onTable((tabId) => {
+        void peekReference(tabId);
+      }, 'grid'),
+      'table.referencingRows': onTable(openReferencingPanel, 'grid'),
+      // A text field keeps Alt+← / Alt+→ (a word left or right on macOS).
+      'table.navigateBack': () => !typing() && moveInTrail(-1),
+      'table.navigateForward': () => !typing() && moveInTrail(1),
       'table.pasteRows': onTable((tabId) => {
         navigator.clipboard
           .readText()

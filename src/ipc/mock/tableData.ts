@@ -71,6 +71,11 @@ const PAGE_WINDOW_ROWS = 500;
 const CELL_PREVIEW_CHARS = 2_000;
 /** Rows a mock table holds at most (its estimate can be far larger). */
 const MAX_MOCK_ROWS = 2_500;
+
+/** How many rows a mock table holds. */
+export function mockRowCount(details: TableDetails): number {
+  return Math.min(Math.round(details.rowEstimate ?? 180), MAX_MOCK_ROWS);
+}
 const DEFAULT_LATENCY_MS = 120;
 
 function ok<T>(data: T): Result<T> {
@@ -280,7 +285,7 @@ function generate(
 
 // --- Editability ---------------------------------------------------------------------------
 
-function rowIdentity(details: TableDetails): string[] | null {
+export function rowIdentity(details: TableDetails): string[] | null {
   if (details.kind !== 'table') return null;
   if (details.primaryKey) return details.primaryKey.columns;
   const notNull = (c: string) => details.columns.find((col) => col.name === c)?.nullable === false;
@@ -298,7 +303,7 @@ function columnReason(column: ColumnInfo, tableReadOnly: boolean): ColumnReadOnl
   return null;
 }
 
-function info(
+export function info(
   details: TableDetails,
   enums: Map<string, string[]>,
   readOnlyConnection: boolean,
@@ -328,12 +333,13 @@ function info(
     readOnlyReasons: reasons,
     defaultOrder: (identity ?? []).map((column) => ({ column, direction: 'asc' })),
     rowEstimate: details.rowEstimate,
+    foreignKeys: details.foreignKeys,
   };
 }
 
 // --- SQL text (what the backend would log and preview) --------------------------------------
 
-function quote(engine: Engine, ident: string): string {
+export function quote(engine: Engine, ident: string): string {
   switch (engine) {
     case 'mssql':
       return `[${ident.replace(/]/g, ']]')}]`;
@@ -344,7 +350,7 @@ function quote(engine: Engine, ident: string): string {
   }
 }
 
-function qualified(engine: Engine, table: ObjectRef): string {
+export function qualified(engine: Engine, table: ObjectRef): string {
   return table.schema === null
     ? quote(engine, table.name)
     : `${quote(engine, table.schema)}.${quote(engine, table.name)}`;
@@ -377,7 +383,7 @@ export function mockLiteral(engine: Engine, value: Value): string {
 
 const NUMERIC: ValueKind[] = ['int', 'decimal', 'float'];
 
-function compare(kind: ValueKind, a: string, b: string): number {
+export function compare(kind: ValueKind, a: string, b: string): number {
   if (NUMERIC.includes(kind)) {
     const x = Number(a);
     const y = Number(b);
@@ -554,20 +560,28 @@ export function createMockTableData(deps: TableDataDeps) {
   const tabs = new Map<string, MockTab>();
 
   function rowsOf(tab: MockTab): MockTable {
-    const key = tableKey(tab.connectionId, tab.details.table);
+    return tableRows(tab.connectionId, tab.engine, tab.details);
+  }
+
+  /** The rows of a table, generated on first use (foreign key values reference real rows). */
+  function tableRows(connectionId: string, engine: Engine, details: TableDetails): MockTable {
+    const key = tableKey(connectionId, details.table);
     let table = tables.get(key);
     if (!table) {
       const enums =
-        deps.relation(tab.connectionId, tab.details.table)?.enums ?? new Map<string, string[]>();
-      const count = Math.min(Math.round(tab.details.rowEstimate ?? 180), MAX_MOCK_ROWS);
-      const identity = tab.info.rowIdentity ?? [];
+        deps.relation(connectionId, details.table)?.enums ?? new Map<string, string[]>();
+      const count = mockRowCount(details);
+      const identity = rowIdentity(details) ?? [];
+      const references = foreignKeyCells(connectionId, engine, details);
       const rows: Cell[][] = [];
       for (let r = 0; r < count; r++) {
+        const linked = references(r);
         rows.push(
-          tab.details.columns.map((column, c) => {
+          details.columns.map((column, c) => {
+            if (linked.has(c)) return linked.get(c) ?? null;
             const index = identity.indexOf(column.name);
             const keyPart = index >= 0 ? { index, size: identity.length } : null;
-            return generate(column, c, r, keyPart, enums, tab.engine);
+            return generate(column, c, r, keyPart, enums, engine);
           }),
         );
       }
@@ -575,6 +589,75 @@ export function createMockTableData(deps: TableDataDeps) {
       tables.set(key, table);
     }
     return table;
+  }
+
+  /**
+   * The cells of a row's foreign key columns: the key of a row the referenced table holds, or
+   * NULL now and then for a nullable key. Composite keys first, so that a column shared with a
+   * single-column key stays consistent with both. Keys over the table's own row identity keep
+   * their generated values (unique). Values come from the referenced rows when they exist,
+   * else from the seeds those rows will be generated from (no recursion through the tables).
+   */
+  function foreignKeyCells(
+    connectionId: string,
+    engine: Engine,
+    details: TableDetails,
+  ): (row: number) => Map<number, Cell> {
+    const own = rowIdentity(details) ?? [];
+    const selfKey = tableKey(connectionId, details.table);
+    const keys = [...details.foreignKeys]
+      .sort((a, b) => b.columns.length - a.columns.length)
+      .filter((fk) => !fk.columns.some((name) => own.includes(name)))
+      .flatMap((fk) => {
+        const target = deps.relation(connectionId, fk.referencedTable);
+        if (!target) return [];
+        const targetKey = tableKey(connectionId, target.details.table);
+        const rows = tables.get(targetKey)?.rows ?? null;
+        const identity = rowIdentity(target.details) ?? [];
+        const pairs = fk.columns.map((name, i) => {
+          const col = details.columns.findIndex((c) => c.name === name);
+          const refName = fk.referencedColumns[i] ?? '';
+          const refCol = target.details.columns.findIndex((c) => c.name === refName);
+          return { col, refCol, keyIndex: identity.indexOf(refName) };
+        });
+        if (pairs.some((p) => p.col < 0 || p.refCol < 0)) return [];
+        const self = targetKey === selfKey;
+        return [{ target, identity, pairs, rows, self, count: mockRowCount(target.details) }];
+      });
+    return (row) => {
+      const cells = new Map<number, Cell>();
+      for (const { target, identity, pairs, rows, self, count } of keys) {
+        const first = pairs[0];
+        if (!first || count === 0 || pairs.some((p) => cells.has(p.col))) continue;
+        const nullable = pairs.some((p) => details.columns[p.col]?.nullable);
+        const h = hash(row, first.col + 101);
+        if (nullable && h % 7 === 0) {
+          // NULL in one column is enough to reference nothing; the others stay free.
+          for (const p of pairs) if (details.columns[p.col]?.nullable) cells.set(p.col, null);
+          continue;
+        }
+        // A self-reference points to an earlier row (a tree, not a cycle).
+        const span = self ? Math.min(count, row) : (rows?.length ?? count);
+        if (span === 0) {
+          for (const p of pairs) if (details.columns[p.col]?.nullable) cells.set(p.col, null);
+          continue;
+        }
+        const refRow = h % span;
+        for (const p of pairs) {
+          const refColumn = target.details.columns[p.refCol];
+          if (!refColumn) continue;
+          const keyPart = p.keyIndex >= 0 ? { index: p.keyIndex, size: identity.length } : null;
+          const stored = rows?.[refRow];
+          cells.set(
+            p.col,
+            stored
+              ? (stored[p.refCol] ?? null)
+              : generate(refColumn, p.refCol, refRow, keyPart, target.enums, engine),
+          );
+        }
+      }
+      return cells;
+    };
   }
 
   function columnsMeta(tab: MockTab): ColumnMeta[] {
@@ -1393,6 +1476,37 @@ export function createMockTableData(deps: TableDataDeps) {
       const rows = sorted(tab, rowsOf(tab).rows.filter(test), keys);
       deps.logStatement(tab.connectionId, selectSql(tab, filter, keys, 0, rows.length));
       return { columns: columnsMeta(tab), rows };
+    },
+    /**
+     * The rows of any table of a connected session (generated on first use, shared with the
+     * table tabs), for the foreign key lookups.
+     */
+    rowsFor(
+      connectionId: string,
+      table: ObjectRef,
+    ): { engine: Engine; details: TableDetails; info: TableDataInfo; rows: Cell[][] } | null {
+      const session = deps.session(connectionId);
+      const relation = deps.relation(connectionId, table);
+      if (!session || !relation) return null;
+      return {
+        engine: session.engine,
+        details: relation.details,
+        info: info(relation.details, relation.enums, session.readOnly),
+        rows: tableRows(connectionId, session.engine, relation.details).rows,
+      };
+    },
+    /** The connection, engine and table of an open table tab. */
+    tabTarget(
+      tabId: string,
+    ): { connectionId: string; engine: Engine; readOnly: boolean; table: ObjectRef } | YadbeError {
+      const tab = tabOf(tabId);
+      if (isError(tab)) return tab;
+      return {
+        connectionId: tab.connectionId,
+        engine: tab.engine,
+        readOnly: tab.readOnly,
+        table: tab.details.table,
+      };
     },
     deleteRowElsewhere(connectionId: string, table: ObjectRef, key: Value[]): boolean {
       const tab = [...tabs.values()].find(

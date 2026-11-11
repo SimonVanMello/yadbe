@@ -9,6 +9,7 @@ import {
   relabelSources,
   tableTabOf,
 } from './tableActions';
+import { forgetNavigation } from './fkNavigation';
 import { getTableSession, useTableSessionStore } from './tableSessionStore';
 import { useTableTabStore, type TableTabState } from './tableTabStore';
 
@@ -27,6 +28,7 @@ function forget(tabId: string): void {
   }
   useTableTabStore.getState().remove(tabId);
   forgetTableTab(tabId);
+  forgetNavigation(tabId);
 }
 
 function sameTable(a: ObjectRef, b: ObjectRef): boolean {

@@ -55,7 +55,7 @@ import { GridMenu } from './GridMenu';
 import { readGridMetrics, type GridMetrics } from './gridMetrics';
 import { modKey, selectModeOf } from './modifiers';
 import { createRangeStore } from './rangeStore';
-import type { RowSource } from './rowSource';
+import { headerIcons, type RowSource } from './rowSource';
 import {
   addCell,
   afterColumnMove,
@@ -90,8 +90,17 @@ const AUTO_FIT_ROWS = 20_000;
 /** Speed of the scroll while a drag selection is held past an edge (fraction of the overshoot). */
 const AUTO_SCROLL_RATE = 0.35;
 
-function inEditor(target: EventTarget): boolean {
-  return target instanceof Element && target.closest('[data-grid-editor]') !== null;
+/**
+ * The event is not the grid's own: it comes from an editor or an overlay drawn over a cell, or
+ * from a portal (a popover) that React bubbles through the grid without being inside it.
+ */
+function notOnGrid(event: { target: EventTarget; currentTarget: EventTarget }): boolean {
+  const { target, currentTarget } = event;
+  if (!(target instanceof Element) || !(currentTarget instanceof Element)) return true;
+  return (
+    !currentTarget.contains(target) ||
+    target.closest('[data-grid-editor], [data-grid-overlay]') !== null
+  );
 }
 
 export interface DataGridProps {
@@ -128,6 +137,20 @@ export interface DataGridProps {
   onLayoutChange?: (layout: ColumnLayout) => void;
   /** No cell can be changed (`aria-readonly`). */
   readOnly?: boolean;
+  /** Elements drawn over cells (a cell's action button, the anchor of a popover). */
+  cellOverlays?: readonly GridCellOverlay[];
+  /** The cell under the pointer changed (`null`: none). */
+  onHoverCell?: (cell: GridCellRef | null) => void;
+  /** The focused cell changed (`null`: none). */
+  onFocusChange?: (cell: GridCellRef | null) => void;
+}
+
+/** Something drawn over a cell, as wide and high as it; its children take the pointer. */
+export interface GridCellOverlay extends GridCellRef {
+  key: string;
+  node: ReactNode;
+  /** Where in the cell the node goes: `end` (default) or `start` (over a right-aligned value). */
+  align?: 'start' | 'end';
 }
 
 /** A cell by row and data column (not display column). */
@@ -141,6 +164,11 @@ export interface GridEditing {
   onKeyDown?: (event: ReactKeyboardEvent<HTMLElement>, focus: GridCellRef | null) => boolean;
   /** A double click on a cell: `true` when handled (the cell viewer then stays closed). */
   onCellDoubleClick?: (cell: GridCellRef) => boolean;
+  /**
+   * A press on a cell, before the grid selects it: `true` when handled (the cell is then only
+   * focused). For `Mod`+click actions.
+   */
+  onCellPointerDown?: (cell: GridCellRef, event: ReactPointerEvent<HTMLElement>) => boolean;
   /** Text pasted while the grid has the focus. */
   onPaste?: (text: string, focus: GridCellRef | null) => void;
   /** The open editor, drawn over its cell. */
@@ -212,6 +240,9 @@ export function DataGrid({
   initialLayout,
   onLayoutChange,
   readOnly,
+  cellOverlays,
+  onHoverCell,
+  onFocusChange,
 }: DataGridProps) {
   const t = useT();
   const nullText = usePreference('nullText');
@@ -236,6 +267,7 @@ export function DataGrid({
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const widthsRef = useRef<number[]>([]);
   const scrollShift = useRef(0);
+  const hovered = useRef<string | null>(null);
 
   const [metrics, setMetrics] = useState<GridMetrics | null>(null);
   const [order, setOrder] = useState<number[]>(() => source.columns.map((_, i) => i));
@@ -308,11 +340,7 @@ export function DataGrid({
           longest = Math.max(longest, displayLength(values.values[i] ?? null, kind, nullText));
         }
       }
-      return fitWidth(
-        longest,
-        m.headerWidth(column.name, column.typeName, column.readOnlyReason ? 1 : 0),
-        m,
-      );
+      return fitWidth(longest, m.headerWidth(column.name, column.typeName, headerIcons(column)), m);
     },
     [source, nullText],
   );
@@ -323,7 +351,7 @@ export function DataGrid({
       if (!measureLoaded(s.source, extents.current, nullText)) return;
       const current = widthsRef.current;
       const headers = s.source.columns.map((c) =>
-        s.metrics.headerWidth(c.name, c.typeName, c.readOnlyReason ? 1 : 0),
+        s.metrics.headerWidth(c.name, c.typeName, headerIcons(c)),
       );
       const next = widenColumns(current, extents.current, headers, resized.current, s.metrics);
       if (next === current) return;
@@ -373,7 +401,7 @@ export function DataGrid({
             ? fittedWidth(dataCol, m)
             : initialWidth(
                 column.kind,
-                m.headerWidth(column.name, column.typeName, column.readOnlyReason ? 1 : 0),
+                m.headerWidth(column.name, column.typeName, headerIcons(column)),
                 m,
               );
         }),
@@ -399,11 +427,7 @@ export function DataGrid({
           resized.current.add(dataCol);
           return Math.max(read.minWidth, Math.round(width));
         }
-        return initialWidth(
-          c.kind,
-          read.headerWidth(c.name, c.typeName, c.readOnlyReason ? 1 : 0),
-          read,
-        );
+        return initialWidth(c.kind, read.headerWidth(c.name, c.typeName, headerIcons(c)), read);
       }),
     );
     if (saved && saved.order.length > 0) {
@@ -624,7 +648,7 @@ export function DataGrid({
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     const el = scrollerRef.current;
-    if (!el || event.button !== 0 || inEditor(event.target)) return;
+    if (!el || event.button !== 0 || notOnGrid(event)) return;
     const hit = hitTest(event.clientX, event.clientY, false);
     if (hit.area === 'none') return;
     el.focus({ preventScroll: true });
@@ -636,6 +660,11 @@ export function DataGrid({
       setSelection((sel) => selectRows(sel, hit.row, mode));
     } else {
       const pos = { row: hit.row, col: hit.col };
+      const cell = { row: hit.row, dataCol: order[hit.col] ?? hit.col };
+      if (editing?.onCellPointerDown?.(cell, event)) {
+        setSelection(cellSelection(pos));
+        return;
+      }
       setSelection((sel) => {
         if (sel && mode === 'extend') return extendTo(sel, pos);
         if (sel && mode === 'add') return addCell(sel, pos);
@@ -651,9 +680,21 @@ export function DataGrid({
     };
   };
 
+  const hover = (cell: GridCellRef | null) => {
+    const id = cell ? `${String(cell.row)}:${String(cell.dataCol)}` : null;
+    if (id === hovered.current) return;
+    hovered.current = id;
+    onHoverCell?.(cell);
+  };
+
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
-    if (!drag) return;
+    if (!drag) {
+      if (!onHoverCell || notOnGrid(event)) return;
+      const hit = hitTest(event.clientX, event.clientY, false);
+      hover(hit.area === 'cell' ? { row: hit.row, dataCol: order[hit.col] ?? hit.col } : null);
+      return;
+    }
     if ((event.buttons & 1) === 0) {
       endDrag();
       return;
@@ -813,7 +854,7 @@ export function DataGrid({
   };
 
   const onContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (inEditor(event.target)) return;
+    if (notOnGrid(event)) return;
     const hit = hitTest(event.clientX, event.clientY, false);
     setMenuColumn(hit.area === 'header' ? hit.col : null);
     if (hit.area === 'cell' && !isCellSelected(selection, hit.row, hit.col)) {
@@ -826,7 +867,7 @@ export function DataGrid({
   };
 
   const onDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (inEditor(event.target)) return;
+    if (notOnGrid(event)) return;
     const hit = hitTest(event.clientX, event.clientY, false);
     if (hit.area !== 'cell') return;
     if (editing?.onCellDoubleClick?.({ row: hit.row, dataCol: order[hit.col] ?? hit.col })) return;
@@ -902,6 +943,11 @@ export function DataGrid({
     selection && rowCount > 0
       ? { row: selection.focus.row, col: order[selection.focus.col] ?? selection.focus.col }
       : null;
+  const focusRow = focusCell?.row ?? -1;
+  const focusDataCol = focusCell?.col ?? -1;
+  useEffect(() => {
+    onFocusChange?.(focusRow < 0 ? null : { row: focusRow, dataCol: focusDataCol });
+  }, [onFocusChange, focusRow, focusDataCol]);
 
   return (
     <div className={styles.grid}>
@@ -942,6 +988,9 @@ export function DataGrid({
             onPointerMove={onPointerMove}
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
+            onPointerLeave={() => {
+              if (!dragRef.current) hover(null);
+            }}
             onKeyDown={onKeyDown}
             onFocus={(event) => {
               // Reached with Tab: show where the keyboard is.
@@ -1013,6 +1062,27 @@ export function DataGrid({
                     {editor.node}
                   </div>
                 )}
+                {metrics &&
+                  cellOverlays?.map((overlay) => {
+                    const col = order.indexOf(overlay.dataCol);
+                    if (col < 0 || overlay.row >= rowCount) return null;
+                    return (
+                      <div
+                        key={overlay.key}
+                        data-grid-overlay=""
+                        data-align={overlay.align ?? 'end'}
+                        className={styles.cellOverlay}
+                        style={{
+                          top: overlay.row * metrics.rowHeight,
+                          left: gutter + (lefts[col] ?? 0),
+                          width: (lefts[col + 1] ?? 0) - (lefts[col] ?? 0),
+                          height: metrics.rowHeight,
+                        }}
+                      >
+                        {overlay.node}
+                      </div>
+                    );
+                  })}
               </div>
             </div>
             {rowCount === 0 && emptyText && <div className={styles.emptyRows}>{emptyText}</div>}

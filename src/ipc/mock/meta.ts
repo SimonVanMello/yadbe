@@ -454,6 +454,15 @@ export function createMockMeta(deps: MetaDeps) {
       }
       return { details: clone(details), enums };
     },
+    /** Every table and view of a database, straight from the catalog (foreign key lookups). */
+    tablesOf(connectionId: string, database: string): TableDetails[] | null {
+      const session = deps.session(connectionId);
+      if (!session) return null;
+      const db = server(connectionId, session.engine, session.database).find(
+        (d) => d.info.name === database,
+      );
+      return db ? db.schemas.flatMap((s) => [...s.tables.values()]).map((t) => clone(t)) : null;
+    },
     /** The session closed: its cache goes with it. */
     forget(connectionId: string): void {
       loaded.delete(connectionId);

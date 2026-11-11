@@ -110,6 +110,13 @@
   --grid-footer-height: 28px;
   --grid-shimmer-duration: 1.4s;
 
+  /* Foreign key navigation (F-088): the peek, the referencing rows panel, the lookup editor. */
+  --fk-peek-width: 360px;
+  --fk-peek-max-height: 440px;
+  --fk-panel-width: 380px;
+  --fk-lookup-width: 420px;
+  --fk-lookup-max-height: 240px;
+
   /* Motion: transitions only signal a state change, ≤ 150 ms (spec §6.7). */
   --duration-fast: 100ms;
   --duration-normal: 150ms;

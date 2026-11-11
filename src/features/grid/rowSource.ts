@@ -15,6 +15,13 @@ export interface GridColumn {
    * nothing to say (a result grid, or an editable column).
    */
   readOnlyReason?: string | null;
+  /** Part of a foreign key: its header shows a link (table tabs, F-088). */
+  link?: boolean;
+}
+
+/** Icons a column header shows before its name (header width). */
+export function headerIcons(column: GridColumn): number {
+  return (column.readOnlyReason ? 1 : 0) + (column.link ? 1 : 0);
 }
 
 /**

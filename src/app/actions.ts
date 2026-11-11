@@ -51,6 +51,13 @@ export const DEFAULT_BINDINGS = {
   'table.setNull': 'Mod+Backspace',
   'table.nextPage': 'Alt+PageDown',
   'table.previousPage': 'Alt+PageUp',
+  // Foreign key navigation (F-088), as code editors go to a definition: F12 jumps, Alt+F12
+  // peeks, Shift+F12 lists what references; Alt+← / Alt+→ walk the trail of jumps.
+  'table.goToReference': 'F12',
+  'table.peekReference': 'Alt+F12',
+  'table.referencingRows': 'Shift+F12',
+  'table.navigateBack': 'Alt+ArrowLeft',
+  'table.navigateForward': 'Alt+ArrowRight',
 } as const;
 
 /**
@@ -152,6 +159,11 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'table.countExact': 'action.table.countExact',
   'table.pasteRows': 'action.table.pasteRows',
   'table.export': 'action.table.export',
+  'table.goToReference': 'action.table.goToReference',
+  'table.peekReference': 'action.table.peekReference',
+  'table.referencingRows': 'action.table.referencingRows',
+  'table.navigateBack': 'action.table.navigateBack',
+  'table.navigateForward': 'action.table.navigateForward',
 };
 
 /** Shortcut of an action that has one, as written in `DEFAULT_BINDINGS` (`Mod+T`). */

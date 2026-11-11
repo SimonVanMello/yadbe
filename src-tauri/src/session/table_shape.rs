@@ -117,6 +117,7 @@ impl TableShape {
             row_identity: identity_names,
             read_only_reasons: reasons,
             row_estimate: details.row_estimate,
+            foreign_keys: details.foreign_keys.clone(),
         };
         let has_triggers = details.triggers.iter().any(|t| t.enabled);
         Self {
