@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 
 import { useT } from '../../i18n/useT';
+import { openImport } from '../import/importStore';
 import { ContextMenu } from '../../ui/ContextMenu';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
 import { ContextMenuSeparator } from '../../ui/ContextMenuSeparator';
@@ -58,6 +59,16 @@ export function ExplorerContextMenu({ row, children }: ExplorerContextMenuProps)
               >
                 {t('explorer.menu.openData')}
               </ContextMenuItem>
+              {scripts && (
+                <ContextMenuItem
+                  icon="arrowUp"
+                  onSelect={() => {
+                    openImport(connectionId, table);
+                  }}
+                >
+                  {t('explorer.menu.import')}
+                </ContextMenuItem>
+              )}
               <ContextMenuSub label={t('explorer.menu.scriptAs')} icon="terminal">
                 <ContextMenuItem
                   onSelect={() => {

@@ -7,10 +7,13 @@ import { YadbeIpcError } from '../../ipc';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
 import { IconButton } from '../../ui/IconButton';
+import { Menu } from '../../ui/Menu';
+import { MenuItem } from '../../ui/MenuItem';
 import { Spinner } from '../../ui/Spinner';
 import { TextInput } from '../../ui/TextInput';
 import { openQuery } from '../connections/connectionActions';
 import { refreshConnections, useConnectionList } from '../connections/connectionStore';
+import { useConnectionTransfer } from '../connections/connectionTransferStore';
 import { useGroupDialog } from '../connections/groupDialogStore';
 import { useExplorerStore } from '../explorer/explorerStore';
 import { useRevealStore } from '../explorer/revealStore';
@@ -58,6 +61,27 @@ export function ConnectionSidebar() {
               useGroupDialog.getState().open({});
             }}
           />
+          <Menu
+            align="end"
+            trigger={<IconButton icon="more" size="sm" label={t('connections.transfer')} />}
+          >
+            <MenuItem
+              icon="download"
+              onSelect={() => {
+                useConnectionTransfer.getState().openImport();
+              }}
+            >
+              {t('action.connection.import')}
+            </MenuItem>
+            <MenuItem
+              icon="external"
+              onSelect={() => {
+                useConnectionTransfer.getState().openExport();
+              }}
+            >
+              {t('action.connection.export')}
+            </MenuItem>
+          </Menu>
           <IconButton
             icon="plus"
             size="sm"

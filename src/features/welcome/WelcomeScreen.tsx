@@ -13,6 +13,7 @@ import { useNow } from '../../ui/useNow';
 import { openQuery } from '../connections/connectionActions';
 import { byRecency, searchConnections } from '../connections/connectionRows';
 import { refreshConnections, useConnectionList } from '../connections/connectionStore';
+import { useConnectionTransfer } from '../connections/connectionTransferStore';
 import { pickDatabaseFile } from '../connections/pickDatabaseFile';
 import type { ConnectionSummary } from '../connections/model';
 import { WelcomeRow } from './WelcomeRow';
@@ -179,6 +180,14 @@ export function WelcomeScreen() {
         <Button variant="primary" onClick={newConnection}>
           <Icon name="plus" />
           {t('connection.new')}
+        </Button>
+        <Button
+          onClick={() => {
+            useConnectionTransfer.getState().openImport();
+          }}
+        >
+          <Icon name="download" />
+          {t('action.connection.import')}
         </Button>
       </div>
     );

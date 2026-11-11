@@ -1,4 +1,4 @@
-import { shortcutOf } from '../../app/actions';
+import { runAction, shortcutOf } from '../../app/actions';
 import { useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import { Button } from '../../ui/Button';
@@ -164,6 +164,16 @@ export function TableStrip({ tabId }: { tabId: string }) {
           openTableExport(tabId);
         }}
       />
+      {session.info?.kind === 'table' && (
+        <IconButton
+          icon="arrowUp"
+          size="sm"
+          label={t('action.table.import')}
+          onClick={() => {
+            runAction('table.import');
+          }}
+        />
+      )}
       <IconButton
         icon="retry"
         size="sm"
