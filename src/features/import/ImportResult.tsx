@@ -35,7 +35,7 @@ export function ImportResult({ finished }: { finished: ImportFinished }) {
 
   return (
     <div className={styles.result} data-tone={tone} data-testid="import-result" role="status">
-      <p className={styles.resultHead}>{headline}</p>
+      {!finished.error && <p className={styles.resultHead}>{headline}</p>}
       {finished.error && (
         <ErrorPanel title={t('import.result.failed')} error={finished.error} compact />
       )}
