@@ -29,14 +29,31 @@ pub enum SecretKind {
     Password,
     SshPassphrase,
     Token,
+    /// Password of the SSH tunnel's server.
+    SshPassword,
+    /// Password and key passphrase of the SSH tunnel's jump host.
+    JumpPassword,
+    JumpPassphrase,
 }
 
 impl SecretKind {
+    pub const ALL: [SecretKind; 6] = [
+        SecretKind::Password,
+        SecretKind::SshPassphrase,
+        SecretKind::Token,
+        SecretKind::SshPassword,
+        SecretKind::JumpPassword,
+        SecretKind::JumpPassphrase,
+    ];
+
     fn account_suffix(self) -> &'static str {
         match self {
             SecretKind::Password => "password",
             SecretKind::SshPassphrase => "ssh-passphrase",
             SecretKind::Token => "token",
+            SecretKind::SshPassword => "ssh-password",
+            SecretKind::JumpPassword => "jump-password",
+            SecretKind::JumpPassphrase => "jump-passphrase",
         }
     }
 }
@@ -217,11 +234,7 @@ impl SecretStore {
 
     /// Forgets every secret of a deleted connection. Blocking.
     pub fn delete_all(&self, connection_id: &str) -> Result<(), YadbeError> {
-        for kind in [
-            SecretKind::Password,
-            SecretKind::SshPassphrase,
-            SecretKind::Token,
-        ] {
+        for kind in SecretKind::ALL {
             self.delete(connection_id, kind)?;
         }
         Ok(())

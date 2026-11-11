@@ -92,7 +92,8 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
     let mut config = tokio_postgres::Config::new();
     config
         .user(&user)
-        .port(target.port)
+        // Through an SSH tunnel, the port of its local end.
+        .port(target.dial.map_or(target.port, |dial| dial.port()))
         .connect_timeout(target.connect_timeout)
         .keepalives(true)
         .application_name(APPLICATION_NAME);
@@ -119,8 +120,12 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
         config.options(format!("{options} -c default_transaction_read_only=on").trim());
     }
 
-    let unix_socket = cfg!(unix) && target.host.starts_with('/');
-    if unix_socket {
+    let unix_socket = cfg!(unix) && target.host.starts_with('/') && target.dial.is_none();
+    if let Some(dial) = target.dial {
+        // Through an SSH tunnel: TCP to its local end, `host` still names the server for
+        // TLS (SNI, `verify-full`); cancel requests follow the same address.
+        config.host(&target.host).hostaddr(dial.ip());
+    } else if unix_socket {
         #[cfg(unix)]
         config.host_path(&target.host);
     } else {

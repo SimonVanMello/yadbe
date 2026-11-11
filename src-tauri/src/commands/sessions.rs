@@ -2,14 +2,55 @@
 
 use std::sync::Arc;
 
+use serde::Deserialize;
+use specta::Type;
 use tauri::State;
 
 use super::blocking;
 use crate::db::config::ConnectionDefinition;
 use crate::db::errors::YadbeError;
-use crate::secrets::{SecretInput, SecretStore};
+use crate::secrets::{SecretInput, SecretKind, SecretStore};
+use crate::session::manager::TunnelSecrets;
 use crate::session::{SessionInfo, TestConnectionResult};
 use crate::state::AppState;
+
+/// An SSH password or key passphrase typed for one attempt (F-010).
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TunnelSecretInput {
+    /// `sshPassword`, `sshPassphrase`, `jumpPassword` or `jumpPassphrase`.
+    pub kind: SecretKind,
+    pub secret: SecretInput,
+}
+
+async fn resolve_tunnel(
+    secrets: &Arc<SecretStore>,
+    inputs: Option<Vec<TunnelSecretInput>>,
+) -> Result<TunnelSecrets, YadbeError> {
+    let inputs = inputs.unwrap_or_default();
+    if inputs.iter().any(|i| {
+        !matches!(
+            i.kind,
+            SecretKind::SshPassword
+                | SecretKind::SshPassphrase
+                | SecretKind::JumpPassword
+                | SecretKind::JumpPassphrase
+        )
+    }) {
+        return Err(YadbeError::invalid_argument(
+            "Only SSH secrets go with the tunnel.",
+            "Seuls des secrets SSH accompagnent le tunnel.",
+        ));
+    }
+    let secrets = Arc::clone(secrets);
+    blocking(move || {
+        inputs
+            .into_iter()
+            .map(|i| Ok((i.kind, secrets.resolve(i.secret, false)?)))
+            .collect()
+    })
+    .await
+}
 
 async fn resolve(
     secrets: &Arc<SecretStore>,
@@ -26,8 +67,9 @@ async fn resolve(
 }
 
 /// Tests a definition, saved or not: connects, reads the server version, pings and closes.
-/// Without `password`, the stored secret of `connectionId` is used. `requestId` lets
-/// `cancel_test_connection` abort it.
+/// Without `password`, the stored secret of `connectionId` is used; likewise for the SSH
+/// secrets missing from `tunnelSecrets`. A tunnel failure names its hop (`error.tunnel`).
+/// `requestId` lets `cancel_test_connection` abort it.
 #[tauri::command]
 #[specta::specta]
 pub async fn test_connection(
@@ -36,12 +78,20 @@ pub async fn test_connection(
     definition: ConnectionDefinition,
     password: Option<SecretInput>,
     connection_id: Option<String>,
+    tunnel_secrets: Option<Vec<TunnelSecretInput>>,
 ) -> Result<TestConnectionResult, YadbeError> {
     let definition = definition.normalized()?;
     let password = resolve(&state.secrets, password).await?;
+    let tunnel_secrets = resolve_tunnel(&state.secrets, tunnel_secrets).await?;
     state
         .connections
-        .test(request_id, definition, password, connection_id)
+        .test_with_tunnel(
+            request_id,
+            definition,
+            password,
+            connection_id,
+            tunnel_secrets,
+        )
         .await
 }
 
@@ -68,6 +118,24 @@ pub async fn connect(
 ) -> Result<SessionInfo, YadbeError> {
     let password = resolve(&state.secrets, password).await?;
     state.connections.connect(&connection_id, password).await
+}
+
+/// `connect` with SSH secrets typed at connect time (F-010), kept for the session once they
+/// worked, like the password.
+#[tauri::command]
+#[specta::specta]
+pub async fn connect_with_secrets(
+    state: State<'_, AppState>,
+    connection_id: String,
+    password: Option<SecretInput>,
+    tunnel_secrets: Vec<TunnelSecretInput>,
+) -> Result<SessionInfo, YadbeError> {
+    let password = resolve(&state.secrets, password).await?;
+    let tunnel_secrets = resolve_tunnel(&state.secrets, Some(tunnel_secrets)).await?;
+    state
+        .connections
+        .connect_with_tunnel(&connection_id, password, tunnel_secrets)
+        .await
 }
 
 /// Closes a connection (also aborts a connection attempt or a reconnection).

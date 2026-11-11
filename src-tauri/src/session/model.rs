@@ -31,6 +31,8 @@ pub struct SessionInfo {
     pub error: Option<YadbeError>,
     /// 1-based, while `reconnecting` (and on the `lost` state that ends the attempts).
     pub reconnect_attempt: Option<u32>,
+    /// The SSH tunnel of the connection and its phase (`opening` while connecting through it).
+    pub tunnel: Option<crate::tunnel::TunnelStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

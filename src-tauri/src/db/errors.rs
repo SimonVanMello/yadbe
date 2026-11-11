@@ -90,6 +90,28 @@ pub enum ErrorCode {
     /// The engine could not convert a value for its column (bad format, out of range, too
     /// long).
     InvalidValue,
+    /// The SSH server (or jump host) of the tunnel could not be reached: DNS, refused,
+    /// timeout, or the link dropped during the handshake (`tunnel` says which hop).
+    SshHostUnreachable,
+    /// The SSH handshake failed (no common algorithm, protocol error).
+    SshHandshakeFailed,
+    /// The SSH server rejected the user, password, key or agent identities.
+    SshAuthFailed,
+    /// The SSH password or key passphrase is not stored: ask for it (`tunnel.secret`).
+    SshSecretRequired,
+    /// The SSH server's host key is not known yet: show its fingerprint and ask (`tunnel`).
+    SshHostKeyUnknown,
+    /// The SSH server's host key differs from the known one: refused.
+    SshHostKeyChanged,
+    /// The SSH server refused to forward to the next hop (forwarding disabled, or the target
+    /// unreachable from it).
+    SshChannelRefused,
+    /// No SSH agent is running, or it holds no identity.
+    SshAgentUnavailable,
+    /// The private key file cannot be read or is not a supported key.
+    SshKeyUnreadable,
+    /// The key passphrase is wrong.
+    SshKeyPassphraseWrong,
 }
 
 /// A message in every supported UI language.
@@ -124,6 +146,8 @@ pub enum ErrorAction {
     ChooseFile,
     /// Open the connection again.
     Reconnect,
+    /// Show the SSH host key fingerprint (`tunnel`) and let the user trust it.
+    TrustHostKey,
 }
 
 /// Error returned by every fallible command.
@@ -134,6 +158,9 @@ pub struct YadbeError {
     pub action: Option<ErrorAction>,
     /// Raw technical detail (driver message, I/O error), redacted, shown in a collapsible area.
     pub detail: Option<String>,
+    /// Set on SSH tunnel errors: the hop that failed, the host key, the secret to ask for.
+    #[serde(default)]
+    pub tunnel: Option<Box<crate::tunnel::TunnelFailure>>,
 }
 
 impl std::fmt::Display for YadbeError {
@@ -151,6 +178,7 @@ impl YadbeError {
             message: LocalizedText::new(en, fr),
             action: None,
             detail: None,
+            tunnel: None,
         }
     }
 
@@ -569,6 +597,8 @@ impl YadbeError {
                 | ErrorCode::ConnectionLost
                 | ErrorCode::QueryFailed
                 | ErrorCode::Internal
+                | ErrorCode::SshHostUnreachable
+                | ErrorCode::SshHandshakeFailed
         )
     }
 }

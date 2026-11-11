@@ -11,6 +11,14 @@ import type {
   SecretInput,
   TlsMode,
 } from '../../ipc';
+import {
+  emptySshDraft,
+  sshDraftFrom,
+  toSshTunnel,
+  validateSsh,
+  type SshDraft,
+  type SshDraftErrors,
+} from './sshModel';
 
 export type { ConnectionGroup, Engine, EngineInfo, EnvironmentKind, TlsMode };
 
@@ -136,6 +144,8 @@ export interface ConnectionDraft {
   /** Statements run on the connection are recorded in the history (F-104). */
   historyEnabled: boolean;
   favorite: boolean;
+  /** SSH tunnel section (F-010); its secrets are write-only too. */
+  ssh: SshDraft;
   // Not editable in this form yet: carried so that saving does not lose them.
   caCertPath: string | null;
   connectTimeoutSecs: number | null;
@@ -165,6 +175,7 @@ export function emptyDraft(info: EngineInfo): ConnectionDraft {
     readOnly: false,
     historyEnabled: true,
     favorite: false,
+    ssh: emptySshDraft(),
     caCertPath: null,
     connectTimeoutSecs: null,
     options: [],
@@ -196,6 +207,7 @@ export function draftFromSaved(saved: SavedConnection): ConnectionDraft {
     readOnly: definition.readOnly,
     historyEnabled: definition.historyEnabled ?? true,
     favorite: definition.favorite,
+    ssh: sshDraftFrom(definition.ssh),
     caCertPath: definition.caCertPath,
     connectTimeoutSecs: definition.connectTimeoutSecs,
     options: definition.options,
@@ -272,6 +284,7 @@ export function toDefinition(draft: ConnectionDraft, info: EngineInfo): Connecti
     readOnly: draft.readOnly,
     rememberPassword: draft.rememberPassword,
     historyEnabled: draft.historyEnabled,
+    ssh: file ? null : toSshTunnel(draft.ssh),
   };
 }
 
@@ -309,6 +322,7 @@ export function withEngine(
     password: to.usesFile ? '' : draft.password,
     pendingPasswordId: to.usesFile ? null : draft.pendingPasswordId,
     tlsMode: !to.supportsTls ? 'prefer' : draft.tlsModeAuto ? defaultTlsMode(host) : draft.tlsMode,
+    ssh: to.usesFile ? { ...draft.ssh, enabled: false } : draft.ssh,
   };
 }
 
@@ -357,7 +371,7 @@ export function looksLikeConnectionString(text: string): boolean {
 /** Field-level problems that make the form unsendable. Keys are the field names. */
 export type DraftErrors = Partial<
   Record<'host' | 'port' | 'filePath' | 'environmentLabel', 'required' | 'invalid'>
->;
+> & { ssh?: SshDraftErrors };
 
 export function validateDraft(draft: ConnectionDraft, info: EngineInfo | undefined): DraftErrors {
   const errors: DraftErrors = {};
@@ -373,5 +387,7 @@ export function validateDraft(draft: ConnectionDraft, info: EngineInfo | undefin
   if (draft.environment === 'custom' && !draft.environmentLabel.trim()) {
     errors.environmentLabel = 'required';
   }
+  const ssh = info?.capabilities.usesFile ? {} : validateSsh(draft.ssh);
+  if (Object.keys(ssh).length > 0) errors.ssh = ssh;
   return errors;
 }

@@ -122,6 +122,7 @@ describe('mock sessions', () => {
             { ...blankDefinition('postgres', 't'), host, tlsMode: 'require' },
             { kind: 'value', value: 'pw' },
             null,
+            null,
           ),
         ),
       );
@@ -138,6 +139,7 @@ describe('mock sessions', () => {
       commands.testConnection(
         'r2',
         { ...blankDefinition('sqlite', 'f'), filePath: '/tmp/a.db' },
+        null,
         null,
         null,
       ),

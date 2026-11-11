@@ -5,14 +5,24 @@ import {
   type Engine,
   type EngineInfo,
   type KeychainStatus,
+  type KnownHost,
   type ParsedConnectionString,
   type SavedConnection,
   type SecretInput,
+  type SecretKind,
   type SecretLocation,
   type SessionInfo,
   type TestConnectionResult,
+  type TunnelSecretInput,
 } from '../../ipc';
 import { secretOf, toDefinition, type ConnectionDraft } from './model';
+import {
+  SSH_SECRET_KINDS,
+  sshSecretsToForget,
+  tunnelSecretsOf,
+  typedSshSecrets,
+  type SshSecretLocations,
+} from './sshModel';
 
 /**
  * What the connections UI asks of the backend. Every function rejects with a `YadbeIpcError`
@@ -39,6 +49,7 @@ export const connectionsApi = {
     draft: ConnectionDraft,
     info: EngineInfo,
     storedSecret: SecretLocation | null,
+    storedSshSecrets: SshSecretLocations = {},
   ): Promise<SavedConnection> {
     const definition = toDefinition(draft, info);
     const saved = await unwrap(
@@ -62,6 +73,24 @@ export const connectionsApi = {
       }
     } else if (!draft.rememberPassword && storedSecret === 'keychain') {
       await unwrap(ipc.commands.deleteConnectionSecret(saved.id, 'password'));
+    }
+    // SSH passwords and passphrases (F-010) follow the same rules, kind by kind.
+    const ssh = info.capabilities.usesFile ? { ...draft.ssh, enabled: false } : draft.ssh;
+    for (const typed of typedSshSecrets(ssh)) {
+      await unwrap(
+        ipc.commands.setConnectionSecret(
+          saved.id,
+          typed.kind,
+          { kind: 'value', value: typed.value },
+          typed.remember,
+        ),
+      );
+    }
+    const typedKinds = new Set(typedSshSecrets(ssh).map((typed) => typed.kind));
+    for (const kind of sshSecretsToForget(ssh, storedSshSecrets)) {
+      if (!typedKinds.has(kind)) {
+        await unwrap(ipc.commands.deleteConnectionSecret(saved.id, kind));
+      }
     }
     return saved;
   },
@@ -92,7 +121,13 @@ export const connectionsApi = {
   /** Tries the form without saving it (F-004); cancellable with `cancelTest(requestId)`. */
   test(requestId: string, draft: ConnectionDraft, info: EngineInfo): Promise<TestConnectionResult> {
     return unwrap(
-      ipc.commands.testConnection(requestId, toDefinition(draft, info), secretOf(draft), draft.id),
+      ipc.commands.testConnection(
+        requestId,
+        toDefinition(draft, info),
+        secretOf(draft),
+        draft.id,
+        info.capabilities.usesFile ? null : tunnelSecretsOf(draft.ssh),
+      ),
     );
   },
 
@@ -101,6 +136,49 @@ export const connectionsApi = {
 
   connect: (id: string, password: SecretInput | null): Promise<SessionInfo> =>
     unwrap(ipc.commands.connect(id, password)),
+
+  /** Connects with SSH secrets typed at connect time (kept for the session once they worked). */
+  connectWithSecrets: (
+    id: string,
+    password: SecretInput | null,
+    tunnelSecrets: TunnelSecretInput[],
+  ): Promise<SessionInfo> => unwrap(ipc.commands.connectWithSecrets(id, password, tunnelSecrets)),
+
+  /** Stores a secret typed in a prompt (password or SSH secret) once it worked. */
+  setSecret: (
+    id: string,
+    kind: SecretKind,
+    value: string,
+    remember: boolean,
+  ): Promise<SecretLocation> =>
+    unwrap(ipc.commands.setConnectionSecret(id, kind, { kind: 'value', value }, remember)),
+
+  /** Where each SSH secret of a connection is kept. */
+  async sshSecretLocations(id: string): Promise<SshSecretLocations> {
+    const found = await Promise.all(
+      SSH_SECRET_KINDS.map(
+        async (kind) => [kind, await unwrap(ipc.commands.hasConnectionSecret(id, kind))] as const,
+      ),
+    );
+    const locations: SshSecretLocations = {};
+    for (const [kind, location] of found) {
+      if (location !== null) locations[kind] = location;
+    }
+    return locations;
+  },
+
+  knownHosts: (): Promise<KnownHost[]> => unwrap(ipc.commands.listKnownHosts()),
+
+  /** Trusts the host key the user was shown (`sshHostKeyUnknown`). */
+  trustHostKey: (
+    host: string,
+    port: number,
+    keyType: string,
+    fingerprint: string,
+  ): Promise<KnownHost> => unwrap(ipc.commands.trustHostKey(host, port, keyType, fingerprint)),
+
+  forgetHostKey: (host: string, port: number, keyType: string | null): Promise<number> =>
+    unwrap(ipc.commands.forgetHostKey(host, port, keyType)),
 
   disconnect: (id: string): Promise<null> => unwrap(ipc.commands.disconnect(id)),
 

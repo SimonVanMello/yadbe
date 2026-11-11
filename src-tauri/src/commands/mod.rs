@@ -10,6 +10,7 @@ pub mod meta;
 pub mod query;
 pub mod secrets;
 pub mod sessions;
+pub mod ssh;
 pub mod store;
 pub mod table_data;
 pub mod value_file;

@@ -39,10 +39,11 @@ export const commands = {
 	deleteConnectionGroup: (groupId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("delete_connection_group", { groupId })),
 	/**
 	 *  Tests a definition, saved or not: connects, reads the server version, pings and closes.
-	 *  Without `password`, the stored secret of `connectionId` is used. `requestId` lets
-	 *  `cancel_test_connection` abort it.
+	 *  Without `password`, the stored secret of `connectionId` is used; likewise for the SSH
+	 *  secrets missing from `tunnelSecrets`. A tunnel failure names its hop (`error.tunnel`).
+	 *  `requestId` lets `cancel_test_connection` abort it.
 	 */
-	testConnection: (requestId: string, definition: ConnectionDefinition, password: { kind: "value"; value: Secret } | { kind: "pending"; id: string } | null, connectionId: string | null) => typedError<TestConnectionResult, YadbeError>(__TAURI_INVOKE("test_connection", { requestId, definition, password, connectionId })),
+	testConnection: (requestId: string, definition: ConnectionDefinition, password: { kind: "value"; value: Secret } | { kind: "pending"; id: string } | null, connectionId: string | null, tunnelSecrets: TunnelSecretInput[] | null) => typedError<TestConnectionResult, YadbeError>(__TAURI_INVOKE("test_connection", { requestId, definition, password, connectionId, tunnelSecrets })),
 	/**  Aborts a running `test_connection` (it then fails with `cancelled`). */
 	cancelTestConnection: (requestId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("cancel_test_connection", { requestId })),
 	/**
@@ -51,6 +52,11 @@ export const commands = {
 	 *  `connection-state-changed`.
 	 */
 	connect: (connectionId: string, password: { kind: "value"; value: Secret } | { kind: "pending"; id: string } | null) => typedError<SessionInfo, YadbeError>(__TAURI_INVOKE("connect", { connectionId, password })),
+	/**
+	 *  `connect` with SSH secrets typed at connect time (F-010), kept for the session once they
+	 *  worked, like the password.
+	 */
+	connectWithSecrets: (connectionId: string, password: { kind: "value"; value: Secret } | { kind: "pending"; id: string } | null, tunnelSecrets: TunnelSecretInput[]) => typedError<SessionInfo, YadbeError>(__TAURI_INVOKE("connect_with_secrets", { connectionId, password, tunnelSecrets })),
 	/**  Closes a connection (also aborts a connection attempt or a reconnection). */
 	disconnect: (connectionId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("disconnect", { connectionId })),
 	/**  State of every connection that is not closed. */
@@ -274,6 +280,15 @@ export const commands = {
 	 *  `table-data-changed` and returns the inserted rows as stored.
 	 */
 	applyTableChanges: (tabId: string, changes: ChangeSet) => typedError<ApplyOutcome, YadbeError>(__TAURI_INVOKE("apply_table_changes", { tabId, changes })),
+	/**  Host keys yadbe trusts (its own store; `~/.ssh/known_hosts` is not listed). */
+	listKnownHosts: () => typedError<KnownHost[], YadbeError>(__TAURI_INVOKE("list_known_hosts")),
+	/**
+	 *  Trusts the host key the user was shown (`sshHostKeyUnknown` error: host, port, key type,
+	 *  fingerprint). Never replaces a different known key of the same type.
+	 */
+	trustHostKey: (host: string, port: number, keyType: string, fingerprint: string) => typedError<KnownHost, YadbeError>(__TAURI_INVOKE("trust_host_key", { host, port, keyType, fingerprint })),
+	/**  Forgets the accepted keys of a host (`keyType`: only that one). Returns how many. */
+	forgetHostKey: (host: string, port: number, keyType: string | null) => typedError<number, YadbeError>(__TAURI_INVOKE("forget_host_key", { host, port, keyType })),
 };
 
 /** Events */
@@ -555,6 +570,8 @@ export type ConnectionDefinition = {
 	 *  opts out; absent in older payloads.
 	 */
 	historyEnabled?: boolean,
+	/**  SSH tunnel in front of a server connection (F-010); absent in older payloads. */
+	ssh?: SshTunnel | null,
 };
 
 /**  A folder of connections; groups can nest. */
@@ -717,7 +734,9 @@ export type ErrorAction =
 /**  Let the user pick another file. */
 "chooseFile" | 
 /**  Open the connection again. */
-"reconnect";
+"reconnect" | 
+/**  Show the SSH host key fingerprint (`tunnel`) and let the user trust it. */
+"trustHostKey";
 
 /**  Stable machine-readable error code; the frontend switches on it, never on messages. */
 export type ErrorCode = 
@@ -806,7 +825,33 @@ export type ErrorCode =
  *  The engine could not convert a value for its column (bad format, out of range, too
  *  long).
  */
-"invalidValue";
+"invalidValue" | 
+/**
+ *  The SSH server (or jump host) of the tunnel could not be reached: DNS, refused,
+ *  timeout, or the link dropped during the handshake (`tunnel` says which hop).
+ */
+"sshHostUnreachable" | 
+/**  The SSH handshake failed (no common algorithm, protocol error). */
+"sshHandshakeFailed" | 
+/**  The SSH server rejected the user, password, key or agent identities. */
+"sshAuthFailed" | 
+/**  The SSH password or key passphrase is not stored: ask for it (`tunnel.secret`). */
+"sshSecretRequired" | 
+/**  The SSH server's host key is not known yet: show its fingerprint and ask (`tunnel`). */
+"sshHostKeyUnknown" | 
+/**  The SSH server's host key differs from the known one: refused. */
+"sshHostKeyChanged" | 
+/**
+ *  The SSH server refused to forward to the next hop (forwarding disabled, or the target
+ *  unreachable from it).
+ */
+"sshChannelRefused" | 
+/**  No SSH agent is running, or it holds no identity. */
+"sshAgentUnavailable" | 
+/**  The private key file cannot be read or is not a supported key. */
+"sshKeyUnreadable" | 
+/**  The key passphrase is wrong. */
+"sshKeyPassphraseWrong";
 
 export type ExecuteRequest = {
 	/**  The editor tab: it owns a dedicated server connection, opened on its first run. */
@@ -1126,6 +1171,16 @@ export type KeychainStatus = {
 	available: boolean,
 	/**  Why the keychain is unavailable (technical). */
 	detail: string | null,
+};
+
+/**  A host key the user accepted (yadbe's own known-hosts store). */
+export type KnownHost = {
+	host: string,
+	port: number,
+	keyType: string,
+	fingerprint: string,
+	/**  Unix time in seconds. */
+	addedAt: number,
 };
 
 export type LineEnding = "lf" | "crlf";
@@ -1494,7 +1549,11 @@ export type Secret = string;
  */
 export type SecretInput = { kind: "value"; value: Secret } | { kind: "pending"; id: string };
 
-export type SecretKind = "password" | "sshPassphrase" | "token";
+export type SecretKind = "password" | "sshPassphrase" | "token" | 
+/**  Password of the SSH tunnel's server. */
+"sshPassword" | 
+/**  Password and key passphrase of the SSH tunnel's jump host. */
+"jumpPassword" | "jumpPassphrase";
 
 /**  Where a secret is kept. */
 export type SecretLocation = 
@@ -1535,6 +1594,8 @@ export type SessionInfo = {
 	error: YadbeError | null,
 	/**  1-based, while `reconnecting` (and on the `lost` state that ends the attempts). */
 	reconnectAttempt: number | null,
+	/**  The SSH tunnel of the connection and its phase (`opening` while connecting through it). */
+	tunnel: TunnelStatus | null,
 };
 
 export type SortDirection = "asc" | "desc";
@@ -1542,6 +1603,46 @@ export type SortDirection = "asc" | "desc";
 export type SortKey = {
 	column: string,
 	direction: SortDirection,
+};
+
+/**  How yadbe authenticates to an SSH server. */
+export type SshAuthMethod = 
+/**  The password lives in the keychain or in the session, like a database password. */
+"password" | 
+/**
+ *  A private key file read at connect time (OpenSSH or PEM); its passphrase, if any,
+ *  lives in the keychain or in the session.
+ */
+"key" | 
+/**  The running SSH agent (`SSH_AUTH_SOCK`; Pageant / the OpenSSH agent on Windows). */
+"agent";
+
+/**  One SSH server: the tunnel's own, or the jump host in front of it. */
+export type SshHop = {
+	host: string,
+	/**  `null`: 22. */
+	port: number | null,
+	username: string,
+	auth: SshAuthMethod,
+	/**  Private key file (`~` allowed) for `key`; never copied, read at connect time. */
+	keyPath: string | null,
+	/**
+	 *  The password or key passphrase goes to the OS keychain; otherwise it is asked at
+	 *  connect time and kept in memory for the session.
+	 */
+	rememberSecret: boolean,
+};
+
+/**
+ *  An SSH tunnel in front of a server connection (F-010): the database host and port are
+ *  reached from the SSH server's side.
+ */
+export type SshTunnel = {
+	server: SshHop,
+	/**  One hop in front of `server` (`ssh -J`). */
+	jump: SshHop | null,
+	/**  Keep-alive interval; `null`: 30 s, `0`: off. */
+	keepaliveSecs: number | null,
 };
 
 export type StatementCompleted = {
@@ -1867,6 +1968,53 @@ export type TriggerInfo = {
 
 export type TriggerTiming = "before" | "after" | "insteadOf";
 
+/**
+ *  What a tunnel error is about, for the UI: which hop failed, the host key to show, the
+ *  secret to ask for. Never holds a secret.
+ */
+export type TunnelFailure = {
+	hop: TunnelHop,
+	host: string,
+	port: number,
+	/**  Host key algorithm (`ssh-ed25519`…), for host key errors. */
+	keyType: string | null,
+	/**  `SHA256:…` fingerprint of the host key the server presented, for host key errors. */
+	fingerprint: string | null,
+	/**  The secret to ask for (`sshSecretRequired`, `sshAuthFailed`, wrong passphrase). */
+	secret: SecretKind | null,
+};
+
+/**  The hops of a tunnelled connection, in the order they are crossed. */
+export type TunnelHop = 
+/**  The jump host. */
+"jump" | 
+/**  The tunnel's SSH server. */
+"server" | 
+/**  The database, reached through the tunnel. */
+"database";
+
+/**  Phase of a session's tunnel, carried by connection states. */
+export type TunnelPhase = 
+/**  Connecting and authenticating to the SSH server(s). */
+"opening" | "open" | 
+/**  Closed or dropped; reopened before the next database connection. */
+"down";
+
+/**  An SSH password or key passphrase typed for one attempt (F-010). */
+export type TunnelSecretInput = {
+	/**  `sshPassword`, `sshPassphrase`, `jumpPassword` or `jumpPassphrase`. */
+	kind: SecretKind,
+	secret: SecretInput,
+};
+
+export type TunnelStatus = {
+	phase: TunnelPhase,
+	/**  `user@host:port` of the tunnel's SSH server. */
+	endpoint: string,
+	/**  `user@host:port` of the jump host, if any. */
+	jump: string | null,
+};
+
 export type TypeAttribute = {
 	name: string,
 	typeName: string,
@@ -1953,6 +2101,8 @@ export type YadbeError = {
 	action: ErrorAction | null,
 	/**  Raw technical detail (driver message, I/O error), redacted, shown in a collapsible area. */
 	detail: string | null,
+	/**  Set on SSH tunnel errors: the hop that failed, the host key, the secret to ask for. */
+	tunnel?: TunnelFailure | null,
 };
 
 /* Tauri Specta runtime */

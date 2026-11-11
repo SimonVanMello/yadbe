@@ -134,10 +134,15 @@ async fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, YadbeError> {
     Ok(addrs)
 }
 
-/// A TCP connection with keepalive to the first address that answers.
+/// A TCP connection with keepalive to the first address that answers (the local end of the
+/// SSH tunnel when there is one).
 async fn tcp(target: &ConnectTarget, host: &str, port: u16) -> Result<TcpStream, YadbeError> {
     let mut last: Option<std::io::Error> = None;
-    for addr in resolve(host, port).await? {
+    let addrs = match target.dial {
+        Some(dial) => vec![dial],
+        None => resolve(host, port).await?,
+    };
+    for addr in addrs {
         let socket = if addr.is_ipv4() {
             TcpSocket::new_v4()
         } else {
@@ -180,6 +185,12 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
     // `host\instance` on the default port asks the SQL Browser for the instance's port;
     // an explicit port is used as is.
     let mut client = match instance {
+        Some(_) if target.port == DEFAULT_PORT && target.dial.is_some() => {
+            return Err(YadbeError::ssh_tunnel_unsupported(
+                "A named instance is found through the SQL Browser (UDP), which an SSH tunnel cannot carry: give the instance's port.",
+                "Une instance nommée se trouve par le SQL Browser (UDP), qu'un tunnel SSH ne peut pas transporter : indiquez le port de l'instance.",
+            ));
+        }
         Some(instance) if target.port == DEFAULT_PORT => {
             let mut config = config(target, password, host, DEFAULT_PORT);
             config.instance_name(instance);
@@ -242,6 +253,12 @@ async fn login(
 ) -> Result<Tds, YadbeError> {
     match Client::connect(config.clone(), stream.compat_write()).await {
         Ok(client) => Ok(client),
+        Err(TdsError::Routing { .. }) if target.dial.is_some() => {
+            Err(YadbeError::ssh_tunnel_unsupported(
+                "The server redirects the connection to another host (Azure SQL redirect policy), which this SSH tunnel does not lead to. Use the proxy connection policy.",
+                "Le serveur redirige la connexion vers un autre hôte (stratégie de redirection d'Azure SQL), où ce tunnel SSH ne mène pas. Utilisez la stratégie de connexion proxy.",
+            ))
+        }
         Err(TdsError::Routing { host, port }) => {
             let mut config = config;
             config.host(&host);
@@ -568,6 +585,7 @@ mod tests {
             read_only: false,
             remember_password: false,
             history_enabled: true,
+            ssh: None,
         }
         .target();
         // tiberius' handshake bound names "TLS negotiation" and "handshake" in its message.
