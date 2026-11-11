@@ -15,7 +15,7 @@ const VIEW_DEFINITION_SQL: &str = "\
 SELECT pg_get_viewdef(c.oid, true)
 FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = ANY($3)";
+WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind::text = ANY($3)";
 
 const FUNCTION_DEFINITION_SQL: &str = "\
 SELECT pg_get_functiondef(p.oid)

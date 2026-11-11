@@ -43,6 +43,34 @@ impl MetaService {
             .ok_or_else(|| YadbeError::object_not_found(&display_name(object, id)))
     }
 
+    /// The user-defined types of an object's schema, for the type names of its columns (none
+    /// where the engine has no such kind, or when they cannot be listed).
+    async fn schema_types(
+        &self,
+        manager: &ConnectionManager,
+        connection_id: &str,
+        object: &ObjectRef,
+    ) -> Vec<ObjectRef> {
+        let listed = self
+            .objects(
+                manager,
+                None,
+                connection_id,
+                &object.database,
+                object.schema.as_deref(),
+                ObjectKind::Type,
+            )
+            .await
+            .unwrap_or_default();
+        listed
+            .into_iter()
+            .map(|t| ObjectRef {
+                name: t.name,
+                ..object.clone()
+            })
+            .collect()
+    }
+
     /// The DDL of a table, view, routine, sequence, type, trigger or index.
     pub async fn object_ddl(
         &self,
@@ -84,7 +112,8 @@ impl MetaService {
                         let details = self
                             .table_details(manager, request_id, connection_id, object)
                             .await?;
-                        Ok(reconstructed(ddl::table_ddl(dialect, &details)))
+                        let types = self.schema_types(manager, connection_id, object).await;
+                        Ok(reconstructed(ddl::table_ddl(dialect, &details, &types)))
                     }
                     _ => info
                         .and_then(|info| ddl::object_ddl(dialect, object, &info))

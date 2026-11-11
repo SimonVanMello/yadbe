@@ -222,20 +222,22 @@ impl ObjectDialect for MssqlDialect {
 
     fn drop_statement(&self, object: &ObjectRef, info: &ObjectInfo) -> String {
         let word = match info.kind {
+            // These take a database-qualified name.
             ObjectKind::Table => "TABLE",
+            ObjectKind::Sequence => "SEQUENCE",
             ObjectKind::View | ObjectKind::MaterializedView => "VIEW",
             ObjectKind::Function => "FUNCTION",
             ObjectKind::Procedure => "PROCEDURE",
-            ObjectKind::Sequence => "SEQUENCE",
-            // `DROP TYPE` takes no database part.
-            ObjectKind::Type => {
-                return self.in_database(
-                    &object.database,
-                    &format!("DROP TYPE {}", self.schema_name(object)),
-                );
-            }
+            ObjectKind::Type => "TYPE",
         };
-        format!("DROP {word} {}", self.ddl_name(object))
+        if matches!(info.kind, ObjectKind::Table | ObjectKind::Sequence) {
+            return format!("DROP {word} {}", self.ddl_name(object));
+        }
+        // The others refuse a database prefix: they run inside the database instead.
+        self.in_database(
+            &object.database,
+            &format!("DROP {word} {}", self.schema_name(object)),
+        )
     }
 
     fn truncate_statement(&self, object: &ObjectRef) -> String {

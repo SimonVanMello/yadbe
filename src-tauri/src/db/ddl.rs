@@ -48,7 +48,16 @@ fn column_list(dialect: &dyn Dialect, columns: &[String]) -> String {
         .join(", ")
 }
 
-fn column_line(dialect: &dyn Dialect, column: &ColumnInfo) -> String {
+/// A column's type with its schema when it is one of the schema's own types (`type_name` is
+/// the bare name where the engine prints only that): the text runs from any default schema.
+fn column_type(dialect: &dyn Dialect, column: &ColumnInfo, user_types: &[ObjectRef]) -> String {
+    user_types
+        .iter()
+        .find(|t| t.name == column.type_name)
+        .map_or_else(|| column.type_name.clone(), |t| qualified_name(dialect, t))
+}
+
+fn column_line(dialect: &dyn Dialect, column: &ColumnInfo, user_types: &[ObjectRef]) -> String {
     let style = dialect.ddl_style();
     let name = dialect.quote_identifier(&column.name);
     if let Some(generated) = &column.generated {
@@ -60,7 +69,7 @@ fn column_line(dialect: &dyn Dialect, column: &ColumnInfo) -> String {
             ),
             GeneratedStyle::Standard => format!(
                 "{name} {} GENERATED ALWAYS AS ({expression}) {}",
-                column.type_name,
+                column_type(dialect, column, user_types),
                 if generated.stored {
                     "STORED"
                 } else {
@@ -69,7 +78,7 @@ fn column_line(dialect: &dyn Dialect, column: &ColumnInfo) -> String {
             ),
         };
     }
-    let mut line = format!("{name} {}", column.type_name);
+    let mut line = format!("{name} {}", column_type(dialect, column, user_types));
     match (column.identity, style.identity) {
         (Some(Identity::Always), IdentityStyle::GeneratedAsIdentity) => {
             line.push_str(" GENERATED ALWAYS AS IDENTITY");
@@ -123,12 +132,27 @@ fn foreign_key_line(dialect: &dyn Dialect, fk: &ForeignKey) -> String {
 
 /// A `CREATE INDEX` rebuilt from the columns the catalog lists.
 pub fn index_ddl(dialect: &dyn Dialect, table: &ObjectRef, index: &IndexInfo) -> String {
+    // A key is a column, written `name` or `name DESC`, unless the engine indexes expressions:
+    // then the text is the engine's own.
+    let keys: Vec<String> = index
+        .columns
+        .iter()
+        .map(|key| {
+            if dialect.meta_capabilities().expression_indexes {
+                return key.clone();
+            }
+            match key.strip_suffix(" DESC") {
+                Some(name) => format!("{} DESC", dialect.quote_identifier(name)),
+                None => dialect.quote_identifier(key),
+            }
+        })
+        .collect();
     let mut sql = format!(
         "CREATE {}INDEX {} ON {} ({})",
         if index.unique { "UNIQUE " } else { "" },
         dialect.quote_identifier(&index.name),
         qualified_name(dialect, table),
-        column_list(dialect, &index.columns)
+        keys.join(", ")
     );
     if let Some(predicate) = &index.predicate {
         sql.push_str(" WHERE ");
@@ -196,11 +220,16 @@ pub fn table_extras(
 }
 
 /// `CREATE TABLE` with its columns and constraints, then its indexes and triggers.
-pub fn table_ddl(dialect: &dyn Dialect, details: &TableDetails) -> String {
+/// `user_types`: the types of the table's schema.
+pub fn table_ddl(
+    dialect: &dyn Dialect,
+    details: &TableDetails,
+    user_types: &[ObjectRef],
+) -> String {
     let mut lines: Vec<String> = details
         .columns
         .iter()
-        .map(|c| format!("  {}", column_line(dialect, c)))
+        .map(|c| format!("  {}", column_line(dialect, c, user_types)))
         .collect();
     if let Some(pk) = &details.primary_key {
         lines.push(format!(
@@ -408,7 +437,7 @@ mod tests {
 
     #[test]
     fn rebuilds_a_postgres_table() {
-        let sql = table_ddl(Engine::Postgres.dialect(), &orders(Some("sales")));
+        let sql = table_ddl(Engine::Postgres.dialect(), &orders(Some("sales")), &[]);
         assert!(sql.starts_with("-- Reconstructed by yadbe"), "{sql}");
         assert!(sql.contains("CREATE TABLE \"sales\".\"orders\" ("), "{sql}");
         assert!(sql.contains("\"id\" integer GENERATED ALWAYS AS IDENTITY NOT NULL"));
@@ -428,7 +457,7 @@ mod tests {
 
     #[test]
     fn rebuilds_a_sql_server_table_with_a_note() {
-        let sql = table_ddl(Engine::Mssql.dialect(), &orders(Some("dbo")));
+        let sql = table_ddl(Engine::Mssql.dialect(), &orders(Some("dbo")), &[]);
         assert!(sql.contains("IDENTITY(1,1)"), "{sql}");
         assert!(sql.contains("[total] AS (a + b) PERSISTED"), "{sql}");
         assert!(sql.contains("CREATE TABLE [dbo].[orders] ("), "{sql}");
