@@ -118,6 +118,13 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::ssh::list_known_hosts,
             commands::ssh::trust_host_key,
             commands::ssh::forget_host_key,
+            commands::objects::get_object_ddl,
+            commands::objects::get_object_properties,
+            commands::objects::plan_object_action,
+            commands::objects::run_object_action,
+            commands::objects::list_pinned_objects,
+            commands::objects::pin_object,
+            commands::objects::unpin_object,
         ])
         .events(collect_events![
             events::AppReady,

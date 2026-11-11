@@ -5,6 +5,7 @@ mod history;
 mod known_hosts;
 mod library_io;
 mod migrations;
+mod pins;
 mod saved_queries;
 mod types;
 

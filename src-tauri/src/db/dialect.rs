@@ -76,7 +76,11 @@ pub struct Capabilities {
 }
 
 pub trait Dialect:
-    Send + Sync + crate::db::meta::MetaDialect + crate::db::edit_dialect::EditDialect
+    Send
+    + Sync
+    + crate::db::meta::MetaDialect
+    + crate::db::edit_dialect::EditDialect
+    + crate::db::object_ops::ObjectDialect
 {
     fn engine(&self) -> Engine;
 
@@ -337,6 +341,8 @@ pub struct EngineInfo {
     /// A driver for this engine ships in this build; otherwise connecting fails with
     /// `engineNotSupported`.
     pub available: bool,
+    /// Drop, truncate and rename per kind of object (F-026): the menus hide the rest.
+    pub object_actions: Vec<crate::db::object_model::ObjectActionSupport>,
 }
 
 #[cfg(test)]

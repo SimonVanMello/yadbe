@@ -3,13 +3,36 @@ import type {
   ConnectionGroup,
   Engine,
   EngineInfo,
+  ObjectActionSupport,
+  ObjectKind,
   SavedConnection,
 } from './bindings';
+import { MOCK_OBJECT_KINDS } from './mock/metaCatalog';
 
 /** Fixed timestamps keep captures and tests deterministic (Unix seconds). */
 const CREATED_AT = 1_762_000_000;
 
-export const MOCK_ENGINES: EngineInfo[] = [
+/** Mirror of `db::object_ops::support_of`, per engine. */
+export function mockObjectActions(
+  engine: Engine,
+  kinds: readonly ObjectKind[],
+): ObjectActionSupport[] {
+  return kinds.map((kind) => {
+    const table = kind === 'table';
+    switch (engine) {
+      case 'postgres':
+        return { kind, drop: true, truncate: table, rename: true };
+      case 'mssql':
+        return { kind, drop: true, truncate: table, rename: table || kind === 'sequence' };
+      case 'mysql':
+        return { kind, drop: true, truncate: table, rename: table || kind === 'view' };
+      case 'sqlite':
+        return { kind, drop: true, truncate: table, rename: table };
+    }
+  });
+}
+
+const ENGINES: EngineInfo[] = [
   {
     engine: 'postgres',
     label: 'PostgreSQL',
@@ -27,6 +50,7 @@ export const MOCK_ENGINES: EngineInfo[] = [
     },
     defaultUsername: 'postgres',
     available: true,
+    objectActions: [],
   },
   {
     engine: 'mssql',
@@ -45,6 +69,7 @@ export const MOCK_ENGINES: EngineInfo[] = [
     },
     defaultUsername: 'sa',
     available: true,
+    objectActions: [],
   },
   {
     engine: 'mysql',
@@ -63,6 +88,7 @@ export const MOCK_ENGINES: EngineInfo[] = [
     },
     defaultUsername: 'root',
     available: true,
+    objectActions: [],
   },
   {
     engine: 'sqlite',
@@ -81,8 +107,14 @@ export const MOCK_ENGINES: EngineInfo[] = [
     },
     defaultUsername: null,
     available: true,
+    objectActions: [],
   },
 ];
+
+export const MOCK_ENGINES: EngineInfo[] = ENGINES.map((info) => ({
+  ...info,
+  objectActions: mockObjectActions(info.engine, MOCK_OBJECT_KINDS[info.engine] ?? []),
+}));
 
 /** A definition with every field at its neutral value, for building variants. */
 export function blankDefinition(engine: Engine, name = ''): ConnectionDefinition {

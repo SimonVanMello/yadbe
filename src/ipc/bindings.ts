@@ -367,6 +367,30 @@ export const commands = {
 	trustHostKey: (host: string, port: number, keyType: string, fingerprint: string) => typedError<KnownHost, YadbeError>(__TAURI_INVOKE("trust_host_key", { host, port, keyType, fingerprint })),
 	/**  Forgets the accepted keys of a host (`keyType`: only that one). Returns how many. */
 	forgetHostKey: (host: string, port: number, keyType: string | null) => typedError<number, YadbeError>(__TAURI_INVOKE("forget_host_key", { host, port, keyType })),
+	/**
+	 *  The definition of a table, view, materialized view, routine, sequence, type, trigger or
+	 *  index: the engine's own text when it has one, else rebuilt (the text then starts with a
+	 *  comment that says so, and `source` is `reconstructed`).
+	 */
+	getObjectDdl: (requestId: string | null, connectionId: string, target: DdlTarget) => typedError<ObjectDdl, YadbeError>(__TAURI_INVOKE("get_object_ddl", { requestId, connectionId, target })),
+	/**
+	 *  Row estimate, sizes, owner, dates and the like of a table, view or materialized view; the
+	 *  facts the engine does not have are `null`.
+	 */
+	getObjectProperties: (requestId: string | null, connectionId: string, object: ObjectRef, kind: ObjectKind) => typedError<ObjectProperties, YadbeError>(__TAURI_INVOKE("get_object_properties", { requestId, connectionId, object, kind })),
+	/**  The statement a drop, truncate or rename would run, with what it affects. Runs nothing. */
+	planObjectAction: (requestId: string | null, connectionId: string, request: ObjectActionRequest) => typedError<ObjectActionPlan, YadbeError>(__TAURI_INVOKE("plan_object_action", { requestId, connectionId, request })),
+	/**
+	 *  Runs a drop, truncate or rename (the statement `plan_object_action` shows, never `CASCADE`).
+	 *  Refused with `readOnlyViolation` on a read-only connection. The statement is recorded in
+	 *  the statement log; the explorer's metadata is read again afterwards (`meta-refreshed`).
+	 */
+	runObjectAction: (requestId: string | null, connectionId: string, request: ObjectActionRequest) => typedError<ObjectActionOutcome, YadbeError>(__TAURI_INVOKE("run_object_action", { requestId, connectionId, request })),
+	/**  Every pinned object and schema of every connection, in the order they were pinned. */
+	listPinnedObjects: () => typedError<PinnedObject[], YadbeError>(__TAURI_INVOKE("list_pinned_objects")),
+	/**  Pins an object (or a schema: `kind` `null`) at the top of its connection's tree. */
+	pinObject: (pin: PinnedObject) => typedError<null, YadbeError>(__TAURI_INVOKE("pin_object", { pin })),
+	unpinObject: (pin: PinnedObject) => typedError<null, YadbeError>(__TAURI_INVOKE("unpin_object", { pin })),
 };
 
 /** Events */
@@ -770,7 +794,40 @@ export type DatabaseInfo = {
 	comment: string | null,
 };
 
+/**  Where the text of a DDL view comes from. */
+export type DdlSource = 
+/**
+ *  The engine's own definition (`pg_get_viewdef`, `sys.sql_modules`, `SHOW CREATE …`,
+ *  `sqlite_schema.sql`).
+ */
+"catalog" | 
+/**
+ *  Built by yadbe from the catalog: the engine keeps no text for this object. The text
+ *  starts with a comment that says so.
+ */
+"reconstructed";
+
+/**
+ *  What a DDL view is asked for. A table's DDL carries its indexes and triggers; an index or a
+ *  trigger can also be asked for alone.
+ */
+export type DdlTarget = 
+/**
+ *  A table, view, materialized view, routine, sequence or type. `id` is the object's id in
+ *  its list (the name, or `name(argument types)` for a routine: overloads share a name).
+ */
+{ type: "object"; object: ObjectRef; kind: ObjectKind; id: string } | { type: "trigger"; table: ObjectRef; name: string } | { type: "index"; table: ObjectRef; name: string };
+
 export type Density = "comfortable" | "compact";
+
+/**  An object that depends on another one: it would break, or block the action. */
+export type Dependent = {
+	/**  What the dependent object is (a view, a table with a foreign key…). */
+	kind: ObjectKind,
+	object: ObjectRef,
+	/**  How it depends: `foreign key orders_customer_fk`; `null` for a plain reference. */
+	via: string | null,
+};
 
 /**  The SQL Apply would run (F-085). */
 export type EditPreview = {
@@ -794,6 +851,8 @@ export type EngineInfo = {
 	 *  `engineNotSupported`.
 	 */
 	available: boolean,
+	/**  Drop, truncate and rename per kind of object (F-026): the menus hide the rest. */
+	objectActions: ObjectActionSupport[],
 };
 
 export type Environment = {
@@ -943,7 +1002,9 @@ export type ErrorCode =
 /**  The private key file cannot be read or is not a supported key. */
 "sshKeyUnreadable" | 
 /**  The key passphrase is wrong. */
-"sshKeyPassphraseWrong";
+"sshKeyPassphraseWrong" | 
+/**  This engine cannot do that on this kind of object (no DDL text, no rename…). */
+"notSupported";
 
 export type ExecuteRequest = {
 	/**  The editor tab: it owns a dedicated server connection, opened on its first run. */
@@ -1412,12 +1473,65 @@ export type NewSavedQuery = {
 	snippetTrigger: string | null,
 };
 
+export type ObjectAction = { type: "drop" } | 
+/**  Removes every row; tables only. */
+{ type: "truncate" } | { type: "rename"; newName: string };
+
+export type ObjectActionOutcome = {
+	/**  The statement that ran, as recorded in the statement log. */
+	sql: string,
+	/**  The object under its new name after a rename. */
+	renamedTo: ObjectRef | null,
+};
+
+/**  What a confirmation shows before an action runs (F-026). */
+export type ObjectActionPlan = {
+	/**  The exact statement that will run. Never carries `CASCADE`. */
+	sql: string,
+	/**  Rows the object holds, as the last statistics say (tables). */
+	rowEstimate: number | null,
+	dependents: ObjectDependents,
+};
+
+/**
+ *  An action on one object of the tree. `id` is the object's id in its list (see
+ *  [`DdlTarget::Object`]).
+ */
+export type ObjectActionRequest = {
+	object: ObjectRef,
+	kind: ObjectKind,
+	id: string,
+	action: ObjectAction,
+};
+
+/**  Which actions an engine offers on one kind of object (the menus hide the rest). */
+export type ObjectActionSupport = {
+	kind: ObjectKind,
+	drop: boolean,
+	truncate: boolean,
+	rename: boolean,
+};
+
 export type ObjectCount = {
 	kind: ObjectKind,
 	/**  Every object of this kind, system ones included. */
 	count: number,
 	/**  How many of them are flagged `system` (hidden by default). */
 	systemCount: number,
+};
+
+export type ObjectDdl = {
+	sql: string,
+	source: DdlSource,
+};
+
+export type ObjectDependents = {
+	/**
+	 *  The list is complete. `false`: the engine cannot tell every dependency (`items` then
+	 *  holds the ones it can), so an empty list proves nothing.
+	 */
+	complete: boolean,
+	items: Dependent[],
 };
 
 export type ObjectDetail = {
@@ -1455,6 +1569,34 @@ export type ObjectKind =
 /**  User-defined types: enums, composites, domains, ranges, base types. */
 "type";
 
+/**
+ *  Facts about a table, view or materialized view that the engine exposes (F-025). Every fact
+ *  is optional: the ones the engine does not have, or the user may not read, are `null` and
+ *  not shown.
+ */
+export type ObjectProperties = {
+	object: ObjectRef,
+	kind: ObjectKind,
+	owner: string | null,
+	comment: string | null,
+	/**  The planner's statistics, not a count. */
+	rowEstimate: number | null,
+	/**  Sizes in bytes (a double holds an integer exactly up to 9 PB). */
+	dataBytes: number | null,
+	indexBytes: number | null,
+	/**  Table, indexes and the engine's side storage (TOAST, LOBs). */
+	totalBytes: number | null,
+	/**  `YYYY-MM-DD HH:MM:SS`, as the server prints it. */
+	created: string | null,
+	modified: string | null,
+	/**  Storage engine (`InnoDB`). */
+	storageEngine: string | null,
+	collation: string | null,
+	/**  Last statistics update (`ANALYZE`) and last `VACUUM`. */
+	lastAnalyzed: string | null,
+	lastVacuumed: string | null,
+};
+
 /**  A database object, addressed the same way on every engine. */
 export type ObjectRef = {
 	database: string,
@@ -1489,6 +1631,19 @@ export type ParsedConnectionString = {
 };
 
 export type PauseReason = "rowLimit" | "memoryLimit";
+
+/**  An object (or a schema) pinned at the top of its connection's tree (F-027). */
+export type PinnedObject = {
+	connectionId: string,
+	database: string,
+	/**  `null` on engines without schemas. */
+	schema: string | null,
+	/**  `null`: the pin is the schema itself (`name`). */
+	kind: ObjectKind | null,
+	name: string,
+	/**  The object's id in its list (see [`DdlTarget::Object`]); equal to `name` for a schema. */
+	id: string,
+};
 
 /**  What a planned statement does, pointing back into the change set. */
 export type PlannedChange = { kind: "update"; key: Value[]; 

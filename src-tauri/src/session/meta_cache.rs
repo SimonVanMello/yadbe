@@ -699,6 +699,9 @@ impl EventSink for ObservingSink {
     }
 }
 
+#[path = "meta_objects.rs"]
+mod objects;
+
 #[cfg(test)]
 #[path = "meta_cache_tests.rs"]
 mod tests;
