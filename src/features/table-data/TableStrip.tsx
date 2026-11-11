@@ -6,6 +6,8 @@ import { Icon } from '../../ui/Icon';
 import { IconButton } from '../../ui/IconButton';
 import { Select } from '../../ui/Select';
 import { Spinner } from '../../ui/Spinner';
+import { NavButtons } from './NavButtons';
+import { ReferencingButton } from './ReferencingButton';
 import { cancelTableWork, countRows, goToPage, refreshTable, setPageSize } from './tableActions';
 import { openTableExport } from './tableExport';
 import { useTableSession } from './tableSessionStore';
@@ -37,6 +39,7 @@ export function TableStrip({ tabId }: { tabId: string }) {
 
   return (
     <div className={styles.strip} role="toolbar" aria-label={t('tableData.strip.label')}>
+      <NavButtons tabId={tabId} />
       <span className={styles.group}>
         <IconButton
           icon="chevronLeft"
@@ -151,6 +154,7 @@ export function TableStrip({ tabId }: { tabId: string }) {
           {t('tableData.stale')}
         </span>
       )}
+      {session.info?.kind === 'table' && <ReferencingButton tabId={tabId} />}
       <IconButton
         icon="download"
         size="sm"

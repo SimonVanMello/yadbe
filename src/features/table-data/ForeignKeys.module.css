@@ -1,0 +1,356 @@
+/* Foreign key navigation (F-088): the cell button, the peek, the referencing rows panel and
+   the lookup editor's list. */
+
+/* The button at the right end of a foreign key cell (hover or focus). */
+.cellButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-size-lg);
+  height: calc(var(--grid-row-height) - 2 * var(--space-0));
+  margin: 0 var(--space-0);
+  padding: 0;
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.cellButton:hover {
+  background: var(--accent-soft);
+}
+
+.cellButton:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+.anchor {
+  width: 100%;
+  height: 100%;
+}
+
+/* A floating panel (peek, referencing rows), like the app's popovers. */
+.panel {
+  z-index: var(--z-dropdown);
+  display: flex;
+  flex-direction: column;
+  max-height: var(--fk-peek-max-height);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-popover);
+  animation: fade-in var(--duration-normal) var(--easing-standard);
+}
+
+.panel:focus {
+  outline: none;
+}
+
+.peek {
+  width: var(--fk-peek-width);
+}
+
+.referencing {
+  width: var(--fk-panel-width);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0);
+  padding: var(--space-3) var(--space-4) var(--space-2);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-weight: var(--weight-semibold);
+}
+
+.title > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.titleIcon {
+  flex: none;
+  color: var(--accent);
+}
+
+.subtitle {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-2) var(--space-4);
+}
+
+.state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  color: var(--fg-secondary);
+}
+
+.error {
+  color: var(--danger);
+}
+
+/* The referenced row: one line per column, name then value. */
+.fields {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+
+.field {
+  display: contents;
+}
+
+.fieldName {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  overflow: hidden;
+  color: var(--fg-secondary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fieldValue {
+  overflow: hidden;
+  margin: 0;
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fieldValue[data-key] {
+  color: var(--accent);
+}
+
+.null {
+  color: var(--cell-null);
+  font-style: var(--grid-null-font-style);
+  letter-spacing: var(--grid-null-letter-spacing);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+
+.footerHint {
+  margin-right: auto;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+/* Referencing rows: one button per incoming foreign key. */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--row-height);
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--fg-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.item:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+.item:disabled {
+  color: var(--fg-disabled);
+  cursor: default;
+}
+
+.itemText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.itemTable {
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemVia {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--bg-active);
+  color: var(--fg-secondary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.count[data-zero] {
+  background: none;
+  color: var(--fg-muted);
+}
+
+/* The lookup editor: the list under the text box, then the keys. */
+.lookup {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: max(100%, var(--fk-lookup-width));
+  border: var(--border-width) solid var(--border-strong);
+  border-top: none;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-popover);
+  font-family: var(--font-ui);
+}
+
+.options {
+  position: relative;
+  max-height: var(--fk-lookup-max-height);
+  overflow: auto;
+}
+
+.option {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: var(--grid-row-height);
+  padding: 0 var(--grid-cell-padding-x);
+  color: var(--fg-primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.option[aria-selected='true'] {
+  background: var(--accent-soft);
+}
+
+.option:hover {
+  background: var(--bg-hover);
+}
+
+.optionKey {
+  flex: none;
+  color: var(--accent);
+  font-family: var(--font-code);
+}
+
+.optionText {
+  overflow: hidden;
+  color: var(--fg-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lookupState {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--grid-row-height);
+  padding: 0 var(--grid-cell-padding-x);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.lookupHint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--grid-row-height);
+  padding: var(--space-0) var(--space-2);
+  border-top: var(--border-width) solid var(--border-subtle);
+  color: var(--fg-muted);
+  font-size: var(--text-2xs);
+}
+
+.lookupHint > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lookupHint > span:first-child {
+  min-width: 0;
+}
+
+.lookupHint > span:last-child {
+  flex: none;
+  margin-left: auto;
+}
+
+.navButtons {
+  display: inline-flex;
+  align-items: center;
+}

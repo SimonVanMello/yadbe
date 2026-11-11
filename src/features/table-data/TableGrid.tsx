@@ -8,11 +8,20 @@ import {
   DataGrid,
   type ColumnLayout,
   type DataGridApi,
+  type GridCellOverlay,
   type GridCellRef,
   type GridEditing,
 } from '../grid/DataGrid';
 import { formatCount } from '../grid/formatCount';
+import { isNumericKind } from '../grid/cellJson';
+import { modKey } from '../grid/modifiers';
+import { blockText } from '../grid/rowSource';
 import { CellEditor } from './CellEditor';
+import { FkCellButton } from './FkCellButton';
+import { FkCellEditor } from './FkCellEditor';
+import { foreignKeysOf } from './fkModel';
+import { goToReference, useFkStore } from './fkNavigation';
+import { ReferencePeek } from './ReferencePeek';
 import type { EditMove } from './cellEditorTypes';
 import { isFiltered } from './filterModel';
 import {
@@ -22,10 +31,13 @@ import {
   registerEditorFlush,
   registerGrid,
   sortBy,
+  tableTabOf,
   writeCells,
+  type CellWrite,
 } from './tableActions';
 import { openTableExport } from './tableExport';
 import { TableMenu } from './TableMenu';
+import { tableLabel } from './tableNames';
 import type { TableRowSource } from './tableRowSource';
 import { useTableSelectionStore, useTableSessionStore } from './tableSessionStore';
 import { getTableTabState, useTableTabStore } from './tableTabStore';
@@ -68,6 +80,30 @@ export const TableGrid = memo(function TableGrid({ tabId, info, source, label }:
   });
   const [initialLayout] = useState(() => getTableTabState(tabId).layout ?? undefined);
   const editable = info.readOnlyReasons.length === 0;
+  const peek = useFkStore((state) => (state.peek?.tabId === tabId ? state.peek : null));
+  const [hovered, setHovered] = useState<GridCellRef | null>(null);
+  const [focused, setFocused] = useState<GridCellRef | null>(null);
+
+  // Foreign key cells (F-088): a button on the one under the pointer and the focused one.
+  const fkOf = useCallback(
+    (dataCol: number) => {
+      const column = info.columns[dataCol];
+      return column ? foreignKeysOf(info.foreignKeys, column.name)[0] : undefined;
+    },
+    [info],
+  );
+  const onHoverCell = useCallback(
+    (cell: GridCellRef | null) => {
+      setHovered(cell && fkOf(cell.dataCol) ? cell : null);
+    },
+    [fkOf],
+  );
+  const onFocusChange = useCallback(
+    (cell: GridCellRef | null) => {
+      setFocused(cell && fkOf(cell.dataCol) ? cell : null);
+    },
+    [fkOf],
+  );
 
   const setApi = useCallback(
     (api: DataGridApi | null) => {
@@ -131,6 +167,47 @@ export const TableGrid = memo(function TableGrid({ tabId, info, source, label }:
   const editor = useMemo(() => {
     const column = editing ? info.columns[editing.dataCol] : undefined;
     if (!editing || !column) return null;
+    const foreignKey = fkOf(editing.dataCol);
+    const connectionId = tableTabOf(tabId)?.connectionId;
+    if (foreignKey && connectionId) {
+      return {
+        row: editing.row,
+        dataCol: editing.dataCol,
+        node: (
+          <FkCellEditor
+            key={`${String(editing.row)}:${String(editing.dataCol)}`}
+            column={column}
+            initial={editing.initial}
+            typed={editing.typed}
+            label={t('tableData.editor.label', { column: column.name, row: editing.row + 1 })}
+            tabId={tabId}
+            connectionId={connectionId}
+            foreignKey={foreignKey}
+            onCommit={(value, move) => {
+              lastWrite.current = writeCells(tabId, [
+                { row: editing.row, dataCol: editing.dataCol, value },
+              ]);
+              close(editing, move);
+            }}
+            onChoose={(values, move) => {
+              // A composite key fills its columns together; one that cannot be written says why.
+              const writes: CellWrite[] = [];
+              for (const { column: name, value } of values) {
+                const dataCol = info.columns.findIndex((c) => c.name === name);
+                const block = dataCol < 0 ? null : cellBlock(tabId, editing.row, dataCol);
+                if (block) explain(block);
+                else if (dataCol >= 0) writes.push({ row: editing.row, dataCol, value });
+              }
+              lastWrite.current = writeCells(tabId, writes);
+              close(editing, move);
+            }}
+            onCancel={() => {
+              close(editing, 'none');
+            }}
+          />
+        ),
+      };
+    }
     return {
       row: editing.row,
       dataCol: editing.dataCol,
@@ -153,7 +230,7 @@ export const TableGrid = memo(function TableGrid({ tabId, info, source, label }:
         />
       ),
     };
-  }, [editing, info.columns, t, tabId, close]);
+  }, [editing, info.columns, t, tabId, close, fkOf]);
 
   const editingProps: GridEditing = useMemo(
     () => ({
@@ -176,6 +253,12 @@ export const TableGrid = memo(function TableGrid({ tabId, info, source, label }:
         }
         return false;
       },
+      onCellPointerDown: (cell, event) => {
+        // Mod+click on a foreign key cell jumps to the referenced row (as "go to definition").
+        if (!modKey(event) || event.shiftKey || event.altKey || !fkOf(cell.dataCol)) return false;
+        void goToReference(tabId, cell);
+        return true;
+      },
       onCellDoubleClick: (cell) => {
         // A read-only table opens the cell viewer instead.
         if (!editable) return false;
@@ -189,8 +272,40 @@ export const TableGrid = memo(function TableGrid({ tabId, info, source, label }:
       },
       editor,
     }),
-    [startEdit, editable, tabId, editor],
+    [startEdit, editable, tabId, editor, fkOf],
   );
+
+  const rowsVersion = pageVersion + editVersion;
+  const cellOverlays = useMemo(() => {
+    const overlays: GridCellOverlay[] = [];
+    const isNull = (cell: GridCellRef) => {
+      const block = source.block(cell.row);
+      return !block || blockText(block, cell.row - block.offset, cell.dataCol) === null;
+    };
+    const button = (cell: GridCellRef, key: string) => {
+      const foreignKey = fkOf(cell.dataCol);
+      if (!foreignKey || isNull(cell)) return;
+      if (editing && editing.row === cell.row && editing.dataCol === cell.dataCol) return;
+      const kind = info.columns[cell.dataCol]?.kind;
+      overlays.push({
+        key,
+        ...cell,
+        // Numbers are right-aligned: the button goes on the free side of the cell.
+        align: kind && isNumericKind(kind) ? 'start' : 'end',
+        node: (
+          <FkCellButton tabId={tabId} cell={cell} table={tableLabel(foreignKey.referencedTable)} />
+        ),
+      });
+    };
+    if (focused) button(focused, 'fk-focused');
+    if (hovered && (hovered.row !== focused?.row || hovered.dataCol !== focused.dataCol)) {
+      button(hovered, 'fk-hovered');
+    }
+    if (peek) overlays.push({ key: 'fk-peek', ...peek.cell, node: <ReferencePeek peek={peek} /> });
+    return overlays;
+    // The rows changing (a page, an edit) can make a cell NULL or not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused, hovered, peek, editing, fkOf, source, tabId, info.columns, rowsVersion]);
 
   const sortKeys = useMemo(
     () =>
@@ -253,12 +368,24 @@ export const TableGrid = memo(function TableGrid({ tabId, info, source, label }:
       sort={headerSort}
       editing={editingProps}
       apiRef={setApi}
-      menuExtras={<TableMenu tabId={tabId} editable={editable} />}
+      menuExtras={
+        <TableMenu
+          tabId={tabId}
+          editable={editable}
+          references={{
+            outgoing: info.foreignKeys.length > 0,
+            incoming: info.kind === 'table',
+          }}
+        />
+      }
       onExport={onExport}
       initialLayout={initialLayout}
       onLayoutChange={onLayoutChange}
       onSelectionSize={onSelectionSize}
       readOnly={!editable}
+      cellOverlays={cellOverlays}
+      onHoverCell={onHoverCell}
+      onFocusChange={onFocusChange}
     />
   );
 });

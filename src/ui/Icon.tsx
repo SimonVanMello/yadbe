@@ -10,6 +10,7 @@ const PATHS = {
   pencil: 'M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4Zm9.5-13.5 4 4',
   chevronDown: 'm6 9 6 6 6-6',
   back: 'M19 12H5m0 0 6-6m-6 6 6 6',
+  forward: 'M5 12h14m0 0-6-6m6 6-6 6',
   file: 'M14 3H6v18h12V7l-4-4Zm0 0v4h4',
   list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
   tree: 'M4 4h6M7 4v14h5m-5-7h5m3-7h5m-5 7h5m-5 7h5',
