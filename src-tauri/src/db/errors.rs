@@ -66,6 +66,8 @@ pub enum ErrorCode {
     QueryFailed,
     /// The operation was cancelled by the user.
     Cancelled,
+    /// A statement ran past the statement timeout of its connection and was cancelled.
+    StatementTimeout,
     /// A database object (table, schema…) no longer exists, or was renamed.
     ObjectNotFound,
     /// A query is already running in this tab.
@@ -437,6 +439,20 @@ impl YadbeError {
 
     pub fn cancelled() -> Self {
         Self::new(ErrorCode::Cancelled, "Cancelled.", "Annulé.")
+    }
+
+    /// A statement was cancelled because it ran longer than the connection's timeout.
+    pub fn statement_timeout(secs: u64) -> Self {
+        Self::new(
+            ErrorCode::StatementTimeout,
+            format!(
+                "The statement ran longer than the {secs} s limit of this connection and was cancelled."
+            ),
+            format!(
+                "L'instruction a dépassé la limite de {secs} s de cette connexion et a été annulée."
+            ),
+        )
+        .with_action(ErrorAction::EditConnection)
     }
 
     /// `what`: the object as the user knows it (`shop.orders`), never translated.

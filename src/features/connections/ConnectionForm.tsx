@@ -11,6 +11,7 @@ import { ColorPicker } from './ColorPicker';
 import styles from './ConnectionForm.module.css';
 import { ServerFields } from './ServerFields';
 import { SshFields } from './SshFields';
+import { TimeoutFields } from './TimeoutFields';
 import type { SshHopName, SshSecretLocations } from './sshModel';
 import { defaultTagColor } from './tagColors';
 import { SqliteFields } from './SqliteFields';
@@ -108,6 +109,10 @@ export function ConnectionForm({
             />
           </>
         )
+      )}
+
+      {info && (
+        <TimeoutFields draft={draft} fileEngine={info.capabilities.usesFile} onChange={patch} />
       )}
 
       <hr className={styles.separator} />

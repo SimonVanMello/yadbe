@@ -216,6 +216,49 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'dialog-edit');
     });
 
+    test('the timeouts of a connection are saved, and a statement past its limit is cut', async ({
+      page,
+    }) => {
+      await newConnection(page);
+      const dialog = page.getByRole('dialog', { name: 'New connection' });
+      await dialog.getByLabel('Host').fill('slow.example.com');
+      await dialog.getByLabel('Database', { exact: true }).fill('slow');
+      await dialog.getByRole('textbox', { name: 'Password' }).fill('secret');
+      const fields = dialog.getByTestId('timeout-fields');
+      await expect(fields.getByLabel('Connect timeout (s)')).toHaveAttribute(
+        'placeholder',
+        '15 (default)',
+      );
+      await fields.getByLabel('Statement timeout (s)').fill('1');
+      await fields.getByLabel('Keep-alive (s)').fill('30');
+      await capture(page, name, 'dialog-timeouts');
+      await dialog.getByRole('button', { name: 'Save' }).click();
+      await expect(dialog).toBeHidden();
+
+      // The saved values come back in the form.
+      await sidebarItem(page, 'slow@slow\\.example\\.com').click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Edit…' }).click();
+      const edit = page.getByRole('dialog', { name: 'Edit connection' });
+      await expect(edit.getByLabel('Statement timeout (s)')).toHaveValue('1');
+      await expect(edit.getByLabel('Keep-alive (s)')).toHaveValue('30');
+      await edit.getByRole('button', { name: 'Cancel' }).click();
+
+      // A wait longer than the limit is cancelled with a typed error.
+      await sidebarItem(page, 'slow@slow\\.example\\.com').dblclick();
+      const editor = page.getByRole('textbox', { name: 'SQL editor' });
+      await expect(editor).toBeVisible();
+      await expect(sidebarItem(page, 'slow@slow\\.example\\.com')).toHaveAccessibleName(
+        /Connected/,
+      );
+      await editor.click();
+      await page.keyboard.insertText('select pg_sleep(20);');
+      await page.keyboard.press('ControlOrMeta+Enter');
+      await expect(page.getByText(/ran longer than the 1 s limit/).first()).toBeVisible({
+        timeout: 10_000,
+      });
+      await capture(page, name, 'statement-timeout');
+    });
+
     test('a connected tab is tinted by its environment', async ({ page }) => {
       await openFromSidebar(page, 'shop · prod');
       await expect(tab(page, /Query 1/)).toBeVisible();

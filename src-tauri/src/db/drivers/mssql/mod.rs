@@ -395,6 +395,10 @@ impl Connection for MssqlConnection {
         })
     }
 
+    fn keep_alive(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
+        Box::pin(async move { self.run(PING_SQL, 1).await.map(|_| ()) })
+    }
+
     fn query<'a>(
         &'a self,
         sql: &'a str,
@@ -601,6 +605,8 @@ mod tests {
             tls_mode: TlsMode::Prefer,
             ca_cert_path: None,
             connect_timeout_secs: Some(3),
+            statement_timeout_secs: None,
+            keep_alive_secs: None,
             options: Vec::new(),
             group_id: None,
             environment: Environment::default(),

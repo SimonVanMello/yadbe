@@ -422,20 +422,21 @@ fn the_migration_adds_the_tab_to_an_existing_history() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join(DB_FILE);
     {
-        let store = Store::open(&path).expect("open");
-        store
-            .insert_history(&[entry("SELECT before", T0)])
-            .expect("insert");
-    }
-    {
-        // Back to the schema before the tab column, as an older version left it.
-        let conn = Connection::open(&path).expect("open");
-        conn.execute_batch("DROP INDEX history_by_tab; ALTER TABLE history DROP COLUMN tab_id;")
-            .expect("downgrade");
-        conn.pragma_update(None, "user_version", Store::latest_schema_version() - 1)
-            .expect("version");
+        // A database as version 6 left it, with an entry in its history.
+        let mut conn = Connection::open(&path).expect("open");
+        migrations::apply_through(&mut conn, 6).expect("v6");
+        conn.execute(
+            "INSERT INTO history (id, connection_id, connection_name, engine, sql, started_at,
+                duration_ms, outcome) VALUES (1, 'c1', 'shop', 'postgres', 'SELECT before', 1, 1.0, 'ok')",
+            [],
+        )
+        .expect("insert");
     }
     let store = Store::open(&path).expect("reopen");
+    assert_eq!(
+        store.schema_version().expect("version"),
+        Store::latest_schema_version()
+    );
     let page = search(&store, HistoryQuery::default());
     assert_eq!(texts(&page), ["SELECT before"]);
     // The old entry ran in no known tab; new ones record theirs.

@@ -183,6 +183,8 @@ pub fn blank(engine: Engine, name: &str) -> ConnectionDefinition {
         tls_mode: TlsMode::Prefer,
         ca_cert_path: None,
         connect_timeout_secs: Some(5),
+        statement_timeout_secs: None,
+        keep_alive_secs: None,
         options: Vec::new(),
         group_id: None,
         environment: Environment::default(),

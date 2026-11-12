@@ -852,6 +852,16 @@ export type ConnectionDefinition = {
 	caCertPath: string | null,
 	/**  `null`: 15 s. */
 	connectTimeoutSecs: number | null,
+	/**
+	 *  A statement that runs longer than this is cancelled with the engine's own mechanism
+	 *  (F-014). `null`: no limit. Applies to the statements of query tabs.
+	 */
+	statementTimeoutSecs?: number | null,
+	/**
+	 *  Seconds between the pings that keep an idle connection open through firewalls and NAT
+	 *  (F-014). `null`: 60 s; `0`: none. Not used by file engines.
+	 */
+	keepAliveSecs?: number | null,
 	options: ConnectionOption[],
 	groupId: string | null,
 	environment: Environment,
@@ -1202,6 +1212,8 @@ export type ErrorCode =
 "queryFailed" | 
 /**  The operation was cancelled by the user. */
 "cancelled" | 
+/**  A statement ran past the statement timeout of its connection and was cancelled. */
+"statementTimeout" | 
 /**  A database object (table, schema…) no longer exists, or was renamed. */
 "objectNotFound" | 
 /**  A query is already running in this tab. */

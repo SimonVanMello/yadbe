@@ -173,6 +173,13 @@ pub trait Connection: Send + Sync {
     /// A cheap round trip proving the server still answers. Recorded.
     fn ping(&self) -> BoxFuture<'_, Result<(), YadbeError>>;
 
+    /// The round trip that keeps an idle connection open through firewalls and NAT (F-014):
+    /// like `ping`, but not recorded (it would fill the statement log) and a no-op for
+    /// engines whose connection does not cross a network.
+    fn keep_alive(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
+        Box::pin(async { Ok(()) })
+    }
+
     /// Runs one statement authored by yadbe and buffers at most `max_rows` rows. Recorded.
     /// A connection-level failure returns `connectionLost`; the statement is never retried.
     fn query<'a>(

@@ -146,10 +146,20 @@ export interface ConnectionDraft {
   favorite: boolean;
   /** SSH tunnel section (F-010); its secrets are write-only too. */
   ssh: SshDraft;
+  /** Seconds as typed (F-014); empty: the default (connect, keep-alive) or no limit (statement). */
+  connectTimeout: string;
+  statementTimeout: string;
+  keepAlive: string;
   // Not editable in this form yet: carried so that saving does not lose them.
   caCertPath: string | null;
-  connectTimeoutSecs: number | null;
   options: ConnectionOption[];
+}
+
+/** Whole seconds typed in a field: `null` when empty or not a whole number of 0 or more. */
+export function parseSeconds(text: string): number | null {
+  const trimmed = text.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  return Number(trimmed);
 }
 
 export function emptyDraft(info: EngineInfo): ConnectionDraft {
@@ -176,8 +186,10 @@ export function emptyDraft(info: EngineInfo): ConnectionDraft {
     historyEnabled: true,
     favorite: false,
     ssh: emptySshDraft(),
+    connectTimeout: '',
+    statementTimeout: '',
+    keepAlive: '',
     caCertPath: null,
-    connectTimeoutSecs: null,
     options: [],
   };
 }
@@ -208,10 +220,16 @@ export function draftFromSaved(saved: SavedConnection): ConnectionDraft {
     historyEnabled: definition.historyEnabled ?? true,
     favorite: definition.favorite,
     ssh: sshDraftFrom(definition.ssh),
+    connectTimeout: secondsText(definition.connectTimeoutSecs),
+    statementTimeout: secondsText(definition.statementTimeoutSecs ?? null),
+    keepAlive: secondsText(definition.keepAliveSecs ?? null),
     caCertPath: definition.caCertPath,
-    connectTimeoutSecs: definition.connectTimeoutSecs,
     options: definition.options,
   };
+}
+
+function secondsText(secs: number | null): string {
+  return secs === null ? '' : String(secs);
 }
 
 /** Same rule as the backend's `TlsMode::default_for_host` (SPEC §9). */
@@ -272,7 +290,10 @@ export function toDefinition(draft: ConnectionDraft, info: EngineInfo): Connecti
     auth: file ? 'none' : 'password',
     tlsMode: draft.tlsMode,
     caCertPath: draft.caCertPath,
-    connectTimeoutSecs: draft.connectTimeoutSecs,
+    // A file has no connection to time out or keep open: only the statement limit applies.
+    connectTimeoutSecs: file ? null : parseSeconds(draft.connectTimeout),
+    statementTimeoutSecs: parseSeconds(draft.statementTimeout),
+    keepAliveSecs: file ? null : parseSeconds(draft.keepAlive),
     options: draft.options,
     groupId: draft.groupId,
     environment: {

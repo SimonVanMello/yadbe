@@ -174,6 +174,8 @@ export function blankDefinition(engine: Engine, name = ''): ConnectionDefinition
     tlsMode: 'prefer',
     caCertPath: null,
     connectTimeoutSecs: null,
+    statementTimeoutSecs: null,
+    keepAliveSecs: null,
     options: [],
     groupId: null,
     environment: { kind: 'none', label: null, color: null },

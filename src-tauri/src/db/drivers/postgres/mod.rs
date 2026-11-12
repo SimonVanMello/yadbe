@@ -236,6 +236,16 @@ impl Connection for PgConnection {
         })
     }
 
+    fn keep_alive(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
+        Box::pin(async move {
+            self.client
+                .simple_query(PING_SQL)
+                .await
+                .map(|_| ())
+                .map_err(|e| classify_query(&e))
+        })
+    }
+
     fn query<'a>(
         &'a self,
         sql: &'a str,

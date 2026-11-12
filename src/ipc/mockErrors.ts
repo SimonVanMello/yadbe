@@ -139,6 +139,13 @@ export const mockErrors = {
       "Cette chaîne de connexion n'est ni une URL, ni une chaîne ADO.NET, ni une URL JDBC.",
     ),
   cancelled: () => error('cancelled', 'Cancelled.', 'Annulé.'),
+  statementTimeout: (secs: number) =>
+    error(
+      'statementTimeout',
+      `The statement ran longer than the ${String(secs)} s limit of this connection and was cancelled.`,
+      `L'instruction a dépassé la limite de ${String(secs)} s de cette connexion et a été annulée.`,
+      'editConnection',
+    ),
   notConnected: () =>
     error(
       'notConnected',

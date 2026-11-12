@@ -614,6 +614,10 @@ impl Connection for MysqlConnection {
         })
     }
 
+    fn keep_alive(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
+        Box::pin(async move { self.run(PING_SQL, 1).await.map(|_| ()) })
+    }
+
     fn query<'a>(
         &'a self,
         sql: &'a str,

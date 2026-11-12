@@ -1861,5 +1861,14 @@
   "history.filter.thisTabHint": "Ce qui a été exécuté dans l’onglet affiché, pour retrouver une version antérieure de son texte.",
   "history.emptyThisTab": "Rien n’a encore été exécuté dans cet onglet.",
   "history.emptyNoTab": "Ouvrez un onglet de requête pour voir ce qui y a été exécuté.",
-  "history.action.restore": "Remettre dans l’éditeur (remplace le texte de l’onglet)"
+  "history.action.restore": "Remettre dans l’éditeur (remplace le texte de l’onglet)",
+  "connection.timeouts": "Délais et maintien de connexion",
+  "connection.timeouts.connect": "Délai de connexion (s)",
+  "connection.timeouts.connectHint": "Combien de temps attendre la réponse du serveur.",
+  "connection.timeouts.statement": "Délai d’une instruction (s)",
+  "connection.timeouts.statementHint": "Une instruction d’un onglet de requête qui dure plus longtemps est annulée. Vide ou 0 : aucune limite.",
+  "connection.timeouts.keepAlive": "Maintien de connexion (s)",
+  "connection.timeouts.keepAliveHint": "Secondes entre les pings qui gardent une connexion inactive ouverte. 0 : aucun.",
+  "connection.timeouts.default": "{seconds} (par défaut)",
+  "connection.timeouts.none": "Aucune limite"
 }

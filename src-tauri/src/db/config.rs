@@ -15,6 +15,12 @@ use crate::tunnel::SshTunnel;
 /// Connect timeout when the definition does not set one.
 pub const DEFAULT_CONNECT_TIMEOUT_SECS: u32 = 15;
 pub const MAX_CONNECT_TIMEOUT_SECS: u32 = 600;
+/// Longest statement timeout a definition may set: a day.
+pub const MAX_STATEMENT_TIMEOUT_SECS: u32 = 86_400;
+/// Keep-alive interval when the definition does not set one (F-014).
+pub const DEFAULT_KEEP_ALIVE_SECS: u32 = 60;
+pub const MIN_KEEP_ALIVE_SECS: u32 = 5;
+pub const MAX_KEEP_ALIVE_SECS: u32 = 3_600;
 pub const MAX_NAME_CHARS: usize = 100;
 const MAX_FIELD_CHARS: usize = 1024;
 const MAX_OPTIONS: usize = 64;
@@ -185,6 +191,14 @@ pub struct ConnectionDefinition {
     pub ca_cert_path: Option<String>,
     /// `null`: 15 s.
     pub connect_timeout_secs: Option<u32>,
+    /// A statement that runs longer than this is cancelled with the engine's own mechanism
+    /// (F-014). `null`: no limit. Applies to the statements of query tabs.
+    #[serde(default)]
+    pub statement_timeout_secs: Option<u32>,
+    /// Seconds between the pings that keep an idle connection open through firewalls and NAT
+    /// (F-014). `null`: 60 s; `0`: none. Not used by file engines.
+    #[serde(default)]
+    pub keep_alive_secs: Option<u32>,
     pub options: Vec<ConnectionOption>,
     pub group_id: Option<String>,
     pub environment: Environment,
@@ -274,6 +288,33 @@ impl ConnectionDefinition {
                 ),
             ));
         }
+        // 0 means "no limit" for a statement: the same as none.
+        self.statement_timeout_secs = self.statement_timeout_secs.filter(|&secs| secs != 0);
+        if let Some(secs) = self.statement_timeout_secs
+            && secs > MAX_STATEMENT_TIMEOUT_SECS
+        {
+            return Err(YadbeError::invalid_argument(
+                format!(
+                    "The statement timeout must be between 1 and {MAX_STATEMENT_TIMEOUT_SECS} seconds."
+                ),
+                format!(
+                    "Le délai d'une instruction doit être compris entre 1 et {MAX_STATEMENT_TIMEOUT_SECS} secondes."
+                ),
+            ));
+        }
+        if let Some(secs) = self.keep_alive_secs
+            && secs != 0
+            && !(MIN_KEEP_ALIVE_SECS..=MAX_KEEP_ALIVE_SECS).contains(&secs)
+        {
+            return Err(YadbeError::invalid_argument(
+                format!(
+                    "The keep-alive interval must be between {MIN_KEEP_ALIVE_SECS} and {MAX_KEEP_ALIVE_SECS} seconds, or 0 for none."
+                ),
+                format!(
+                    "L'intervalle de maintien de connexion doit être compris entre {MIN_KEEP_ALIVE_SECS} et {MAX_KEEP_ALIVE_SECS} secondes, ou 0 pour aucun."
+                ),
+            ));
+        }
         if self.options.len() > MAX_OPTIONS {
             return Err(YadbeError::invalid_argument(
                 format!("A connection has at most {MAX_OPTIONS} options."),
@@ -319,6 +360,13 @@ impl ConnectionDefinition {
             connect_timeout: Duration::from_secs(u64::from(
                 self.connect_timeout_secs.unwrap_or(default_timeout_secs),
             )),
+            statement_timeout: self
+                .statement_timeout_secs
+                .map(|secs| Duration::from_secs(u64::from(secs))),
+            keep_alive: (!caps.uses_file)
+                .then(|| self.keep_alive_secs.unwrap_or(DEFAULT_KEEP_ALIVE_SECS))
+                .filter(|&secs| secs != 0)
+                .map(|secs| Duration::from_secs(u64::from(secs))),
             options: self.options.clone(),
             read_only: self.read_only,
             dial: None,
@@ -371,6 +419,10 @@ pub struct ConnectTarget {
     pub tls_mode: TlsMode,
     pub ca_cert_path: Option<PathBuf>,
     pub connect_timeout: Duration,
+    /// Statements of query tabs are cancelled after this long (F-014); `None`: never.
+    pub statement_timeout: Option<Duration>,
+    /// Pause between the pings of an idle connection; `None`: no keep-alive.
+    pub keep_alive: Option<Duration>,
     pub options: Vec<ConnectionOption>,
     /// The session must refuse writes (F-008): drivers set the engine's read-only mode.
     pub read_only: bool,
@@ -406,6 +458,8 @@ pub(crate) fn sample_definition(engine: Engine) -> ConnectionDefinition {
         tls_mode: TlsMode::Prefer,
         ca_cert_path: None,
         connect_timeout_secs: None,
+        statement_timeout_secs: None,
+        keep_alive_secs: None,
         options: Vec::new(),
         group_id: None,
         environment: Environment::default(),
@@ -489,5 +543,54 @@ mod tests {
             TlsMode::default_for_host("db.example.com"),
             TlsMode::VerifyFull
         );
+    }
+
+    #[test]
+    fn statement_timeout_and_keep_alive_reach_the_target() {
+        let mut def = sample_definition(Engine::Postgres);
+        let target = def.target();
+        assert_eq!(target.statement_timeout, None);
+        assert_eq!(
+            target.keep_alive,
+            Some(Duration::from_secs(u64::from(DEFAULT_KEEP_ALIVE_SECS)))
+        );
+        def.statement_timeout_secs = Some(30);
+        def.keep_alive_secs = Some(20);
+        let target = def.target();
+        assert_eq!(target.statement_timeout, Some(Duration::from_secs(30)));
+        assert_eq!(target.keep_alive, Some(Duration::from_secs(20)));
+        def.keep_alive_secs = Some(0);
+        assert_eq!(def.target().keep_alive, None, "0 turns it off");
+        // A file has no connection to keep open.
+        assert_eq!(sample_definition(Engine::Sqlite).target().keep_alive, None);
+    }
+
+    #[test]
+    fn timeouts_are_checked_when_a_definition_is_saved() {
+        let valid = |change: &dyn Fn(&mut ConnectionDefinition)| {
+            let mut def = sample_definition(Engine::Postgres);
+            change(&mut def);
+            def.normalized()
+        };
+        // 0 is "no limit" for a statement: stored as none.
+        assert_eq!(
+            valid(&|d| d.statement_timeout_secs = Some(0))
+                .expect("ok")
+                .statement_timeout_secs,
+            None
+        );
+        assert!(valid(&|d| d.statement_timeout_secs = Some(MAX_STATEMENT_TIMEOUT_SECS)).is_ok());
+        assert!(
+            valid(&|d| d.statement_timeout_secs = Some(MAX_STATEMENT_TIMEOUT_SECS + 1)).is_err()
+        );
+        for secs in [0, MIN_KEEP_ALIVE_SECS, 60, MAX_KEEP_ALIVE_SECS] {
+            assert!(valid(&|d| d.keep_alive_secs = Some(secs)).is_ok(), "{secs}");
+        }
+        for secs in [1, MIN_KEEP_ALIVE_SECS - 1, MAX_KEEP_ALIVE_SECS + 1] {
+            assert!(
+                valid(&|d| d.keep_alive_secs = Some(secs)).is_err(),
+                "{secs}"
+            );
+        }
     }
 }

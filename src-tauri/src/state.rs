@@ -63,6 +63,7 @@ impl AppState {
             Arc::clone(&sink),
             history.clone(),
         ));
+        queries.start_keep_alive();
         // Table pages live in the query results' store: `fetch_result_window` reads both.
         let journal = Arc::new(ChangeJournal::new(Arc::clone(&store), Arc::clone(&sink)));
         let tables = Arc::new(

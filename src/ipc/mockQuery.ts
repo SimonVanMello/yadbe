@@ -829,6 +829,18 @@ export function createMockQuery(host: MockQueryHost) {
     const pause = /\b(?:pg_sleep|sleep)\s*\(\s*([\d.]+)\s*\)|waitfor\s+delay\s+''/i.exec(words);
     if (pause) {
       const seconds = pause[1] ? Number(pause[1]) : Number(/(\d+)'/.exec(sql)?.[1] ?? '1');
+      // The connection's statement timeout (F-014) cuts the wait short.
+      const limit = host.connection(exec.connectionId)?.definition.statementTimeoutSecs ?? null;
+      if (limit !== null && limit > 0 && seconds > limit) {
+        if (!(await sleep(limit * 1000, signal))) return cancelled();
+        message(exec, index, {
+          kind: 'error',
+          error: mockErrors.statementTimeout(limit),
+          server: null,
+          position: null,
+        });
+        return failed();
+      }
       if (!(await sleep(seconds * 1000, signal))) return cancelled();
       if (verb === 'select') {
         const result = newResult(

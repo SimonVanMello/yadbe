@@ -56,6 +56,8 @@ pub struct RunnerConfig {
     pub progress_interval: Duration,
     /// Row batches buffered between a driver and the runner.
     pub channel_capacity: usize,
+    /// How often the idle tab connections are looked at for the keep-alive pings (F-014).
+    pub keep_alive_sweep: Duration,
 }
 
 impl Default for RunnerConfig {
@@ -63,6 +65,7 @@ impl Default for RunnerConfig {
         Self {
             progress_interval: Duration::from_millis(100),
             channel_capacity: 4,
+            keep_alive_sweep: Duration::from_secs(5),
         }
     }
 }
@@ -199,6 +202,8 @@ struct Execution {
     started_at: SystemTime,
     started: Instant,
     limits: ResultLimits,
+    /// A statement running longer is cancelled (F-014); the connection's setting.
+    statement_timeout: Option<Duration>,
     state: Mutex<ExecState>,
     /// Something changed: the emitter sends a `query-progress`.
     wake: Notify,
@@ -595,6 +600,53 @@ impl QueryRunner {
         }
     }
 
+    /// Starts pinging the idle connections of the editor tabs (F-014) at the interval of each
+    /// connection's keep-alive setting: the tab's own connection would otherwise sit unused
+    /// while the user reads or types, and a firewall or NAT may forget it. A tab that is
+    /// running a statement is left alone; the ping is not recorded. Stops with the runner.
+    pub fn start_keep_alive(self: &Arc<Self>) {
+        let runner = Arc::downgrade(self);
+        let sweep = self.config.keep_alive_sweep.max(Duration::from_millis(10));
+        // Not `tokio::spawn`: the app builds the runner before any async context exists.
+        tauri::async_runtime::spawn(async move {
+            let mut last: HashMap<String, tokio::time::Instant> = HashMap::new();
+            loop {
+                tokio::time::sleep(sweep).await;
+                let Some(runner) = runner.upgrade() else {
+                    return;
+                };
+                let tabs: Vec<Arc<Tab>> = lock(&runner.tabs).values().cloned().collect();
+                last.retain(|id, _| tabs.iter().any(|tab| &tab.id == id));
+                for tab in tabs {
+                    // Busy: a statement is running or the tab is being opened.
+                    let Ok(guard) = Arc::clone(&tab.conn).try_lock_owned() else {
+                        continue;
+                    };
+                    let Some(connection) = guard.as_ref().filter(|c| c.is_alive()) else {
+                        continue;
+                    };
+                    let every = runner
+                        .manager
+                        .session(&connection.connection_id)
+                        .ok()
+                        .and_then(|session| session.target().keep_alive);
+                    let Some(every) = every else {
+                        continue;
+                    };
+                    let now = tokio::time::Instant::now();
+                    let due = last.get(&tab.id).is_none_or(|at| now - *at >= every);
+                    if !due {
+                        continue;
+                    }
+                    last.insert(tab.id.clone(), now);
+                    if let Err(err) = connection.conn.keep_alive().await {
+                        tracing::debug!(tab = %tab.id, error = %err, "keep-alive ping failed");
+                    }
+                }
+            }
+        });
+    }
+
     pub fn with_config(mut self, config: RunnerConfig) -> Self {
         self.config = config;
         self
@@ -699,6 +751,7 @@ impl QueryRunner {
             started_at: SystemTime::now(),
             started: Instant::now(),
             limits,
+            statement_timeout: target.statement_timeout,
             state: Mutex::new(ExecState {
                 status: if reusable {
                     ExecutionStatus::Running
@@ -1145,6 +1198,8 @@ impl QueryRunner {
         let mut result: Option<usize> = None;
         let mut pending: Option<Vec<Vec<Value>>> = None;
         let mut cancelling = false;
+        // The statement ran past its timeout and was cancelled for it (F-014).
+        let mut timed_out = false;
         let mut paused_for = Duration::ZERO;
         loop {
             if let Some(rows) = pending.take()
@@ -1215,11 +1270,32 @@ impl QueryRunner {
                     }
                 }
             }
+            // The time a result waits at its cap for the user does not count against the timeout.
+            let deadline = exec
+                .statement_timeout
+                .filter(|_| !cancelling)
+                .map(|limit| tokio::time::Instant::from_std(started + limit + paused_for));
             let event = tokio::select! {
                 biased;
                 () = exec.cancel.wait(), if !cancelling => {
                     // Keep draining: the driver finishes once the engine stops the statement.
                     cancelling = true;
+                    continue;
+                }
+                () = async {
+                    match deadline {
+                        Some(at) => tokio::time::sleep_until(at).await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    cancelling = true;
+                    timed_out = true;
+                    let handle = lock(&exec.cancel_handle).clone();
+                    if let Some(handle) = handle
+                        && let Err(err) = handle.cancel().await
+                    {
+                        tracing::warn!(error = %err, "cancel request for a timed out statement failed");
+                    }
                     continue;
                 }
                 event = events.recv() => event,
@@ -1287,6 +1363,7 @@ impl QueryRunner {
             Err(failure) if !cancelling && failure.error.code != ErrorCode::Cancelled => {
                 ResultStatus::Failed
             }
+            _ if timed_out => ResultStatus::Failed,
             _ => ResultStatus::Cancelled,
         };
         let ended_tap = result.and_then(|position| {
@@ -1343,12 +1420,16 @@ impl QueryRunner {
                     Ok(_) => YadbeError::cancelled().into(),
                 };
                 let cancelled = cancelling || failure.error.code == ErrorCode::Cancelled;
-                let error = if cancelled {
+                let error = if timed_out {
+                    YadbeError::statement_timeout(
+                        exec.statement_timeout.map_or(0, |limit| limit.as_secs()),
+                    )
+                } else if cancelled {
                     YadbeError::cancelled()
                 } else {
                     failure.error
                 };
-                set_result_status(if cancelled {
+                set_result_status(if cancelled && !timed_out {
                     ResultStatus::Cancelled
                 } else {
                     ResultStatus::Failed

@@ -1861,5 +1861,14 @@
   "history.filter.thisTabHint": "What ran in the tab on screen, to take an earlier version of its text back.",
   "history.emptyThisTab": "Nothing has run in this tab yet.",
   "history.emptyNoTab": "Open a query tab to see what ran in it.",
-  "history.action.restore": "Put it back in the editor (replaces the tab's text)"
+  "history.action.restore": "Put it back in the editor (replaces the tab's text)",
+  "connection.timeouts": "Timeouts and keep-alive",
+  "connection.timeouts.connect": "Connect timeout (s)",
+  "connection.timeouts.connectHint": "How long to wait for the server to answer.",
+  "connection.timeouts.statement": "Statement timeout (s)",
+  "connection.timeouts.statementHint": "A statement of a query tab that runs longer is cancelled. Empty or 0: no limit.",
+  "connection.timeouts.keepAlive": "Keep-alive (s)",
+  "connection.timeouts.keepAliveHint": "Seconds between the pings that keep an idle connection open. 0: none.",
+  "connection.timeouts.default": "{seconds} (default)",
+  "connection.timeouts.none": "No limit"
 }
