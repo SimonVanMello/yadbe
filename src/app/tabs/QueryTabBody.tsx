@@ -6,6 +6,7 @@ import { useConnection, useConnectionList } from '../../features/connections/con
 import { QueryView } from '../../features/query/QueryView';
 import { LazyDocumentConsole } from '../lazyViews';
 import styles from './QueryTabBody.module.css';
+import { LazyKvConsole } from '../lazyViews';
 import { useTabsStore, type ShellTab } from './tabsStore';
 
 /**
@@ -48,6 +49,8 @@ export function QueryTabBody({ tab }: { tab: ShellTab }) {
       return <QueryView tab={tab} connection={connection} />;
     case 'document':
       return <LazyDocumentConsole tab={tab} connection={connection} />;
+    case 'keyValue':
+      return <LazyKvConsole tab={tab} connection={connection} />;
     default:
       return null;
   }

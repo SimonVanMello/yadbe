@@ -10,8 +10,8 @@ import type {
   ObjectRef,
   YadbeError,
 } from '../bindings';
-import { sqlEngineOf, type SqlEngine } from '../sqlEngine';
 import type { YadbeClient } from '../client';
+import { sqlEntry, type SqlEngine } from '../sqlEngines';
 
 type Commands = YadbeClient['commands'];
 type Result<T> = Promise<{ status: 'ok'; data: T } | { status: 'error'; error: YadbeError }>;
@@ -149,7 +149,7 @@ function pairsOf(
     if (password) pairs.push(['Password', password]);
   };
   const { tlsMode, caCertPath: ca } = definition;
-  switch (sqlEngineOf(definition.engine)) {
+  switch (definition.engine) {
     case 'postgres': {
       push('Host', definition.host);
       if (definition.port !== null) pairs.push(['Port', String(definition.port)]);
@@ -239,6 +239,9 @@ function pairsOf(
       if (definition.options.length > 0) notes.push('optionsNotExpressed');
       return pairs;
     }
+    case 'redis':
+    case 'mongodb':
+      return pairs;
   }
 }
 
@@ -264,8 +267,8 @@ export function buildConnectionString(
   const text =
     flavor === 'adoNet'
       ? ado
-      : `var connectionString = ${csharpString(ado)};\noptions.${EF_CALL[sqlEngineOf(definition.engine)]('connectionString')};`;
-  return { text, provider: PROVIDERS[sqlEngineOf(definition.engine)], includesPassword, notes };
+      : `var connectionString = ${csharpString(ado)};\noptions.${sqlEntry(EF_CALL, definition.engine)('connectionString')};`;
+  return { text, provider: sqlEntry(PROVIDERS, definition.engine), includesPassword, notes };
 }
 
 export function createMockDotnet(deps: DotnetDeps) {

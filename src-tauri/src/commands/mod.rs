@@ -12,6 +12,7 @@ pub mod files;
 pub mod history;
 pub mod import;
 pub mod journal;
+pub mod keyvalue;
 pub mod meta;
 pub mod objects;
 pub mod query;

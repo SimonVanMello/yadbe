@@ -30,6 +30,7 @@ export function mockObjectActions(
       case 'sqlite':
         return { kind, drop: true, truncate: table, rename: table };
       case 'mongodb':
+      case 'redis':
         return { kind, drop: false, truncate: false, rename: false };
     }
   });
@@ -182,6 +183,47 @@ const ENGINES: EngineInfo[] = [
       activityMonitor: false,
       activityCancelQuery: false,
       tableQualifier: 'none',
+    },
+    defaultUsername: null,
+    available: true,
+    objectActions: [],
+  },
+  {
+    engine: 'redis',
+    label: 'Redis / Valkey',
+    capabilities: {
+      family: 'keyValue',
+      usesFile: false,
+      defaultPort: 6379,
+      supportsTls: true,
+      clientCertificate: true,
+      multipleDatabases: true,
+      schemas: false,
+      nativeCancel: false,
+      readOnlySession: false,
+      identifierQuoteOpen: '"',
+      identifierQuoteClose: '"',
+      foldsUnquotedToLower: false,
+      parameterStyles: {
+        colon: false,
+        at: false,
+        atDeclaredAreVariables: false,
+        dollarName: false,
+        dollarNumber: false,
+        question: false,
+        questionNumber: false,
+      },
+      explain: false,
+      explainAnalyze: false,
+      activityMonitor: false,
+      activityCancelQuery: false,
+      tableQualifier: 'database',
+      formatter: false,
+      ddl: false,
+      scriptAs: false,
+      dataImport: false,
+      efMigrations: false,
+      dotnetConnectionString: false,
     },
     defaultUsername: null,
     available: true,
@@ -353,7 +395,28 @@ export const MOCK_CONNECTIONS: SavedConnection[] = [
     groupId: 'group-local',
     environment: { kind: 'dev', label: null, color: null },
   }),
-  saved('conn-catalog-mongo', 2, {
+  saved('conn-sessions-prod', 3, {
+    ...blankDefinition('redis', 'sessions · prod'),
+    host: 'redis-eu.example.com',
+    port: 6380,
+    database: '2',
+    username: 'reader',
+    tlsMode: 'verifyFull',
+    groupId: 'group-acme',
+    environment: { kind: 'prod', label: null, color: null },
+    readOnly: true,
+    keyValue: { keyDelimiter: null },
+  }),
+  saved('conn-cache', 2, {
+    ...blankDefinition('redis', 'cache'),
+    host: 'localhost',
+    database: '0',
+    tlsMode: 'disable',
+    groupId: 'group-local',
+    environment: { kind: 'dev', label: null, color: null },
+    keyValue: { keyDelimiter: null },
+  }),
+  saved('conn-catalog-mongo', 3, {
     ...blankDefinition('mongodb', 'catalog · mongo'),
     host: 'localhost',
     tlsMode: 'disable',
@@ -388,6 +451,8 @@ export const MOCK_REMEMBERED_PASSWORDS = [
   'conn-shop-staging',
   'conn-local-pg',
   'conn-wordpress',
+  'conn-cache',
+  'conn-sessions-prod',
 ];
 
 export const MOCK_SERVER_VERSIONS: Record<Engine, string> = {
@@ -396,4 +461,5 @@ export const MOCK_SERVER_VERSIONS: Record<Engine, string> = {
   mysql: 'MySQL 8.4.2',
   sqlite: 'SQLite 3.46.0',
   mongodb: '7.0.14',
+  redis: 'Redis 8.2.1',
 };

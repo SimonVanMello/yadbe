@@ -36,6 +36,9 @@ pub enum ErrorCode {
     /// A document feature (collections, documents, the command console) was asked of a
     /// connection of another engine family.
     DocumentOnly,
+    /// A key-value feature (keys browser, command console) was asked of a connection of
+    /// another engine family.
+    KeyValueOnly,
     /// The connection is not open (never opened, closed, or reconnecting).
     NotConnected,
     /// The connection needs a password and none was given or stored.
@@ -322,6 +325,14 @@ impl YadbeError {
             ErrorCode::DocumentOnly,
             "This works on document (MongoDB) connections only.",
             "Cette fonction n'existe que sur les connexions documents (MongoDB).",
+        )
+    }
+
+    pub fn key_value_only() -> Self {
+        Self::new(
+            ErrorCode::KeyValueOnly,
+            "This works on key-value connections (Redis, Valkey) only.",
+            "Cela ne fonctionne que sur les connexions clé-valeur (Redis, Valkey).",
         )
     }
 
@@ -930,6 +941,37 @@ pub fn from_mysql_query_error(code: u16, message: &str) -> Option<YadbeError> {
     }
 }
 
+/// Classification of a Redis / Valkey error reply (`CODE message`) while connecting:
+/// `WRONGPASS`, `NOAUTH`, a database index out of range. `password_given`: a password was
+/// sent (otherwise `NOAUTH` asks for one).
+pub fn from_redis_connect_error(
+    code: &str,
+    message: &str,
+    user: &str,
+    database: &str,
+    password_given: bool,
+) -> Option<YadbeError> {
+    let lower = message.to_ascii_lowercase();
+    let user = if user.is_empty() { "default" } else { user };
+    let error = match code {
+        "NOAUTH" if !password_given => YadbeError::password_required(),
+        "WRONGPASS" | "NOAUTH" | "NOPERM" => YadbeError::auth_failed(user),
+        "ERR"
+            if lower.contains("invalid password")
+                || lower.contains("invalid username-password") =>
+        {
+            YadbeError::auth_failed(user)
+        }
+        "ERR"
+            if lower.contains("db index is out of range") || lower.contains("invalid db index") =>
+        {
+            YadbeError::unknown_database(database)
+        }
+        _ => return None,
+    };
+    Some(error.with_detail(format!("{code} {message}")))
+}
+
 /// Removes secrets from a technical message: the password of URLs
 /// (`scheme://user:secret@host`) and the value of `password=` / `pwd=` pairs.
 pub fn redact(text: &str) -> String {
@@ -1046,6 +1088,7 @@ mod tests {
             YadbeError::engine_not_supported("MySQL"),
             YadbeError::sql_only(),
             YadbeError::document_only(),
+            YadbeError::key_value_only(),
             YadbeError::object_not_found("shop.orders"),
             YadbeError::execution_running(),
             YadbeError::transaction_open(),

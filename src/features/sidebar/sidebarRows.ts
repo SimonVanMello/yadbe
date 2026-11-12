@@ -12,6 +12,7 @@ import {
   type MetaSource,
 } from '../explorer/explorerRows';
 import { buildDocumentNodes, type DocumentSource } from '../explorer/documentRows';
+import { kvExplorerRows, type KvRow, type KvSidebarInput } from '../keyvalue/kvExplorerRows';
 
 export type SidebarTreeRow =
   | {
@@ -34,7 +35,8 @@ export type SidebarTreeRow =
       expandable: true;
       expanded: boolean;
     }
-  | ExplorerRow;
+  | ExplorerRow
+  | KvRow;
 
 export interface SidebarInput {
   connections: readonly ConnectionSummary[];
@@ -61,6 +63,8 @@ export interface SidebarInput {
     filter: string,
     build: () => ExplorerNode[],
   ) => ExplorerNode[];
+  /** Where key-value connections read their tree, and its settings. */
+  keyValue?: KvSidebarInput;
 }
 
 const NO_NODES: ReadonlySet<string> = new Set();
@@ -72,7 +76,7 @@ function explorerRows(
   level: number,
   state: ConnectionState,
   filter: string,
-): ExplorerRow[] {
+): (ExplorerRow | KvRow)[] {
   const capabilities = input.capabilities.get(connection.engine);
   const expanded = input.expanded[connection.id] ?? NO_NODES;
   const open = expanded.has(nodeKeys.root);
@@ -93,6 +97,22 @@ function explorerRows(
       });
     case 'document':
       return documentExplorerRows(input, connection, state, filter, { expanded, open, level });
+    case 'keyValue': {
+      const kv = input.keyValue;
+      if (!kv) return [];
+      return kvExplorerRows({
+        connectionId: connection.id,
+        level,
+        expanded,
+        source: kv.sourceFor(connection.id),
+        delimiter: kv.delimiterFor(connection),
+        patternOf: (database) => kv.patternOf(connection.id, database),
+        typedPatternOf: (database) => kv.typedPatternOf(connection.id, database),
+        limitOf: (node) => kv.limitOf(connection.id, node),
+        fetching: state === 'connected' && open,
+        filter,
+      });
+    }
     default:
       return [];
   }

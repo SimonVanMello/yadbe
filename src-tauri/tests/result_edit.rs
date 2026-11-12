@@ -271,7 +271,7 @@ async fn editability(b: &Bench, fx: &Fixture) {
     match fx.engine {
         Engine::Postgres | Engine::Mysql => assert_eq!(view, [R::View]),
         Engine::Sqlite | Engine::Mssql => assert_eq!(view, [R::OtherSource]),
-        Engine::Mongodb => unreachable!("a SQL engine"),
+        Engine::Mongodb | Engine::Redis => unreachable!("SQL engines only"),
     }
     assert_eq!(
         b.reasons(&fx.sql("SELECT COUNT(*) AS n FROM {t}items"))
@@ -315,7 +315,7 @@ async fn editability(b: &Bench, fx: &Fixture) {
             .iter()
             .any(|sql| sql.contains("sp_describe_first_result_set")),
         Engine::Mysql | Engine::Sqlite => true,
-        Engine::Mongodb => unreachable!("a SQL engine"),
+        Engine::Mongodb | Engine::Redis => unreachable!("SQL engines only"),
     };
     assert!(asked, "{log:?}");
 

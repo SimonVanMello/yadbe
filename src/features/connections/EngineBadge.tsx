@@ -9,6 +9,7 @@ const MARKS: Record<Engine, string> = {
   mysql: 'MY',
   mongodb: 'MG',
   sqlite: 'SL',
+  redis: 'RD',
 };
 
 /** Small monospace mark of a database engine. */

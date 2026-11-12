@@ -50,8 +50,11 @@ const CONNECTION_COLUMNS: &str = "id, name, engine, group_id, position, host, po
      username, file_path, auth, tls_mode, ca_cert_path, connect_timeout_secs, options, \
      environment, environment_label, environment_color, favorite, read_only, remember_password, \
      created_at, updated_at, last_connected_at, history_enabled, ssh_tunnel, \
-     statement_timeout_secs, keep_alive_secs, tls_client_cert_path, tls_client_key_path, \
-     mongo_settings";
+     statement_timeout_secs, keep_alive_secs, tls_client_cert_path, tls_client_key_path";
+
+/// Columns only one engine family uses, read with the common ones and written by
+/// `write_family_fields` (v10: MongoDB settings, v11: key-value settings).
+const FAMILY_COLUMNS: &str = "mongo_settings, key_value";
 
 /// Thread-safe handle on the app database. Queries are small: one connection behind a
 /// mutex is enough.
@@ -95,6 +98,10 @@ fn row_to_connection(row: &Row<'_>) -> rusqlite::Result<SavedConnection> {
         .map(|json| serde_json::from_str(&json).map_err(|_| corrupt("MongoDB settings", &json)))
         .transpose()?;
     let engine = Engine::from_id(&engine).ok_or_else(|| corrupt("engine", &engine))?;
+    let key_value: Option<String> = row.get("key_value")?;
+    let key_value = key_value
+        .map(|json| serde_json::from_str(&json).map_err(|_| corrupt("key-value settings", &json)))
+        .transpose()?;
     Ok(SavedConnection {
         id: row.get("id")?,
         family: engine.family(),
@@ -131,6 +138,7 @@ fn row_to_connection(row: &Row<'_>) -> rusqlite::Result<SavedConnection> {
             history_enabled: row.get("history_enabled")?,
             ssh,
             mongo,
+            key_value,
         },
         position: row.get("position")?,
         created_at: row.get("created_at")?,
@@ -139,20 +147,36 @@ fn row_to_connection(row: &Row<'_>) -> rusqlite::Result<SavedConnection> {
     })
 }
 
-fn mongo_json(definition: &ConnectionDefinition) -> Result<Option<String>, YadbeError> {
-    Ok(definition
-        .mongo
-        .as_ref()
-        .map(serde_json::to_string)
-        .transpose()?)
-}
-
 fn ssh_json(definition: &ConnectionDefinition) -> Result<Option<String>, YadbeError> {
     Ok(definition
         .ssh
         .as_ref()
         .map(serde_json::to_string)
         .transpose()?)
+}
+
+/// Writes the family fields of a connection (v10: MongoDB settings, v11: key-value settings)
+/// next to the common ones.
+fn write_family_fields(
+    conn: &Connection,
+    id: &str,
+    definition: &ConnectionDefinition,
+) -> Result<(), YadbeError> {
+    let mongo = definition
+        .mongo
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
+    let key_value = definition
+        .key_value
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
+    conn.execute(
+        "UPDATE connections SET mongo_settings = ?2, key_value = ?3 WHERE id = ?1",
+        params![id, mongo, key_value],
+    )?;
+    Ok(())
 }
 
 fn row_to_group(row: &Row<'_>) -> rusqlite::Result<ConnectionGroup> {
@@ -268,7 +292,7 @@ impl Store {
     pub fn list_connections(&self) -> Result<Vec<SavedConnection>, YadbeError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(&format!(
-            "SELECT {CONNECTION_COLUMNS} FROM connections
+            "SELECT {CONNECTION_COLUMNS}, {FAMILY_COLUMNS} FROM connections
              ORDER BY group_id IS NOT NULL, group_id, position, name"
         ))?;
         let rows = stmt
@@ -280,7 +304,9 @@ impl Store {
     pub fn connection(&self, id: &str) -> Result<SavedConnection, YadbeError> {
         let conn = self.conn();
         conn.query_row(
-            &format!("SELECT {CONNECTION_COLUMNS} FROM connections WHERE id = ?1"),
+            &format!(
+                "SELECT {CONNECTION_COLUMNS}, {FAMILY_COLUMNS} FROM connections WHERE id = ?1"
+            ),
             [id],
             row_to_connection,
         )
@@ -328,8 +354,7 @@ impl Store {
                 &format!(
                     "INSERT INTO connections ({CONNECTION_COLUMNS}) VALUES
                      (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                      ?17, ?18, ?19, ?20, ?21, ?22, ?22, NULL, ?23, ?24, ?25, ?26, ?27, ?28,
-                      ?29)"
+                      ?17, ?18, ?19, ?20, ?21, ?22, ?22, NULL, ?23, ?24, ?25, ?26, ?27, ?28)"
                 ),
                 params![
                     id,
@@ -360,9 +385,9 @@ impl Store {
                     definition.keep_alive_secs,
                     definition.tls_client_cert_path,
                     definition.tls_client_key_path,
-                    mongo_json(definition)?,
                 ],
             )?;
+            write_family_fields(&conn, &id, definition)?;
         }
         self.connection(&id)
     }
@@ -390,8 +415,7 @@ impl Store {
                     environment_color = ?18, favorite = ?19, read_only = ?20,
                     remember_password = ?21, updated_at = ?22, history_enabled = ?23,
                     ssh_tunnel = ?24, statement_timeout_secs = ?25, keep_alive_secs = ?26,
-                    tls_client_cert_path = ?27, tls_client_key_path = ?28,
-                    mongo_settings = ?29
+                    tls_client_cert_path = ?27, tls_client_key_path = ?28
                  WHERE id = ?1",
                 params![
                     id,
@@ -422,9 +446,9 @@ impl Store {
                     definition.keep_alive_secs,
                     definition.tls_client_cert_path,
                     definition.tls_client_key_path,
-                    mongo_json(definition)?,
                 ],
             )?;
+            write_family_fields(&conn, id, definition)?;
         }
         self.connection(id)
     }
@@ -916,7 +940,11 @@ fn enum_text<T: serde::Serialize>(value: &T) -> Result<String, YadbeError> {
 }
 
 #[cfg(test)]
+mod family_tests;
+#[cfg(test)]
 mod history_tests;
+#[cfg(test)]
+mod keyvalue_tests;
 #[cfg(test)]
 mod saved_queries_tests;
 #[cfg(test)]

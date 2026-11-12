@@ -173,6 +173,22 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::document::mongo_cancel,
             commands::document::mongo_close_tab,
             commands::document::mongo_fetch_documents,
+            commands::keyvalue::kv_list_databases,
+            commands::keyvalue::kv_scan_keys,
+            commands::keyvalue::kv_scan_more,
+            commands::keyvalue::kv_scan_stop,
+            commands::keyvalue::kv_scan_restart,
+            commands::keyvalue::kv_scan_level,
+            commands::keyvalue::kv_key_summaries,
+            commands::keyvalue::kv_key_info,
+            commands::keyvalue::kv_read_string,
+            commands::keyvalue::kv_read_json,
+            commands::keyvalue::kv_open_collection,
+            commands::keyvalue::kv_collection_more,
+            commands::keyvalue::kv_close_collection,
+            commands::keyvalue::kv_console_run,
+            commands::keyvalue::kv_console_stop,
+            commands::keyvalue::kv_console_close,
         ])
         .events(collect_events![
             events::AppReady,
@@ -190,6 +206,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             events::ChangeJournalChanged,
             import::model::ImportProgress,
             import::model::ImportFinished,
+            session::keyvalue::model::KvScanProgress,
         ])
 }
 

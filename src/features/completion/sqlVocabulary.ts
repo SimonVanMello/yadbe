@@ -1,5 +1,5 @@
 import type { Engine } from '../../ipc';
-import { sqlEngineOf, type SqlEngine } from '../../ipc/sqlEngine';
+import { sqlEntry, type SqlEngine } from '../../ipc/sqlEngines';
 import { dialectOf } from '../query/sqlLanguage';
 
 /**
@@ -86,8 +86,8 @@ export function vocabularyOf(engine: Engine): Vocabulary {
     const types = split(dialectOf(engine).spec.types ?? '');
     const sorted = (words: string[]) => [...new Set(words.map((w) => w.toLowerCase()))].sort();
     found = {
-      keywords: sorted([...COMMON_KEYWORDS, ...KEYWORDS[sqlEngineOf(engine)]]),
-      functions: sorted([...COMMON_FUNCTIONS, ...FUNCTIONS[sqlEngineOf(engine)]]),
+      keywords: sorted([...COMMON_KEYWORDS, ...sqlEntry(KEYWORDS, engine)]),
+      functions: sorted([...COMMON_FUNCTIONS, ...sqlEntry(FUNCTIONS, engine)]),
       types: sorted(types),
     };
     cache.set(engine, found);

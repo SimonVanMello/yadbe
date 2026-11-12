@@ -6,7 +6,7 @@ mod decode;
 mod execute;
 mod introspect;
 mod objects;
-mod tls;
+pub(super) mod tls;
 
 use std::error::Error as _;
 use std::io;

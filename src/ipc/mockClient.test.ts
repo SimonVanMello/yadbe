@@ -44,7 +44,7 @@ describe('mock connections', () => {
     const connections = await unwrap(commands.listConnections());
     const groups = await unwrap(commands.listConnectionGroups());
     expect(new Set(connections.map((c) => c.definition.engine))).toEqual(
-      new Set(['postgres', 'mssql', 'mysql', 'sqlite', 'mongodb']),
+      new Set(['postgres', 'mssql', 'mysql', 'sqlite', 'mongodb', 'redis']),
     );
     expect(new Set(connections.map((c) => c.definition.environment.kind))).toContain('prod');
     expect(groups.some((g) => g.parentId !== null)).toBe(true);

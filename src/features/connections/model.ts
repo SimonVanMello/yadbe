@@ -175,6 +175,8 @@ export interface ConnectionDraft {
   rememberTlsKeyPassphrase: boolean;
   /** The MongoDB fields (document family). */
   mongo: MongoDraft;
+  /** Key-value connections: what separates the levels of the key tree; empty: the preference. */
+  keyDelimiter: string;
   // Not editable in this form yet: carried so that saving does not lose them.
   caCertPath: string | null;
   options: ConnectionOption[];
@@ -219,6 +221,7 @@ export function emptyDraft(info: EngineInfo): ConnectionDraft {
     tlsKeyPassphrase: '',
     rememberTlsKeyPassphrase: true,
     mongo: emptyMongoDraft(),
+    keyDelimiter: '',
     caCertPath: null,
     options: [],
   };
@@ -258,6 +261,7 @@ export function draftFromSaved(saved: SavedConnection): ConnectionDraft {
     tlsKeyPassphrase: '',
     rememberTlsKeyPassphrase: true,
     mongo: mongoDraftFrom(definition.mongo),
+    keyDelimiter: definition.keyValue?.keyDelimiter ?? '',
     caCertPath: definition.caCertPath,
     options: definition.options,
   };
@@ -359,6 +363,10 @@ export function toDefinition(draft: ConnectionDraft, info: EngineInfo): Connecti
     historyEnabled: draft.historyEnabled,
     ssh: file ? null : toSshTunnel(draft.ssh),
     mongo: document ? toMongoSettings(draft.mongo) : null,
+    // The family's own settings, only on its connections.
+    ...(capabilities.family === 'keyValue'
+      ? { keyValue: { keyDelimiter: draft.keyDelimiter === '' ? null : draft.keyDelimiter } }
+      : {}),
   };
 }
 
@@ -466,7 +474,7 @@ export function looksLikeConnectionString(text: string): boolean {
 
 /** Field-level problems that make the form unsendable. Keys are the field names. */
 export type DraftErrors = Partial<
-  Record<'host' | 'port' | 'filePath' | 'environmentLabel', 'required' | 'invalid'>
+  Record<'host' | 'port' | 'filePath' | 'environmentLabel' | 'database', 'required' | 'invalid'>
 > & { ssh?: SshDraftErrors };
 
 export function validateDraft(draft: ConnectionDraft, info: EngineInfo | undefined): DraftErrors {
@@ -479,6 +487,10 @@ export function validateDraft(draft: ConnectionDraft, info: EngineInfo | undefin
       const port = Number(draft.port);
       if (!Number.isInteger(port) || port < 1 || port > 65535) errors.port = 'invalid';
     }
+  }
+  // A key-value database is a numbered index.
+  if (info?.capabilities.family === 'keyValue' && !/^\d*$/.test(draft.database.trim())) {
+    errors.database = 'invalid';
   }
   if (draft.environment === 'custom' && !draft.environmentLabel.trim()) {
     errors.environmentLabel = 'required';

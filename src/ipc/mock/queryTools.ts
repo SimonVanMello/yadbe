@@ -8,8 +8,8 @@ import type {
   QueryPlan,
   TextRange,
 } from '../bindings';
-import { sqlEngineOf, type SqlEngine } from '../sqlEngine';
 import { mockSplit, mockStatementAt } from '../mockSplit';
+import { sqlEntry, type SqlEngine } from '../sqlEngines';
 
 /**
  * Query tools of the mock backend (F-048, F-053): the placeholders of a run, as the backend's
@@ -152,7 +152,7 @@ function nameAt(sql: string, i: number): string {
 
 /** The placeholders of one statement. */
 export function mockPlaceholders(engine: Engine, sql: string): Found[] {
-  const styles = STYLES[sqlEngineOf(engine)];
+  const styles = sqlEntry(STYLES, engine);
   if (/^\s*(create|alter)\b[\s\S]{0,80}?\b(procedure|proc|function|trigger|event)\b/i.test(sql)) {
     return [];
   }
@@ -312,7 +312,7 @@ function draftFor(engine: Engine, sql: string): Draft {
       sort: 'USE TEMP B-TREE FOR ORDER BY',
     },
   };
-  const w = words[sqlEngineOf(engine)];
+  const w = sqlEntry(words, engine);
   const scan: Draft = {
     operation: w.scan,
     relation: first,
@@ -424,7 +424,7 @@ export function mockPlan(engine: Engine, sql: string, analyzed: boolean): QueryP
     sqlite: 'sqliteRows',
   } as const;
   return {
-    format: format[sqlEngineOf(engine)],
+    format: sqlEntry(format, engine),
     analyzed,
     weightBasis: engine === 'sqlite' ? 'heuristic' : analyzed ? 'time' : 'cost',
     nodes,
@@ -443,7 +443,7 @@ export function mockPlan(engine: Engine, sql: string, analyzed: boolean): QueryP
 
 /** What the backend sends to get a plan, per engine. */
 export function mockExplainSent(engine: Engine, sql: string, analyzed: boolean): string {
-  switch (sqlEngineOf(engine)) {
+  switch (engine) {
     case 'postgres':
       return `EXPLAIN (${analyzed ? 'ANALYZE, BUFFERS, ' : ''}FORMAT JSON) ${sql}`;
     case 'mssql':
@@ -453,6 +453,8 @@ export function mockExplainSent(engine: Engine, sql: string, analyzed: boolean):
     case 'mysql':
       return analyzed ? `EXPLAIN ANALYZE ${sql}` : `EXPLAIN FORMAT=JSON ${sql}`;
     case 'sqlite':
+    case 'redis':
+    case 'mongodb':
       return `EXPLAIN QUERY PLAN ${sql}`;
   }
 }

@@ -434,6 +434,7 @@ mod tests {
             history_enabled: true,
             ssh: None,
             mongo: None,
+            key_value: None,
         }
     }
 

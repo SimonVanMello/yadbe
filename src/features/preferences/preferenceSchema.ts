@@ -51,6 +51,8 @@ export interface PreferenceValues {
   journalMaxAgeDays: number;
   // Connections
   connectTimeoutSecs: number;
+  /** What separates the levels of the key tree of key-value connections (`:`). */
+  keyValueDelimiter: string;
 }
 
 export type PreferenceKey = keyof PreferenceValues;
@@ -154,6 +156,7 @@ export const DEFINITIONS = {
   journalMaxEntries: amount(1000, 10, 100_000),
   journalMaxAgeDays: amount(90, 1, 3650),
   connectTimeoutSecs: amount(15, 1, 600),
+  keyValueDelimiter: shortText(':', 8),
 } satisfies { [K in PreferenceKey]: Definition<PreferenceValues[K]> };
 
 export const PREFERENCE_KEYS = Object.keys(DEFINITIONS) as PreferenceKey[];

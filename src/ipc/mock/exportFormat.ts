@@ -1,3 +1,4 @@
+import { sqlEntry, type SqlEngine } from '../sqlEngines';
 import type {
   ColumnMeta,
   CsvOptions,
@@ -8,7 +9,6 @@ import type {
   SqlOptions,
   Value,
 } from '../bindings';
-import { sqlEngineOf, type SqlEngine } from '../sqlEngine';
 
 /**
  * The mock's stand-in for the backend's row encoders (`export/csv.rs`, `export/json.rs`): the
@@ -162,7 +162,7 @@ const QUOTES: Record<SqlEngine, readonly [string, string]> = {
 };
 
 function quoteIdentifier(engine: Engine, name: string): string {
-  const [open, close] = QUOTES[sqlEngineOf(engine)];
+  const [open, close] = sqlEntry(QUOTES, engine);
   return `${open}${name.replaceAll(close, close + close)}${close}`;
 }
 

@@ -8,6 +8,7 @@ pub mod document;
 pub mod history_hook;
 pub mod history_writer;
 pub mod journal;
+pub mod keyvalue;
 pub mod library;
 pub mod manager;
 pub mod meta_cache;

@@ -211,6 +211,9 @@ const MIGRATIONS: &[&str] = &[
     // v10: the fields of a MongoDB connection (M4-2), as JSON: SRV, replica set, auth source
     // and mechanism, direct connection. NULL for the other families and older rows.
     "ALTER TABLE connections ADD COLUMN mongo_settings TEXT;",
+    // v11: settings of key-value connections (Redis, Valkey) as JSON (`KeyValueSettings`);
+    // NULL for the other families and for connections saved before.
+    "ALTER TABLE connections ADD COLUMN key_value TEXT;",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {

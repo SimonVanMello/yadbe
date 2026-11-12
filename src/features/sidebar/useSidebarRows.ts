@@ -14,6 +14,9 @@ import { usePinStore } from '../objects/pinStore';
 import { useExplorerStore } from '../explorer/explorerStore';
 import { requestKey, type MetaRequest } from '../explorer/metaKeys';
 import { createCacheSource, documentSourceOf, metaQuery } from '../explorer/metaSource';
+import { createKvSource } from '../keyvalue/kvSource';
+import { LEVEL_PAGE, patternOf, useKvTreeStore } from '../keyvalue/kvTreeStore';
+import { usePreference } from '../preferences/preferenceStore';
 import { composeSidebarRows, type SidebarTreeRow } from './sidebarRows';
 
 let cacheVersion = 0;
@@ -82,6 +85,9 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
   const expanded = useExplorerStore((store) => store.expanded);
   const showSystem = useExplorerStore((store) => store.showSystem);
   const pins = usePinStore((store) => store.pins);
+  const kvPatterns = useKvTreeStore((store) => store.patterns);
+  const kvLimits = useKvTreeStore((store) => store.limits);
+  const kvDelimiter = usePreference('keyValueDelimiter');
   const version = useSyncExternalStore(subscribeToMeta, getCacheVersion);
   const connections = list.data?.connections;
   const groups = list.data?.groups;
@@ -139,9 +145,32 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
         tree.recorded.forEach(remember);
         return tree.nodes;
       },
+      keyValue: {
+        sourceFor: (connectionId) =>
+          createKvSource(queryClient, connectionId, (id, request) => {
+            sink({ connectionId: id, request });
+          }),
+        delimiterFor: (connection) => connection.definition.keyValue?.keyDelimiter ?? kvDelimiter,
+        patternOf: (connectionId, database) => patternOf(kvPatterns, connectionId, database),
+        typedPatternOf: (connectionId, database) => kvPatterns[connectionId]?.[database] ?? '',
+        limitOf: (connectionId, node) => kvLimits[connectionId]?.[node] ?? LEVEL_PAGE,
+      },
     });
     return { rows, recorded };
-  }, [connections, groups, query, capabilities, sessions, expanded, showSystem, pins, trees]);
+  }, [
+    connections,
+    groups,
+    query,
+    capabilities,
+    sessions,
+    expanded,
+    showSystem,
+    pins,
+    trees,
+    kvPatterns,
+    kvLimits,
+    kvDelimiter,
+  ]);
 
   // Observing a query loads it, and unobserving it (node collapsed, filter typed) cancels it.
   useQueries({
@@ -164,7 +193,7 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
     const seeds: { connectionId: string; node: string }[] = [];
     for (const row of rows) {
       const current =
-        (row.type === 'database' && row.database.current) ||
+        ((row.type === 'database' || row.type === 'kvDatabase') && row.database.current) ||
         (row.type === 'docDatabase' && row.current);
       if (!current) continue;
       seeds.push({ connectionId: row.connectionId, node: row.nodeKey });

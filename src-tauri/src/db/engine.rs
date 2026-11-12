@@ -22,6 +22,8 @@ pub enum Engine {
     Mysql,
     Sqlite,
     Mongodb,
+    /// Redis and Valkey (same protocol, same code).
+    Redis,
 }
 
 /// What kind of database an engine is: it decides the connection's backend (the `Backend`
@@ -308,13 +310,50 @@ static MONGODB: EngineProfile = EngineProfile {
     dialect: None,
 };
 
+static REDIS: EngineProfile = EngineProfile {
+    id: "redis",
+    label: "Redis / Valkey",
+    // The `default` user when none is given (ACL user otherwise).
+    default_username: None,
+    capabilities: Capabilities {
+        family: EngineFamily::KeyValue,
+        uses_file: false,
+        default_port: Some(6379),
+        supports_tls: true,
+        client_certificate: true,
+        // Numbered databases (`db0`…), listed from `INFO keyspace`.
+        multiple_databases: true,
+        schemas: false,
+        // A running command cannot be stopped; key scans stop between batches.
+        native_cancel: false,
+        read_only_session: false,
+        identifier_quote_open: '"',
+        identifier_quote_close: '"',
+        folds_unquoted_to_lower: false,
+        parameter_styles: NO_PARAMETERS,
+        explain: false,
+        explain_analyze: false,
+        activity_monitor: false,
+        activity_cancel_query: false,
+        table_qualifier: Qualifier::Database,
+        formatter: false,
+        ddl: false,
+        script_as: false,
+        data_import: false,
+        ef_migrations: false,
+        dotnet_connection_string: false,
+    },
+    dialect: None,
+};
+
 impl Engine {
-    pub const ALL: [Engine; 5] = [
+    pub const ALL: [Engine; 6] = [
         Engine::Postgres,
         Engine::Mssql,
         Engine::Mysql,
         Engine::Sqlite,
         Engine::Mongodb,
+        Engine::Redis,
     ];
 
     /// The one place that maps an engine to what it is.
@@ -325,6 +364,7 @@ impl Engine {
             Engine::Mysql => &MYSQL,
             Engine::Sqlite => &SQLITE,
             Engine::Mongodb => &MONGODB,
+            Engine::Redis => &REDIS,
         }
     }
 

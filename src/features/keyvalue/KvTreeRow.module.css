@@ -1,0 +1,67 @@
+.badge {
+  flex: none;
+  min-width: var(--badge-size);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--fg-secondary);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  line-height: var(--badge-size);
+  text-align: center;
+}
+
+.badge[data-kind='pending'] {
+  background: transparent;
+}
+
+.badge[data-kind='hash'] {
+  color: var(--tag-1);
+}
+
+.badge[data-kind='list'] {
+  color: var(--tag-2);
+}
+
+.badge[data-kind='set'] {
+  color: var(--tag-3);
+}
+
+.badge[data-kind='zset'] {
+  color: var(--tag-4);
+}
+
+.badge[data-kind='stream'] {
+  color: var(--tag-5);
+}
+
+.badge[data-kind='json'] {
+  color: var(--tag-6);
+}
+
+.badge[data-kind='unknown'],
+.badge[data-kind='missing'] {
+  color: var(--fg-muted);
+}
+
+.ttl {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.keyName {
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+}
+
+.pattern {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-height-sm);
+  font-size: var(--text-xs);
+}

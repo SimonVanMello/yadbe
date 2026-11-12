@@ -25,6 +25,7 @@ pub mod value;
 
 pub mod ddl;
 pub mod introspect;
+pub mod keyvalue;
 pub mod meta;
 pub mod object_model;
 pub mod object_ops;

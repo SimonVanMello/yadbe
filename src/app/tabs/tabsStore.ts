@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import type { DdlTarget, ObjectRef } from '../../ipc';
+import type { DdlTarget, KvBytes, ObjectRef } from '../../ipc';
 
 /** A tab of the title bar. Query tabs are placeholders until the editor lands (M1-4). */
 export interface ShellTab {
@@ -27,7 +27,11 @@ export interface ShellTab {
 }
 
 /** What a tool tab shows. */
-export type ToolTarget = { type: 'activity' } | { type: 'migrations'; table: ObjectRef };
+export type ToolTarget =
+  | { type: 'activity' }
+  | { type: 'migrations'; table: ObjectRef }
+  /** A key of a key-value database, read in its viewer (M4-5). */
+  | { type: 'kvKey'; database: number; key: KvBytes };
 
 /** A tool tab: bound to a connection, showing the activity monitor or the migrations. */
 export function isToolTab(

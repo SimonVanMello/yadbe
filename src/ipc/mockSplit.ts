@@ -1,5 +1,5 @@
 import type { Engine, TextRange } from './bindings';
-import { sqlEngineOf, type SqlEngine } from './sqlEngine';
+import { sqlEntry, type SqlEngine } from './sqlEngines';
 
 /**
  * Statement splitter of the mock backend: the same rules as the backend's tokenizer-level
@@ -98,7 +98,7 @@ function lineEnd(text: string, i: number): number {
 }
 
 export function mockSplit(engine: Engine, text: string): MockStatement[] {
-  const s = SYNTAX[sqlEngineOf(engine)];
+  const s = sqlEntry(SYNTAX, engine);
   const out: MockStatement[] = [];
   let delimiter = ';';
   let start = -1;

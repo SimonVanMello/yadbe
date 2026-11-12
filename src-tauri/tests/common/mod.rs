@@ -197,6 +197,7 @@ pub fn blank(engine: Engine, name: &str) -> ConnectionDefinition {
         history_enabled: true,
         ssh: None,
         mongo: None,
+        key_value: None,
     }
 }
 

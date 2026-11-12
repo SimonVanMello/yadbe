@@ -55,6 +55,22 @@ export function fetchMeta(connectionId: string, request: MetaRequest, signal: Ab
       return unwrap(
         commands.mongoSampleFields(connectionId, request.database, request.collection, null),
       );
+    // Key-value reads: quick, never cancelled on the server (a scan stops by itself).
+    case 'kvDatabases':
+      return unwrap(commands.kvListDatabases(connectionId));
+    case 'kvScan':
+      return unwrap(commands.kvScanKeys(connectionId, request.database, request.pattern));
+    case 'kvLevel':
+      return unwrap(
+        commands.kvScanLevel(
+          connectionId,
+          request.database,
+          request.prefix,
+          request.delimiter,
+          0,
+          request.limit,
+        ),
+      );
   }
 }
 

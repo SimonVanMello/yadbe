@@ -13,6 +13,8 @@ import {
 
 import { useT } from '../../i18n/useT';
 import { ExplorerRow } from '../explorer/ExplorerRow';
+import { isKvRow } from '../keyvalue/kvExplorerRows';
+import { KvTreeRow } from '../keyvalue/KvTreeRow';
 import { startRename } from '../objects/renameStore';
 import { ConnectionRow } from './ConnectionRow';
 import { GroupRow } from './GroupRow';
@@ -220,7 +222,9 @@ export function SidebarTree({ rows, label, empty, treeRef }: SidebarTreeProps) {
         return;
       case 'F2':
         stop();
-        if (row && row.type !== 'group' && row.type !== 'connection') startRename(row);
+        if (row && row.type !== 'group' && row.type !== 'connection' && !isKvRow(row)) {
+          startRename(row);
+        }
         return;
       case 'ContextMenu':
         stop();
@@ -287,6 +291,18 @@ export function SidebarTree({ rows, label, empty, treeRef }: SidebarTreeProps) {
                 />
               );
             default:
+              if (isKvRow(row)) {
+                return (
+                  <KvTreeRow
+                    key={row.key}
+                    row={row}
+                    {...common}
+                    onToggle={toggleRow}
+                    onOpen={openRow}
+                    onRefresh={refreshRow}
+                  />
+                );
+              }
               return (
                 <ExplorerRow
                   key={row.key}

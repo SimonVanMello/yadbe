@@ -24,7 +24,7 @@ const INTERNAL: YadbeError = {
   detail: null,
 };
 
-function asLoadable<T>(state: QueryState<T> | undefined, fetch: boolean): Loadable<T> {
+export function asLoadable<T>(state: QueryState<T> | undefined, fetch: boolean): Loadable<T> {
   if (state === undefined) return fetch ? { state: 'loading' } : { state: 'idle' };
   if (state.data !== undefined) return { state: 'ready', data: state.data };
   if (state.fetchStatus === 'fetching') return { state: 'loading' };

@@ -11,9 +11,9 @@ import type {
   TableDetails,
   YadbeError,
 } from '../bindings';
-import { sqlEngineOf } from '../sqlEngine';
 import type { YadbeClient } from '../client';
 import { mockObjectActions } from '../mockData';
+import { sqlEntry } from '../sqlEngines';
 import { mockQualifiedName, metaErrors, type MockMeta } from './meta';
 
 type Commands = YadbeClient['commands'];
@@ -140,6 +140,8 @@ export function mockActionStatement(
         case 'sqlite':
         case 'mongodb':
           return `ALTER TABLE ${name} RENAME TO ${quote(action.newName)}`;
+        case 'redis':
+          return notSupported('Cannot rename this object.', 'Impossible de renommer cet objet.');
       }
     }
   }
@@ -166,9 +168,10 @@ function checkNewName(old: string, next: string): YadbeError | null {
 }
 
 function reconstructedHeader(engine: Engine, what: string): string {
-  const label = { postgres: 'PostgreSQL', mssql: 'SQL Server', mysql: 'MySQL', sqlite: 'SQLite' }[
-    sqlEngineOf(engine)
-  ];
+  const label = sqlEntry(
+    { postgres: 'PostgreSQL', mssql: 'SQL Server', mysql: 'MySQL', sqlite: 'SQLite' },
+    engine,
+  );
   return `-- Reconstructed by yadbe from the catalog: ${label} keeps no definition text for ${what}.\n`;
 }
 

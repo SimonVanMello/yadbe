@@ -6,6 +6,8 @@ import { explorerRowLabel } from '../explorer/explorerLabels';
 import { isRelationKind, nodeKeys } from '../explorer/explorerRows';
 import { revealInExplorer, revealSchema } from '../explorer/revealInExplorer';
 import { useExplorerStore } from '../explorer/explorerStore';
+import { isKvRow, kvRowName } from '../keyvalue/kvExplorerRows';
+import { openKvRow, refreshKvRow } from '../keyvalue/kvRowActions';
 import type { SidebarTreeRow } from './sidebarRows';
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
@@ -38,6 +40,7 @@ export function toggleRow(row: SidebarTreeRow): void {
  * view opens its rows in a table tab.
  */
 export function openRow(row: SidebarTreeRow): boolean {
+  if (isKvRow(row)) return openKvRow(row);
   switch (row.type) {
     case 'connection':
       openQuery(row.connection);
@@ -77,6 +80,10 @@ export function openRow(row: SidebarTreeRow): boolean {
 
 /** Refreshes the metadata under a row (F5): the nodes on screen read it again. */
 export function refreshRow(row: SidebarTreeRow): void {
+  if (isKvRow(row)) {
+    refreshKvRow(row);
+    return;
+  }
   switch (row.type) {
     case 'group':
       return;
@@ -92,6 +99,7 @@ export function refreshRow(row: SidebarTreeRow): void {
 
 /** What the type-ahead matches against. */
 export function rowLabel(row: SidebarTreeRow, t: Translate): string {
+  if (isKvRow(row)) return kvRowName(row);
   switch (row.type) {
     case 'group':
       return row.group.name;

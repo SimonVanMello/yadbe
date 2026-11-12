@@ -121,6 +121,7 @@ fn engine_of_scheme(scheme: &str) -> Option<Engine> {
         "sqlserver" | "mssql" => Some(Engine::Mssql),
         "sqlite" | "sqlite3" => Some(Engine::Sqlite),
         "mongodb" | "mongodb+srv" => Some(Engine::Mongodb),
+        "redis" | "rediss" | "valkey" | "valkeys" => Some(Engine::Redis),
         _ => None,
     }
 }
@@ -405,6 +406,9 @@ fn parse_url(
     if multi_host {
         fields.ignored_keys.push("host".to_owned());
     }
+    if engine == Engine::Redis {
+        return Ok(redis_fields(fields, &url, scheme, password));
+    }
     for (key, value) in url.query_pairs() {
         apply_pair(
             &mut fields,
@@ -415,6 +419,44 @@ fn parse_url(
         )?;
     }
     Ok(finish(fields, &tls, password))
+}
+
+/// `redis[s]://[user[:password]@]host[:port][/db][?db=n]`: TLS from the scheme (`rediss`
+/// verifies the certificate), the database index from the path or `db`, the password apart
+/// (`redis://:secret@host` has no user).
+fn redis_fields(
+    mut fields: ParsedConnectionString,
+    url: &url::Url,
+    scheme: &str,
+    mut password: Option<Secret>,
+) -> Parsed {
+    fields.tls_mode = Some(if matches!(scheme, "rediss" | "valkeys") {
+        TlsMode::VerifyFull
+    } else {
+        TlsMode::Disable
+    });
+    for (key, value) in url.query_pairs() {
+        match norm_key(&key).as_str() {
+            "db" => fields.database = non_empty(value.into_owned()),
+            "password" => password = Some(Secret::new(value.into_owned())),
+            "username" | "user" => fields.username = non_empty(value.into_owned()),
+            "sslrootcert" | "ca" | "cacert" => fields.ca_cert_path = non_empty(value.into_owned()),
+            "insecure" if is_true(&value) => fields.tls_mode = Some(TlsMode::Require),
+            _ => fields.ignored_keys.push(key.into_owned()),
+        }
+    }
+    if fields
+        .database
+        .as_deref()
+        .is_some_and(|db| db.parse::<u32>().is_err())
+    {
+        fields.ignored_keys.push("database".to_owned());
+        fields.database = None;
+    }
+    Parsed {
+        fields,
+        password: password.filter(|p| !p.is_empty()),
+    }
 }
 
 /// `sqlserver://host[:port][\instance];key=value;…` (JDBC, Prisma).
@@ -783,6 +825,30 @@ mod tests {
             let code = parse(input, None).map(|_| ()).map_err(|e| e.code);
             assert_eq!(code, Err(ErrorCode::InvalidConnectionString), "{input}");
         }
+    }
+
+    #[test]
+    fn redis_urls_split_the_password_and_take_tls_from_the_scheme() {
+        let p = parse_ok("redis://app:s3cret@cache.example.com:6380/2");
+        assert_eq!(p.fields.engine, Some(Engine::Redis));
+        assert_eq!(p.fields.host.as_deref(), Some("cache.example.com"));
+        assert_eq!(p.fields.port, Some(6380));
+        assert_eq!(p.fields.username.as_deref(), Some("app"));
+        assert_eq!(p.fields.database.as_deref(), Some("2"));
+        assert_eq!(p.fields.tls_mode, Some(TlsMode::Disable));
+        assert_eq!(p.password.as_ref().map(Secret::expose), Some("s3cret"));
+        assert!(p.fields.password_id.is_none());
+
+        let tls = parse_ok("rediss://:only-pw@localhost?db=5");
+        assert_eq!(tls.fields.tls_mode, Some(TlsMode::VerifyFull));
+        assert_eq!(tls.fields.username, None);
+        assert_eq!(tls.fields.database.as_deref(), Some("5"));
+        assert_eq!(tls.password.as_ref().map(Secret::expose), Some("only-pw"));
+
+        let valkey = parse_ok("valkey://localhost/notanumber");
+        assert_eq!(valkey.fields.engine, Some(Engine::Redis));
+        assert_eq!(valkey.fields.database, None);
+        assert!(!format!("{:?}", parse_ok("redis://u:pw-secret@h")).contains("pw-secret"));
     }
 
     #[test]
