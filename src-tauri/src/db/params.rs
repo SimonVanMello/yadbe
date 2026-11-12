@@ -14,7 +14,8 @@
 //!   number, everything else stays byte for byte.
 //! - MySQL only knows `?`: a `:name` is replaced by `?`.
 //!
-//! A rewritten statement is what the history records, so what ran can be read back.
+//! The history records the statement as typed, names included and values left out; the
+//! statement log shows the rewritten text the engine received.
 
 use std::collections::{HashMap, HashSet};
 

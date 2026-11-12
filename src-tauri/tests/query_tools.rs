@@ -76,7 +76,7 @@ async fn check_parameters(b: &Bench, count_by_name: &str, expect_history: &str) 
     .await;
     ok(&run);
     assert_eq!(b.column(&run.results[0], 0), [Some("1".into())]);
-    // The history holds the statement as sent, without the values.
+    // The history holds the statement as typed, without the values.
     let history = b.history.entries();
     let last = history.last().expect("history entry");
     assert_eq!(last.sql, expect_history);
@@ -285,7 +285,7 @@ async fn postgres_binds_parameters_with_numbers() {
     check_parameters(
         &b,
         "SELECT count(*) FROM people WHERE name = :name",
-        "SELECT count(*) FROM people WHERE name = $1",
+        "SELECT count(*) FROM people WHERE name = :name",
     )
     .await;
     ok(&b.run("typed", PG_PEOPLE).await);
@@ -485,7 +485,7 @@ async fn mysql_binds_question_marks() {
     check_parameters(
         &b,
         "SELECT count(*) FROM people WHERE name = :name",
-        "SELECT count(*) FROM people WHERE name = ?",
+        "SELECT count(*) FROM people WHERE name = :name",
     )
     .await;
     check_typed(

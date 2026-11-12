@@ -1136,11 +1136,9 @@ impl QueryRunner {
             tab_id: exec.tab_id.clone(),
             connection_id: exec.connection_id.clone(),
             database: exec.database.clone(),
-            // As sent: a statement whose placeholders were rewritten reads as it ran.
-            sql: exec.prepared.get(index).map_or_else(
-                || exec.text[exec.statements[index].range()].to_owned(),
-                |p| p.sql.clone(),
-            ),
+            // As typed: named parameters keep their names (re-opened from the history, the
+            // statement asks for them again); their values are never recorded.
+            sql: exec.text[exec.statements[index].range()].to_owned(),
             started_at,
             duration,
             rows,
