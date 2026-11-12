@@ -42,6 +42,7 @@ export function entryTarget(
   qualifier: Qualifier,
 ): string {
   if (entry.family === 'keyValue') return `db${entry.table.database} · ${entry.table.name}`;
+  if (entry.family === 'search') return entry.table.name;
   return tableLabel(entry.table, qualifier);
 }
 

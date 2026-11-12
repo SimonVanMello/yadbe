@@ -23,6 +23,7 @@ use crate::db::search::server::PitApi;
 use crate::session::ConnectionManager;
 use crate::session::ConnectionSession;
 use crate::session::history_hook::HistoryRecorder;
+use crate::session::journal::ChangeJournal;
 use crate::session::result_store::ResultStore;
 use crate::session::search::gate::{Gate, Origin, Send, UserContext, new_opaque_id};
 use crate::session::search::model::{
@@ -93,6 +94,8 @@ pub struct SearchService {
     store: Arc<ResultStore>,
     history: Arc<dyn HistoryRecorder>,
     tabs: Mutex<HashMap<String, Arc<SearchTab>>>,
+    /// Records document edits (M4-8); none in tests that do not edit.
+    pub(super) journal: Option<Arc<ChangeJournal>>,
 }
 
 /// Clears `running` when the tab's request ends, however it ends.
@@ -223,10 +226,16 @@ impl SearchService {
             store,
             history,
             tabs: Mutex::new(HashMap::new()),
+            journal: None,
         }
     }
 
-    fn open(
+    pub fn with_journal(mut self, journal: Arc<ChangeJournal>) -> Self {
+        self.journal = Some(journal);
+        self
+    }
+
+    pub(super) fn open(
         &self,
         connection_id: &str,
     ) -> Result<(Arc<ConnectionSession>, Arc<dyn SearchConnection>), YadbeError> {
@@ -235,7 +244,7 @@ impl SearchService {
         Ok((session, conn))
     }
 
-    fn gate<'a>(
+    pub(super) fn gate<'a>(
         &'a self,
         session: &'a ConnectionSession,
         conn: &'a dyn SearchConnection,
@@ -489,6 +498,8 @@ impl SearchService {
                     ("size", Json::int(i64::from(ask))),
                     ("query", filter),
                     ("track_total_hits", Json::int(TRACK_TOTAL)),
+                    // The version of each hit, for the edits' optimistic concurrency.
+                    ("seq_no_primary_term", Json::Bool(true)),
                 ];
                 if !query.sort.is_empty() {
                     body.push((
@@ -632,6 +643,7 @@ impl SearchService {
                         Json::Bool(false)
                     },
                 ),
+                ("seq_no_primary_term", Json::Bool(true)),
                 (
                     "pit",
                     Json::object([

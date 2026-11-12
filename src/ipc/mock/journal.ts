@@ -4,6 +4,7 @@ import type {
   EngineFamily,
   JournalTargetKind,
   KvChangeSet,
+  SearchChangeSet,
   JournalDetail,
   JournalEntry,
   JournalPage,
@@ -48,6 +49,8 @@ export interface MockJournalRecord {
   targetKind?: JournalTargetKind;
   /** The inverse of a key-value change set (`inverse` is SQL only). */
   kvInverse?: KvChangeSet | null;
+  /** The inverse of a search change set. */
+  searchInverse?: SearchChangeSet | null;
 }
 
 function familyOf(engine: Engine): EngineFamily {
@@ -56,6 +59,8 @@ function familyOf(engine: Engine): EngineFamily {
       return 'keyValue';
     case 'mongodb':
       return 'document';
+    case 'elasticsearch':
+      return 'search';
     default:
       return 'sql';
   }
@@ -242,6 +247,35 @@ export function createMockJournal(deps: { events: EventEmitter }) {
         );
       }
       return structuredClone(stored.kvInverse);
+    },
+    /** The inverse of a search entry for a revert on `connectionId`, or why it cannot be. */
+    searchInverseFor(id: number, connectionId: string): SearchChangeSet | YadbeError {
+      const stored = entries.find((e) => e.id === id);
+      if (!stored) {
+        return mockErrors.invalidArgument(
+          'This change set is no longer in the journal.',
+          "Cet ensemble de modifications n'est plus dans le journal.",
+        );
+      }
+      if (stored.connectionId !== connectionId || familyOf(stored.engine) !== 'search') {
+        return mockErrors.invalidArgument(
+          'This change set was applied to another connection.',
+          'Cet ensemble de modifications a été appliqué à une autre connexion.',
+        );
+      }
+      if (stored.revertedBy !== null) {
+        return mockErrors.invalidArgument(
+          `This change set was already reverted (#${String(stored.revertedBy)}).`,
+          `Cet ensemble de modifications a déjà été annulé (n° ${String(stored.revertedBy)}).`,
+        );
+      }
+      if (stored.blocker || !stored.searchInverse) {
+        return mockErrors.invalidArgument(
+          'This change set cannot be reverted faithfully.',
+          'Cet ensemble de modifications ne peut pas être annulé fidèlement.',
+        );
+      }
+      return structuredClone(stored.searchInverse);
     },
     setMaxEntries(max: number): void {
       maxEntries = max;

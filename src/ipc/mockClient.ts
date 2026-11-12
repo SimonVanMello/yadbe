@@ -761,6 +761,8 @@ function createMockBackend() {
   });
 
   const search = createMockSearch({
+    journal,
+    connectionName: (connectionId) => findConnection(connectionId)?.definition.name ?? connectionId,
     session: (connectionId) => {
       const conn = findConnection(connectionId);
       if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;

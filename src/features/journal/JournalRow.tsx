@@ -53,7 +53,15 @@ export function JournalRow({
       onClick={onSelect}
     >
       <Icon
-        name={entry.reverts !== null ? 'undo' : entry.family === 'keyValue' ? 'key' : 'table'}
+        name={
+          entry.reverts !== null
+            ? 'undo'
+            : entry.family === 'keyValue'
+              ? 'key'
+              : entry.family === 'search'
+                ? 'index'
+                : 'table'
+        }
         className={styles.icon}
       />
       <div className={styles.body}>

@@ -152,6 +152,7 @@
   /* Key edits (M4-6): commands of the apply dialog, the string value editor. */
   --kv-commands-max-height: 320px;
   --kv-editor-min-height: 160px;
+  --search-editor-height: 320px;
   /* Search console (M4-7): one answer's tab in the strip of a run's answers. */
   --search-answer-max-width: 320px;
 

@@ -2,6 +2,7 @@ import { isQueryTab, isTableTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { ipc } from '../../ipc';
 import { forgetIndexTab } from './indexActions';
 import { useSearchConsoleStore } from './searchConsoleStore';
+import { forgetSearchEdits } from './searchEditActions';
 
 let started = false;
 
@@ -20,6 +21,7 @@ export function startSearchFeature(): void {
     for (const id of known) {
       if (ids.has(id)) continue;
       forgetIndexTab(id);
+      forgetSearchEdits(id);
       useSearchConsoleStore.getState().forget(id);
       // Unknown to the backend unless it was a search tab: then nothing happens.
       void ipc.commands.searchCloseTab(id).catch(() => undefined);

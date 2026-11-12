@@ -1,23 +1,29 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { bracketMatching, StreamLanguage } from '@codemirror/language';
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
-import { EditorState, Prec, type Extension } from '@codemirror/state';
+import { EditorState, Prec, StateEffect, StateField, type Extension } from '@codemirror/state';
 import {
+  Decoration,
   EditorView,
   drawSelection,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
   lineNumbers,
+  type DecorationSet,
 } from '@codemirror/view';
 import { useEffect, useRef } from 'react';
 
 import { matchesAction, runAction, type ActionId } from '../../app/actions';
 import { useT } from '../../i18n/useT';
+import type { TextRange } from '../../ipc';
 import { styleNonce } from '../../ui/cspNonce';
+import { errorRange } from '../query/errorMarks';
 import { sqlEditorTheme } from '../query/editorTheme';
 import { getQueryTabState, useQueryTabStore } from '../query/queryTabStore';
+import { consoleErrorOffset } from './consoleText';
 import styles from './SearchConsole.module.css';
+import { useSearchConsole } from './searchConsoleStore';
 
 interface ConsoleState {
   /** On a request line: after the method. */
@@ -67,6 +73,27 @@ const consoleSyntax = StreamLanguage.define<ConsoleState>({
   },
 });
 
+const setErrorMark = StateEffect.define<TextRange | null>();
+const errorMark = Decoration.mark({ class: 'cm-error-range' });
+
+/** Where the answer shown says the request is wrong, underlined until the text changes. */
+const errorField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(marks, transaction) {
+    let next = transaction.docChanged ? Decoration.none : marks;
+    for (const effect of transaction.effects) {
+      if (!effect.is(setErrorMark)) continue;
+      const range = effect.value;
+      next =
+        range === null || range.to > transaction.state.doc.length
+          ? Decoration.none
+          : Decoration.set([errorMark.range(range.from, range.to)]);
+    }
+    return next;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
 /** The app's run shortcuts (rebindable, F-121), ahead of CodeMirror's own keys. */
 const CONSOLE_ACTIONS: readonly ActionId[] = ['query.run', 'query.runStatement', 'query.cancel'];
 
@@ -90,7 +117,12 @@ function actionKeys(): Extension {
 export function SearchConsoleEditor({ tabId }: { tabId: string }) {
   const t = useT();
   const host = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<EditorView | null>(null);
   const label = t('search.console.editor');
+  const { responses, selected, failure, sourceText } = useSearchConsole(tabId);
+  const position = failure
+    ? { line: failure.line + 1, column: 1 }
+    : (responses[selected]?.errorPosition ?? null);
   const labelRef = useRef(label);
 
   useEffect(() => {
@@ -119,6 +151,7 @@ export function SearchConsoleEditor({ tabId }: { tabId: string }) {
           search({ top: true }),
           keymap.of([...defaultKeymap, ...searchKeymap, ...historyKeymap, indentWithTab]),
           consoleSyntax,
+          errorField,
           sqlEditorTheme,
           EditorView.contentAttributes.of({ 'aria-label': labelRef.current }),
           EditorView.updateListener.of((update) => {
@@ -133,13 +166,29 @@ export function SearchConsoleEditor({ tabId }: { tabId: string }) {
       }),
     });
     view.scrollDOM.scrollTop = stored.scrollTop;
+    viewRef.current = view;
     return () => {
+      viewRef.current = null;
       useQueryTabStore
         .getState()
         .setScroll(tabId, view.scrollDOM.scrollTop, view.scrollDOM.scrollLeft);
       view.destroy();
     };
   }, [tabId]);
+
+  // The error of the answer shown, marked while the text is the one that ran.
+  const line = position?.line ?? null;
+  const column = position?.column ?? null;
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const text = view.state.doc.toString();
+    const offset =
+      line !== null && column !== null && sourceText === text
+        ? consoleErrorOffset(text, line, column)
+        : null;
+    view.dispatch({ effects: setErrorMark.of(offset === null ? null : errorRange(text, offset)) });
+  }, [line, column, sourceText]);
 
   return <div ref={host} className={styles.editor} data-testid="search-console-editor" />;
 }

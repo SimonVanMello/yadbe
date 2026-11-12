@@ -21,6 +21,8 @@ import {
   useConnectionState,
 } from '../connections/connectionStore';
 import { HitsResults } from './HitsResults';
+import { PendingDocsBar } from './PendingDocsBar';
+import { loadEditInfo } from './searchEditActions';
 import {
   applyIndexQuery,
   cancelIndex,
@@ -50,6 +52,11 @@ export function IndexTabBody({ tab, table }: { tab: ShellTab; table: ObjectRef }
   const index = useIndexTab(tab.id);
   const connected = state === 'connected';
   const { phase } = index;
+
+  // What the tab's documents allow (read-only, data streams, blocks), once its index is open.
+  useEffect(() => {
+    if (connected && phase === 'ready') void loadEditInfo(tab.id);
+  }, [connected, phase, tab.id]);
 
   useEffect(() => {
     if (!connected) {
@@ -308,6 +315,7 @@ export function IndexTabBody({ tab, table }: { tab: ShellTab; table: ObjectRef }
           </Tooltip>
         )}
       </div>
+      <PendingDocsBar tabId={tab.id} />
       {error && (
         <div className={styles.error} role="alert">
           <Icon name="warning" />
@@ -325,6 +333,7 @@ export function IndexTabBody({ tab, table }: { tab: ShellTab; table: ObjectRef }
             result={page.documents}
             view={view}
             label={t('search.index.results', { name: table.name })}
+            editTabId={tab.id}
           />
         ) : null}
         {loading && page && (

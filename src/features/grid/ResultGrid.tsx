@@ -11,6 +11,11 @@ export interface ResultGridProps {
   label?: string;
   /** Shown at the end of the footer (why the result cannot be edited, F-087). */
   note?: ReactNode;
+  /**
+   * Entries of the context menu for the row of the focused cell, given its cells by column
+   * name (the hits of an index tab: edit, delete…).
+   */
+  rowMenu?: (cell: (column: string) => string | null) => ReactNode;
 }
 
 /**

@@ -753,6 +753,28 @@ export const commands = {
 	searchCloseTab: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("search_close_tab", { tabId })),
 	/**  Whole documents (hits, or a console answer) `offset .. offset + limit`, as JSON text. */
 	searchFetchDocuments: (documentsId: number, offset: number, limit: number) => typedError<string[], YadbeError>(__TAURI_INVOKE("search_fetch_documents", { documentsId, offset, limit })),
+	/**
+	 *  What the document edits of an index tab can do on `target`: read-only connection, data
+	 *  streams (append-only), closed or write-blocked indices, where a new document can go.
+	 */
+	searchEditInfo: (connectionId: string, target: string) => typedError<SearchEditInfo, YadbeError>(__TAURI_INVOKE("search_edit_info", { connectionId, target })),
+	/**
+	 *  One document as the server holds it now (real-time get), `_source` exact, with its
+	 *  `_seq_no` / `_primary_term`.
+	 */
+	searchGetDocument: (connectionId: string, index: string, id: string, routing: string | null) => typedError<SearchDocVersion, YadbeError>(__TAURI_INVOKE("search_get_document", { connectionId, index, id, routing })),
+	/**  The requests applying `changes` would send (console syntax) and the edits refused here. */
+	searchPreviewChanges: (connectionId: string, changes: SearchChangeSet) => typedError<SearchEditPreview, YadbeError>(__TAURI_INVOKE("search_preview_changes", { connectionId, changes })),
+	/**
+	 *  Applies document edits one at a time (there is no transaction across documents): each is
+	 *  checked against the version it was made on, the apply stops at the first failure, and
+	 *  what was applied is journaled.
+	 */
+	searchApplyChanges: (connectionId: string, changes: SearchChangeSet) => typedError<SearchApplyOutcome, YadbeError>(__TAURI_INVOKE("search_apply_changes", { connectionId, changes })),
+	/**  What reverting a search journal entry would send. */
+	searchPreviewRevert: (connectionId: string, entryId: number) => typedError<SearchRevertPreview, YadbeError>(__TAURI_INVOKE("search_preview_revert", { connectionId, entryId })),
+	/**  Reverts a search journal entry: its inverse, applied with the same checks. */
+	searchApplyRevert: (connectionId: string, entryId: number) => typedError<SearchApplyOutcome, YadbeError>(__TAURI_INVOKE("search_apply_revert", { connectionId, entryId })),
 };
 
 /** Events */
@@ -2765,7 +2787,12 @@ export type JournalTargetKind =
 /**  Every key under a prefix: the database index and the pattern. */
 "namespace" | 
 /**  A collection (document family): database and name. */
-"collection";
+"collection" | 
+/**
+ *  An index, alias, data stream or pattern (search family): its name, as the index tab
+ *  that applied the change shows it.
+ */
+"index";
 
 export type JsonLayout = 
 /**  One JSON array of objects, one object per line. */
@@ -4320,6 +4347,38 @@ export type SearchAlias = {
 	system: boolean,
 };
 
+/**  One document changed by an apply. */
+export type SearchApplied = {
+	edit: number,
+	/**  The concrete index written (a data stream's backing index, an alias's write index). */
+	index: string,
+	id: string,
+	/**  `created`, `updated`, `deleted`, as the server says. */
+	result: string,
+	/**  The version the write made. */
+	guard: SeqGuard | null,
+};
+
+/**  What an apply (or a revert) did. */
+export type SearchApplyOutcome = {
+	/**  Edits in the change set. */
+	total: number,
+	/**  In order; the first `applied.len()` edits. */
+	applied: SearchApplied[],
+	stopped: SearchStop | null,
+	/**
+	 *  The journal entry of what was applied; `null` when nothing was, or the journal could
+	 *  not be written.
+	 */
+	journalId: number | null,
+	revertible: boolean,
+	/**
+	 *  Indices written without waiting for a refresh (`refresh_interval: -1`): the change is
+	 *  not searchable until the next refresh.
+	 */
+	notVisible: string[],
+};
+
 /**  How requests authenticate. */
 export type SearchAuth = 
 /**  No `Authorization` header (security off, or a proxy in front). */
@@ -4330,6 +4389,30 @@ export type SearchAuth =
 "apiKey" | 
 /**  A bearer token (`Authorization: Bearer <token>`: service tokens, OAuth / OIDC). */
 "bearer";
+
+/**  Documents to change, applied one by one in this order. */
+export type SearchChangeSet = {
+	/**
+	 *  What the index tab shows (an index, an alias, a data stream, a pattern): the journal
+	 *  entry's name.
+	 */
+	target: string,
+	edits: SearchEdit[],
+};
+
+export type SearchConflict = {
+	kind: SearchConflictKind,
+	/**  The server's version now (`found: false` when gone); `null` when it could not be read. */
+	current: SearchDocVersion | null,
+};
+
+export type SearchConflictKind = 
+/**  The document changed since the version the edit was made on. */
+"changed" | 
+/**  The document is gone. */
+"missing" | 
+/**  A create's `_id` exists already. */
+"exists";
 
 /**  What `search_console_run` did. */
 export type SearchConsoleOutcome = 
@@ -4376,6 +4459,79 @@ export type SearchDataStream = {
 	template: string | null,
 	timestampField: string | null,
 	system: boolean,
+};
+
+/**  A document as the server holds it now. */
+export type SearchDocVersion = {
+	index: string,
+	id: string,
+	routing: string | null,
+	found: boolean,
+	/**  Its version, when found. */
+	guard: SeqGuard | null,
+	/**
+	 *  Its `_source` indented, numbers as the server holds them; `null` when not found or
+	 *  without `_source`.
+	 */
+	source: string | null,
+};
+
+/**  One document change. */
+export type SearchEdit = 
+/**
+ *  Writes `source` as the whole `_source` of the document (the index API), if it is
+ *  still at `guard`.
+ */
+{ kind: "replace"; 
+/**  The concrete index holding the document (a hit's `_index`). */
+index: string; id: string; routing: string | null; guard: SeqGuard; 
+/**  The new `_source`: a JSON object, as text. */
+source: string } | 
+/**  Creates a document; refused when its `_id` exists. `id` null: the server picks one. */
+{ kind: "create"; 
+/**  An index, an alias with a write index or a data stream. */
+index: string; id: string | null; routing: string | null; source: string } | 
+/**  Deletes the document, if it is still at `guard`. */
+{ kind: "delete"; index: string; id: string; routing: string | null; guard: SeqGuard };
+
+/**  Why a document cannot be changed here. */
+export type SearchEditBlock = { kind: "readOnlyConnection" } | 
+/**  A backing index of a data stream: append-only. */
+{ kind: "dataStream"; name: string } | { kind: "closed"; index: string } | { kind: "writeBlock"; index: string; setting: string } | 
+/**
+ *  The document has no `_source` (disabled in the mapping): there is nothing to edit nor
+ *  to restore.
+ */
+{ kind: "noSource" } | 
+/**  The index does not exist (any more). */
+{ kind: "unknownIndex"; index: string };
+
+/**  What the edits of an index tab can do. */
+export type SearchEditInfo = {
+	/**  The connection is read-only: nothing can be changed. */
+	readOnly: boolean,
+	/**  The concrete indices the tab's target resolves to. */
+	indices: SearchIndexWriteState[],
+	/**  Data streams among them: documents can be added there (appended), not changed. */
+	dataStreams: string[],
+	/**
+	 *  Where "Add a document" can write: the target itself when it names one index, alias or
+	 *  data stream, else each writable index and data stream it resolves to.
+	 */
+	createTargets: string[],
+};
+
+/**  What Apply would send. */
+export type SearchEditPreview = {
+	requests: SearchPlannedRequest[],
+	/**  Edits that cannot be applied; Apply sends nothing while there is one. */
+	refused: SearchEditRefusal[],
+};
+
+/**  An edit the server would refuse here, and why. */
+export type SearchEditRefusal = {
+	edit: number,
+	reason: SearchEditBlock,
 };
 
 /**  What the server can do that yadbe uses. */
@@ -4436,7 +4592,42 @@ export type SearchIndexInfo = {
 	system: boolean,
 };
 
+/**  How an index takes writes, as yadbe's edits need to know. */
+export type SearchIndexWriteState = {
+	index: string,
+	/**  The data stream it backs: append-only, its documents are not edited here. */
+	dataStream: string | null,
+	closed: boolean,
+	/**
+	 *  The block setting that refuses writes (`index.blocks.write`, `index.blocks.read_only`,
+	 *  `index.blocks.read_only_allow_delete`).
+	 */
+	writeBlock: string | null,
+	/**
+	 *  `index.refresh_interval` is `-1`: a write is visible to searches only after a refresh
+	 *  someone asks for, so yadbe does not wait for one.
+	 */
+	refreshDisabled: boolean,
+};
+
+/**  One request of a preview. */
+export type SearchPlannedRequest = {
+	/**  Index of the edit in the change set. */
+	edit: number,
+	/**  The request in console syntax, its body indented. */
+	text: string,
+	/**  It waits for the refresh that makes it searchable. */
+	waits: boolean,
+};
+
 export type SearchProduct = "elasticsearch" | "opensearch";
+
+/**  What reverting a journal entry would send. */
+export type SearchRevertPreview = {
+	/**  The inverse change set (which documents it touches). */
+	changes: SearchChangeSet,
+	preview: SearchEditPreview,
+};
 
 /**  The server a search connection talks to. */
 export type SearchServer = {
@@ -4459,6 +4650,19 @@ export type SearchSettings = {
 	/**  The path the API is served under behind a proxy (`/elasticsearch`); `null`: the root. */
 	pathPrefix?: string | null,
 };
+
+export type SearchStop = {
+	/**  The edit that stopped the apply; it and the ones after it were not applied. */
+	edit: number,
+	reason: SearchStopReason,
+};
+
+export type SearchStopReason = { kind: "conflict"; conflict: SearchConflict } | 
+/**
+ *  The request failed (refused by the server, timed out, link down): when it timed out or
+ *  the link dropped, whether the server applied it is not known.
+ */
+{ kind: "failed"; error: YadbeError };
 
 export type SearchTemplate = {
 	name: string,
@@ -4525,6 +4729,15 @@ export type SelectionAggregate = {
 	max: string | null,
 	/**  False when a floating-point cell took part: the figures are then floating point. */
 	exact: boolean,
+};
+
+/**
+ *  The version of a document an edit was made on (`_seq_no`, `_primary_term`), as decimal
+ *  text (64-bit integers cross the IPC as strings, rule 8).
+ */
+export type SeqGuard = {
+	seqNo: string,
+	primaryTerm: string,
 };
 
 export type SequenceSummary = {

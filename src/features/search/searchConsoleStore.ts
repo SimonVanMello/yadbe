@@ -21,6 +21,8 @@ export interface SearchConsoleState {
   view: ResponseView;
   /** Bumped by each run. */
   runId: number;
+  /** The editor text the last run read: where its errors point. */
+  sourceText: string | null;
 }
 
 const EMPTY: SearchConsoleState = {
@@ -32,6 +34,7 @@ const EMPTY: SearchConsoleState = {
   error: null,
   view: 'grid',
   runId: 0,
+  sourceText: null,
 };
 
 interface SearchConsoleStore {

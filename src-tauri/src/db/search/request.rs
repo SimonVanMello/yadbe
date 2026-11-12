@@ -91,6 +91,21 @@ pub fn segment(text: &str) -> String {
     out
 }
 
+/// Percent-encodes a document id, a routing value or a concrete index name: everything but
+/// letters, digits and `-_.~` (a `+`, `,` or `*` in an id is not an operator), in a path
+/// segment as in a query-string value.
+pub fn strict(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
 fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());

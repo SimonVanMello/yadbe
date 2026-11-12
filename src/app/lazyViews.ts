@@ -52,6 +52,14 @@ export const LazyKvApplyDialog = lazyComponent(
   () => import('../features/keyvalue/KvApplyDialog').then((m) => m.KvApplyDialog),
   DIALOG,
 );
+export const LazySearchApplyDialog = lazyComponent(
+  () => import('../features/search/SearchApplyDialog').then((m) => m.SearchApplyDialog),
+  DIALOG,
+);
+export const LazyDocEditorDialog = lazyComponent(
+  () => import('../features/search/DocEditorDialog').then((m) => m.DocEditorDialog),
+  DIALOG,
+);
 export const LazyKvFormDialog = lazyComponent(
   () => import('../features/keyvalue/KvFormDialog').then((m) => m.KvFormDialog),
   DIALOG,

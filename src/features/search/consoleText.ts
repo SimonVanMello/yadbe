@@ -48,3 +48,16 @@ export function requestAt(text: string, line: number): number | null {
   const before = requestLines(text).filter((start) => start <= line);
   return before.at(-1) ?? null;
 }
+
+/**
+ * The offset of a 1-based line and column of `text` (an error position the backend mapped to
+ * the editor's lines); `null` when the text has no such line.
+ */
+export function consoleErrorOffset(text: string, line: number, column: number): number | null {
+  const lines = text.split('\n');
+  if (line < 1 || line > lines.length) return null;
+  let offset = 0;
+  for (let i = 0; i < line - 1; i++) offset += (lines[i]?.length ?? 0) + 1;
+  const length = lines[line - 1]?.length ?? 0;
+  return offset + Math.min(Math.max(column - 1, 0), Math.max(length - 1, 0));
+}

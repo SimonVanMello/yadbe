@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
 
 import { showError } from '../../app/errors/presentError';
@@ -43,6 +44,8 @@ export interface DocumentsViewProps {
   load: (offset: number, limit: number) => Promise<DocNode[]>;
   /** Accessible name of the list. */
   label: string;
+  /** More entries of a row's menu, for its document (number, and the document once read). */
+  documentMenu?: (document: number, node: DocNode | undefined) => ReactNode;
 }
 
 /** The text a row shows for its value. */
@@ -74,7 +77,7 @@ async function copy(text: string, what: string): Promise<void> {
  * on demand. Copy a value, its path or the whole document from a row's menu. Fed by plain values
  * (`DocNode`): it knows nothing of the store the documents come from.
  */
-export function DocumentsView({ count, load, label }: DocumentsViewProps) {
+export function DocumentsView({ count, load, label, documentMenu }: DocumentsViewProps) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
   const [documents, setDocuments] = useState<(DocNode | undefined)[]>([]);
@@ -250,6 +253,7 @@ export function DocumentsView({ count, load, label }: DocumentsViewProps) {
                         {t('documents.copyDocument')}
                       </ContextMenuItem>
                     )}
+                    {documentMenu?.(row.document, document)}
                   </>
                 }
               >

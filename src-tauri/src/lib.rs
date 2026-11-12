@@ -208,6 +208,12 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::search::search_cancel,
             commands::search::search_close_tab,
             commands::search::search_fetch_documents,
+            commands::search::search_edit_info,
+            commands::search::search_get_document,
+            commands::search::search_preview_changes,
+            commands::search::search_apply_changes,
+            commands::search::search_preview_revert,
+            commands::search::search_apply_revert,
         ])
         .events(collect_events![
             events::AppReady,

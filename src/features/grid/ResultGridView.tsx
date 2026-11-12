@@ -8,18 +8,20 @@ import type { ResultGridProps } from './ResultGrid';
 import type { ExportGridRange } from '../export/exportOptions';
 import { openResultExport, ResultFooter } from './ResultFooter';
 import { createResultRowSource } from './resultRowSource';
+import { blockText } from './rowSource';
 import { useResultSelectionStore, type SelectionSize } from './resultSelectionStore';
 import { useResultViewStore } from './resultViewStore';
 import { useResultView } from './useResultView';
 import { useSelectionAggregate } from './useSelectionAggregate';
 
 /** `ResultGrid` for one result id (remounted when the id changes). */
-export function ResultGridView({ resultId, summary, label, note }: ResultGridProps) {
+export function ResultGridView({ resultId, summary, label, note, rowMenu }: ResultGridProps) {
   const t = useT();
   const [source] = useState(() =>
     createResultRowSource(resultId, summary.columns, summary.rowCount),
   );
   const gridApi = useRef<DataGridApi | null>(null);
+  const [focusRow, setFocusRow] = useState<number | null>(null);
   const { view, info } = useResultView(
     resultId,
     source,
@@ -91,6 +93,22 @@ export function ResultGridView({ resultId, summary, label, note }: ResultGridPro
       sort={headerSort}
       apiRef={gridApi}
       onExport={openExport}
+      onFocusChange={
+        rowMenu
+          ? (cell) => {
+              setFocusRow(cell?.row ?? null);
+            }
+          : undefined
+      }
+      menuExtras={
+        rowMenu && focusRow !== null
+          ? rowMenu((column) => {
+              const block = source.block(focusRow);
+              const col = summary.columns.findIndex((c) => c.name === column);
+              return block && col !== -1 ? blockText(block, focusRow - block.offset, col) : null;
+            })
+          : undefined
+      }
     />
   );
 }

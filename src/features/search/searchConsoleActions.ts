@@ -77,6 +77,7 @@ export async function runSearchConsole(tabId: string, all = false): Promise<void
         skipped: outcome.skipped,
         failure: outcome.failure,
         runId: previous.runId + 1,
+        sourceText: editor.content,
       });
     }
   } catch (error) {

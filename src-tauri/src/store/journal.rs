@@ -64,6 +64,9 @@ pub enum JournalTargetKind {
     Namespace,
     /// A collection (document family): database and name.
     Collection,
+    /// An index, alias, data stream or pattern (search family): its name, as the index tab
+    /// that applied the change shows it.
+    Index,
 }
 
 impl JournalTargetKind {
@@ -74,6 +77,7 @@ impl JournalTargetKind {
             JournalTargetKind::Keys => "keys",
             JournalTargetKind::Namespace => "namespace",
             JournalTargetKind::Collection => "collection",
+            JournalTargetKind::Index => "index",
         }
     }
 
@@ -84,6 +88,7 @@ impl JournalTargetKind {
             "keys" => JournalTargetKind::Keys,
             "namespace" => JournalTargetKind::Namespace,
             "collection" => JournalTargetKind::Collection,
+            "index" => JournalTargetKind::Index,
             _ => return None,
         })
     }

@@ -10,8 +10,12 @@
 use tauri::State;
 
 use crate::db::errors::YadbeError;
+use crate::db::search::edit::{SearchChangeSet, SearchEditInfo};
 use crate::db::search::meta::{
     SearchAlias, SearchDataStream, SearchIndexDetails, SearchIndexInfo, SearchTemplate,
+};
+use crate::session::search::edit::{
+    SearchApplyOutcome, SearchDocVersion, SearchEditPreview, SearchRevertPreview,
 };
 use crate::session::search::model::{
     IndexPage, IndexQuery, IndexTabInfo, LineRange, SearchConsoleOutcome,
@@ -169,4 +173,85 @@ pub async fn search_fetch_documents(
     limit: u32,
 ) -> Result<Vec<String>, YadbeError> {
     state.searches.documents(documents_id, offset, limit)
+}
+
+/// What the document edits of an index tab can do on `target`: read-only connection, data
+/// streams (append-only), closed or write-blocked indices, where a new document can go.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_edit_info(
+    state: State<'_, AppState>,
+    connection_id: String,
+    target: String,
+) -> Result<SearchEditInfo, YadbeError> {
+    state.searches.edit_info(&connection_id, &target).await
+}
+
+/// One document as the server holds it now (real-time get), `_source` exact, with its
+/// `_seq_no` / `_primary_term`.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_get_document(
+    state: State<'_, AppState>,
+    connection_id: String,
+    index: String,
+    id: String,
+    routing: Option<String>,
+) -> Result<SearchDocVersion, YadbeError> {
+    state
+        .searches
+        .get_document(&connection_id, &index, &id, routing.as_deref())
+        .await
+}
+
+/// The requests applying `changes` would send (console syntax) and the edits refused here.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_preview_changes(
+    state: State<'_, AppState>,
+    connection_id: String,
+    changes: SearchChangeSet,
+) -> Result<SearchEditPreview, YadbeError> {
+    state
+        .searches
+        .preview_changes(&connection_id, &changes)
+        .await
+}
+
+/// Applies document edits one at a time (there is no transaction across documents): each is
+/// checked against the version it was made on, the apply stops at the first failure, and
+/// what was applied is journaled.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_apply_changes(
+    state: State<'_, AppState>,
+    connection_id: String,
+    changes: SearchChangeSet,
+) -> Result<SearchApplyOutcome, YadbeError> {
+    state.searches.apply_changes(&connection_id, &changes).await
+}
+
+/// What reverting a search journal entry would send.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_preview_revert(
+    state: State<'_, AppState>,
+    connection_id: String,
+    entry_id: u32,
+) -> Result<SearchRevertPreview, YadbeError> {
+    state
+        .searches
+        .preview_revert(&connection_id, entry_id)
+        .await
+}
+
+/// Reverts a search journal entry: its inverse, applied with the same checks.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_apply_revert(
+    state: State<'_, AppState>,
+    connection_id: String,
+    entry_id: u32,
+) -> Result<SearchApplyOutcome, YadbeError> {
+    state.searches.apply_revert(&connection_id, entry_id).await
 }

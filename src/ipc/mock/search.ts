@@ -18,6 +18,8 @@ import type { YadbeClient } from '../client';
 import { mockErrors } from '../mockErrors';
 import type { Cell } from '../mockQuery';
 import type { MockHistoryRecord } from './history';
+import type { MockJournal } from './journal';
+import { createMockSearchEdits } from './searchEdit';
 import {
   MOCK_ALIASES,
   MOCK_DATA_STREAMS,
@@ -69,6 +71,8 @@ export interface MockSearchHost {
   storeRows(columns: readonly ColumnMeta[], rows: readonly (readonly Cell[])[]): number;
   freeResults(ids: readonly number[]): void;
   readTexts(resultId: number, offset: number, limit: number): string[] | null;
+  connectionName(connectionId: string): string;
+  journal: MockJournal;
 }
 
 interface Tab {
@@ -354,6 +358,15 @@ function matcher(query: IndexQuery): Keep | YadbeError {
 export function createMockSearch(host: MockSearchHost) {
   let indices = mockSearchIndices();
   const tabs = new Map<string, Tab>();
+  const edits = createMockSearchEdits({
+    indices: () => indices,
+    session: (connectionId) => host.session(connectionId),
+    logStatement: (connectionId, sql, error) => {
+      host.logStatement(connectionId, sql, error);
+    },
+    connectionName: (connectionId) => host.connectionName(connectionId),
+    journal: host.journal,
+  });
 
   function tabOf(tabId: string): Tab {
     let tab = tabs.get(tabId);
@@ -408,13 +421,14 @@ export function createMockSearch(host: MockSearchHost) {
     sort: { field: string; descending: boolean }[],
   ): Hit[] {
     const all: Hit[] = [];
-    for (let i = 0; i < index.count; i++) {
-      const { id, source } = index.doc(i);
+    for (const { id, source, seq } of edits.docs(index)) {
       if (!keep(source)) continue;
       all.push({
         _index: index.name,
         _id: id,
         _score: sort.length > 0 ? null : 1,
+        _seq_no: seq,
+        _primary_term: 1,
         _source: source,
       });
     }
@@ -988,10 +1002,11 @@ export function createMockSearch(host: MockSearchHost) {
   };
 
   return {
-    commands,
+    commands: { ...commands, ...edits.commands },
     reset(): void {
       indices = mockSearchIndices();
       tabs.clear();
+      edits.reset();
     },
   };
 }
