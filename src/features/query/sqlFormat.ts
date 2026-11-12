@@ -1,4 +1,5 @@
 import type { Engine } from '../../ipc';
+import { sqlEntry, type SqlEngine } from '../../ipc/sqlEngines';
 
 /**
  * The SQL formatter (F-049): a token-level layout, no parser. It only changes the whitespace
@@ -303,7 +304,7 @@ const COMMON = words(`
   create table alter drop unique primary key foreign references constraint default check
   case when then else between like exists asc desc with index add column for collate
 `);
-const KEYWORDS: Record<Engine, ReadonlySet<string>> = {
+const KEYWORDS: Record<SqlEngine, ReadonlySet<string>> = {
   postgres: new Set([
     ...COMMON,
     ...words(`end full natural limit offset fetch returning ilike similar nulls recursive cast
@@ -386,7 +387,7 @@ const PLAIN: Omit<Lexicon, 'keywords'> = {
 };
 
 /** The formatter dialect of each engine. */
-const LEXICONS: Record<Engine, Lexicon> = {
+const LEXICONS: Record<SqlEngine, Lexicon> = {
   postgres: {
     ...PLAIN,
     symbolOperators: true,
@@ -546,7 +547,7 @@ function caseOf(
 ): string {
   if (options.keywordCase === 'preserve' || token.kind !== 'word') return token.text;
   const lower = token.text.toLowerCase();
-  if (!LEXICONS[options.engine].keywords.has(lower)) return token.text;
+  if (!sqlEntry(LEXICONS, options.engine).keywords.has(lower)) return token.text;
   // Part of a qualified name, or a function call (`left(…)`, `replace(…)`): a name.
   if (isPunct(prev, '.') || isPunct(next, '.')) return token.text;
   if (isPunct(next, '(') && next?.spaced === false && !SPACED_BEFORE_PAREN.has(lower)) {
@@ -591,7 +592,7 @@ function spaceBetween(prev: Token | undefined, token: Token, afterUnary: boolean
 
 /** Formats one statement (its tokens, without the `;` that ends it). */
 function formatStatement(tokens: Token[], options: FormatOptions, w: Writer): void {
-  const keywords = LEXICONS[options.engine].keywords;
+  const keywords = sqlEntry(LEXICONS, options.engine).keywords;
   const root: Ctx = {
     kind: 'root',
     level: 0,
@@ -926,7 +927,7 @@ function pieces(tokens: Token[], lexicon: Lexicon): Piece[] {
 
 /** Formats a script (or a selection of one). */
 export function formatSql(text: string, options: FormatOptions): string {
-  const lexicon = LEXICONS[options.engine];
+  const lexicon = sqlEntry(LEXICONS, options.engine);
   const parts = pieces(lex(text, lexicon), lexicon);
   let out = '';
   parts.forEach((piece, n) => {
@@ -953,7 +954,7 @@ export function formatSql(text: string, options: FormatOptions): string {
 
 /** Every token of `text` but whitespace, keywords lower-cased: what formatting must keep. */
 export function significantTokens(text: string, engine: Engine): string[] {
-  return lex(text, LEXICONS[engine]).map((t) =>
+  return lex(text, sqlEntry(LEXICONS, engine)).map((t) =>
     t.kind === 'word' ? t.text.toLowerCase() : t.text,
   );
 }

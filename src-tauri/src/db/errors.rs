@@ -919,6 +919,37 @@ pub fn from_mysql_query_error(code: u16, message: &str) -> Option<YadbeError> {
     }
 }
 
+/// Classification of a Redis / Valkey error reply (`CODE message`) while connecting:
+/// `WRONGPASS`, `NOAUTH`, a database index out of range. `password_given`: a password was
+/// sent (otherwise `NOAUTH` asks for one).
+pub fn from_redis_connect_error(
+    code: &str,
+    message: &str,
+    user: &str,
+    database: &str,
+    password_given: bool,
+) -> Option<YadbeError> {
+    let lower = message.to_ascii_lowercase();
+    let user = if user.is_empty() { "default" } else { user };
+    let error = match code {
+        "NOAUTH" if !password_given => YadbeError::password_required(),
+        "WRONGPASS" | "NOAUTH" | "NOPERM" => YadbeError::auth_failed(user),
+        "ERR"
+            if lower.contains("invalid password")
+                || lower.contains("invalid username-password") =>
+        {
+            YadbeError::auth_failed(user)
+        }
+        "ERR"
+            if lower.contains("db index is out of range") || lower.contains("invalid db index") =>
+        {
+            YadbeError::unknown_database(database)
+        }
+        _ => return None,
+    };
+    Some(error.with_detail(format!("{code} {message}")))
+}
+
 /// Removes secrets from a technical message: the password of URLs
 /// (`scheme://user:secret@host`) and the value of `password=` / `pwd=` pairs.
 pub fn redact(text: &str) -> String {

@@ -29,6 +29,8 @@ export function mockObjectActions(
         return { kind, drop: true, truncate: table, rename: table || kind === 'view' };
       case 'sqlite':
         return { kind, drop: true, truncate: table, rename: table };
+      case 'redis':
+        return { kind, drop: false, truncate: false, rename: false };
     }
   });
 }
@@ -185,6 +187,47 @@ const ENGINES: EngineInfo[] = [
     available: true,
     objectActions: [],
   },
+  {
+    engine: 'redis',
+    label: 'Redis / Valkey',
+    capabilities: {
+      family: 'keyValue',
+      usesFile: false,
+      defaultPort: 6379,
+      supportsTls: true,
+      clientCertificate: true,
+      multipleDatabases: true,
+      schemas: false,
+      nativeCancel: false,
+      readOnlySession: false,
+      identifierQuoteOpen: '"',
+      identifierQuoteClose: '"',
+      foldsUnquotedToLower: false,
+      parameterStyles: {
+        colon: false,
+        at: false,
+        atDeclaredAreVariables: false,
+        dollarName: false,
+        dollarNumber: false,
+        question: false,
+        questionNumber: false,
+      },
+      explain: false,
+      explainAnalyze: false,
+      activityMonitor: false,
+      activityCancelQuery: false,
+      tableQualifier: 'database',
+      formatter: false,
+      ddl: false,
+      scriptAs: false,
+      dataImport: false,
+      efMigrations: false,
+      dotnetConnectionString: false,
+    },
+    defaultUsername: null,
+    available: true,
+    objectActions: [],
+  },
 ];
 
 export const MOCK_ENGINES: EngineInfo[] = ENGINES.map((info) => ({
@@ -307,6 +350,15 @@ export const MOCK_CONNECTIONS: SavedConnection[] = [
     groupId: 'group-local',
     environment: { kind: 'dev', label: null, color: null },
   }),
+  saved('conn-cache', 2, {
+    ...blankDefinition('redis', 'cache'),
+    host: 'localhost',
+    database: '0',
+    tlsMode: 'disable',
+    groupId: 'group-local',
+    environment: { kind: 'dev', label: null, color: null },
+    keyValue: { keyDelimiter: null },
+  }),
   saved('conn-app-sqlite', 0, {
     ...blankDefinition('sqlite', 'app.sqlite'),
     filePath: '/home/ana/projects/app/app.sqlite',
@@ -325,6 +377,7 @@ export const MOCK_REMEMBERED_PASSWORDS = [
   'conn-shop-staging',
   'conn-local-pg',
   'conn-wordpress',
+  'conn-cache',
 ];
 
 export const MOCK_SERVER_VERSIONS: Record<Engine, string> = {
@@ -332,4 +385,5 @@ export const MOCK_SERVER_VERSIONS: Record<Engine, string> = {
   mssql: 'SQL Server 16.0.4135.4',
   mysql: 'MySQL 8.4.2',
   sqlite: 'SQLite 3.46.0',
+  redis: 'Redis 8.2.1',
 };

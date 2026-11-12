@@ -1,3 +1,4 @@
+import { sqlEntry, type SqlEngine } from '../sqlEngines';
 import type {
   ColumnMeta,
   CsvOptions,
@@ -151,7 +152,7 @@ function jsonEncoder(options: JsonOptions): RowEncoder {
   };
 }
 
-const QUOTES: Record<Engine, readonly [string, string]> = {
+const QUOTES: Record<SqlEngine, readonly [string, string]> = {
   postgres: ['"', '"'],
   sqlite: ['"', '"'],
   mysql: ['`', '`'],
@@ -159,7 +160,7 @@ const QUOTES: Record<Engine, readonly [string, string]> = {
 };
 
 function quoteIdentifier(engine: Engine, name: string): string {
-  const [open, close] = QUOTES[engine];
+  const [open, close] = sqlEntry(QUOTES, engine);
   return `${open}${name.replaceAll(close, close + close)}${close}`;
 }
 

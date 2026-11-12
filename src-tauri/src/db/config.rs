@@ -226,6 +226,9 @@ pub struct ConnectionDefinition {
     /// SSH tunnel in front of a server connection (F-010); absent in older payloads.
     #[serde(default)]
     pub ssh: Option<SshTunnel>,
+    /// What only key-value connections have (Redis, Valkey); `null` for the other families.
+    #[serde(default)]
+    pub key_value: Option<KeyValueSettings>,
     // The fields only one engine family has (replica set, key delimiter, API key kind…) go
     // here the way `ssh` does: one `Option` per family with `#[serde(default)]`, kept as JSON
     // in a column that a migration adds (`ALTER TABLE connections ADD COLUMN`), so existing
@@ -235,6 +238,20 @@ pub struct ConnectionDefinition {
 fn default_true() -> bool {
     true
 }
+
+/// The settings of a key-value connection besides the common ones. Its database index is the
+/// definition's `database` (`0`, `1`…).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyValueSettings {
+    /// What separates the levels of the key tree (`:` in `user:42:name`); `null`: the
+    /// preference.
+    #[serde(default)]
+    pub key_delimiter: Option<String>,
+}
+
+/// Longest key delimiter a connection may set.
+pub const MAX_KEY_DELIMITER_CHARS: usize = 8;
 
 impl ConnectionDefinition {
     /// Trims the text fields and checks lengths and engine-specific requirements.
@@ -348,6 +365,7 @@ impl ConnectionDefinition {
             option.key = option.key.trim().to_owned();
         }
         self.environment = normalized_environment(self.environment)?;
+        self.key_value = normalized_key_value(self.engine, self.key_value, &self.database)?;
         self.ssh = match self.ssh {
             Some(_) if caps.uses_file => None,
             ssh => ssh.map(SshTunnel::normalized).transpose()?,
@@ -413,6 +431,36 @@ impl ConnectionDefinition {
             dial: None,
         }
     }
+}
+
+/// Key-value settings stay on key-value connections only, and their database is an index.
+fn normalized_key_value(
+    engine: Engine,
+    settings: Option<KeyValueSettings>,
+    database: &str,
+) -> Result<Option<KeyValueSettings>, YadbeError> {
+    if engine.family() != crate::db::engine::EngineFamily::KeyValue {
+        return Ok(None);
+    }
+    if !database.is_empty() && database.parse::<u32>().is_err() {
+        return Err(YadbeError::invalid_argument(
+            "The database of a Redis connection is a number (0, 1, 2…).",
+            "La base d'une connexion Redis est un numéro (0, 1, 2…).",
+        ));
+    }
+    let mut settings = settings.unwrap_or_default();
+    settings.key_delimiter = settings.key_delimiter.filter(|d| !d.is_empty());
+    if settings
+        .key_delimiter
+        .as_ref()
+        .is_some_and(|d| d.chars().count() > MAX_KEY_DELIMITER_CHARS)
+    {
+        return Err(YadbeError::invalid_argument(
+            format!("A key delimiter has at most {MAX_KEY_DELIMITER_CHARS} characters."),
+            format!("Un séparateur de clés compte au plus {MAX_KEY_DELIMITER_CHARS} caractères."),
+        ));
+    }
+    Ok(Some(settings))
 }
 
 fn normalized_environment(mut env: Environment) -> Result<Environment, YadbeError> {
@@ -514,6 +562,7 @@ pub(crate) fn sample_definition(engine: Engine) -> ConnectionDefinition {
         remember_password: true,
         history_enabled: true,
         ssh: None,
+        key_value: None,
     }
 }
 

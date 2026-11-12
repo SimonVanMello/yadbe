@@ -475,6 +475,7 @@ fn kind_values(engine: Engine) -> Vec<(&'static str, Value, &'static str)> {
             ),
             ("doc", Value::Json(r#"{"a": 1}"#.into()), r#"{"a": 1}"#),
         ],
+        Engine::Redis => unreachable!("SQL engines only"),
     }
 }
 

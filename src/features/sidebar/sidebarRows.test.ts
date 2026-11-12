@@ -71,6 +71,7 @@ describe('the sidebar rows', () => {
       'group:Local',
       'connection:local postgres',
       'connection:wordpress',
+      'connection:cache',
       'connection:app.sqlite',
       'connection:auth failure demo',
     ]);

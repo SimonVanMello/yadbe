@@ -89,7 +89,9 @@ export const commands = {
 	 *  Parses a pasted connection string into form fields. A password in it is kept by the
 	 *  backend for 15 minutes under `passwordId`; it is never sent back.
 	 */
-	parseConnectionString: (input: Secret, engineHint: "postgres" | "mssql" | "mysql" | "sqlite" | null) => typedError<ParsedConnectionString, YadbeError>(__TAURI_INVOKE("parse_connection_string", { input, engineHint })),
+	parseConnectionString: (input: Secret, engineHint: "postgres" | "mssql" | "mysql" | "sqlite" | 
+/**  Redis and Valkey (same protocol, same code). */
+"redis" | null) => typedError<ParsedConnectionString, YadbeError>(__TAURI_INVOKE("parse_connection_string", { input, engineHint })),
 	/**  Drops a password held from a parsed connection string (dialog cancelled). */
 	discardPendingSecret: (id: string) => typedError<null, YadbeError>(__TAURI_INVOKE("discard_pending_secret", { id })),
 	getPreferences: () => typedError<Preferences, YadbeError>(__TAURI_INVOKE("get_preferences")),
@@ -595,6 +597,53 @@ export const commands = {
 	 *  `passwordRequired` when none is stored.
 	 */
 	copyConnectionString: (connectionId: string, flavor: ConnectionStringFlavor, includePassword: boolean) => typedError<ConnectionStringCopy, YadbeError>(__TAURI_INVOKE("copy_connection_string", { connectionId, flavor, includePassword })),
+	/**  The databases holding keys (`INFO keyspace`) and the connection's own, by index. */
+	kvListDatabases: (connectionId: string) => typedError<KvDatabase[], YadbeError>(__TAURI_INVOKE("kv_list_databases", { connectionId })),
+	/**
+	 *  The key scan of database `database` with `pattern` (`MATCH`; `null` or `*`: every key):
+	 *  the one running, or a new one when there is none or the pattern changed. `SCAN` only, in
+	 *  batches of about 1 000 keys, pausing at 10 000 keys; `kv-scan-progress` reports it.
+	 */
+	kvScanKeys: (connectionId: string, database: number, pattern: string | null) => typedError<KvScanStatus, YadbeError>(__TAURI_INVOKE("kv_scan_keys", { connectionId, database, pattern })),
+	/**  Goes on scanning: `count` more keys, or every key left when `null`. */
+	kvScanMore: (connectionId: string, database: number, count: number | null) => typedError<KvScanStatus, YadbeError>(__TAURI_INVOKE("kv_scan_more", { connectionId, database, count })),
+	/**  Stops the scan between two batches; `kv_scan_more` goes on from there. */
+	kvScanStop: (connectionId: string, database: number) => typedError<KvScanStatus, YadbeError>(__TAURI_INVOKE("kv_scan_stop", { connectionId, database })),
+	/**  Forgets the keys found and scans the database again, with the same pattern. */
+	kvScanRestart: (connectionId: string, database: number) => typedError<KvScanStatus, YadbeError>(__TAURI_INVOKE("kv_scan_restart", { connectionId, database })),
+	/**
+	 *  Entries `[offset, offset + limit)` of the level `prefix` of the key tree: namespaces
+	 *  (keys sharing the next segment before `delimiter`) then keys, among the keys scanned so far.
+	 */
+	kvScanLevel: (connectionId: string, database: number, prefix: KvBytes, delimiter: string, offset: number, limit: number) => typedError<KvLevel, YadbeError>(__TAURI_INVOKE("kv_scan_level", { connectionId, database, prefix, delimiter, offset, limit })),
+	/**  Type, time to live and memory of up to 500 keys (the rows on screen), in one round trip. */
+	kvKeySummaries: (connectionId: string, database: number, keys: KvBytes[]) => typedError<KvKeySummary[], YadbeError>(__TAURI_INVOKE("kv_key_summaries", { connectionId, database, keys })),
+	/**  The header of a key tab: type, time to live, encoding, memory, length. */
+	kvKeyInfo: (connectionId: string, database: number, key: KvBytes) => typedError<KvKeyInfo, YadbeError>(__TAURI_INVOKE("kv_key_info", { connectionId, database, key })),
+	/**  Bytes `[offset, offset + length)` of a string value (at most 1 MiB per call). */
+	kvReadString: (connectionId: string, database: number, key: KvBytes, offset: number, length: number) => typedError<KvStringChunk, YadbeError>(__TAURI_INVOKE("kv_read_string", { connectionId, database, key, offset, length })),
+	/**  A RedisJSON document as JSON text (`JSON.GET`). */
+	kvReadJson: (connectionId: string, database: number, key: KvBytes) => typedError<string, YadbeError>(__TAURI_INVOKE("kv_read_json", { connectionId, database, key })),
+	/**
+	 *  Opens a hash, list, set, sorted set or stream and reads its first `rows` rows into the
+	 *  result store; the grid reads them with `fetch_result_window`.
+	 */
+	kvOpenCollection: (connectionId: string, database: number, key: KvBytes, rows: number) => typedError<KvCollection, YadbeError>(__TAURI_INVOKE("kv_open_collection", { connectionId, database, key, rows })),
+	/**  Reads `rows` more rows of an open collection, or all of them when `null`. */
+	kvCollectionMore: (resultId: number, rows: number | null) => typedError<KvCollection, YadbeError>(__TAURI_INVOKE("kv_collection_more", { resultId, rows })),
+	/**  Frees an open collection. */
+	kvCloseCollection: (resultId: number) => typedError<null, YadbeError>(__TAURI_INVOKE("kv_close_collection", { resultId })),
+	/**
+	 *  Runs the command lines of a console tab in order, as typed (`redis-cli` quoting), on the
+	 *  tab's own connection. Without `confirmed`, a dangerous command (`FLUSHALL`, `KEYS`…) makes
+	 *  the call return `needsConfirmation` with its effect, and nothing runs. Stops at the first
+	 *  failure; `MONITOR`, `SUBSCRIBE` and blocking commands are refused (`notSupported`).
+	 */
+	kvConsoleRun: (tabId: string, connectionId: string, text: string, confirmed: boolean) => typedError<KvConsoleOutcome, YadbeError>(__TAURI_INVOKE("kv_console_run", { tabId, connectionId, text, confirmed })),
+	/**  Stops a console run after its current command (a running command cannot be stopped). */
+	kvConsoleStop: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("kv_console_stop", { tabId })),
+	/**  Frees a console tab's results and closes its connection. */
+	kvConsoleClose: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("kv_console_close", { tabId })),
 };
 
 /** Events */
@@ -607,6 +656,7 @@ export const events = {
 	historyChanged: makeEvent<HistoryChanged>("history-changed"),
 	importFinished: makeEvent<ImportFinished>("import-finished"),
 	importProgress: makeEvent<ImportProgress>("import-progress"),
+	kvScanProgress: makeEvent<KvScanProgress>("kv-scan-progress"),
 	metaRefreshed: makeEvent<MetaRefreshed>("meta-refreshed"),
 	queryFinished: makeEvent<QueryFinished>("query-finished"),
 	queryProgress: makeEvent<QueryProgress>("query-progress"),
@@ -1072,6 +1122,8 @@ export type ConnectionDefinition = {
 	historyEnabled?: boolean,
 	/**  SSH tunnel in front of a server connection (F-010); absent in older payloads. */
 	ssh?: SshTunnel | null,
+	/**  What only key-value connections have (Redis, Valkey); `null` for the other families. */
+	keyValue?: KeyValueSettings | null,
 };
 
 /**  A folder of connections; groups can nest. */
@@ -1374,7 +1426,9 @@ export type EfMigrations = {
 };
 
 /**  Database engines yadbe knows; drivers arrive one by one. */
-export type Engine = "postgres" | "mssql" | "mysql" | "sqlite";
+export type Engine = "postgres" | "mssql" | "mysql" | "sqlite" | 
+/**  Redis and Valkey (same protocol, same code). */
+"redis";
 
 /**
  *  What kind of database an engine is: it decides the connection's backend (the `Backend`
@@ -2334,6 +2388,18 @@ export type KeyValue = {
 	value: Value,
 };
 
+/**
+ *  The settings of a key-value connection besides the common ones. Its database index is the
+ *  definition's `database` (`0`, `1`…).
+ */
+export type KeyValueSettings = {
+	/**
+	 *  What separates the levels of the key tree (`:` in `user:42:name`); `null`: the
+	 *  preference.
+	 */
+	keyDelimiter?: string | null,
+};
+
 export type KeychainStatus = {
 	/**  `false`: "remember password" is not possible, secrets are kept for the session only. */
 	available: boolean,
@@ -2368,6 +2434,216 @@ export type KnownHost = {
 	fingerprint: string,
 	/**  Unix time in seconds. */
 	addedAt: number,
+};
+
+/**  A byte string as the frontend sees it. */
+export type KvBytes = {
+	/**
+	 *  The bytes as text: themselves when they are UTF-8, else escaped the way `redis-cli`
+	 *  prints them (`\xff`). Read-only when `base64` is set.
+	 */
+	text: string,
+	/**  The exact bytes, when they are not UTF-8; `null`: `text` is the bytes. */
+	base64: string | null,
+};
+
+/**  The rows of a collection read so far, kept in the result store (rule 8). */
+export type KvCollection = {
+	/**  The result to read windows of (`fetch_result_window`); also names the collection. */
+	resultId: number,
+	columns: ColumnMeta[],
+	rowCount: number,
+	/**  Every element was read. */
+	done: boolean,
+	/**  The collection's length when it was opened (`HLEN`…). */
+	total: number | null,
+};
+
+/**  One command of a console run. */
+export type KvConsoleEntry = {
+	/**  0-based line of the console text. */
+	line: number,
+	/**  The command as sent, secrets redacted. */
+	command: string,
+	/**  The database the command ran on. */
+	database: number,
+	durationMs: number | null,
+	reply: KvReplyView | null,
+	error: YadbeError | null,
+};
+
+/**  What a console run did. */
+export type KvConsoleOutcome = 
+/**
+ *  Nothing ran: these commands need a confirmation with their effect; run again with
+ *  `confirmed`.
+ */
+{ kind: "needsConfirmation"; dangers: KvDanger[] } | 
+/**  The commands ran in order, stopping at the first failure. */
+{ kind: "ran"; entries: KvConsoleEntry[]; 
+/**  The console's database after the run (`SELECT` moves it). */
+database: number; 
+/**  Lines left unrun because a command failed or the run was stopped. */
+skipped: number };
+
+/**  A dangerous command and what it would do, for the confirmation. */
+export type KvDanger = {
+	/**  0-based line of the console text. */
+	line: number,
+	/**  The command as it would run (secrets redacted). */
+	command: string,
+	kind: KvDangerKind,
+	/**  The concrete effect, measured on the server when it can be (`Deletes 1 204 keys…`). */
+	effect: LocalizedText,
+};
+
+/**  A command that needs a confirmation with its concrete effect (rule 10). */
+export type KvDangerKind = 
+/**  `FLUSHALL`: every key of every database. */
+{ kind: "flushAll" } | 
+/**  `FLUSHDB`: every key of the current database. */
+{ kind: "flushDb" } | 
+/**  `KEYS`: walks the whole keyspace and blocks the server meanwhile. */
+{ kind: "keys" } | 
+/**  `DEL` / `UNLINK` of many keys. */
+{ kind: "deleteMany"; keys: number } | 
+/**  `CONFIG SET`, `CONFIG RESETSTAT`, `CONFIG REWRITE`. */
+{ kind: "config" } | 
+/**  `SHUTDOWN`. */
+{ kind: "shutdown" } | 
+/**  `DEBUG`: can crash, block or corrupt the server. */
+{ kind: "debug" } | 
+/**  `SWAPDB a b`. */
+{ kind: "swapDb"; a: string; b: string } | 
+/**  `SCRIPT FLUSH`, `FUNCTION FLUSH`, `FUNCTION DELETE`. */
+{ kind: "flushScripts" } | 
+/**  `CLIENT KILL`: drops other connections. */
+{ kind: "clientKill" } | 
+/**  `REPLICAOF` / `SLAVEOF`: turns the server into a replica (its data replaced). */
+{ kind: "replicaOf" };
+
+/**  A numbered database of the server, from `INFO keyspace`. */
+export type KvDatabase = {
+	index: number,
+	keys: number,
+	/**  Keys with a time to live. */
+	expires: number,
+	/**  The database the connection is saved on. */
+	current: boolean,
+};
+
+/**  The header of a key tab. */
+export type KvKeyInfo = {
+	key: KvBytes,
+	database: number,
+	kind: KvKeyKind,
+	typeName: string,
+	ttlMs: number | null,
+	/**  `OBJECT ENCODING` (`listpack`, `hashtable`, `embstr`…). */
+	encoding: string | null,
+	memory: number | null,
+	/**  Bytes of a string, fields of a hash, elements of a list, set, sorted set or stream. */
+	length: number | null,
+	/**  The RedisJSON module answers on this server. */
+	jsonModule: boolean,
+};
+
+/**  The type of a key, as `TYPE` names it; module types (`ReJSON-RL`) keep their name. */
+export type KvKeyKind = "string" | "hash" | "list" | "set" | "zset" | "stream" | 
+/**  A RedisJSON document (shown as JSON when the module answers). */
+"json" | 
+/**  A type yadbe has no viewer for (another module): shown read-only, untyped. */
+"unknown" | 
+/**  The key does not exist (any more). */
+"missing";
+
+/**  What a tree row shows of a key, read for the visible rows only. */
+export type KvKeySummary = {
+	key: KvBytes,
+	kind: KvKeyKind,
+	/**  The server's type name (`hash`, `ReJSON-RL`, `MBbloom--`…). */
+	typeName: string,
+	/**  Milliseconds left; `null`: no expiry (or the key is gone). */
+	ttlMs: number | null,
+	/**  `MEMORY USAGE` in bytes, when the server allows it. */
+	memory: number | null,
+};
+
+/**  The children of a level, namespaces first, each part sorted by bytes; paged. */
+export type KvLevel = {
+	entries: KvLevelEntry[],
+	/**  Namespaces and keys at this level in all. */
+	total: number,
+	/**  The scan version the level was read at. */
+	version: number,
+};
+
+/**  One child of a level of the key tree. */
+export type KvLevelEntry = 
+/**  Keys sharing `prefix` (which ends with the delimiter), shown as a folder. */
+{ type: "namespace"; 
+/**  The segment between the parent's prefix and the delimiter. */
+name: KvBytes; prefix: KvBytes; 
+/**  Loaded keys under it, at any depth. */
+keys: number } | { type: "key"; 
+/**  What is left of the key after the parent's prefix. */
+name: KvBytes; key: KvBytes };
+
+/**  How the console shows a reply: a value, a grid (rows in the result store), or a tree. */
+export type KvReplyView = { kind: "nil" } | { kind: "scalar"; value: KvBytes; scalar: KvScalarKind } | 
+/**  An empty array, set or map. */
+{ kind: "empty" } | { kind: "grid"; resultId: number; columns: ColumnMeta[]; rowCount: number } | 
+/**  Nested replies, as JSON text; cut past a few thousand elements (`truncated`). */
+{ kind: "tree"; json: string; truncated: boolean };
+
+/**  A scalar reply. */
+export type KvScalarKind = "status" | "bulk" | "int" | "double" | "bool" | "bigNumber" | "error";
+
+/**
+ *  A key scan progressed: keys were added or its state changed. Throttled (about five per
+ *  second per scan); read the open levels again when `status.version` moved.
+ */
+export type KvScanProgress = {
+	connectionId: string,
+	status: KvScanStatus,
+};
+
+/**  Where a key scan of a database stands. */
+export type KvScanState = 
+/**  Batches are being read. */
+"running" | 
+/**  The scan stopped at its target count: "load more" goes on. */
+"paused" | 
+/**  The user stopped it; "load more" goes on from where it stopped. */
+"stopped" | 
+/**  Every key was seen (`SCAN` returned cursor 0). */
+"done" | 
+/**  A batch failed (`error`); "load more" tries again. */
+"failed";
+
+export type KvScanStatus = {
+	/**  Changes whenever the scan starts again (refresh, new pattern). */
+	scanId: number,
+	database: number,
+	/**  The `MATCH` pattern; `null`: every key. */
+	pattern: string | null,
+	/**  Distinct keys found so far. */
+	loaded: number,
+	/**  `DBSIZE` when the scan started: the "~M" of "N of ~M". */
+	estimate: number | null,
+	state: KvScanState,
+	error: YadbeError | null,
+	/**  Bumps whenever keys are added: the levels read before are stale. */
+	version: number,
+};
+
+/**  A window of a string value. */
+export type KvStringChunk = {
+	/**  Length of the whole value in bytes. */
+	total: number,
+	offset: number,
+	/**  The bytes of `[offset, offset + length)`, base64. */
+	base64: string,
 };
 
 /**  What the command line asked for. */

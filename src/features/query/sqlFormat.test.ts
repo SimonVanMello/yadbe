@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Engine } from '../../ipc';
+import type { SqlEngine } from '../../ipc/sqlEngines';
 import { formatSql, significantTokens, type FormatOptions } from './sqlFormat';
 
-const options = (engine: Engine, extra: Partial<FormatOptions> = {}): FormatOptions => ({
+const options = (engine: SqlEngine, extra: Partial<FormatOptions> = {}): FormatOptions => ({
   engine,
   keywordCase: 'upper',
   indent: '  ',
@@ -11,7 +11,7 @@ const options = (engine: Engine, extra: Partial<FormatOptions> = {}): FormatOpti
 });
 
 /** Tricky scripts per engine: every one must keep its tokens and be a fixed point. */
-const CORPUS: Record<Engine, string[]> = {
+const CORPUS: Record<SqlEngine, string[]> = {
   postgres: [
     "select a, b from t where x = 'it''s -- not a comment' and y::int > -1 order by a desc limit 10;",
     'select $1, :name, "Mixed Case"."Col", e\'\\n\', $tag$ select ; -- $tag$ from t',
@@ -52,7 +52,7 @@ const CORPUS: Record<Engine, string[]> = {
 };
 
 describe('formatSql', () => {
-  for (const [engine, scripts] of Object.entries(CORPUS) as [Engine, string[]][]) {
+  for (const [engine, scripts] of Object.entries(CORPUS) as [SqlEngine, string[]][]) {
     for (const script of scripts) {
       it(`keeps the tokens and is idempotent (${engine}): ${script.slice(0, 40)}`, () => {
         for (const indent of ['  ', '    ', '\t']) {

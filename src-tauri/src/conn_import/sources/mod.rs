@@ -55,6 +55,7 @@ pub fn blank(engine: Engine, name: &str) -> ConnectionDefinition {
         remember_password: false,
         history_enabled: true,
         ssh: None,
+        key_value: None,
     }
 }
 

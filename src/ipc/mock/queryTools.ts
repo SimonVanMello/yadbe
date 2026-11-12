@@ -9,6 +9,7 @@ import type {
   TextRange,
 } from '../bindings';
 import { mockSplit, mockStatementAt } from '../mockSplit';
+import { sqlEntry, type SqlEngine } from '../sqlEngines';
 
 /**
  * Query tools of the mock backend (F-048, F-053): the placeholders of a run, as the backend's
@@ -42,7 +43,7 @@ interface Styles {
   questionNumber: boolean;
 }
 
-const STYLES: Record<Engine, Styles> = {
+const STYLES: Record<SqlEngine, Styles> = {
   postgres: {
     colon: true,
     at: false,
@@ -151,7 +152,7 @@ function nameAt(sql: string, i: number): string {
 
 /** The placeholders of one statement. */
 export function mockPlaceholders(engine: Engine, sql: string): Found[] {
-  const styles = STYLES[engine];
+  const styles = sqlEntry(STYLES, engine);
   if (/^\s*(create|alter)\b[\s\S]{0,80}?\b(procedure|proc|function|trigger|event)\b/i.test(sql)) {
     return [];
   }
@@ -295,7 +296,7 @@ function tablesOf(sql: string): string[] {
 
 function draftFor(engine: Engine, sql: string): Draft {
   const [first = 'orders', second] = tablesOf(sql);
-  const words: Record<Engine, { scan: string; seek: string; join: string; sort: string }> = {
+  const words: Record<SqlEngine, { scan: string; seek: string; join: string; sort: string }> = {
     postgres: { scan: 'Seq Scan', seek: 'Index Scan', join: 'Hash Join', sort: 'Sort' },
     mssql: {
       scan: 'Clustered Index Scan',
@@ -311,7 +312,7 @@ function draftFor(engine: Engine, sql: string): Draft {
       sort: 'USE TEMP B-TREE FOR ORDER BY',
     },
   };
-  const w = words[engine];
+  const w = sqlEntry(words, engine);
   const scan: Draft = {
     operation: w.scan,
     relation: first,
@@ -423,7 +424,7 @@ export function mockPlan(engine: Engine, sql: string, analyzed: boolean): QueryP
     sqlite: 'sqliteRows',
   } as const;
   return {
-    format: format[engine],
+    format: sqlEntry(format, engine),
     analyzed,
     weightBasis: engine === 'sqlite' ? 'heuristic' : analyzed ? 'time' : 'cost',
     nodes,
@@ -452,6 +453,7 @@ export function mockExplainSent(engine: Engine, sql: string, analyzed: boolean):
     case 'mysql':
       return analyzed ? `EXPLAIN ANALYZE ${sql}` : `EXPLAIN FORMAT=JSON ${sql}`;
     case 'sqlite':
+    case 'redis':
       return `EXPLAIN QUERY PLAN ${sql}`;
   }
 }

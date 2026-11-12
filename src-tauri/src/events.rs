@@ -136,6 +136,7 @@ pub enum BackendEvent {
     ChangeJournalChanged(ChangeJournalChanged),
     ImportProgress(ImportProgress),
     ImportFinished(ImportFinished),
+    KvScanProgress(crate::session::keyvalue::model::KvScanProgress),
 }
 
 pub trait EventSink: Send + Sync {
@@ -195,6 +196,7 @@ impl EventSink for TauriSink {
             BackendEvent::ChangeJournalChanged(e) => e.emit(app),
             BackendEvent::ImportProgress(e) => e.emit(app),
             BackendEvent::ImportFinished(e) => e.emit(app),
+            BackendEvent::KvScanProgress(e) => e.emit(app),
         };
         if let Err(err) = result {
             tracing::warn!(error = %err, "failed to emit event");

@@ -3,6 +3,7 @@
 mod mssql;
 mod mysql;
 mod postgres;
+mod redis;
 mod sqlite;
 
 use std::sync::Arc;
@@ -16,5 +17,6 @@ pub fn builtin() -> Vec<Arc<dyn Driver>> {
         Arc::new(mssql::MssqlDriver),
         Arc::new(mysql::MysqlDriver),
         Arc::new(sqlite::SqliteDriver),
+        Arc::new(redis::RedisDriver),
     ]
 }

@@ -208,6 +208,12 @@ const MIGRATIONS: &[&str] = &[
     // passphrase is a secret and lives in the keychain.
     "ALTER TABLE connections ADD COLUMN tls_client_cert_path TEXT;
     ALTER TABLE connections ADD COLUMN tls_client_key_path TEXT;",
+    // v10: taken by MongoDB (M4-2), developed in parallel; this placeholder keeps v11 in place
+    // until both branches meet, when the MongoDB migration replaces it.
+    "-- v10 reserved",
+    // v11: settings of key-value connections (Redis, Valkey) as JSON (`KeyValueSettings`);
+    // NULL for the other families and for connections saved before.
+    "ALTER TABLE connections ADD COLUMN key_value TEXT;",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {

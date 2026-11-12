@@ -632,6 +632,7 @@ mod tests {
             remember_password: false,
             history_enabled: true,
             ssh: None,
+            key_value: None,
         }
         .target();
         // tiberius' handshake bound names "TLS negotiation" and "handshake" in its message.

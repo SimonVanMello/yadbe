@@ -8,6 +8,10 @@
 #   export YADBE_TEST_MSSQL_CA=../dev/certs/ca.crt
 #   export YADBE_TEST_MYSQL_URL=mysql://yadbe:yadbe-test-pw@localhost:53306/yadbe_test
 #   export YADBE_TEST_MYSQL_CA=../dev/certs/ca.crt
+#   export YADBE_TEST_REDIS_URL=redis://yadbe:yadbe-test-pw@localhost:56379/0
+#   export YADBE_TEST_REDIS_TLS_URL=rediss://yadbe:yadbe-test-pw@localhost:56380/0
+#   export YADBE_TEST_REDIS_CA=../dev/certs/ca.crt
+#   export YADBE_TEST_VALKEY_URL=redis://yadbe:yadbe-test-pw@localhost:56381/0
 #   cargo test
 # Ports are offset from the defaults so a local server keeps its own. Throwaway
 # credentials: never reuse them.
@@ -85,5 +89,55 @@ services:
         --ssl-cert=/certs/server.crt --ssl-key=/tmp/server.key --disable-log-bin
     healthcheck:
       test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uyadbe', '-pyadbe-test-pw']
+      interval: 2s
+      retries: 30
+
+  # Redis 8 (RedisJSON built in) with an ACL user, plain on 56379 and TLS (dev CA) on 56380.
+  # Only the key-value tests use it: `up -d redis valkey`.
+  redis:
+    image: redis:8.2
+    ports:
+      - '56379:6379'
+      - '56380:6380'
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/server.crt:/certs/server.crt:ro
+      - ./certs/server.key:/certs/server.key.src:ro
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        install -o redis -g redis -m 600 /certs/server.key.src /tmp/server.key &&
+        exec docker-entrypoint.sh redis-server --save '' --appendonly no
+        --requirepass yadbe-test-pw --user yadbe on '>yadbe-test-pw' '~*' '&*' '+@all'
+        --tls-port 6380 --tls-cert-file /certs/server.crt --tls-key-file /tmp/server.key
+        --tls-ca-cert-file /certs/ca.crt --tls-auth-clients optional
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', 'yadbe-test-pw', '--no-auth-warning', 'ping']
+      interval: 2s
+      retries: 30
+
+  # Valkey (no JSON module), same ACL user: the key-value suite runs on both servers.
+  valkey:
+    image: valkey/valkey:8.1
+    ports:
+      - '56381:6379'
+    command:
+      - valkey-server
+      - --save
+      - ''
+      - --appendonly
+      - 'no'
+      - --requirepass
+      - yadbe-test-pw
+      - --user
+      - yadbe
+      - 'on'
+      - '>yadbe-test-pw'
+      - '~*'
+      - '&*'
+      - '+@all'
+    healthcheck:
+      test: ['CMD', 'valkey-cli', '-a', 'yadbe-test-pw', '--no-auth-warning', 'ping']
       interval: 2s
       retries: 30

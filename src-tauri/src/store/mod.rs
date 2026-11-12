@@ -52,6 +52,10 @@ const CONNECTION_COLUMNS: &str = "id, name, engine, group_id, position, host, po
      created_at, updated_at, last_connected_at, history_enabled, ssh_tunnel, \
      statement_timeout_secs, keep_alive_secs, tls_client_cert_path, tls_client_key_path";
 
+/// Columns only one engine family uses, read with the common ones and written by
+/// `write_family_fields` (v11: key-value settings).
+const FAMILY_COLUMNS: &str = "key_value";
+
 /// Thread-safe handle on the app database. Queries are small: one connection behind a
 /// mutex is enough.
 pub struct Store {
@@ -90,6 +94,10 @@ fn row_to_connection(row: &Row<'_>) -> rusqlite::Result<SavedConnection> {
         .map(|json| serde_json::from_str(&json).map_err(|_| corrupt("SSH tunnel", &json)))
         .transpose()?;
     let engine = Engine::from_id(&engine).ok_or_else(|| corrupt("engine", &engine))?;
+    let key_value: Option<String> = row.get("key_value")?;
+    let key_value = key_value
+        .map(|json| serde_json::from_str(&json).map_err(|_| corrupt("key-value settings", &json)))
+        .transpose()?;
     Ok(SavedConnection {
         id: row.get("id")?,
         family: engine.family(),
@@ -125,6 +133,7 @@ fn row_to_connection(row: &Row<'_>) -> rusqlite::Result<SavedConnection> {
             remember_password: row.get("remember_password")?,
             history_enabled: row.get("history_enabled")?,
             ssh,
+            key_value,
         },
         position: row.get("position")?,
         created_at: row.get("created_at")?,
@@ -139,6 +148,24 @@ fn ssh_json(definition: &ConnectionDefinition) -> Result<Option<String>, YadbeEr
         .as_ref()
         .map(serde_json::to_string)
         .transpose()?)
+}
+
+/// Writes the family fields of a connection (v11: key-value settings) next to the common ones.
+fn write_family_fields(
+    conn: &Connection,
+    id: &str,
+    definition: &ConnectionDefinition,
+) -> Result<(), YadbeError> {
+    let key_value = definition
+        .key_value
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
+    conn.execute(
+        "UPDATE connections SET key_value = ?2 WHERE id = ?1",
+        params![id, key_value],
+    )?;
+    Ok(())
 }
 
 fn row_to_group(row: &Row<'_>) -> rusqlite::Result<ConnectionGroup> {
@@ -254,7 +281,7 @@ impl Store {
     pub fn list_connections(&self) -> Result<Vec<SavedConnection>, YadbeError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(&format!(
-            "SELECT {CONNECTION_COLUMNS} FROM connections
+            "SELECT {CONNECTION_COLUMNS}, {FAMILY_COLUMNS} FROM connections
              ORDER BY group_id IS NOT NULL, group_id, position, name"
         ))?;
         let rows = stmt
@@ -266,7 +293,9 @@ impl Store {
     pub fn connection(&self, id: &str) -> Result<SavedConnection, YadbeError> {
         let conn = self.conn();
         conn.query_row(
-            &format!("SELECT {CONNECTION_COLUMNS} FROM connections WHERE id = ?1"),
+            &format!(
+                "SELECT {CONNECTION_COLUMNS}, {FAMILY_COLUMNS} FROM connections WHERE id = ?1"
+            ),
             [id],
             row_to_connection,
         )
@@ -347,6 +376,7 @@ impl Store {
                     definition.tls_client_key_path,
                 ],
             )?;
+            write_family_fields(&conn, &id, definition)?;
         }
         self.connection(&id)
     }
@@ -407,6 +437,7 @@ impl Store {
                     definition.tls_client_key_path,
                 ],
             )?;
+            write_family_fields(&conn, id, definition)?;
         }
         self.connection(id)
     }
@@ -899,6 +930,8 @@ fn enum_text<T: serde::Serialize>(value: &T) -> Result<String, YadbeError> {
 
 #[cfg(test)]
 mod history_tests;
+#[cfg(test)]
+mod keyvalue_tests;
 #[cfg(test)]
 mod saved_queries_tests;
 #[cfg(test)]

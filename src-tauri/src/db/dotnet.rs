@@ -433,6 +433,7 @@ mod tests {
             remember_password: true,
             history_enabled: true,
             ssh: None,
+            key_value: None,
         }
     }
 

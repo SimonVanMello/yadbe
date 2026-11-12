@@ -47,6 +47,7 @@ import { createMockSsh, tunnelStatus } from './mock/ssh';
 import { createMockTableData } from './mock/tableData';
 import { createMockResultEdit, parseTableSelect, tableSelect } from './mock/resultEdit';
 import { createMockJournal } from './mock/journal';
+import { createMockKeyValue } from './mock/keyValue';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
 const MOCK_APP_INFO: AppInfo = { appVersion: '0.1.0', os: 'linux', arch: 'x86_64' };
@@ -667,6 +668,44 @@ function createMockBackend() {
     },
   });
 
+  const keyValue = createMockKeyValue({
+    events,
+    session: (connectionId) => {
+      const conn = findConnection(connectionId);
+      if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
+      return {
+        database: Number(conn.definition.database) || 0,
+        readOnly: conn.definition.readOnly,
+      };
+    },
+    logStatement: (connectionId, sql, error = null) => {
+      logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
+    },
+    recordHistory: (entry) => {
+      history.record({
+        tabId: entry.tabId,
+        connectionId: entry.connectionId,
+        database: entry.database,
+        sql: entry.sql,
+        startedAt: Date.now(),
+        durationMs: 0.6,
+        rows: entry.rows,
+        outcome:
+          entry.error === null
+            ? 'ok'
+            : entry.error.code === 'readOnlyViolation'
+              ? 'refused'
+              : 'error',
+        error: entry.error,
+      });
+    },
+    storeRows: (columns, rows) => query.storeRows(columns, rows),
+    freeResults: (ids) => {
+      query.freeResults(ids);
+    },
+    latency: () => meta.latency(),
+  });
+
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
 
@@ -884,6 +923,7 @@ function createMockBackend() {
       if (current) {
         setSession({ ...current, state: 'closed', error: null, reconnectAttempt: null });
       }
+      keyValue.forgetConnection(connectionId);
       return ok(null);
     },
 
@@ -982,6 +1022,7 @@ function createMockBackend() {
     ...dotnet.commands,
     ...importer.commands,
     ...connectionImport.commands,
+    ...keyValue.commands,
   };
 
   function reset(): void {
@@ -1002,6 +1043,7 @@ function createMockBackend() {
     meta.reset();
     objects.reset();
     activity.reset();
+    keyValue.reset();
     dotnet.reset();
     query.reset();
     history.reset();

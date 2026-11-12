@@ -175,6 +175,7 @@ pub trait Driver: Send + Sync {
 #[derive(Clone)]
 pub enum Backend {
     Sql(Arc<dyn SqlConnection>),
+    KeyValue(Arc<dyn KeyValueConnection>),
 }
 
 impl Backend {
@@ -182,6 +183,7 @@ impl Backend {
     pub fn as_link(&self) -> &dyn Link {
         match self {
             Backend::Sql(conn) => &**conn,
+            Backend::KeyValue(conn) => &**conn,
         }
     }
 
@@ -189,6 +191,15 @@ impl Backend {
     pub fn into_sql(self) -> Result<Arc<dyn SqlConnection>, YadbeError> {
         match self {
             Backend::Sql(conn) => Ok(conn),
+            Backend::KeyValue(_) => Err(YadbeError::sql_only()),
+        }
+    }
+
+    /// The key-value connection, or `keyValueOnly` for an engine of another family.
+    pub fn into_key_value(self) -> Result<Arc<dyn KeyValueConnection>, YadbeError> {
+        match self {
+            Backend::KeyValue(conn) => Ok(conn),
+            Backend::Sql(_) => Err(crate::db::keyvalue::key_value_only()),
         }
     }
 }
@@ -325,6 +336,28 @@ pub trait SqlConnection: Link {
         let _ = (statement, analyze);
         Box::pin(async { Err(ExecError::from(YadbeError::not_implemented())) })
     }
+}
+
+/// An open connection of the key-value family (Redis, Valkey): commands in as RESP arguments,
+/// replies out. Never call it directly from a service: every command goes through the command
+/// gate (`session::keyvalue::gate`), which enforces read-only, confirms dangerous commands,
+/// applies the statement timeout and records what runs.
+pub trait KeyValueConnection: Link {
+    /// The database index the connection was opened on.
+    fn database(&self) -> u32;
+
+    /// Sends one command exactly as given and waits for its reply. A server error is
+    /// `queryFailed` with the server's message; a dropped link `connectionLost`.
+    fn send<'a>(
+        &'a self,
+        args: &'a [Vec<u8>],
+    ) -> BoxFuture<'a, Result<crate::db::keyvalue::KvReply, YadbeError>>;
+
+    /// Sends commands in one round trip; each gets its own reply or error, in order.
+    fn send_all<'a>(
+        &'a self,
+        commands: &'a [Vec<Vec<u8>>],
+    ) -> BoxFuture<'a, Vec<Result<crate::db::keyvalue::KvReply, YadbeError>>>;
 }
 
 /// A plan as the engine gave it, and what was sent to get it.

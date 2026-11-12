@@ -9,6 +9,7 @@ use crate::import::ImportManager;
 use crate::secrets::{KeychainBackend, SecretStore};
 use crate::session::history_writer::StoreHistory;
 use crate::session::journal::ChangeJournal;
+use crate::session::keyvalue::KeyValueService;
 use crate::session::library::Library;
 use crate::session::meta_cache::{MetaService, ObservingSink};
 use crate::session::references::ReferenceService;
@@ -36,6 +37,7 @@ pub struct AppState {
     pub references: Arc<ReferenceService>,
     pub journal: Arc<ChangeJournal>,
     pub result_edits: Arc<ResultEditService>,
+    pub key_values: Arc<KeyValueService>,
 }
 
 impl AppState {
@@ -87,6 +89,13 @@ impl AppState {
             Arc::clone(&queries),
             Arc::clone(&tables),
         ));
+        // Key collections and console replies live in the query results' store as well.
+        let key_values = Arc::new(KeyValueService::new(
+            Arc::clone(&connections),
+            queries.shared_store(),
+            Arc::clone(&sink),
+            history.clone(),
+        ));
         let exports = Arc::new(ExportManager::new(
             Arc::clone(&queries),
             Arc::clone(&tables),
@@ -112,6 +121,7 @@ impl AppState {
             references,
             journal,
             result_edits,
+            key_values,
         }
     }
 }
