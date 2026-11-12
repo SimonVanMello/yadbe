@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { useSessions } from '../features/connections/connectionStore';
 import { initI18n } from '../i18n/i18n';
@@ -8,6 +8,10 @@ import { initTheme } from '../theme/themeStore';
 import { ACTION_IDS, registeredActions } from './actions';
 import { App } from './App';
 import { queryClient } from './queryClient';
+import { loadLazyModules } from './lazyModule';
+
+// The dialogs and views loaded after startup are there, as in the app once it has settled.
+beforeAll(() => loadLazyModules(), 60_000);
 
 beforeEach(() => {
   mockBackend.reset();

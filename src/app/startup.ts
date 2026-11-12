@@ -10,7 +10,7 @@ import { startObjectsFeature } from '../features/objects/objectsFeature';
 import { startTableDataFeature } from '../features/table-data/tableFeature';
 import { startResultEditFeature } from '../features/result-edit/resultEdits';
 import { useTableTabStore } from '../features/table-data/tableTabStore';
-import { initI18n, translate, useI18nStore } from '../i18n/i18n';
+import { loadI18n, translate, useI18nStore } from '../i18n/i18n';
 import { ipc, unwrap } from '../ipc';
 import { initTheme } from '../theme/themeStore';
 import { loadPreferences } from './backendPreferences';
@@ -136,7 +136,7 @@ async function restorePreferences(): Promise<void> {
     const preferences = await loadPreferences();
     applyStoredPreferences(preferences);
     initTheme(preferences.theme);
-    initI18n(preferences.locale);
+    await loadI18n(preferences.locale);
   } catch (error) {
     console.warn('Saved preferences unavailable, keeping the local ones', error);
   }

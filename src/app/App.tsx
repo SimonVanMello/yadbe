@@ -1,11 +1,10 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Tooltip } from 'radix-ui';
 
-import { GridDemo } from '../features/demo/GridDemo';
-import { PrimitivesDemo } from '../features/demo/PrimitivesDemo';
 import { Toaster } from '../ui/Toaster';
 import { ConfirmDialog } from './errors/ConfirmDialog';
 import { ErrorBoundary } from './ErrorBoundary';
+import { LazyGridDemo, LazyPrimitivesDemo } from './lazyViews';
 import { queryClient } from './queryClient';
 import { Shell } from './Shell';
 import { useHash } from './useHash';
@@ -23,7 +22,7 @@ export function App() {
         {/* The dialogs and the toaster are inside too: a render error anywhere shows the crash
             screen instead of unmounting the whole window. */}
         <ErrorBoundary>
-          {showPrimitives ? <PrimitivesDemo /> : showGrid ? <GridDemo /> : <Shell />}
+          {showPrimitives ? <LazyPrimitivesDemo /> : showGrid ? <LazyGridDemo /> : <Shell />}
           <ConfirmDialog />
           <Toaster />
         </ErrorBoundary>

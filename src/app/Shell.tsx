@@ -1,30 +1,19 @@
 import { memo, useEffect, useState, type CSSProperties } from 'react';
 
-import { ConnectionDialog } from '../features/connections/ConnectionDialog';
 import { useConnection } from '../features/connections/connectionStore';
 import { GroupDialog } from '../features/connections/GroupDialog';
 import { tintOf } from '../features/connections/model';
-import { HostKeyDialog } from '../features/connections/HostKeyDialog';
 import { PasswordPromptDialog } from '../features/connections/PasswordPromptDialog';
 import { refreshNode } from '../features/explorer/explorerActions';
 import { useExplorerStore } from '../features/explorer/explorerStore';
 import { useHistoryActions } from '../features/history/useHistoryActions';
-import { SaveQueryDialog } from '../features/library/SaveQueryDialog';
-import { ParameterDialog } from '../features/query/ParameterDialog';
 import { useLibraryActions } from '../features/library/useLibraryActions';
 import { useJournalActions } from '../features/journal/useJournalActions';
-import { ConnectionExportDialog } from '../features/connections/ConnectionExportDialog';
-import { ConnectionImportDialog } from '../features/connections/ConnectionImportDialog';
 import { useConnectionTransferActions } from '../features/connections/useConnectionTransferActions';
-import { ExportDialog } from '../features/export/ExportDialog';
-import { ObjectActionDialog } from '../features/objects/ObjectActionDialog';
-import { PropertiesDialog } from '../features/objects/PropertiesDialog';
 import { useExportActions } from '../features/export/useExportActions';
 import { useGridActions } from '../features/grid/gridActions';
-import { ImportDialog } from '../features/import/ImportDialog';
 import { useImportActions } from '../features/import/useImportActions';
 import { CommandPalette } from '../features/palette/CommandPalette';
-import { PreferencesDialog } from '../features/preferences/PreferencesDialog';
 import { usePaletteActions } from '../features/palette/usePaletteActions';
 import { useSidebarView } from '../features/sidebar/sidebarViewStore';
 import { useQueryActions } from '../features/query/useQueryActions';
@@ -37,6 +26,20 @@ import { useI18nStore } from '../i18n/i18n';
 import { nativeWindow } from '../ipc/nativeWindow';
 import { useThemeStore } from '../theme/themeStore';
 import { registerActions } from './actions';
+import {
+  LazyConnectionDialog,
+  LazyConnectionExportDialog,
+  LazyConnectionImportDialog,
+  LazyExportDialog,
+  LazyHostKeyDialog,
+  LazyImportDialog,
+  LazyObjectActionDialog,
+  LazyParameterDialog,
+  LazyPreferencesDialog,
+  LazyPropertiesDialog,
+  LazySaveQueryDialog,
+} from './lazyViews';
+import { preloadLazyModules } from './lazyModule';
 import { useLayoutStore } from './layout/layoutStore';
 import { PanelResizer } from './layout/PanelResizer';
 import { CENTER_MIN_HEIGHT, CENTER_MIN_WIDTH, fitPanel } from './layout/panels';
@@ -65,6 +68,8 @@ function useStartup(): boolean {
       void nativeWindow.show().catch((error: unknown) => {
         console.warn('Could not show the window', error);
       });
+      // What the first paint left out (dialogs, tool tabs…), in idle moments from now on.
+      preloadLazyModules();
     };
     const timer = setTimeout(show, SHOW_WINDOW_TIMEOUT_MS);
     void startup().finally(() => {
@@ -226,20 +231,20 @@ export function Shell() {
         </div>
       </div>
       <StableStatusBar />
-      <ConnectionDialog />
+      <LazyConnectionDialog />
       <PasswordPromptDialog />
-      <HostKeyDialog />
+      <LazyHostKeyDialog />
       <GroupDialog />
-      <ExportDialog />
-      <ObjectActionDialog />
-      <PropertiesDialog />
-      <ImportDialog />
-      <ConnectionImportDialog />
-      <ConnectionExportDialog />
-      <SaveQueryDialog />
-      <ParameterDialog />
+      <LazyExportDialog />
+      <LazyObjectActionDialog />
+      <LazyPropertiesDialog />
+      <LazyImportDialog />
+      <LazyConnectionImportDialog />
+      <LazyConnectionExportDialog />
+      <LazySaveQueryDialog />
+      <LazyParameterDialog />
       <CommandPalette />
-      <PreferencesDialog />
+      <LazyPreferencesDialog />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { catalogs, translate, type MessageKey } from '../../i18n/i18n';
+import { catalogOf, translate, type MessageKey } from '../../i18n/i18n';
 import { PREFERENCE_KEYS } from './preferenceSchema';
 import { SECTIONS, SETTINGS, countBySection, searchSettings, settingsOf } from './settingsIndex';
 
@@ -21,8 +21,8 @@ describe('the settings index', () => {
     for (const setting of SETTINGS) {
       for (const suffix of ['', '.hint']) {
         const key = `preferences.setting.${setting.id}${suffix}` as MessageKey;
-        expect(catalogs.en[key], key).toBeTruthy();
-        expect(catalogs.fr[key], key).toBeTruthy();
+        expect(catalogOf('en')[key], key).toBeTruthy();
+        expect(catalogOf('fr')[key], key).toBeTruthy();
       }
     }
   });

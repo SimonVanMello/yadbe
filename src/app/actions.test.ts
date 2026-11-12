@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { catalogs, locales } from '../i18n/i18n';
+import { catalogOf, locales } from '../i18n/i18n';
 import {
   ACTION_IDS,
   ACTION_LABELS,
@@ -93,7 +93,7 @@ describe('shortcut table', () => {
 describe('action labels', () => {
   it.each(ACTION_IDS)('%s has a name in every language', (id) => {
     for (const locale of locales) {
-      expect(catalogs[locale][ACTION_LABELS[id]].trim(), `${locale} ${id}`).not.toBe('');
+      expect(catalogOf(locale)[ACTION_LABELS[id]].trim(), `${locale} ${id}`).not.toBe('');
     }
   });
 
