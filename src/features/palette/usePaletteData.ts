@@ -36,6 +36,7 @@ import { usePaletteStore } from './paletteStore';
 import { useHistoryHits } from './useHistoryHits';
 import { useSavedHits } from './useSavedHits';
 import { useFamilyObjects } from './useFamilyObjects';
+import { useKeyHits } from './useKeyHits';
 import { useScriptTab } from '../document/scriptStore';
 
 /** Longest text the history is searched with in the mixed list: shorter ones match everything. */
@@ -115,6 +116,7 @@ export function usePaletteData(raw: string) {
   const { targets, loading: loadingDatabases } = useCatalogTargets(wantsObjects);
   const { catalogs, loading: loadingCatalogs } = useCatalogs(targets, wantsObjects);
   const family = useFamilyObjects(wantsObjects);
+  const keyHits = useKeyHits(text, wantsObjects);
   const loadingObjects = loadingDatabases || loadingCatalogs || family.loading;
   const names = useMemo(
     () => new Map(connections.map((connection) => [connection.id, connection.name])),
@@ -221,6 +223,7 @@ export function usePaletteData(raw: string) {
       connections: connectionItems,
       tabs: tabItems,
       objects,
+      keys: keyHits,
       history: historyItems,
       saved: savedItems,
       savedTextIds: savedHits.ids,
@@ -237,6 +240,7 @@ export function usePaletteData(raw: string) {
       connectionItems,
       tabItems,
       objects,
+      keyHits,
       objectSearcher,
       historyItems,
       savedItems,

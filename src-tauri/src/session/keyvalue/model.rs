@@ -142,6 +142,24 @@ pub struct KvKeySummary {
     pub memory: Option<f64>,
 }
 
+/// Keys of the scan that contain a text: what the palette and the console's completion offer.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KvFoundKeys {
+    pub keys: Vec<KvBytes>,
+    /// Keys scanned so far (the search covers these only).
+    pub scanned: u32,
+}
+
+/// A command the server knows, with its arity (`COMMAND`): negative is "at least".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KvCommandHint {
+    /// Lower case.
+    pub name: String,
+    pub arity: i32,
+}
+
 /// The header of a key tab.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]

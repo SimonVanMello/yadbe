@@ -5,6 +5,7 @@ import { translate } from '../../i18n/i18n';
 import type { CompletionCatalog } from '../../ipc';
 import { blankDefinition } from '../../ipc/mockData';
 import type { ConnectionSummary } from '../connections/model';
+import { keyItem } from './familyObjectItems';
 import { buildObjectItems } from './objectItems';
 import { createSearcher } from './matcher';
 import { parseQuery, type PaletteItem, type SavedItem } from './paletteItems';
@@ -188,5 +189,23 @@ describe('buildResults', () => {
         .map((item) => item.key)
         .indexOf('action:tab.previous');
     expect(position(['action:tab.previous'])).toBeLessThan(position([]));
+  });
+});
+
+describe('keys found by the backend', () => {
+  it('follow the fuzzy matches of the objects, with the matched text marked', () => {
+    const key = keyItem('conn-3', 'cache', 0, { text: 'user:42:orders', base64: null });
+    const found = buildResults({ ...sources(), keys: [key] }, 'object', 'ord', []);
+    const listed = items(found.rows);
+    expect(listed.at(-1)).toBe(key);
+    const hit = found.rows.find((row) => row.type === 'item' && row.item === key);
+    expect(hit?.type === 'item' ? hit.indices : []).toEqual([8, 9, 10]);
+    expect(listed.length).toBeGreaterThan(1);
+  });
+
+  it('are the only objects when no SQL object matches', () => {
+    const key = keyItem('conn-3', 'cache', 0, { text: 'zzqy:7', base64: null });
+    const found = buildResults({ ...sources(), keys: [key] }, 'object', 'zzq', []);
+    expect(items(found.rows)).toEqual([key]);
   });
 });

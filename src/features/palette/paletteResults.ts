@@ -18,6 +18,8 @@ export interface PaletteSources {
   connections: readonly ConnectionItem[];
   tabs: readonly TabItem[];
   objects: readonly ObjectItem[];
+  /** Keys the backend found among those it scanned, for the query (key-value connections). */
+  keys?: readonly ObjectItem[];
   /** Statements the backend found for the query, newest first. */
   history: readonly HistoryItem[];
   /** Every saved query, searched by name here. */
@@ -143,6 +145,21 @@ export function buildResults(
   addSearched('connection', sources.searchers.connections, sources.connections);
   addSearched('tab', sources.searchers.tabs, sources.tabs);
   addSearched('object', sources.searchers.objects, sources.objects);
+  const keys = sources.keys ?? [];
+  const objectGroup = groups.find((group) => group.kind === 'object');
+  if (objectGroup && keys.length > 0 && text !== '') {
+    // Substring matches found by the backend: after the fuzzy ones, in the room that is left.
+    const room = Math.max(0, cap('object') - objectGroup.hits.length);
+    const lower = text.toLowerCase();
+    const extra = keys.slice(0, room).map((item): Hit<PaletteItem> => {
+      const at = item.lower.indexOf(lower);
+      const indices = at < 0 ? [] : Array.from({ length: lower.length }, (_, i) => at + i);
+      return { item, score: 0, indices };
+    });
+    objectGroup.hits = [...objectGroup.hits, ...extra];
+    objectGroup.total += keys.length;
+    objectGroup.best = objectGroup.best === -Infinity ? 0 : objectGroup.best;
+  }
   if (wants('saved')) groups.push(savedGroup(sources, text, cap('saved'), boost));
   if (wants('history')) {
     const limit = single ? MAX_HITS : HISTORY_CAP;

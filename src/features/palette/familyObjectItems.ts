@@ -1,4 +1,4 @@
-import type { DocCollection } from '../../ipc';
+import type { DocCollection, KvBytes } from '../../ipc';
 import { searchable } from './matcher';
 import type { FamilyObject, ObjectItem } from './paletteItems';
 
@@ -35,6 +35,24 @@ function familyItem(
     objectKind: 'table',
     signature: null,
     family,
+  };
+}
+
+/** A key the backend found among those it scanned (database by number). */
+export function keyItem(
+  connectionId: string,
+  connectionName: string,
+  database: number,
+  key: KvBytes,
+): ObjectItem {
+  return {
+    ...familyItem(connectionId, connectionName, `db${String(database)}`, key.text, {
+      type: 'key',
+      database,
+      key,
+    }),
+    // The key's own text is what the palette shows: no schema prefix.
+    nameStart: 0,
   };
 }
 

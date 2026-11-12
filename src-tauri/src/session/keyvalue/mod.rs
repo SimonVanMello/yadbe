@@ -24,6 +24,7 @@ use std::time::{Duration, SystemTime};
 use crate::db::driver::{BoxFuture, KeyValueConnection};
 use crate::db::engine::EngineFamily;
 use crate::db::errors::YadbeError;
+use crate::db::keyvalue::spec::CommandSpec;
 use crate::db::keyvalue::{KvBytes, KvCommand, KvReply, key_value_only};
 use crate::events::{BackendEvent, EventSink};
 use crate::session::history_hook::{HistoryRecorder, NoHistory};
@@ -33,8 +34,8 @@ use crate::session::{ConnectionManager, ConnectionSession};
 
 use self::gate::{Gate, Origin, SpecCache, parse_keyspace};
 use self::model::{
-    KvCollection, KvConsoleOutcome, KvDatabase, KvKeyInfo, KvKeyKind, KvKeySummary, KvLevel,
-    KvScanProgress, KvScanStatus, KvStringChunk,
+    KvCollection, KvCommandHint, KvConsoleOutcome, KvDatabase, KvFoundKeys, KvKeyInfo, KvKeyKind,
+    KvKeySummary, KvLevel, KvScanProgress, KvScanStatus, KvStringChunk,
 };
 use self::scan::{DEFAULT_SCAN_TARGET, KeyScan, ScanHost, run_scan};
 
@@ -42,6 +43,8 @@ use self::scan::{DEFAULT_SCAN_TARGET, KeyScan, ScanHost, run_scan};
 const MAX_SUMMARIES: usize = 500;
 /// Largest level page.
 const MAX_LEVEL_PAGE: u32 = 5_000;
+/// Most keys one search returns.
+const MAX_FOUND_KEYS: u32 = 200;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
@@ -401,6 +404,59 @@ impl KeyValueService {
             offset as usize,
             limit.min(MAX_LEVEL_PAGE) as usize,
         ))
+    }
+
+    /// The keys already scanned whose name contains `text` (no server round trip), at most
+    /// `limit`. Empty when nothing was scanned.
+    pub fn find_keys(
+        &self,
+        connection_id: &str,
+        db: u32,
+        text: &str,
+        limit: u32,
+    ) -> Result<KvFoundKeys, YadbeError> {
+        let Ok(scan) = self.scan(connection_id, db) else {
+            return Ok(KvFoundKeys {
+                keys: Vec::new(),
+                scanned: 0,
+            });
+        };
+        let (keys, scanned) = scan.find(text.as_bytes(), limit.min(MAX_FOUND_KEYS) as usize);
+        Ok(KvFoundKeys {
+            keys: keys.iter().map(|key| KvBytes::from_bytes(key)).collect(),
+            scanned: u32::try_from(scanned).unwrap_or(u32::MAX),
+        })
+    }
+
+    /// The commands the server knows, with their arity (`COMMAND`), for the console's completion.
+    /// Subcommands are left out. A server that refuses `COMMAND` gives none.
+    pub async fn command_hints(
+        &self,
+        connection_id: &str,
+    ) -> Result<Vec<KvCommandHint>, YadbeError> {
+        let pool = self.pool(connection_id)?;
+        let replies = pool
+            .run_all(
+                pool.home_database(),
+                &[KvCommand::of([b"COMMAND".as_slice()])],
+            )
+            .await?;
+        let Some(Ok(reply)) = replies.into_iter().next() else {
+            return Ok(Vec::new());
+        };
+        let mut hints: Vec<KvCommandHint> = reply
+            .items()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(CommandSpec::parse)
+            .map(|spec| KvCommandHint {
+                name: spec.name,
+                arity: i32::try_from(spec.arity).unwrap_or(0),
+            })
+            .filter(|hint| !hint.name.contains('|'))
+            .collect();
+        hints.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(hints)
     }
 
     /// Type, time to live and memory of the keys on screen, in one round trip.

@@ -615,6 +615,34 @@ async fn scans_every_key_in_batches_and_groups_them() {
     }
 }
 
+#[tokio::test]
+async fn finds_scanned_keys_and_lists_the_server_commands() {
+    for (label, url) in servers("finds_scanned_keys_and_lists_the_server_commands") {
+        let b = Bench::new(&url, 3, false).await;
+        b.bulk(
+            ["User:1", "user:2", "order:7", "session:user:9"]
+                .iter()
+                .map(|key| vec![b"SET".to_vec(), key.as_bytes().to_vec(), b"1".to_vec()])
+                .collect(),
+        )
+        .await;
+        b.wait_scan(None, |s| s.state == KvScanState::Done).await;
+        let found = b.kv.find_keys(&b.id, b.db, "USER", 10).expect("find");
+        let names: Vec<String> = found.keys.iter().map(|k| k.text.clone()).collect();
+        assert_eq!(names, ["User:1", "session:user:9", "user:2"], "{label}");
+        assert_eq!(found.scanned, 4, "{label}");
+        let limited = b.kv.find_keys(&b.id, b.db, "user", 1).expect("find");
+        assert_eq!(limited.keys.len(), 1, "{label}");
+
+        let hints = b.kv.command_hints(&b.id).await.expect("hints");
+        let get = hints.iter().find(|h| h.name == "get").expect("GET listed");
+        assert_eq!(get.arity, 2, "{label}");
+        let del = hints.iter().find(|h| h.name == "del").expect("DEL listed");
+        assert!(del.arity < 0, "{label}: at least one key");
+        assert!(hints.iter().all(|h| !h.name.contains('|')), "{label}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn scan_is_complete_on_a_changing_keyspace() {
     for (label, url) in servers("scan_is_complete_on_a_changing_keyspace") {

@@ -687,6 +687,13 @@ export const commands = {
 	kvScanLevel: (connectionId: string, database: number, prefix: KvBytes, delimiter: string, offset: number, limit: number) => typedError<KvLevel, YadbeError>(__TAURI_INVOKE("kv_scan_level", { connectionId, database, prefix, delimiter, offset, limit })),
 	/**  Type, time to live and memory of up to 500 keys (the rows on screen), in one round trip. */
 	kvKeySummaries: (connectionId: string, database: number, keys: KvBytes[]) => typedError<KvKeySummary[], YadbeError>(__TAURI_INVOKE("kv_key_summaries", { connectionId, database, keys })),
+	/**
+	 *  The keys already scanned whose name contains `text`, at most `limit` (no server round trip):
+	 *  the palette's and the console's key suggestions.
+	 */
+	kvFindKeys: (connectionId: string, database: number, text: string, limit: number) => typedError<KvFoundKeys, YadbeError>(__TAURI_INVOKE("kv_find_keys", { connectionId, database, text, limit })),
+	/**  The commands the server knows with their arity (`COMMAND`), for the console's completion. */
+	kvCommandHints: (connectionId: string) => typedError<KvCommandHint[], YadbeError>(__TAURI_INVOKE("kv_command_hints", { connectionId })),
 	/**  The header of a key tab: type, time to live, encoding, memory, length. */
 	kvKeyInfo: (connectionId: string, database: number, key: KvBytes) => typedError<KvKeyInfo, YadbeError>(__TAURI_INVOKE("kv_key_info", { connectionId, database, key })),
 	/**  Bytes `[offset, offset + length)` of a string value (at most 1 MiB per call). */
@@ -3095,6 +3102,13 @@ export type KvCollection = {
 	total: number | null,
 };
 
+/**  A command the server knows, with its arity (`COMMAND`): negative is "at least". */
+export type KvCommandHint = {
+	/**  Lower case. */
+	name: string,
+	arity: number,
+};
+
 /**  An edit that cannot be applied as the user saw it. */
 export type KvConflict = {
 	/**  Index of the edit in its change set. */
@@ -3268,6 +3282,13 @@ export type KvEditDangerKind =
 export type KvField = {
 	field: KvBytes,
 	value: KvBytes,
+};
+
+/**  Keys of the scan that contain a text: what the palette and the console's completion offer. */
+export type KvFoundKeys = {
+	keys: KvBytes[],
+	/**  Keys scanned so far (the search covers these only). */
+	scanned: number,
 };
 
 /**  The header of a key tab. */

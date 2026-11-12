@@ -185,6 +185,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::keyvalue::kv_scan_restart,
             commands::keyvalue::kv_scan_level,
             commands::keyvalue::kv_key_summaries,
+            commands::keyvalue::kv_find_keys,
+            commands::keyvalue::kv_command_hints,
             commands::keyvalue::kv_key_info,
             commands::keyvalue::kv_read_string,
             commands::keyvalue::kv_read_json,

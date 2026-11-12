@@ -51,6 +51,8 @@ export type KeyValueCommands = Pick<
   | 'kvScanRestart'
   | 'kvScanLevel'
   | 'kvKeySummaries'
+  | 'kvFindKeys'
+  | 'kvCommandHints'
   | 'kvKeyInfo'
   | 'kvReadString'
   | 'kvReadJson'
@@ -268,6 +270,29 @@ const STREAMING = new Set([
   'sync',
 ]);
 const BLOCKING = new Set(['blpop', 'brpop', 'blmove', 'bzpopmin', 'bzpopmax', 'wait']);
+/** What the mock says of a command's arity (`COMMAND`): the others are "at least one argument". */
+const COMMAND_ARITY: Record<string, number> = {
+  ping: -1,
+  get: 2,
+  type: 2,
+  ttl: 2,
+  pttl: 2,
+  hgetall: 2,
+  hlen: 2,
+  hkeys: 2,
+  llen: 2,
+  smembers: 2,
+  scard: 2,
+  zcard: 2,
+  xlen: 2,
+  dbsize: 1,
+  hget: 3,
+  lrange: 4,
+  zrange: -4,
+  set: -3,
+  del: -2,
+  expire: -3,
+};
 const KNOWN = new Set([
   ...WRITE,
   ...SCRIPTS,
@@ -1146,6 +1171,23 @@ export function createMockKeyValue(deps: KeyValueDeps) {
           Math.min(limit, 5_000),
         ),
       );
+    },
+
+    kvFindKeys: (connectionId, database, text, limit) => {
+      const scan = currentScan(connectionId, database);
+      if ('code' in scan) return ok({ keys: [], scanned: 0 });
+      const needle = text.toLowerCase();
+      const keys = scan.loaded
+        .filter((name) => needle === '' || name.toLowerCase().includes(needle))
+        .sort()
+        .slice(0, Math.min(limit, 200))
+        .map((name): KvBytes => ({ text: name, base64: null }));
+      return ok({ keys, scanned: scan.loaded.length });
+    },
+
+    kvCommandHints: (connectionId) => {
+      if (!sessionOf(connectionId)) return fail(mockErrors.notConnected());
+      return ok([...KNOWN].sort().map((name) => ({ name, arity: COMMAND_ARITY[name] ?? -2 })));
     },
 
     kvKeySummaries: (connectionId, database, keys) => {

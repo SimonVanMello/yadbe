@@ -122,6 +122,21 @@ impl KeyIndex {
         self.keys.len()
     }
 
+    /// Up to `limit` keys containing `needle`, ignoring ASCII case, in key order.
+    pub fn find(&self, needle: &[u8], limit: usize) -> Vec<Vec<u8>> {
+        self.keys
+            .iter()
+            .filter(|key| {
+                needle.is_empty()
+                    || key
+                        .windows(needle.len())
+                        .any(|window| window.eq_ignore_ascii_case(needle))
+            })
+            .take(limit)
+            .map(|key| key.to_vec())
+            .collect()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
@@ -394,6 +409,12 @@ impl KeyScan {
 
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// The keys scanned so far that contain `needle`, and how many were scanned.
+    pub fn find(&self, needle: &[u8], limit: usize) -> (Vec<Vec<u8>>, usize) {
+        let inner = self.lock();
+        (inner.index.find(needle, limit), inner.index.len())
     }
 
     pub fn level(&self, prefix: &[u8], delimiter: &[u8], offset: usize, limit: usize) -> KvLevel {

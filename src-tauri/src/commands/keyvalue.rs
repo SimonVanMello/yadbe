@@ -13,8 +13,8 @@ use crate::session::keyvalue::edit::{
     KvApplyOutcome, KvNamespaceCount, KvNamespaceDeleted, KvPreview,
 };
 use crate::session::keyvalue::model::{
-    KvCollection, KvConsoleOutcome, KvDatabase, KvKeyInfo, KvKeySummary, KvLevel, KvScanStatus,
-    KvStringChunk,
+    KvCollection, KvCommandHint, KvConsoleOutcome, KvDatabase, KvFoundKeys, KvKeyInfo,
+    KvKeySummary, KvLevel, KvScanStatus, KvStringChunk,
 };
 use crate::state::AppState;
 
@@ -94,6 +94,32 @@ pub async fn kv_scan_level(
     state
         .key_values
         .scan_level(&connection_id, database, &prefix, &delimiter, offset, limit)
+}
+
+/// The keys already scanned whose name contains `text`, at most `limit` (no server round trip):
+/// the palette's and the console's key suggestions.
+#[tauri::command]
+#[specta::specta]
+pub async fn kv_find_keys(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: u32,
+    text: String,
+    limit: u32,
+) -> Result<KvFoundKeys, YadbeError> {
+    state
+        .key_values
+        .find_keys(&connection_id, database, &text, limit)
+}
+
+/// The commands the server knows with their arity (`COMMAND`), for the console's completion.
+#[tauri::command]
+#[specta::specta]
+pub async fn kv_command_hints(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<Vec<KvCommandHint>, YadbeError> {
+    state.key_values.command_hints(&connection_id).await
 }
 
 /// Type, time to live and memory of up to 500 keys (the rows on screen), in one round trip.
