@@ -95,6 +95,8 @@ export function preloadLazyModules(): void {
   if (preloading) return;
   preloading = true;
   const idle = (next: () => void) => {
+    // A load can settle after the page is gone (a test environment torn down): stop there.
+    if (typeof window === 'undefined') return;
     if (typeof window.requestIdleCallback === 'function') {
       window.requestIdleCallback(next, { timeout: 50 });
     } else {
