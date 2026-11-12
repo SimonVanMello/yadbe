@@ -15,6 +15,11 @@
 #   export YADBE_TEST_REDIS_TLS_URL=rediss://yadbe:yadbe-test-pw@localhost:56380/0
 #   export YADBE_TEST_REDIS_CA=../dev/certs/ca.crt
 #   export YADBE_TEST_VALKEY_URL=redis://yadbe:yadbe-test-pw@localhost:56381/0
+# The search engines (about 1 GB of RAM each) start on demand:
+#   docker compose -f dev/compose.yml up -d elasticsearch opensearch
+#   export YADBE_TEST_ES_URL=https://elastic:yadbe-test-pw@localhost:59200
+#   export YADBE_TEST_ES_CA=../dev/certs/ca.crt
+#   export YADBE_TEST_OPENSEARCH_URL=http://localhost:59201
 #   cargo test
 # Ports are offset from the defaults so a local server keeps its own. Throwaway
 # credentials: never reuse them.

@@ -6,6 +6,7 @@ import { IconButton } from '../../ui/IconButton';
 import type { ConnectionSummary } from '../connections/model';
 import { CollectionControls } from '../document/CollectionControls';
 import { DdlControls } from '../objects/DdlControls';
+import { IndexControls } from '../search/IndexControls';
 import { TableControls } from '../table-data/TableControls';
 import { ToolControls } from '../tools/ToolControls';
 import { QueryTabControls } from './QueryTabControls';
@@ -45,6 +46,8 @@ export function Toolbar({
       {connection && table ? (
         connection.family === 'document' ? (
           <CollectionControls tabId={tabId} connection={connection} />
+        ) : connection.family === 'search' ? (
+          <IndexControls tabId={tabId} connection={connection} />
         ) : (
           <TableControls tabId={tabId} connection={connection} />
         )

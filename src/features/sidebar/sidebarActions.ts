@@ -4,6 +4,7 @@ import { setGroupCollapsed } from '../connections/groupActions';
 import { metaNodeOf, openTable, refreshNode } from '../explorer/explorerActions';
 import { explorerRowLabel } from '../explorer/explorerLabels';
 import { isRelationKind, nodeKeys } from '../explorer/explorerRows';
+import { searchTargetOf } from '../explorer/searchRows';
 import { revealInExplorer, revealSchema } from '../explorer/revealInExplorer';
 import { useExplorerStore } from '../explorer/explorerStore';
 import { isKvRow, kvRowName } from '../keyvalue/kvExplorerRows';
@@ -57,6 +58,15 @@ export function openRow(row: SidebarTreeRow): boolean {
         name: row.collection.name,
       });
       return true;
+    case 'searchIndex':
+    case 'searchDataStream':
+    case 'searchAlias': {
+      // An index tab, likewise: a table tab of a search connection.
+      const target = searchTargetOf(row);
+      if (target === null) return false;
+      void openTable(row.connectionId, { database: '', schema: null, name: target });
+      return true;
+    }
     case 'pinned': {
       const { kind } = row.pin;
       if (kind === null) {

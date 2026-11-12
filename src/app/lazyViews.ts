@@ -86,3 +86,10 @@ export const LazyCollectionTabBody = lazyComponent(() =>
 export const LazyScriptConsole = lazyComponent(() =>
   import('../features/document/ScriptConsole').then((m) => m.ScriptConsole),
 );
+// The search family's tabs (M4-7): only an Elasticsearch / OpenSearch connection needs them.
+export const LazyIndexTabBody = lazyComponent(() =>
+  import('../features/search/IndexTabBody').then((m) => m.IndexTabBody),
+);
+export const LazySearchConsole = lazyComponent(() =>
+  import('../features/search/SearchConsole').then((m) => m.SearchConsole),
+);

@@ -149,6 +149,8 @@
   --collection-filter-min-width: 240px;
   --collection-option-width: 180px;
   --console-editor-height: 160px;
+  /* Search console (M4-7): one answer's tab in the strip of a run's answers. */
+  --search-answer-max-width: 320px;
 
   /* Motion: transitions only signal a state change, ≤ 150 ms (spec §6.7). */
   --duration-fast: 100ms;

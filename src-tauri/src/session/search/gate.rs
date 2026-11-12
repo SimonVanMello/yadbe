@@ -451,6 +451,10 @@ impl Gate<'_> {
 
 /// Hits returned by a search response, for the history's row count.
 fn hits_count(response: &SearchResponse) -> Option<u64> {
+    // Parsing a large answer once more only for a count is not worth it.
+    if response.body.len() > 4 * 1024 * 1024 {
+        return None;
+    }
     let json = response.json()?;
     let hits = json.get("hits")?.get("hits")?.as_array()?;
     u64::try_from(hits.len()).ok()

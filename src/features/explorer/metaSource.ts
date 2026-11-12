@@ -4,6 +4,7 @@ import { YadbeIpcError, type YadbeError } from '../../ipc';
 import { fetchMeta } from './metaApi';
 import { requestKey, type MetaRequest } from './metaKeys';
 import type { DocumentSource } from './documentRows';
+import type { SearchSource } from './searchRows';
 import type { Loadable, MetaSource } from './explorerRows';
 
 /** The query behind one node: data stay cached until a refresh, the backend has its own cache. */
@@ -53,6 +54,26 @@ export function documentSourceOf(reads: DocumentReads): DocumentSource {
   };
 }
 
+/** The search explorer's reads, as the cache source names them. */
+export interface SearchReads {
+  searchIndices: SearchSource['indices'];
+  searchDataStreams: SearchSource['dataStreams'];
+  searchAliases: SearchSource['aliases'];
+  searchTemplates: SearchSource['templates'];
+  searchDetails: SearchSource['details'];
+}
+
+/** The search explorer's view of a cache source. */
+export function searchSourceOf(reads: SearchReads): SearchSource {
+  return {
+    indices: reads.searchIndices,
+    dataStreams: reads.searchDataStreams,
+    aliases: reads.searchAliases,
+    templates: reads.searchTemplates,
+    details: reads.searchDetails,
+  };
+}
+
 /**
  * The tree's view of the query cache. Every request made with `fetch` is recorded, so that the
  * caller can observe (and so load) exactly the nodes that are open on screen.
@@ -61,7 +82,7 @@ export function createCacheSource(
   client: QueryClient,
   connectionId: string,
   record: (connectionId: string, request: MetaRequest) => void,
-): MetaSource & DocumentReads {
+): MetaSource & DocumentReads & SearchReads {
   // One pass over the connection's cached queries instead of one `getQueryState` per node,
   // which resolves the default options and hashes the key each time: a filtered tree reads every
   // loaded table (10 000 on a large schema). A source serves one build of the tree, during which
@@ -90,6 +111,11 @@ export function createCacheSource(
       read({ type: 'docIndexes', database, collection }, fetch),
     docFields: (database, collection, fetch) =>
       read({ type: 'docFields', database, collection }, fetch),
+    searchIndices: (fetch) => read({ type: 'searchIndices' }, fetch),
+    searchDataStreams: (fetch) => read({ type: 'searchDataStreams' }, fetch),
+    searchAliases: (fetch) => read({ type: 'searchAliases' }, fetch),
+    searchTemplates: (fetch) => read({ type: 'searchTemplates' }, fetch),
+    searchDetails: (target, fetch) => read({ type: 'searchDetails', target }, fetch),
     databases: (fetch) => read({ type: 'databases' }, fetch),
     schemas: (database, fetch) => read({ type: 'schemas', database }, fetch),
     counts: (database, schema, fetch) => read({ type: 'counts', database, schema }, fetch),

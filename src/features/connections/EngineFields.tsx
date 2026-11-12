@@ -2,6 +2,7 @@ import type { SecretLocation } from '../../ipc';
 import { DocumentConnectionFields } from './DocumentConnectionFields';
 import type { ConnectionDraft, DraftErrors, EngineInfo } from './model';
 import { KeyValueConnectionFields } from './KeyValueConnectionFields';
+import { SearchConnectionFields } from './SearchConnectionFields';
 import { SqlConnectionFields } from './SqlConnectionFields';
 import type { SshHopName, SshSecretLocations } from './sshModel';
 
@@ -38,6 +39,8 @@ export function EngineFields(props: EngineFieldsProps) {
       return <DocumentConnectionFields {...props} />;
     case 'keyValue':
       return <KeyValueConnectionFields {...props} />;
+    case 'search':
+      return <SearchConnectionFields {...props} />;
     default:
       return null;
   }

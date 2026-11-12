@@ -5,6 +5,7 @@ import { translate, useI18nStore, type MessageKey, type MessageParams } from '..
 import { ipc, unwrap, type MetaNode, type ObjectRef, type ScriptKind } from '../../ipc';
 import { toast } from '../../ui/toastStore';
 import { documentNodeOf } from './documentRows';
+import { searchNodeOf } from './searchRows';
 import { isRelationKind, type ExplorerRow } from './explorerRows';
 
 function t(key: MessageKey, params?: MessageParams): string {
@@ -119,6 +120,15 @@ export function metaNodeOf(row: ExplorerRow): MetaNode | null {
     case 'docField':
     case 'docIndex':
       return documentNodeOf(row);
+    case 'searchGroup':
+    case 'searchIndex':
+    case 'searchDataStream':
+    case 'searchAlias':
+    case 'searchTemplate':
+    case 'searchDetails':
+    case 'searchField':
+    case 'searchSetting':
+      return searchNodeOf(row);
   }
 }
 
@@ -153,5 +163,15 @@ export function databaseOf(row: ExplorerRow): string | null {
     case 'docField':
     case 'docIndex':
       return row.database;
+    // A search connection has no databases: one cluster, many indices.
+    case 'searchGroup':
+    case 'searchIndex':
+    case 'searchDataStream':
+    case 'searchAlias':
+    case 'searchTemplate':
+    case 'searchDetails':
+    case 'searchField':
+    case 'searchSetting':
+      return null;
   }
 }

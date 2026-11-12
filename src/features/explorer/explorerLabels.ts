@@ -3,6 +3,7 @@ import type { ObjectKind } from '../../ipc';
 import type { IconName } from '../../ui/Icon';
 import { localize } from '../../app/errors/presentError';
 import { documentNameOf } from './documentRows';
+import { searchNameOf } from './searchRows';
 import type { DetailGroup, ExplorerRow, StatusSubject } from './explorerRows';
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
@@ -109,5 +110,16 @@ export function explorerRowLabel(row: ExplorerRow, t: Translate): string {
     case 'docField':
     case 'docIndex':
       return documentNameOf(row) ?? '';
+    case 'searchGroup':
+      return t(`search.explorer.${row.group}`);
+    case 'searchDetails':
+      return t(`search.explorer.${row.detail}`);
+    case 'searchIndex':
+    case 'searchDataStream':
+    case 'searchAlias':
+    case 'searchTemplate':
+    case 'searchField':
+    case 'searchSetting':
+      return searchNameOf(row) ?? '';
   }
 }
