@@ -1,8 +1,6 @@
-import { ActivityTabBody } from '../../features/activity/ActivityTabBody';
-import { MigrationsTabBody } from '../../features/migrations/MigrationsTabBody';
-import { DdlTabBody } from '../../features/objects/DdlTabBody';
 import { TableTabBody } from '../../features/table-data/TableTabBody';
 import { WelcomeScreen } from '../../features/welcome/WelcomeScreen';
+import { LazyActivityTabBody, LazyDdlTabBody, LazyMigrationsTabBody } from '../lazyViews';
 import { QueryTabBody } from './QueryTabBody';
 import styles from './TabContent.module.css';
 import { selectActiveTab, useTabsStore } from './tabsStore';
@@ -17,11 +15,11 @@ export function TabContent() {
       ) : tab.table ? (
         <TableTabBody key={tab.id} tab={tab} table={tab.table} />
       ) : tab.ddl ? (
-        <DdlTabBody key={tab.id} tab={tab} target={tab.ddl} />
+        <LazyDdlTabBody key={tab.id} tab={tab} target={tab.ddl} />
       ) : tab.tool?.type === 'activity' ? (
-        <ActivityTabBody key={tab.id} tab={tab} />
+        <LazyActivityTabBody key={tab.id} tab={tab} />
       ) : tab.tool?.type === 'migrations' ? (
-        <MigrationsTabBody key={tab.id} tab={tab} table={tab.tool.table} />
+        <LazyMigrationsTabBody key={tab.id} tab={tab} table={tab.tool.table} />
       ) : (
         <QueryTabBody tab={tab} />
       )}

@@ -1148,12 +1148,15 @@ function createMockBackend() {
 
 export type MockBackend = ReturnType<typeof createMockBackend>;
 
-export const mockBackend: MockBackend = createMockBackend();
+function clientOf(backend: MockBackend): YadbeClient {
+  return { commands: backend.commands, events: backend.events };
+}
 
-export const mockClient: YadbeClient = {
-  commands: mockBackend.commands,
-  events: mockBackend.events,
-};
+// Pure for the bundler: a production build, which never reads them, leaves the mock out (its
+// fixtures were built at every launch, P-01).
+export const mockBackend: MockBackend = /* @__PURE__ */ createMockBackend();
+
+export const mockClient: YadbeClient = /* @__PURE__ */ clientOf(mockBackend);
 
 /** Whether `after` changes a setting an open session only picks up when it connects again. */
 function needsReconnect(before: ConnectionDefinition, after: ConnectionDefinition): boolean {

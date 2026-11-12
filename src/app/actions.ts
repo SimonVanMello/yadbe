@@ -259,6 +259,16 @@ export function shortcutOf(id: ActionId): string | undefined {
  * (an alias is a convenience: the user's bindings win over it, and rebinding the action drops it).
  */
 function activeShortcuts(overrides: Overrides): Map<ActionId, string[]> {
+  // Read on every key press, by several handlers: built once per set of overrides (P-07).
+  if (activeCache?.overrides === overrides) return activeCache.shortcuts;
+  const shortcuts = buildActiveShortcuts(overrides);
+  activeCache = { overrides, shortcuts };
+  return shortcuts;
+}
+
+let activeCache: { overrides: Overrides; shortcuts: Map<ActionId, string[]> } | null = null;
+
+function buildActiveShortcuts(overrides: Overrides): Map<ActionId, string[]> {
   const effective = effectiveBindings(overrides);
   const taken = new Set<string>();
   for (const shortcut of effective.values()) if (shortcut) taken.add(shortcutKey(shortcut));

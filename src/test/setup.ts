@@ -2,6 +2,12 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
+// The app reads its language's catalog before the first render; tests switch languages freely.
+if (typeof window !== 'undefined') {
+  const { loadLocale, locales } = await import('../i18n/i18n');
+  await Promise.all(locales.map(loadLocale));
+}
+
 afterEach(() => {
   cleanup();
 });

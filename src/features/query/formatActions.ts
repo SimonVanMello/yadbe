@@ -1,10 +1,14 @@
+import { lazyModule } from '../../app/lazyModule';
 import { useTabsStore } from '../../app/tabs/tabsStore';
 import { translate, useI18nStore, type MessageKey } from '../../i18n/i18n';
 import { toast } from '../../ui/toastStore';
 import { getPreference } from '../preferences/preferenceStore';
 import { findConnection } from './connectionLookup';
 import { getEditor } from './editorRegistry';
-import { formatSql, type FormatOptions } from './sqlFormat';
+import type { FormatOptions } from './sqlFormat';
+
+/** The formatter is loaded after startup (P-01); it is there long before the first format. */
+const formatter = lazyModule(() => import('./sqlFormat').then((m) => m.formatSql));
 
 declare global {
   interface Window {
@@ -31,6 +35,18 @@ export function formatOptions(tabId: string): FormatOptions {
 
 /** Formats the tab's selection, or its whole text (F-049), as one undoable edit. */
 export function formatTab(tabId: string): void {
+  const formatSql = formatter.current();
+  if (!formatSql) {
+    formatter.load().then(
+      () => {
+        formatTab(tabId);
+      },
+      (error: unknown) => {
+        console.warn('Could not load the formatter', error);
+      },
+    );
+    return;
+  }
   const editor = getEditor(tabId);
   if (!editor) return;
   const options = formatOptions(tabId);

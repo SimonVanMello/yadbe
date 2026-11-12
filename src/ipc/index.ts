@@ -23,6 +23,8 @@ declare global {
   }
 }
 
+// `isMock` is a build-time constant: a production build drops the mock backend (`mockClient.ts`
+// is pure for the bundler).
 if (isMock) window.__yadbeMock = mockBackend;
 
 /** The only entry point to the backend for the rest of the frontend. */

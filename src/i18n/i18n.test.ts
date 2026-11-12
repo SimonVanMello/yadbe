@@ -1,16 +1,24 @@
 import { describe, expect, it } from 'vitest';
 
-import { catalogs, detectLocale, locales, translate } from './i18n';
+import {
+  catalogOf,
+  detectLocale,
+  loadI18n,
+  locales,
+  translate,
+  useI18nStore,
+  type MessageKey,
+} from './i18n';
 
 describe('i18n catalogs', () => {
-  const reference = Object.keys(catalogs.en).sort();
+  const reference = Object.keys(catalogOf('en')).sort();
 
   it.each(locales)('%s has exactly the reference keys', (locale) => {
-    expect(Object.keys(catalogs[locale]).sort()).toEqual(reference);
+    expect(Object.keys(catalogOf(locale)).sort()).toEqual(reference);
   });
 
   it.each(locales)('%s has no empty message', (locale) => {
-    for (const message of Object.values(catalogs[locale])) {
+    for (const message of Object.values(catalogOf(locale))) {
       expect(message.trim()).not.toBe('');
     }
   });
@@ -18,8 +26,8 @@ describe('i18n catalogs', () => {
   it.each(locales)('%s uses the same placeholders as English', (locale) => {
     const placeholders = (message: string) => (message.match(/\{\w+\}/g) ?? []).sort();
     for (const key of reference) {
-      const k = key as keyof typeof catalogs.en;
-      expect(placeholders(catalogs[locale][k]), key).toEqual(placeholders(catalogs.en[k]));
+      const k = key as MessageKey;
+      expect(placeholders(catalogOf(locale)[k]), key).toEqual(placeholders(catalogOf('en')[k]));
     }
   });
 });
@@ -62,5 +70,19 @@ describe('detectLocale', () => {
   it('falls back to English', () => {
     expect(detectLocale(['de-DE'])).toBe('en');
     expect(detectLocale([])).toBe('en');
+  });
+});
+
+describe('loadI18n', () => {
+  it('shows the language once its catalog is there, the last choice winning', async () => {
+    const first = loadI18n('fr');
+    const second = loadI18n('en');
+    await Promise.all([first, second]);
+    expect(useI18nStore.getState()).toMatchObject({ locale: 'en', preference: 'en' });
+    expect(document.documentElement.lang).toBe('en');
+    await loadI18n('fr');
+    expect(useI18nStore.getState().locale).toBe('fr');
+    expect(document.documentElement.lang).toBe('fr');
+    await loadI18n('en');
   });
 });

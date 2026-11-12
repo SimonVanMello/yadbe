@@ -5,6 +5,7 @@ import { useT } from '../../i18n/useT';
 import { Kbd } from '../../ui/Kbd';
 import { Spinner } from '../../ui/Spinner';
 import { ResultView } from '../result-edit/ResultView';
+import { LazyPlanView } from '../../app/lazyViews';
 import { useShortcutOf } from '../../app/useShortcutOf';
 import {
   effectiveSelection,
@@ -17,7 +18,6 @@ import { useElapsedMs, useExecutionStore, useTabExecution } from './executionSto
 import { formatDuration } from './format';
 import { MessagesPanel } from './MessagesPanel';
 import { usePlanStore, useShowingPlan, useTabPlan } from './planStore';
-import { PlanView } from './PlanView';
 import styles from './ResultsArea.module.css';
 
 const tabDomId = (tabId: string, key: string) => `results-${tabId}-${key}`;
@@ -134,7 +134,7 @@ export function ResultsArea({ tabId }: { tabId: string }) {
         className={styles.panel}
       >
         {showingPlan ? (
-          <PlanView tabId={tabId} />
+          <LazyPlanView tabId={tabId} />
         ) : execution.status === 'idle' ? (
           <EmptyResults />
         ) : selection.kind === 'messages' || !selectedResult ? (

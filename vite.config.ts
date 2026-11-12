@@ -25,6 +25,15 @@ export default defineConfig(({ mode }) => ({
     // Tauri webviews: WebView2 (Chromium), WKWebView and WebKitGTK (Safari 15+ equivalent).
     target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome110' : 'safari15',
     sourcemap: Boolean(process.env.TAURI_ENV_DEBUG),
+    // One stylesheet, read before the first paint: a part loaded later never shows unstyled.
+    cssCodeSplit: false,
+    rolldownOptions: {
+      output: {
+        // What the first paint needs stays in one chunk (no cascade of small requests at
+        // startup); the parts loaded later (`src/app/lazyViews.ts`) get their own chunks.
+        codeSplitting: { groups: [{ name: 'app', tags: ['$initial'] }] },
+      },
+    },
   },
   css: {
     modules: { localsConvention: 'camelCaseOnly' },
