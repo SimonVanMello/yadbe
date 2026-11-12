@@ -196,6 +196,10 @@ const MIGRATIONS: &[&str] = &[
         pinned_at INTEGER NOT NULL,
         PRIMARY KEY (connection_id, database_name, schema_name, kind, object_id)
     );",
+    // Per-tab history (F-102): the editor tab a statement ran in. Entries written before
+    // have none. No foreign key: the history outlives the tab.
+    "ALTER TABLE history ADD COLUMN tab_id TEXT;
+    CREATE INDEX history_by_tab ON history(tab_id, id);",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {

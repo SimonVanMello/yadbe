@@ -120,6 +120,29 @@ async fn records_success_failure_and_cancellation_on_sqlite() {
         })
         .expect("search");
     assert_eq!(errors.rows.len(), 2);
+
+    // F-102: the editor tab each statement ran in is kept, and narrows a search.
+    let in_tab = |tab: &str| {
+        b.store
+            .search_history(&HistoryQuery {
+                tab_id: Some(tab.into()),
+                ..HistoryQuery::default()
+            })
+            .expect("search")
+            .rows
+            .into_iter()
+            .map(|row| row.sql)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(in_tab("tab2"), [LONG_SQLITE]);
+    assert_eq!(
+        in_tab("tab"),
+        [
+            "SELECT nope FROM items",
+            "SELECT * FROM items ORDER BY id",
+            "INSERT INTO items (name) VALUES ('alpha'), ('beta')"
+        ]
+    );
 }
 
 #[tokio::test]

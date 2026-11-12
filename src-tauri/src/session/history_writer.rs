@@ -196,6 +196,7 @@ impl Writer {
                 ),
             };
             rows.push(NewHistoryEntry {
+                tab_id: Some(entry.tab_id.clone()).filter(|id| !id.is_empty()),
                 connection_id: entry.connection_id.clone(),
                 connection_name: definition.name.clone(),
                 engine: definition.engine,
@@ -290,6 +291,7 @@ mod tests {
 
     fn entry(sql: &str, started_at_ms: i64) -> NewHistoryEntry {
         NewHistoryEntry {
+            tab_id: None,
             connection_id: "c".into(),
             connection_name: "shop".into(),
             engine: Engine::Postgres,

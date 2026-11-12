@@ -33,6 +33,8 @@ export const DEFAULT_BINDINGS = {
   'view.toggleStatementLog': 'Mod+J',
   // Sidebar: History view (F-101), search focused.
   'view.history': 'Mod+Shift+H',
+  // The History view narrowed to what ran in the active editor tab (F-102).
+  'view.tabHistory': 'Mod+Alt+H',
   // Sidebar: Saved queries view (F-050), search focused.
   'view.library': 'Mod+Shift+B',
   // SQL editor (F-041, F-042, F-045): `query.run` runs the selection, else the whole script.
@@ -154,6 +156,7 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'view.toggleSidebar': 'action.view.toggleSidebar',
   'view.toggleStatementLog': 'action.view.toggleStatementLog',
   'view.history': 'action.view.history',
+  'view.tabHistory': 'action.view.tabHistory',
   'view.library': 'action.view.library',
   'result.export': 'action.result.export',
   'result.rowDetail': 'action.result.rowDetail',

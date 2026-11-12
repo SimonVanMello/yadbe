@@ -37,6 +37,8 @@ type Row = Omit<HistoryRow, 'id' | 'startedAt' | 'durationMs'> & {
 
 /** A statement the mock query runner ran (or refused, or cancelled). */
 export interface MockHistoryRecord {
+  /** The editor tab it ran in (F-102). */
+  tabId: string;
   connectionId: string;
   database: string | null;
   sql: string;
@@ -208,6 +210,8 @@ export function createMockHistory(deps: HistoryDeps) {
   let emitDelay = EMIT_DEBOUNCE_MS;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let lastSlot = 0;
+  /** The editor tab each recorded entry ran in, by entry id (seeded entries ran in none). */
+  const tabs = new Map<number, string>();
 
   function announce(): void {
     if (timer !== null) return;
@@ -307,9 +311,11 @@ export function createMockHistory(deps: HistoryDeps) {
   }
 
   /** Appends an entry newer than every one so far (the seed and recorded statements). */
-  function push(entry: Omit<Row, 'id' | 'sqlTruncated'>): void {
-    entries.push({ ...entry, id: idFor(entry.startedAt), sqlTruncated: false });
+  function push(entry: Omit<Row, 'id' | 'sqlTruncated'>): number {
+    const id = idFor(entry.startedAt);
+    entries.push({ ...entry, id, sqlTruncated: false });
     if (entries.length > MAX_ENTRIES) entries = entries.slice(entries.length - MAX_ENTRIES);
+    return id;
   }
 
   /** `count` synthetic entries over the last year, for the 100k scroll and search checks. */
@@ -392,6 +398,7 @@ export function createMockHistory(deps: HistoryDeps) {
       if (!entry) continue;
       if (query.after !== null && entry.id >= query.after) continue;
       if (!inScope(entry, query)) continue;
+      if (query.tabId != null && tabs.get(entry.id) !== query.tabId) continue;
       if (query.outcomes.length > 0 && !query.outcomes.includes(entry.outcome)) continue;
       if (query.minDurationMs !== null && entry.durationMs < query.minDurationMs) continue;
       if (matches && !matches(entry.sql)) continue;
@@ -431,7 +438,7 @@ export function createMockHistory(deps: HistoryDeps) {
     const connection = deps.connection(statement.connectionId);
     if (!connection?.definition.historyEnabled) return;
     const { error } = statement;
-    push({
+    const id = push({
       ...snapshot(connection, statement.connectionId),
       database: statement.database ?? (connection.definition.database || null),
       sql: statement.sql,
@@ -442,6 +449,7 @@ export function createMockHistory(deps: HistoryDeps) {
       errorCode: error?.code ?? null,
       errorMessage: error ? (error.detail ?? error.message.en) : null,
     });
+    tabs.set(id, statement.tabId);
     announce();
   }
 
@@ -449,6 +457,7 @@ export function createMockHistory(deps: HistoryDeps) {
     if (timer !== null) clearTimeout(timer);
     timer = null;
     emitDelay = EMIT_DEBOUNCE_MS;
+    tabs.clear();
     seed();
   }
 

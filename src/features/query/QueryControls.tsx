@@ -1,3 +1,4 @@
+import { runAction } from '../../app/actions';
 import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import type { TransactionMode } from '../../ipc';
@@ -207,6 +208,14 @@ export function QueryControls({ tabId, connection }: QueryControlsProps) {
         shortcut={shortcutOf('query.save')}
         onClick={() => {
           void saveScript(tabId);
+        }}
+      />
+      <IconButton
+        icon="history"
+        label={t('action.view.tabHistory')}
+        shortcut={shortcutOf('view.tabHistory')}
+        onClick={() => {
+          runAction('view.tabHistory');
         }}
       />
       <IconButton

@@ -60,6 +60,7 @@ fn p08_search_over_100k_entries() {
     for i in 0..N {
         let failed = i % 23 == 0;
         batch.push(NewHistoryEntry {
+            tab_id: None,
             connection_id: format!("c{}", i % 4),
             connection_name: format!("connection {}", i % 4),
             engine: Engine::Postgres,

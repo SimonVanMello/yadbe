@@ -155,6 +155,60 @@ for (const { name, colorScheme } of THEMES) {
       await expect(rows(page).first().getByRole('img', { name: 'Succeeded' })).toBeVisible();
     });
 
+    test('the history of a tab lists what ran in it, and an earlier version can be put back', async ({
+      page,
+    }) => {
+      await sidebarItem(page, 'local postgres').dblclick();
+      await expect(editor(page)).toBeVisible();
+      const run = async (sql: string) => {
+        await editor(page).click();
+        await page.keyboard.press('ControlOrMeta+a');
+        await page.keyboard.insertText(sql);
+        await page.keyboard.press('ControlOrMeta+Enter');
+        await expect(page.getByText(/1 statement/).first()).toBeVisible();
+      };
+      await run('select 7001 as first_version');
+      await page.waitForTimeout(100);
+      await run('select 7002 as second_version');
+
+      // Another tab ran something else.
+      await page.keyboard.press('ControlOrMeta+t');
+      await page.getByRole('option', { name: /local postgres/ }).click();
+      await expect(editor(page)).toBeVisible();
+      await run('select 7003 as other_tab');
+
+      // Back on the first tab: its toolbar shows what ran in it, and only that.
+      await page.getByRole('tab', { name: /Query 1/ }).click();
+      await page.getByRole('button', { name: 'Show the history of this tab' }).click();
+      await expect(panel(page)).toBeVisible();
+      await expect(rows(page)).toHaveCount(2);
+      await expect(rows(page).nth(0)).toContainText('second_version');
+      await expect(rows(page).nth(1)).toContainText('first_version');
+      await expect(panel(page).getByRole('switch', { name: 'Only this tab' })).toBeChecked();
+      await capture(page, name, 'history-this-tab');
+
+      // The tab on screen changes the list with it.
+      await page.getByRole('tab', { name: /Query 2/ }).click();
+      await expect(rows(page)).toHaveCount(1);
+      await expect(rows(page).first()).toContainText('other_tab');
+      await page.getByRole('tab', { name: /Query 1/ }).click();
+      await expect(rows(page)).toHaveCount(2);
+
+      // Put the first version back: one edit, which Undo takes back.
+      await rows(page).nth(1).click();
+      await panel(page)
+        .getByRole('button', { name: /Put it back in the editor/ })
+        .click();
+      await expect(editor(page)).toContainText('first_version');
+      await expect(editor(page)).not.toContainText('second_version');
+      await page.keyboard.press('ControlOrMeta+z');
+      await expect(editor(page)).toContainText('second_version');
+
+      // Off: the whole history again.
+      await panel(page).getByRole('switch', { name: 'Only this tab' }).click();
+      await expect(rows(page).first()).toContainText('other_tab');
+    });
+
     test('delete one entry', async ({ page }) => {
       await openHistory(page);
       const first = (await rows(page).first().textContent()) ?? '';

@@ -41,6 +41,19 @@ export function openQueryTab(target: QueryTabTarget): string {
 }
 
 /**
+ * Puts `text` in place of everything the active query tab's editor holds, as one edit that
+ * Undo takes back (F-102: an earlier version of what ran in this tab). `false` without an editor.
+ */
+export function replaceActiveEditorText(text: string): boolean {
+  const tab = selectActiveTab(useTabsStore.getState());
+  const editor = tab.connectionId === null ? undefined : getEditor(tab.id);
+  if (!editor) return false;
+  editor.replaceContent(text);
+  editor.focus();
+  return true;
+}
+
+/**
  * Inserts `text` at the cursor of the active query tab's editor. `false` when there is none
  * (a welcome tab, or an editor that is not mounted).
  */

@@ -70,6 +70,8 @@ const ID_SLOTS: i64 = 1024;
 /// A statement to record. `started_at_ms` is Unix time in milliseconds.
 #[derive(Debug, Clone)]
 pub struct NewHistoryEntry {
+    /// The editor tab it ran in.
+    pub tab_id: Option<String>,
     pub connection_id: String,
     pub connection_name: String,
     pub engine: Engine,
@@ -115,6 +117,9 @@ pub struct HistoryQuery {
     /// Words of the statement text; each matches as a prefix, all must match.
     pub text: Option<String>,
     pub connection_id: Option<String>,
+    /// Only what ran in this editor tab (F-102).
+    #[serde(default)]
+    pub tab_id: Option<String>,
     /// Empty: every outcome.
     pub outcomes: Vec<HistoryOutcome>,
     /// Unix milliseconds, inclusive.
@@ -315,8 +320,8 @@ impl Store {
         {
             let mut stmt = tx.prepare_cached(
                 "INSERT INTO history (id, connection_id, connection_name, engine, database_name,
-                    sql, started_at, duration_ms, rows, outcome, error_code, error_message)
-                 VALUES (?12, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    sql, started_at, duration_ms, rows, outcome, error_code, error_message, tab_id)
+                 VALUES (?12, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?13)",
             )?;
             let mut last_in_slot =
                 tx.prepare_cached("SELECT MAX(id) FROM history WHERE id >= ?1 AND id < ?1 + ?2")?;
@@ -344,6 +349,7 @@ impl Store {
                     e.error_code.and_then(error_code_id),
                     e.error_message,
                     id,
+                    e.tab_id,
                 ])?;
             }
         }
@@ -383,6 +389,9 @@ impl Store {
             from: query.from,
             to: query.to,
         });
+        if let Some(tab) = &query.tab_id {
+            filter.push(|i| format!("h.tab_id = ?{i}"), SqlValue::Text(tab.clone()));
+        }
         if !query.outcomes.is_empty() {
             let list = query
                 .outcomes

@@ -1855,5 +1855,11 @@
   "export.md.alignNumbers": "Aligner les nombres à droite",
   "export.excel.sheet": "Nom de la feuille",
   "export.excel.hint": "Une feuille avec la ligne d’en-tête figée. Les dates sont de vraies dates, les nombres qu’Excel arrondirait restent du texte, et une cellule contient 32 767 caractères au plus.",
-  "export.excel.preview": "Aperçu des premières lignes (le fichier est un classeur, pas du texte)"
+  "export.excel.preview": "Aperçu des premières lignes (le fichier est un classeur, pas du texte)",
+  "action.view.tabHistory": "Afficher l’historique de cet onglet",
+  "history.filter.thisTab": "Cet onglet seulement",
+  "history.filter.thisTabHint": "Ce qui a été exécuté dans l’onglet affiché, pour retrouver une version antérieure de son texte.",
+  "history.emptyThisTab": "Rien n’a encore été exécuté dans cet onglet.",
+  "history.emptyNoTab": "Ouvrez un onglet de requête pour voir ce qui y a été exécuté.",
+  "history.action.restore": "Remettre dans l’éditeur (remplace le texte de l’onglet)"
 }

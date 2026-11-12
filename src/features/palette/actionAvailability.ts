@@ -34,6 +34,7 @@ const NEEDS_QUERY_TAB: ReadonlySet<ActionId> = new Set([
   'query.runSameParameters',
   'query.openDefinitionData',
   'tab.togglePin',
+  'view.tabHistory',
 ]);
 
 /** Why `id` cannot run now (a message for the palette), or `null` when it can. */

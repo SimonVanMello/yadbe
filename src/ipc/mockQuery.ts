@@ -914,6 +914,7 @@ export function createMockQuery(host: MockQueryHost) {
     const status =
       outcome === 'refused' || outcome === 'cancelled' ? outcome : error ? 'error' : 'ok';
     host.recordHistory?.({
+      tabId: exec.tabId,
       connectionId: exec.connectionId,
       database: exec.database,
       sql: exec.text.slice(range.from, range.to),

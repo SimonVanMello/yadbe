@@ -11,6 +11,7 @@ fn store() -> Store {
 
 fn entry(sql: &str, at: i64) -> NewHistoryEntry {
     NewHistoryEntry {
+        tab_id: None,
         connection_id: "c1".into(),
         connection_name: "shop".into(),
         engine: Engine::Postgres,
@@ -372,5 +373,81 @@ fn clears_all_one_connection_or_a_date_range() {
     assert_eq!(
         texts(&search(&store, HistoryQuery::default())),
         Vec::<&str>::new()
+    );
+}
+
+#[test]
+fn a_search_can_be_limited_to_one_editor_tab_and_combined_with_text() {
+    let store = store();
+    let in_tab = |tab: Option<&str>, sql: &str, at: i64| NewHistoryEntry {
+        tab_id: tab.map(str::to_owned),
+        ..entry(sql, at)
+    };
+    store
+        .insert_history(&[
+            in_tab(Some("tab-a"), "SELECT 1 FROM orders", T0),
+            in_tab(Some("tab-b"), "SELECT 2 FROM orders", T0 + 1),
+            in_tab(Some("tab-a"), "SELECT 3 FROM customers", T0 + 2),
+            in_tab(None, "SELECT 4 FROM orders", T0 + 3),
+        ])
+        .expect("insert");
+    let tab = |tab: &str, text: Option<&str>| {
+        let page = search(
+            &store,
+            HistoryQuery {
+                tab_id: Some(tab.into()),
+                text: text.map(str::to_owned),
+                ..HistoryQuery::default()
+            },
+        );
+        page.rows
+            .iter()
+            .map(|r| r.sql.clone())
+            .collect::<Vec<String>>()
+    };
+    // Newest first, and only what ran in that tab.
+    assert_eq!(
+        tab("tab-a", None),
+        ["SELECT 3 FROM customers", "SELECT 1 FROM orders"]
+    );
+    assert_eq!(tab("tab-b", None), ["SELECT 2 FROM orders"]);
+    assert_eq!(tab("tab-a", Some("orders")), ["SELECT 1 FROM orders"]);
+    assert!(tab("tab-gone", None).is_empty());
+    // Without a tab filter every entry is there, including the one that ran in no tab.
+    assert_eq!(search(&store, HistoryQuery::default()).rows.len(), 4);
+}
+
+#[test]
+fn the_migration_adds_the_tab_to_an_existing_history() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join(DB_FILE);
+    {
+        let store = Store::open(&path).expect("open");
+        store
+            .insert_history(&[entry("SELECT before", T0)])
+            .expect("insert");
+    }
+    {
+        // Back to the schema before the tab column, as an older version left it.
+        let conn = Connection::open(&path).expect("open");
+        conn.execute_batch("DROP INDEX history_by_tab; ALTER TABLE history DROP COLUMN tab_id;")
+            .expect("downgrade");
+        conn.pragma_update(None, "user_version", Store::latest_schema_version() - 1)
+            .expect("version");
+    }
+    let store = Store::open(&path).expect("reopen");
+    let page = search(&store, HistoryQuery::default());
+    assert_eq!(texts(&page), ["SELECT before"]);
+    // The old entry ran in no known tab; new ones record theirs.
+    assert!(
+        search(
+            &store,
+            HistoryQuery {
+                tab_id: Some("t".into()),
+                ..HistoryQuery::default()
+            }
+        )
+        .rows
+        .is_empty()
     );
 }

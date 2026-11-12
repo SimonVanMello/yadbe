@@ -1540,6 +1540,8 @@ export type HistoryQuery = {
 	/**  Words of the statement text; each matches as a prefix, all must match. */
 	text: string | null,
 	connectionId: string | null,
+	/**  Only what ran in this editor tab (F-102). */
+	tabId?: string | null,
 	/**  Empty: every outcome. */
 	outcomes: HistoryOutcome[],
 	/**  Unix milliseconds, inclusive. */

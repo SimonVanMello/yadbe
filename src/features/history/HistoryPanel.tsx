@@ -14,6 +14,7 @@ import { TextInput } from '../../ui/TextInput';
 import { matchShortcut } from '../../ui/shortcuts';
 import { useDebouncedValue } from '../../ui/useDebouncedValue';
 import { useNow } from '../../ui/useNow';
+import { selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { useConnections } from '../connections/connectionStore';
 import { ClearHistoryDialog } from './ClearHistoryDialog';
 import { HistoryDetail } from './HistoryDetail';
@@ -43,7 +44,14 @@ export function HistoryPanel() {
   // The search runs once the user pauses; what is shown (and emphasized) is what ran.
   const searched = useDebouncedValue(filters.text, SEARCH_DELAY_MS);
   const queryFilters = useMemo(() => ({ ...filters, text: searched }), [filters, searched]);
-  const { query, entries, behind, catchUp } = useHistoryList(queryFilters);
+  // The editor tab "this tab" means: it follows the tab on screen.
+  const activeTabId = useTabsStore((state) => {
+    const tab = selectActiveTab(state);
+    return tab.connectionId !== null && tab.table === undefined && tab.ddl === undefined
+      ? tab.id
+      : null;
+  });
+  const { query, entries, behind, catchUp } = useHistoryList(queryFilters, activeTabId);
   useYadbeEvent('historyChanged', () => {
     void noteNewHistory();
   });
@@ -217,7 +225,13 @@ export function HistoryPanel() {
         {showList && entries.length === 0 && (
           <div className={styles.state}>
             <p className={styles.empty}>
-              {filtered ? t('history.emptyFiltered') : t('history.empty')}
+              {filters.thisTab && activeTabId === null
+                ? t('history.emptyNoTab')
+                : filters.thisTab && !filters.text
+                  ? t('history.emptyThisTab')
+                  : filtered
+                    ? t('history.emptyFiltered')
+                    : t('history.empty')}
             </p>
             {filtered && (
               <Button

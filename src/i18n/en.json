@@ -1855,5 +1855,11 @@
   "export.md.alignNumbers": "Right-align numbers",
   "export.excel.sheet": "Worksheet name",
   "export.excel.hint": "One worksheet with a frozen header row. Dates are real dates, numbers Excel would round stay text, and a cell holds 32,767 characters at most.",
-  "export.excel.preview": "Preview of the first rows (the file is a workbook, not text)"
+  "export.excel.preview": "Preview of the first rows (the file is a workbook, not text)",
+  "action.view.tabHistory": "Show the history of this tab",
+  "history.filter.thisTab": "Only this tab",
+  "history.filter.thisTabHint": "What ran in the tab on screen, to take an earlier version of its text back.",
+  "history.emptyThisTab": "Nothing has run in this tab yet.",
+  "history.emptyNoTab": "Open a query tab to see what ran in it.",
+  "history.action.restore": "Put it back in the editor (replaces the tab's text)"
 }
