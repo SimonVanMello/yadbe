@@ -19,6 +19,8 @@ pub struct RunOutcome {
     pub rows: u64,
     pub bytes: u64,
     pub truncated: bool,
+    /// The format's own limit ended the export before the source did.
+    pub limited: bool,
 }
 
 /// A sibling of the target: same folder (so the rename stays on one volume), never a name the
@@ -155,7 +157,8 @@ async fn write_all<S: ExportSource>(
     encoder.begin(&columns, &mut buffer);
     let (mut rows, mut bytes) = (0_u64, 0_u64);
     let mut last_progress = Instant::now();
-    loop {
+    let mut limited = false;
+    'batches: loop {
         let batch = tokio::select! {
             biased;
             () = cancel.cancelled() => return Err(YadbeError::cancelled()),
@@ -165,6 +168,10 @@ async fn write_all<S: ExportSource>(
         // Batches from the store are ready at once: let the other tasks run.
         tokio::task::yield_now().await;
         for row in &batch {
+            if encoder.is_full() {
+                limited = true;
+                break 'batches;
+            }
             encoder.row(row, &mut buffer);
             rows += 1;
         }
@@ -184,5 +191,6 @@ async fn write_all<S: ExportSource>(
         rows,
         bytes,
         truncated: source.truncated(),
+        limited,
     })
 }

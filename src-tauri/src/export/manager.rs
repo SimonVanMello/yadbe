@@ -11,12 +11,13 @@ use tokio_util::sync::CancellationToken;
 
 use super::encode::encoder;
 use super::model::{
-    ExportFinished, ExportFormat, ExportProgress, ExportRequest, ExportSourceSpec, ExportStarted,
-    ExportStatus,
+    CsvDelimiter, CsvOptions, ExportFinished, ExportFormat, ExportProgress, ExportRequest,
+    ExportSourceSpec, ExportStarted, ExportStatus,
 };
 use super::run::run_export;
 use super::source::{ExportSource, QueryResultSource};
 use crate::db::errors::{ErrorCode, YadbeError};
+use crate::db::value::ColumnMeta;
 use crate::events::{BackendEvent, EventSink};
 use crate::session::QueryRunner;
 use crate::session::table_data::TableDataService;
@@ -24,6 +25,9 @@ use crate::session::table_data::TableDataService;
 /// Extensions each format may be saved as.
 const CSV_EXTENSIONS: &[&str] = &["csv", "tsv", "txt"];
 const JSON_EXTENSIONS: &[&str] = &["json", "ndjson", "jsonl", "txt"];
+const SQL_EXTENSIONS: &[&str] = &["sql", "txt"];
+const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown", "txt"];
+const EXCEL_EXTENSIONS: &[&str] = &["xlsx"];
 
 /// Longest preview a caller can ask for.
 const MAX_PREVIEW_ROWS: u32 = 100;
@@ -46,6 +50,9 @@ pub fn checked_path<'a>(path: &'a str, format: &ExportFormat) -> Result<&'a Path
     let allowed = match format {
         ExportFormat::Csv { .. } => CSV_EXTENSIONS,
         ExportFormat::Json { .. } => JSON_EXTENSIONS,
+        ExportFormat::Sql { .. } => SQL_EXTENSIONS,
+        ExportFormat::Markdown { .. } => MARKDOWN_EXTENSIONS,
+        ExportFormat::Excel { .. } => EXCEL_EXTENSIONS,
     };
     let fits = candidate
         .extension()
@@ -61,6 +68,32 @@ pub fn checked_path<'a>(path: &'a str, format: &ExportFormat) -> Result<&'a Path
         ));
     }
     Ok(candidate)
+}
+
+/// What a format cannot write, found before anything is created: a worksheet has 16 384
+/// columns at most, a SQL script needs a table to insert into.
+fn check_format(format: &ExportFormat, columns: &[ColumnMeta]) -> Result<(), YadbeError> {
+    match format {
+        ExportFormat::Excel { .. } if columns.len() > super::xlsx::MAX_COLUMNS => {
+            Err(YadbeError::invalid_argument(
+                format!(
+                    "An Excel worksheet has at most {} columns.",
+                    super::xlsx::MAX_COLUMNS
+                ),
+                format!(
+                    "Une feuille Excel compte au plus {} colonnes.",
+                    super::xlsx::MAX_COLUMNS
+                ),
+            ))
+        }
+        ExportFormat::Sql { options } if options.table.trim().is_empty() => {
+            Err(YadbeError::invalid_argument(
+                "Name the table the INSERT statements go into.",
+                "Nommez la table dans laquelle vont les instructions INSERT.",
+            ))
+        }
+        _ => Ok(()),
+    }
 }
 
 pub struct ExportManager {
@@ -109,6 +142,7 @@ impl ExportManager {
         match request.source {
             ExportSourceSpec::Result { result_id, scope } => {
                 let source = QueryResultSource::open(&self.runner, result_id, scope)?;
+                check_format(&request.format, source.columns())?;
                 Ok(self.spawn(source, request.format, request.path))
             }
             ExportSourceSpec::Table {
@@ -117,6 +151,7 @@ impl ExportManager {
                 sort,
             } => {
                 let source = self.tables.export_rows(&tab_id, filter, sort).await?;
+                check_format(&request.format, source.columns())?;
                 Ok(self.spawn(source, request.format, request.path))
             }
         }
@@ -162,6 +197,7 @@ impl ExportManager {
                     bytes: done.bytes as f64,
                     path,
                     truncated: done.truncated,
+                    limited: done.limited,
                     error: None,
                 },
                 Err(error) => ExportFinished {
@@ -175,6 +211,7 @@ impl ExportManager {
                     bytes: 0.0,
                     path,
                     truncated: false,
+                    limited: false,
                     error: (error.code != ErrorCode::Cancelled).then_some(error),
                 },
             };
@@ -212,6 +249,21 @@ impl ExportManager {
                     .export_preview(tab_id, filter, sort, limit)
                     .await?
             }
+        };
+        // An Excel file is binary: its preview shows the rows as tab-separated text.
+        let shown;
+        let format = match format {
+            ExportFormat::Excel { options } => {
+                shown = ExportFormat::Csv {
+                    options: CsvOptions {
+                        delimiter: CsvDelimiter::Tab,
+                        binary: options.binary,
+                        ..CsvOptions::default()
+                    },
+                };
+                &shown
+            }
+            other => other,
         };
         let mut encoder = encoder(format);
         let mut out = Vec::new();

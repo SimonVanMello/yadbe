@@ -3,22 +3,58 @@ import type {
   CsvDelimiter,
   CsvOptions,
   CsvQuote,
+  Engine,
   ExportFormat,
   ExportScope,
   JsonLayout,
   JsonNumbers,
   JsonOptions,
   LineEnding,
+  MarkdownOptions,
 } from '../../ipc';
 
 export type ExportFormatKind = ExportFormat['format'];
+
+/** SQL inserts (F-066); the table is asked each time, it is not a preference. */
+export interface SqlPrefs {
+  /** The engine whose quoting and literals the script uses; `null`: the source connection's. */
+  engine: Engine | null;
+  rowsPerStatement: number;
+  lineEnding: LineEnding;
+}
+
+export interface ExcelPrefs {
+  binary: BinaryEncoding;
+}
 
 /** What the export dialog remembers between uses. */
 export interface ExportPrefs {
   format: ExportFormatKind;
   csv: CsvOptions;
   json: JsonOptions;
+  sql: SqlPrefs;
+  markdown: MarkdownOptions;
+  excel: ExcelPrefs;
 }
+
+/** What the dialog knows of the source, which the formats that name things need. */
+export interface FormatContext {
+  /** The source connection's engine: what a script is written for unless asked otherwise. */
+  engine: Engine;
+  /** Target of the `INSERT` statements. */
+  schema: string;
+  table: string;
+  sheetName: string;
+}
+
+export const DEFAULT_FORMAT_CONTEXT: FormatContext = {
+  engine: 'postgres',
+  schema: '',
+  table: 'table_name',
+  sheetName: 'Result',
+};
+
+export const MAX_ROWS_PER_STATEMENT = 500;
 
 export const DEFAULT_CSV_OPTIONS: CsvOptions = {
   delimiter: 'comma',
@@ -36,11 +72,34 @@ export const DEFAULT_JSON_OPTIONS: JsonOptions = {
   binary: 'hex',
 };
 
+export const DEFAULT_SQL_PREFS: SqlPrefs = { engine: null, rowsPerStatement: 50, lineEnding: 'lf' };
+
+export const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = {
+  nullText: 'NULL',
+  alignNumbers: true,
+  binary: 'hex',
+  lineEnding: 'lf',
+};
+
+export const DEFAULT_EXCEL_PREFS: ExcelPrefs = { binary: 'hex' };
+
 export const DEFAULT_EXPORT_PREFS: ExportPrefs = {
   format: 'csv',
   csv: DEFAULT_CSV_OPTIONS,
   json: DEFAULT_JSON_OPTIONS,
+  sql: DEFAULT_SQL_PREFS,
+  markdown: DEFAULT_MARKDOWN_OPTIONS,
+  excel: DEFAULT_EXCEL_PREFS,
 };
+
+export const EXPORT_FORMATS: readonly ExportFormatKind[] = [
+  'csv',
+  'json',
+  'sql',
+  'markdown',
+  'excel',
+];
+const ENGINES: readonly Engine[] = ['postgres', 'mssql', 'mysql', 'sqlite'];
 
 export const CSV_DELIMITERS: readonly CsvDelimiter[] = ['comma', 'semicolon', 'tab'];
 export const CSV_QUOTES: readonly CsvQuote[] = ['minimal', 'all', 'nonNumeric'];
@@ -66,9 +125,12 @@ export function parseExportPrefs(value: unknown): ExportPrefs {
   const saved = record(value);
   const csv = record(saved.csv);
   const json = record(saved.json);
+  const sql = record(saved.sql);
+  const markdown = record(saved.markdown);
+  const excel = record(saved.excel);
   const defaults = DEFAULT_CSV_OPTIONS;
   return {
-    format: pick(saved.format, ['csv', 'json'], 'csv'),
+    format: pick(saved.format, EXPORT_FORMATS, 'csv'),
     csv: {
       delimiter: pick(csv.delimiter, CSV_DELIMITERS, defaults.delimiter),
       quote: pick(csv.quote, CSV_QUOTES, defaults.quote),
@@ -83,24 +145,91 @@ export function parseExportPrefs(value: unknown): ExportPrefs {
       numbers: pick(json.numbers, JSON_NUMBERS, DEFAULT_JSON_OPTIONS.numbers),
       binary: pick(json.binary, BINARY_ENCODINGS, DEFAULT_JSON_OPTIONS.binary),
     },
+    sql: {
+      engine: ENGINES.find((engine) => engine === sql.engine) ?? null,
+      rowsPerStatement: clampRows(sql.rowsPerStatement),
+      lineEnding: pick(sql.lineEnding, LINE_ENDINGS, DEFAULT_SQL_PREFS.lineEnding),
+    },
+    markdown: {
+      nullText:
+        typeof markdown.nullText === 'string'
+          ? markdown.nullText.slice(0, 32)
+          : DEFAULT_MARKDOWN_OPTIONS.nullText,
+      alignNumbers: flag(markdown.alignNumbers, DEFAULT_MARKDOWN_OPTIONS.alignNumbers),
+      binary: pick(markdown.binary, BINARY_ENCODINGS, DEFAULT_MARKDOWN_OPTIONS.binary),
+      lineEnding: pick(markdown.lineEnding, LINE_ENDINGS, DEFAULT_MARKDOWN_OPTIONS.lineEnding),
+    },
+    excel: { binary: pick(excel.binary, BINARY_ENCODINGS, DEFAULT_EXCEL_PREFS.binary) },
   };
 }
 
-export function toExportFormat(prefs: ExportPrefs): ExportFormat {
-  return prefs.format === 'csv'
-    ? { format: 'csv', options: prefs.csv }
-    : { format: 'json', options: prefs.json };
+/** Rows per `INSERT`: a whole number from 1 to 500. */
+export function clampRows(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(MAX_ROWS_PER_STATEMENT, Math.max(1, Math.round(value)))
+    : DEFAULT_SQL_PREFS.rowsPerStatement;
+}
+
+export function toExportFormat(
+  prefs: ExportPrefs,
+  context: FormatContext = DEFAULT_FORMAT_CONTEXT,
+): ExportFormat {
+  switch (prefs.format) {
+    case 'csv':
+      return { format: 'csv', options: prefs.csv };
+    case 'json':
+      return { format: 'json', options: prefs.json };
+    case 'sql':
+      return {
+        format: 'sql',
+        options: {
+          engine: prefs.sql.engine ?? context.engine,
+          schema: context.schema,
+          table: context.table,
+          rowsPerStatement: prefs.sql.rowsPerStatement,
+          lineEnding: prefs.sql.lineEnding,
+        },
+      };
+    case 'markdown':
+      return { format: 'markdown', options: prefs.markdown };
+    case 'excel':
+      return {
+        format: 'excel',
+        options: { sheetName: context.sheetName, binary: prefs.excel.binary },
+      };
+  }
 }
 
 /** The extension a file of this format gets by default. */
 export function defaultExtension(format: ExportFormat): string {
-  if (format.format === 'json') return format.options.layout === 'ndjson' ? 'ndjson' : 'json';
-  return format.options.delimiter === 'tab' ? 'tsv' : 'csv';
+  switch (format.format) {
+    case 'json':
+      return format.options.layout === 'ndjson' ? 'ndjson' : 'json';
+    case 'csv':
+      return format.options.delimiter === 'tab' ? 'tsv' : 'csv';
+    case 'sql':
+      return 'sql';
+    case 'markdown':
+      return 'md';
+    case 'excel':
+      return 'xlsx';
+  }
 }
 
-/** Extensions the save dialog offers (the backend accepts these and `txt`). */
+/** Extensions the save dialog offers (the backend accepts these, and `txt` but for Excel). */
 export function dialogExtensions(format: ExportFormat): string[] {
-  return format.format === 'csv' ? ['csv', 'tsv', 'txt'] : ['json', 'ndjson', 'jsonl', 'txt'];
+  switch (format.format) {
+    case 'csv':
+      return ['csv', 'tsv', 'txt'];
+    case 'json':
+      return ['json', 'ndjson', 'jsonl', 'txt'];
+    case 'sql':
+      return ['sql', 'txt'];
+    case 'markdown':
+      return ['md', 'markdown', 'txt'];
+    case 'excel':
+      return ['xlsx'];
+  }
 }
 
 /** `result-1` → `result-1.csv`: a file name safe on every OS. */

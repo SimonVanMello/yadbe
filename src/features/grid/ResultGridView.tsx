@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { showError } from '../../app/errors/presentError';
+import { selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import { ipc, unwrap, type ResumeMode } from '../../ipc';
@@ -106,6 +107,7 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
   const openExport = () => {
     useExportStore.getState().open({
       label: label ?? t('grid.label', { number: summary.statementIndex + 1 }),
+      connectionId: selectActiveTab(useTabsStore.getState()).connectionId,
       source: {
         kind: 'result',
         resultId,

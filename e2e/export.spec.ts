@@ -94,6 +94,48 @@ for (const { name, colorScheme } of THEMES) {
       expect(file?.startsWith('[\n{"id":')).toBe(true);
     });
 
+    test('SQL inserts, Markdown and Excel have their own options and previews', async ({
+      page,
+    }) => {
+      await openQueryTab(page, 'local postgres');
+      await run(page, 'select * from orders;');
+      await expect(results(page).getByText('1,284 rows', { exact: true })).toBeVisible();
+      await results(page).getByRole('button', { name: 'Export…' }).click();
+      const preview = dialog(page).getByLabel('Preview of the file');
+
+      await dialog(page).getByRole('radio', { name: 'SQL inserts' }).click();
+      await expect(preview).toContainText('INSERT INTO "table_name" ("id", "customer"');
+      await dialog(page).getByLabel('Table', { exact: true }).fill('orders');
+      await dialog(page).getByLabel('Schema').fill('shop');
+      await dialog(page).getByLabel('Rows per INSERT').fill('2');
+      await expect(preview).toContainText('INSERT INTO "shop"."orders" ("id", "customer"');
+      await expect(preview).toContainText("(9000000003, NULL, 'user3@example.com'");
+      await dialog(page).getByLabel('Write for').selectOption({ label: 'SQL Server' });
+      await expect(preview).toContainText('INSERT INTO [shop].[orders] ([id], [customer]');
+      await expect(preview).toContainText("N'user0@example.com'");
+      await capture(page, name, 'dialog-sql');
+      // A table is needed: the export waits for a name.
+      await dialog(page).getByLabel('Table', { exact: true }).fill('');
+      await expect(dialog(page).getByText('Name the table the rows go into.')).toBeVisible();
+      await expect(dialog(page).getByRole('button', { name: 'Export…' })).toBeDisabled();
+      await dialog(page).getByLabel('Table', { exact: true }).fill('orders');
+
+      await dialog(page).getByRole('radio', { name: 'Markdown' }).click();
+      await expect(preview).toContainText('| id | customer | email |');
+      await expect(preview).toContainText('| ---: |');
+      await dialog(page).getByRole('switch', { name: 'Right-align numbers' }).click();
+      await expect(preview).not.toContainText('---:');
+      await capture(page, name, 'dialog-markdown');
+
+      await dialog(page).getByRole('radio', { name: 'Excel' }).click();
+      await expect(dialog(page).getByLabel('Worksheet name')).toHaveValue('Result 1');
+      await expect(preview).toContainText('id\tcustomer');
+      await capture(page, name, 'dialog-excel');
+      await dialog(page).getByRole('button', { name: 'Export…' }).click();
+      await expect(page.getByText('Exported 1,284 rows', { exact: true })).toBeVisible();
+      await expect(page.getByText(/\/home\/ana\/Downloads\/Result_1\.xlsx/).first()).toBeVisible();
+    });
+
     test('the selection can be exported on its own, and the options are remembered', async ({
       page,
     }) => {

@@ -12,17 +12,22 @@ import { Switch } from '../../ui/Switch';
 import { TextInput } from '../../ui/TextInput';
 import { useDebouncedValue } from '../../ui/useDebouncedValue';
 import { ConnectionBanner } from '../connections/ConnectionBanner';
-import { useConnection } from '../connections/connectionStore';
+import { useConnection, useEngines } from '../connections/connectionStore';
 import {
   BINARY_ENCODINGS,
   CSV_DELIMITERS,
   CSV_QUOTES,
+  DEFAULT_FORMAT_CONTEXT,
+  EXPORT_FORMATS,
   JSON_LAYOUTS,
   JSON_NUMBERS,
   LINE_ENDINGS,
+  MAX_ROWS_PER_STATEMENT,
+  clampRows,
   exportScope,
   toExportFormat,
   type ExportFormatKind,
+  type FormatContext,
 } from './exportOptions';
 import { useExportStore, type ExportDialogRequest } from './exportStore';
 import { runExport } from './runExport';
@@ -64,7 +69,21 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
     source.kind === 'result' ? (state.ranges[source.resultId] ?? null) : null,
   );
   const [selectionOnly, setSelectionOnly] = useState(range !== null);
-  const format = toExportFormat(prefs);
+  const { engines } = useEngines();
+  // What a script and a workbook name: asked each time, starting from where the rows come from.
+  const [schema, setSchema] = useState(request.target?.schema ?? '');
+  const [table, setTable] = useState(request.target?.table ?? DEFAULT_FORMAT_CONTEXT.table);
+  const [sheetName, setSheetName] = useState(
+    request.label.replace(/[[\]:*?/\\]/g, '_').slice(0, 31) || DEFAULT_FORMAT_CONTEXT.sheetName,
+  );
+  const context: FormatContext = {
+    engine: connection?.engine ?? DEFAULT_FORMAT_CONTEXT.engine,
+    schema,
+    table,
+    sheetName,
+  };
+  const format = toExportFormat(prefs, context);
+  const missingTable = prefs.format === 'sql' && table.trim() === '';
   const scope = exportScope(range, selectionOnly);
 
   const number = new Intl.NumberFormat(locale);
@@ -79,6 +98,15 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
   };
   const setJson = (patch: Partial<typeof prefs.json>) => {
     setPrefs((current) => ({ ...current, json: { ...current.json, ...patch } }));
+  };
+  const setSql = (patch: Partial<typeof prefs.sql>) => {
+    setPrefs((current) => ({ ...current, sql: { ...current.sql, ...patch } }));
+  };
+  const setMarkdown = (patch: Partial<typeof prefs.markdown>) => {
+    setPrefs((current) => ({ ...current, markdown: { ...current.markdown, ...patch } }));
+  };
+  const setExcel = (patch: Partial<typeof prefs.excel>) => {
+    setPrefs((current) => ({ ...current, excel: { ...current.excel, ...patch } }));
   };
 
   // The preview follows the options as they are typed, a moment later.
@@ -123,7 +151,7 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button variant="primary" onClick={start}>
+          <Button variant="primary" onClick={start} disabled={missingTable}>
             {t('export.start')}
           </Button>
         </>
@@ -135,10 +163,10 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
           <SegmentedControl<ExportFormatKind>
             label={t('export.format')}
             value={prefs.format}
-            options={[
-              { value: 'csv', label: t('export.format.csv') },
-              { value: 'json', label: t('export.format.json') },
-            ]}
+            options={EXPORT_FORMATS.map((value) => ({
+              value,
+              label: t(`export.format.${value}`),
+            }))}
             onChange={(value) => {
               setPrefs((current) => ({ ...current, format: value }));
             }}
@@ -179,7 +207,7 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
           </p>
         )}
 
-        {prefs.format === 'csv' ? (
+        {prefs.format === 'csv' && (
           <div className={styles.options}>
             <Field label={t('export.csv.delimiter')} htmlFor={`${id}-delimiter`}>
               <Select
@@ -254,7 +282,8 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
               />
             </div>
           </div>
-        ) : (
+        )}
+        {prefs.format === 'json' && (
           <div className={styles.options}>
             <Field label={t('export.json.layout')} htmlFor={`${id}-layout`}>
               <Select
@@ -292,9 +321,167 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
             </Field>
           </div>
         )}
+        {prefs.format === 'sql' && (
+          <div className={styles.options}>
+            <Field
+              label={t('export.sql.engine')}
+              htmlFor={`${id}-engine`}
+              hint={t('export.sql.engineHint')}
+            >
+              <Select
+                id={`${id}-engine`}
+                value={prefs.sql.engine ?? 'source'}
+                options={[
+                  {
+                    value: 'source',
+                    label: t('export.sql.engine.source', {
+                      engine:
+                        engines.find((info) => info.engine === context.engine)?.label ??
+                        context.engine,
+                    }),
+                  },
+                  ...engines.map((info) => ({ value: info.engine, label: info.label })),
+                ]}
+                onChange={(value) => {
+                  setSql({ engine: value === 'source' ? null : value });
+                }}
+              />
+            </Field>
+            <Field
+              label={t('export.sql.schema')}
+              htmlFor={`${id}-schema`}
+              hint={t('export.sql.schemaHint')}
+            >
+              <TextInput
+                id={`${id}-schema`}
+                mono
+                value={schema}
+                onChange={(event) => {
+                  setSchema(event.target.value);
+                }}
+              />
+            </Field>
+            <Field
+              label={t('export.sql.table')}
+              htmlFor={`${id}-table`}
+              error={missingTable ? t('export.sql.tableRequired') : undefined}
+            >
+              <TextInput
+                id={`${id}-table`}
+                mono
+                value={table}
+                invalid={missingTable}
+                onChange={(event) => {
+                  setTable(event.target.value);
+                }}
+              />
+            </Field>
+            <Field
+              label={t('export.sql.rows')}
+              htmlFor={`${id}-rows`}
+              hint={t('export.sql.rowsHint')}
+            >
+              <TextInput
+                id={`${id}-rows`}
+                type="number"
+                min={1}
+                max={MAX_ROWS_PER_STATEMENT}
+                value={prefs.sql.rowsPerStatement}
+                onChange={(event) => {
+                  setSql({ rowsPerStatement: clampRows(event.target.valueAsNumber) });
+                }}
+              />
+            </Field>
+            <Field label={t('export.csv.lineEnding')} htmlFor={`${id}-sqleol`}>
+              <Select
+                id={`${id}-sqleol`}
+                value={prefs.sql.lineEnding}
+                options={labelled('export.csv.lineEnding', LINE_ENDINGS)}
+                onChange={(lineEnding) => {
+                  setSql({ lineEnding });
+                }}
+              />
+            </Field>
+          </div>
+        )}
+        {prefs.format === 'markdown' && (
+          <div className={styles.options}>
+            <Field label={t('export.md.nullText')} htmlFor={`${id}-mdnull`}>
+              <TextInput
+                id={`${id}-mdnull`}
+                mono
+                maxLength={32}
+                value={prefs.markdown.nullText}
+                onChange={(event) => {
+                  setMarkdown({ nullText: event.target.value });
+                }}
+              />
+            </Field>
+            <Field label={t('export.csv.lineEnding')} htmlFor={`${id}-mdeol`}>
+              <Select
+                id={`${id}-mdeol`}
+                value={prefs.markdown.lineEnding}
+                options={labelled('export.csv.lineEnding', LINE_ENDINGS)}
+                onChange={(lineEnding) => {
+                  setMarkdown({ lineEnding });
+                }}
+              />
+            </Field>
+            <Field label={t('export.binary')} htmlFor={`${id}-mdbinary`}>
+              <Select
+                id={`${id}-mdbinary`}
+                value={prefs.markdown.binary}
+                options={labelled('export.binary', BINARY_ENCODINGS)}
+                onChange={(binary) => {
+                  setMarkdown({ binary });
+                }}
+              />
+            </Field>
+            <div className={styles.switches}>
+              <Switch
+                checked={prefs.markdown.alignNumbers}
+                onCheckedChange={(alignNumbers) => {
+                  setMarkdown({ alignNumbers });
+                }}
+                label={t('export.md.alignNumbers')}
+              />
+            </div>
+          </div>
+        )}
+        {prefs.format === 'excel' && (
+          <div className={styles.options}>
+            <Field label={t('export.excel.sheet')} htmlFor={`${id}-sheet`}>
+              <TextInput
+                id={`${id}-sheet`}
+                maxLength={31}
+                value={sheetName}
+                onChange={(event) => {
+                  setSheetName(event.target.value);
+                }}
+              />
+            </Field>
+            <Field label={t('export.binary')} htmlFor={`${id}-xbinary`}>
+              <Select
+                id={`${id}-xbinary`}
+                value={prefs.excel.binary}
+                options={labelled('export.binary', BINARY_ENCODINGS)}
+                onChange={(binary) => {
+                  setExcel({ binary });
+                }}
+              />
+            </Field>
+            <p className={styles.note} role="note">
+              {t('export.excel.hint')}
+            </p>
+          </div>
+        )}
 
         <div className={styles.preview}>
-          <div className={styles.previewTitle}>{t('export.preview', { count: PREVIEW_ROWS })}</div>
+          <div className={styles.previewTitle}>
+            {prefs.format === 'excel'
+              ? t('export.excel.preview')
+              : t('export.preview', { count: PREVIEW_ROWS })}
+          </div>
           <pre className={styles.previewText} aria-label={t('export.previewLabel')} tabIndex={0}>
             {preview?.kind === 'text' ? preview.text : ''}
             {preview?.kind === 'failed' && t('export.preview.failed')}

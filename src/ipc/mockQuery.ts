@@ -98,6 +98,8 @@ export interface MockResultSource {
   loaded: number;
   total: number;
   value(row: number, column: number): Value;
+  /** The rows as the grid shows them, when the user sorted or filtered the result (F-065). */
+  shown?: { count: number; value(row: number, column: number): Value };
 }
 
 type Result<T> = Promise<{ status: 'ok'; data: T } | { status: 'error'; error: YadbeError }>;
@@ -1332,11 +1334,21 @@ export function createMockQuery(host: MockQueryHost) {
     resultSource(resultId: number): MockResultSource | undefined {
       const result = results.get(resultId);
       if (!result) return undefined;
+      const shown = shownRows(result);
       return {
         columns: result.columns.map((column) => column.meta),
         loaded: result.rowCount,
         total: result.total,
         value: (row, column) => cellValue(result.columns[column]?.cell(row) ?? null),
+        ...(shown
+          ? {
+              shown: {
+                count: shown.length,
+                value: (row: number, column: number) =>
+                  cellValue(result.columns[column]?.cell(shown[row] ?? 0) ?? null),
+              },
+            }
+          : {}),
       };
     },
     /**

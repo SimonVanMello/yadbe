@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::db::dialect::Engine;
 use crate::db::errors::YadbeError;
 use crate::session::table_model::{SortKey, TableFilter};
 
@@ -126,11 +127,75 @@ impl Default for JsonOptions {
     }
 }
 
+/// `INSERT` statements (F-066): identifiers quoted and values written as literals the way the
+/// chosen engine reads them, so the script runs on that engine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SqlOptions {
+    /// The engine whose quoting and literals the script uses (not necessarily the source's).
+    pub engine: Engine,
+    /// Schema of the target table; empty: none.
+    pub schema: String,
+    /// Target table, unquoted.
+    pub table: String,
+    /// Rows per `INSERT` (1 to 500): one multi-row statement holds this many.
+    pub rows_per_statement: u32,
+    pub line_ending: LineEnding,
+}
+
+impl SqlOptions {
+    pub const MAX_ROWS_PER_STATEMENT: u32 = 500;
+}
+
+/// A Markdown (GitHub flavoured) table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkdownOptions {
+    /// Written for SQL NULL.
+    pub null_text: String,
+    /// Numeric columns are right-aligned.
+    pub align_numbers: bool,
+    pub binary: BinaryEncoding,
+    pub line_ending: LineEnding,
+}
+
+impl Default for MarkdownOptions {
+    fn default() -> Self {
+        Self {
+            null_text: "NULL".to_owned(),
+            align_numbers: true,
+            binary: BinaryEncoding::Hex,
+            line_ending: LineEnding::Lf,
+        }
+    }
+}
+
+/// An Excel workbook (`.xlsx`), streamed: one worksheet, a frozen bold header row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExcelOptions {
+    /// Name of the worksheet (at most 31 characters, none of `[]:*?/\`).
+    pub sheet_name: String,
+    pub binary: BinaryEncoding,
+}
+
+impl Default for ExcelOptions {
+    fn default() -> Self {
+        Self {
+            sheet_name: "Result".to_owned(),
+            binary: BinaryEncoding::Hex,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "format", rename_all = "camelCase")]
 pub enum ExportFormat {
     Csv { options: CsvOptions },
     Json { options: JsonOptions },
+    Sql { options: SqlOptions },
+    Markdown { options: MarkdownOptions },
+    Excel { options: ExcelOptions },
 }
 
 /// Which part of a result is exported. Zero-based.
@@ -218,5 +283,8 @@ pub struct ExportFinished {
     /// The result was stopped at its limit before an export drained it: the file lacks the
     /// rows the limit left out.
     pub truncated: bool,
+    /// The format's own limit stopped the export: the file lacks the rows past it (an Excel
+    /// worksheet holds 1 048 575 rows below its header).
+    pub limited: bool,
     pub error: Option<YadbeError>,
 }

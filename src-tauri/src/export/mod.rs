@@ -8,12 +8,17 @@ mod csv;
 pub mod encode;
 mod json;
 pub mod manager;
+mod markdown;
 pub mod model;
 pub mod run;
 pub mod source;
+mod sql;
+pub mod xlsx;
 
 pub use manager::ExportManager;
 
+#[cfg(test)]
+mod format_tests;
 #[cfg(test)]
 mod io_tests;
 #[cfg(test)]

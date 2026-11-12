@@ -1282,6 +1282,13 @@ export type ErrorCode =
  */
 "connectionFileInvalid";
 
+/**  An Excel workbook (`.xlsx`), streamed: one worksheet, a frozen bold header row. */
+export type ExcelOptions = {
+	/**  Name of the worksheet (at most 31 characters, none of `[]:*?/\`). */
+	sheetName: string,
+	binary: BinaryEncoding,
+};
+
 export type ExecuteRequest = {
 	/**  The editor tab: it owns a dedicated server connection, opened on its first run. */
 	tabId: string,
@@ -1406,10 +1413,15 @@ export type ExportFinished = {
 	 *  rows the limit left out.
 	 */
 	truncated: boolean,
+	/**
+	 *  The format's own limit stopped the export: the file lacks the rows past it (an Excel
+	 *  worksheet holds 1 048 575 rows below its header).
+	 */
+	limited: boolean,
 	error: YadbeError | null,
 };
 
-export type ExportFormat = { format: "csv"; options: CsvOptions } | { format: "json"; options: JsonOptions };
+export type ExportFormat = { format: "csv"; options: CsvOptions } | { format: "json"; options: JsonOptions } | { format: "sql"; options: SqlOptions } | { format: "markdown"; options: MarkdownOptions } | { format: "excel"; options: ExcelOptions };
 
 /**  Rows and bytes written so far. Throttled (at most about ten per second). */
 export type ExportProgress = {
@@ -2058,6 +2070,16 @@ export type LookupRequest = {
 	offset: number,
 	/**  1 to 500. */
 	limit: number,
+};
+
+/**  A Markdown (GitHub flavoured) table. */
+export type MarkdownOptions = {
+	/**  Written for SQL NULL. */
+	nullText: string,
+	/**  Numeric columns are right-aligned. */
+	alignNumbers: boolean,
+	binary: BinaryEncoding,
+	lineEnding: LineEnding,
 };
 
 export type MessageBody = {
@@ -2906,6 +2928,22 @@ export type SortDirection = "asc" | "desc";
 export type SortKey = {
 	column: string,
 	direction: SortDirection,
+};
+
+/**
+ *  `INSERT` statements (F-066): identifiers quoted and values written as literals the way the
+ *  chosen engine reads them, so the script runs on that engine.
+ */
+export type SqlOptions = {
+	/**  The engine whose quoting and literals the script uses (not necessarily the source's). */
+	engine: Engine,
+	/**  Schema of the target table; empty: none. */
+	schema: string,
+	/**  Target table, unquoted. */
+	table: string,
+	/**  Rows per `INSERT` (1 to 500): one multi-row statement holds this many. */
+	rowsPerStatement: number,
+	lineEnding: LineEnding,
 };
 
 /**  How yadbe authenticates to an SSH server. */

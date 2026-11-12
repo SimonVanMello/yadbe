@@ -1,4 +1,13 @@
-import type { ColumnMeta, CsvOptions, ExportFormat, JsonOptions, Value } from '../bindings';
+import type {
+  ColumnMeta,
+  CsvOptions,
+  Engine,
+  ExportFormat,
+  JsonOptions,
+  MarkdownOptions,
+  SqlOptions,
+  Value,
+} from '../bindings';
 
 /**
  * The mock's stand-in for the backend's row encoders (`export/csv.rs`, `export/json.rs`): the
@@ -142,6 +151,129 @@ function jsonEncoder(options: JsonOptions): RowEncoder {
   };
 }
 
+const QUOTES: Record<Engine, readonly [string, string]> = {
+  postgres: ['"', '"'],
+  sqlite: ['"', '"'],
+  mysql: ['`', '`'],
+  mssql: ['[', ']'],
+};
+
+function quoteIdentifier(engine: Engine, name: string): string {
+  const [open, close] = QUOTES[engine];
+  return `${open}${name.replaceAll(close, close + close)}${close}`;
+}
+
+/** A value as a SQL literal of an engine (`edit_dialect.rs`, `literal`). */
+function sqlLiteral(engine: Engine, value: Value): string {
+  const quoted = (text: string) => `'${text.replaceAll("'", "''")}'`;
+  const number = (text: string) => (/^-?\d[\d.eE+-]*$/.test(text) ? text : quoted(text));
+  switch (value.kind) {
+    case 'null':
+      return 'NULL';
+    case 'bool':
+      return engine === 'postgres' ? (value.value ? 'TRUE' : 'FALSE') : value.value ? '1' : '0';
+    case 'int':
+    case 'decimal':
+    case 'float':
+      return number(value.value);
+    case 'bytes':
+      if (engine === 'mssql') return `0x${value.value.toUpperCase()}`;
+      return engine === 'postgres'
+        ? quoted(`\\x${value.value}`)
+        : `X'${value.value.toUpperCase()}'`;
+    case 'array':
+      return quoted(plainText(value, 'hex'));
+    default: {
+      const text = quoted(value.value);
+      if (engine === 'mssql') return `N${text}`;
+      return engine === 'mysql' ? text.replaceAll('\\', '\\\\') : text;
+    }
+  }
+}
+
+function sqlEncoder(options: SqlOptions): RowEncoder {
+  const eol = options.lineEnding === 'crlf' ? '\r\n' : '\n';
+  const per = Math.min(500, Math.max(1, options.rowsPerStatement));
+  const table = options.table.trim() || 'table';
+  const target =
+    options.schema.trim() === ''
+      ? quoteIdentifier(options.engine, table)
+      : `${quoteIdentifier(options.engine, options.schema.trim())}.${quoteIdentifier(options.engine, table)}`;
+  let head = '';
+  let inStatement = 0;
+  return {
+    begin(columns) {
+      head = `INSERT INTO ${target} (${columns
+        .map((c) => quoteIdentifier(options.engine, c.name))
+        .join(', ')}) VALUES`;
+      return '';
+    },
+    row(row) {
+      let text = inStatement === 0 ? head : ',';
+      text += `${eol}  (${row.map((value) => sqlLiteral(options.engine, value)).join(', ')})`;
+      inStatement += 1;
+      if (inStatement >= per) {
+        text += `;${eol}`;
+        inStatement = 0;
+      }
+      return text;
+    },
+    end() {
+      if (inStatement === 0) return '';
+      inStatement = 0;
+      return `;${eol}`;
+    },
+  };
+}
+
+function markdownEncoder(options: MarkdownOptions): RowEncoder {
+  const eol = options.lineEnding === 'crlf' ? '\r\n' : '\n';
+  const escape = (text: string) =>
+    text
+      .replaceAll('\\', '\\\\')
+      .replaceAll('|', '\\|')
+      .replace(/\r\n|\r|\n/g, '<br>');
+  return {
+    begin(columns) {
+      const numeric = (c: ColumnMeta) =>
+        options.alignNumbers && (c.kind === 'int' || c.kind === 'decimal' || c.kind === 'float');
+      return (
+        `|${columns.map((c) => ` ${escape(c.name)} |`).join('')}${eol}` +
+        `|${columns.map((c) => (numeric(c) ? ' ---: |' : ' --- |')).join('')}${eol}`
+      );
+    },
+    row(row) {
+      return `|${row
+        .map(
+          (value) =>
+            ` ${escape(value.kind === 'null' ? options.nullText : plainText(value, options.binary))} |`,
+        )
+        .join('')}${eol}`;
+    },
+    end: () => '',
+  };
+}
+
 export function mockEncoder(format: ExportFormat): RowEncoder {
-  return format.format === 'csv' ? csvEncoder(format.options) : jsonEncoder(format.options);
+  switch (format.format) {
+    case 'csv':
+      return csvEncoder(format.options);
+    case 'json':
+      return jsonEncoder(format.options);
+    case 'sql':
+      return sqlEncoder(format.options);
+    case 'markdown':
+      return markdownEncoder(format.options);
+    case 'excel':
+      // The workbook is binary: the mock writes the rows as tab-separated text instead.
+      return csvEncoder({
+        delimiter: 'tab',
+        quote: 'minimal',
+        header: true,
+        nullText: '',
+        lineEnding: 'lf',
+        bom: false,
+        binary: format.options.binary,
+      });
+  }
 }

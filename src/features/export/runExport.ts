@@ -41,7 +41,7 @@ export async function runExport(command: ExportCommand): Promise<void> {
   const picked = await exportDialog.pickPath({
     title: t(command.source.kind === 'table' ? 'export.table.title' : 'export.saveTitle'),
     defaultName: defaultFileName(command.name, command.format),
-    filterName: t(command.format.format === 'csv' ? 'export.filter.csv' : 'export.filter.json'),
+    filterName: t(`export.filter.${command.format.format}`),
     allFiles: t('export.filter.all'),
     extensions: dialogExtensions(command.format),
   });
@@ -97,11 +97,16 @@ function showOutcome(finished: ExportFinished, toastId: number): void {
   if (finished.status === 'done') {
     const size = formatBytes(finished.bytes ?? 0, useI18nStore.getState().locale);
     toast({
-      variant: finished.truncated ? 'warning' : 'success',
+      variant: finished.truncated || finished.limited ? 'warning' : 'success',
       title: t(finished.rows === 1 ? 'export.done.one' : 'export.done', {
         count: finished.rows,
       }),
-      description: [finished.path, size, finished.truncated ? t('export.truncated') : null]
+      description: [
+        finished.path,
+        size,
+        finished.truncated ? t('export.truncated') : null,
+        finished.limited ? t('export.limited') : null,
+      ]
         .filter(Boolean)
         .join(' · '),
       duration: 10_000,

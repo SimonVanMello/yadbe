@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_EXPORT_PREFS,
+  clampRows,
   defaultFileName,
+  dialogExtensions,
   exportScope,
   formatBytes,
   parseExportPrefs,
@@ -38,6 +40,72 @@ describe('parseExportPrefs', () => {
   it('round-trips through JSON', () => {
     const saved = JSON.parse(JSON.stringify(DEFAULT_EXPORT_PREFS)) as unknown;
     expect(parseExportPrefs(saved)).toEqual(DEFAULT_EXPORT_PREFS);
+  });
+});
+
+describe('the SQL, Markdown and Excel formats', () => {
+  const context = {
+    engine: 'mssql' as const,
+    schema: 'shop',
+    table: 'orders',
+    sheetName: 'Orders',
+  };
+
+  it('builds each format from the dialog, the script for the connection unless asked otherwise', () => {
+    const sql = { ...DEFAULT_EXPORT_PREFS, format: 'sql' as const };
+    expect(toExportFormat(sql, context)).toEqual({
+      format: 'sql',
+      options: {
+        engine: 'mssql',
+        schema: 'shop',
+        table: 'orders',
+        rowsPerStatement: 50,
+        lineEnding: 'lf',
+      },
+    });
+    expect(
+      toExportFormat({ ...sql, sql: { ...sql.sql, engine: 'sqlite' } }, context),
+    ).toMatchObject({ options: { engine: 'sqlite' } });
+    expect(toExportFormat({ ...DEFAULT_EXPORT_PREFS, format: 'markdown' }, context)).toEqual({
+      format: 'markdown',
+      options: DEFAULT_EXPORT_PREFS.markdown,
+    });
+    expect(toExportFormat({ ...DEFAULT_EXPORT_PREFS, format: 'excel' }, context)).toEqual({
+      format: 'excel',
+      options: { sheetName: 'Orders', binary: 'hex' },
+    });
+  });
+
+  it('proposes their extensions and the types the save dialog offers', () => {
+    for (const [format, name, extensions] of [
+      ['sql', 'orders.sql', ['sql', 'txt']],
+      ['markdown', 'orders.md', ['md', 'markdown', 'txt']],
+      ['excel', 'orders.xlsx', ['xlsx']],
+    ] as const) {
+      const built = toExportFormat({ ...DEFAULT_EXPORT_PREFS, format }, context);
+      expect(defaultFileName('orders', built)).toBe(name);
+      expect(dialogExtensions(built)).toEqual(extensions);
+    }
+  });
+
+  it('reads and bounds the saved options', () => {
+    const prefs = parseExportPrefs({
+      format: 'excel',
+      sql: { engine: 'oracle', rowsPerStatement: 100_000, lineEnding: 'crlf' },
+      markdown: { nullText: '∅', alignNumbers: false, binary: 'base64', lineEnding: 'bad' },
+      excel: { binary: 'base64' },
+    });
+    expect(prefs.format).toBe('excel');
+    expect(prefs.sql).toEqual({ engine: null, rowsPerStatement: 500, lineEnding: 'crlf' });
+    expect(prefs.markdown).toEqual({
+      nullText: '∅',
+      alignNumbers: false,
+      binary: 'base64',
+      lineEnding: 'lf',
+    });
+    expect(prefs.excel.binary).toBe('base64');
+    expect(clampRows(0)).toBe(1);
+    expect(clampRows(Number.NaN)).toBe(50);
   });
 });
 
