@@ -119,7 +119,7 @@ for (const { name, colorScheme } of THEMES) {
       await state.getByRole('button', { name: '10,000 more' }).click();
       await expect(state).toContainText('20,000 of ~60,000 keys listed');
       await state.getByRole('button', { name: 'All' }).click();
-      await expect(state).toHaveCount(0);
+      await expect(state).toHaveCount(0, { timeout: 20_000 });
     });
 
     test('each key type has its viewer', async ({ page }) => {

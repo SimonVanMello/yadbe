@@ -309,6 +309,10 @@ impl Gate<'_> {
         let mut found = Vec::new();
         for (line, cmd) in lines {
             let Some(kind) = danger_of(cmd) else { continue };
+            // What the gate refuses anyway (read-only, unsupported) needs no confirmation.
+            if self.check(conn, cmd, true).await.is_err() {
+                continue;
+            }
             let effect = self.effect(conn, database, cmd, &kind).await;
             found.push(KvDanger {
                 line: *line,

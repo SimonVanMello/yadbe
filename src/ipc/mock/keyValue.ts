@@ -383,6 +383,7 @@ interface MockScan {
   loaded: string[];
   target: number;
   timer: ReturnType<typeof setTimeout> | null;
+  emittedAt: number;
 }
 
 interface MockCollection {
@@ -480,7 +481,12 @@ export function createMockKeyValue(deps: KeyValueDeps) {
     if (next.length > 0) status.version += 1;
     if (scan.loaded.length >= scan.order.length) status.state = 'done';
     else if (scan.loaded.length >= scan.target) status.state = 'paused';
-    emit(connectionId, scan);
+    // Like the backend: at most about five progress events a second, and every change of state.
+    const now = Date.now();
+    if (status.state !== 'running' || now - scan.emittedAt >= 200) {
+      scan.emittedAt = now;
+      emit(connectionId, scan);
+    }
     if (status.state === 'running') {
       scan.timer = setTimeout(
         () => {
@@ -519,6 +525,7 @@ export function createMockKeyValue(deps: KeyValueDeps) {
       loaded: [],
       target: SCAN_TARGET,
       timer: null,
+      emittedAt: 0,
     };
     scans.set(scanKey(connectionId, db), scan);
     // The first batch arrives with the status: the tree has keys at once.
@@ -1255,7 +1262,8 @@ export function createMockKeyValue(deps: KeyValueDeps) {
       }
       if (!confirmed) {
         const dangers: KvDanger[] = parsed.flatMap(({ line, args }) => {
-          const kind = dangerOf(args);
+          // What the gate refuses anyway needs no confirmation.
+          const kind = gateRefusal(args, session.readOnly) ? null : dangerOf(args);
           return kind
             ? [
                 {

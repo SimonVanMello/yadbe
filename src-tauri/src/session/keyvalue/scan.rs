@@ -39,6 +39,9 @@ impl LevelSummary {
     }
 }
 
+/// A level: its prefix and the delimiter it groups by.
+type LevelId = (Box<[u8]>, Box<[u8]>);
+
 /// Levels whose summary is kept up to date as keys arrive (the open ones, in practice).
 const MAX_CACHED_LEVELS: usize = 256;
 
@@ -48,8 +51,7 @@ const MAX_CACHED_LEVELS: usize = 256;
 #[derive(Default)]
 pub struct KeyIndex {
     keys: BTreeSet<Box<[u8]>>,
-    /// By `(prefix, delimiter)`.
-    levels: HashMap<(Box<[u8]>, Box<[u8]>), LevelSummary>,
+    levels: HashMap<LevelId, LevelSummary>,
 }
 
 /// The smallest byte string greater than every string starting with `prefix`; `None` when
@@ -166,7 +168,7 @@ impl KeyIndex {
     }
 
     fn summary(&mut self, prefix: &[u8], delimiter: &[u8]) -> &LevelSummary {
-        let id: (Box<[u8]>, Box<[u8]>) = (prefix.into(), delimiter.into());
+        let id: LevelId = (prefix.into(), delimiter.into());
         if !self.levels.contains_key(&id) {
             let mut summary = LevelSummary::default();
             self.walk(
