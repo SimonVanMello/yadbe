@@ -8,6 +8,12 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	/**  Returns the app version and the platform it runs on. */
 	appInfo: () => typedError<AppInfo, YadbeError>(__TAURI_INVOKE("app_info")),
+	/**
+	 *  What the command line asked for (`yadbe file.sql`, `yadbe postgres://…`, F-126): handed out
+	 *  once, to the frontend that opens the tabs once it is ready. A password in a URL was dropped
+	 *  before this point.
+	 */
+	takeLaunchRequests: () => typedError<LaunchRequest[], YadbeError>(__TAURI_INVOKE("take_launch_requests")),
 	/**  Engines yadbe knows, with their capabilities and whether this build can connect. */
 	listEngines: () => typedError<EngineInfo[], YadbeError>(__TAURI_INVOKE("list_engines")),
 	/**  Every saved connection, by group then position. */
@@ -2067,6 +2073,21 @@ export type KnownHost = {
 	addedAt: number,
 };
 
+/**  What the command line asked for. */
+export type LaunchRequest = 
+/**  Open this script (an absolute path) in a query tab. */
+{ kind: "sqlFile"; path: string } | 
+/**  Open this connection: a saved one when it matches, else the connection form filled in. */
+{ kind: "connection"; 
+/**  The URL's fields, without its password. */
+parsed: ParsedConnectionString; 
+/**  The URL carried a password: it was ignored. */
+passwordIgnored: boolean } | 
+/**  An argument that could not be used. */
+{ kind: "rejected"; reason: RejectedReason; 
+/**  The argument, for file paths; `null` for a URL (it may hold a password). */
+argument: string | null };
+
 export type LineEnding = "lf" | "crlf";
 
 export type Locale = "en" | "fr";
@@ -2597,6 +2618,14 @@ export type RefreshedRows = {
 	/**  For each requested key, its row in `window`, `null` when it no longer exists. */
 	positions: (number | null)[],
 };
+
+export type RejectedReason = 
+/**  Not a script file (`.sql`, `.ddl`, …). */
+"notAScript" | 
+/**  The file does not exist. */
+"fileNotFound" | 
+/**  A connection URL that could not be understood. */
+"invalidUrl";
 
 export type RelationSummary = {
 	/**  The planner's estimate (statistics), when the engine has one. */

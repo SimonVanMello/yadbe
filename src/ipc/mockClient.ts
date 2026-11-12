@@ -1,5 +1,6 @@
 import type {
   AppInfo,
+  LaunchRequest,
   ConnectionDefinition,
   ConnectionGroup,
   Engine,
@@ -595,6 +596,15 @@ function createMockBackend() {
 
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
+
+    // The command line of the browser mock: a test sets `window.__YADBE_MOCK_LAUNCH__`.
+    takeLaunchRequests: () => {
+      const injected = (globalThis as { __YADBE_MOCK_LAUNCH__?: LaunchRequest[] })
+        .__YADBE_MOCK_LAUNCH__;
+      const taken = injected ?? [];
+      (globalThis as { __YADBE_MOCK_LAUNCH__?: LaunchRequest[] }).__YADBE_MOCK_LAUNCH__ = [];
+      return ok(clone(taken));
+    },
 
     listEngines: () => ok(clone(MOCK_ENGINES)),
 

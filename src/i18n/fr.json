@@ -1883,5 +1883,10 @@
   "connection.tls.passphrase.hint": "Seulement si la clé est chiffrée.",
   "connection.tls.remember": "Mémoriser la phrase de passe",
   "connection.tls.prompt.title": "Phrase de passe de la clé TLS pour {name}",
-  "connection.tls.prompt.description": "Protège {endpoint}."
+  "connection.tls.prompt.description": "Protège {endpoint}.",
+  "launch.passwordIgnored": "Le mot de passe de la ligne de commande a été ignoré : il reste visible dans la liste des processus. Saisissez-le ici, ou enregistrez la connexion.",
+  "launch.invalidUrl": "L’URL de connexion donnée en ligne de commande n’est pas valide.",
+  "launch.fileNotFound": "Le script {name} de la ligne de commande n’existe pas.",
+  "launch.notAScript": "{name}, donné en ligne de commande, n’est pas un fichier de script (.sql, .ddl, .dml, .psql, .pgsql, .tsql ou .txt).",
+  "launch.noConnection": "Créez une connexion pour ouvrir {name} : un script en a besoin."
 }

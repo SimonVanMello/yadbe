@@ -441,6 +441,31 @@ export async function openScript(tabId: string): Promise<void> {
   getEditor(target)?.replaceContent(text);
 }
 
+/**
+ * Opens the script at `path` in a new query tab bound to `connectionId` (the command line,
+ * F-126); a file that is already open is just shown. Returns whether a tab shows it.
+ */
+export async function openScriptPath(path: string, connectionId: string): Promise<boolean> {
+  const tabs = useQueryTabStore.getState().tabs;
+  const already = Object.entries(tabs).find(([, state]) => state.filePath === path)?.[0];
+  if (already) {
+    useTabsStore.getState().activate(already);
+    void checkExternalChange(already);
+    return true;
+  }
+  let text: string;
+  try {
+    text = await readScript(path);
+  } catch (error) {
+    showError(error, { title: t('query.file.openFailed') });
+    return false;
+  }
+  const target = useTabsStore.getState().openQueryTab(connectionId);
+  useQueryTabStore.getState().ensure(target);
+  useQueryTabStore.getState().loadFile(target, path, text);
+  return true;
+}
+
 /** Saves the tab to its file (`Mod+S`), asking where first when it has none (`Mod+Shift+S`). */
 export async function saveScript(tabId: string, askWhere = false): Promise<boolean> {
   const tab = queryTab(tabId);

@@ -22,6 +22,17 @@ pub fn current_app_info() -> AppInfo {
     }
 }
 
+/// What the command line asked for (`yadbe file.sql`, `yadbe postgres://…`, F-126): handed out
+/// once, to the frontend that opens the tabs once it is ready. A password in a URL was dropped
+/// before this point.
+#[tauri::command]
+#[specta::specta]
+pub async fn take_launch_requests(
+    requests: tauri::State<'_, crate::cli::LaunchRequests>,
+) -> Result<Vec<crate::cli::LaunchRequest>, YadbeError> {
+    Ok(requests.take())
+}
+
 /// Returns the app version and the platform it runs on.
 #[tauri::command]
 #[specta::specta]

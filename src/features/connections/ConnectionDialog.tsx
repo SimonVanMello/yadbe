@@ -460,11 +460,12 @@ function LoadedDialog({
     const first = engines.find((candidate) => candidate.available) ?? engines[0];
     if (!first) return null;
     const wanted = engines.find((candidate) => candidate.engine === request.engine) ?? first;
-    initial = {
+    const blank: ConnectionDraft = {
       ...withEngine(emptyDraft(first), wanted, first),
       groupId: request.groupId ?? null,
       ...(request.filePath === undefined ? {} : { filePath: request.filePath }),
     };
+    initial = request.parsed ? applyParsed(blank, request.parsed, engines) : blank;
   }
   return <DialogBody initial={initial} engines={engines} onClose={onClose} />;
 }

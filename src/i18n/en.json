@@ -1883,5 +1883,10 @@
   "connection.tls.passphrase.hint": "Only if the key is encrypted.",
   "connection.tls.remember": "Remember the passphrase",
   "connection.tls.prompt.title": "Passphrase of the TLS key for {name}",
-  "connection.tls.prompt.description": "Protects {endpoint}."
+  "connection.tls.prompt.description": "Protects {endpoint}.",
+  "launch.passwordIgnored": "The password in the command line was ignored: it stays visible in the process list. Type it here, or save the connection.",
+  "launch.invalidUrl": "The connection URL given on the command line is not valid.",
+  "launch.fileNotFound": "The script {name} from the command line does not exist.",
+  "launch.notAScript": "{name} from the command line is not a script file (.sql, .ddl, .dml, .psql, .pgsql, .tsql or .txt).",
+  "launch.noConnection": "Create a connection to open {name}: a script needs one."
 }

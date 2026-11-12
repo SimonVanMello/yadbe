@@ -14,6 +14,7 @@ import { ipc, unwrap } from '../ipc';
 import { initTheme } from '../theme/themeStore';
 import { loadPreferences } from './backendPreferences';
 import { restoreAndPersistKeybindings } from './keybindingsPersistence';
+import { handleLaunchRequests } from './launch';
 import { restoreAndPersistLayout } from './layout/layoutStore';
 import { applyStoredPreferences } from './preferences';
 import {
@@ -162,6 +163,8 @@ export function startup(): Promise<void> {
       restoreAndPersistKeybindings(),
     ]);
     persistTabs();
+    // The command line (F-126), once the tabs it adds to are restored.
+    void handleLaunchRequests();
   })();
   return started;
 }
