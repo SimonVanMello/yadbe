@@ -14,6 +14,8 @@ pub mod query_runner;
 pub mod reference_model;
 pub mod reference_sql;
 pub mod references;
+pub mod result_edit;
+pub mod result_edit_model;
 pub mod result_store;
 pub mod result_tap;
 pub mod statement_log;

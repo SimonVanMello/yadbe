@@ -110,6 +110,10 @@ pub enum ColumnReadOnlyReason {
     /// A type yadbe shows as text but cannot write back exactly (SQL Server `sql_variant`,
     /// CLR types such as `geography` or `hierarchyid`).
     UnsupportedType,
+    /// A column of a query result that is not a table column as the table holds it: an
+    /// expression, a column shown a second time, a value the query reads in another form
+    /// (F-087).
+    Computed,
 }
 
 /// A column of a table tab, in the order of the table (and of the page windows).

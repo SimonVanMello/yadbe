@@ -1,6 +1,7 @@
 import type {
   ColumnMeta,
   Engine,
+  ObjectRef,
   ExecuteScope,
   ExecutionDelta,
   ExecutionSnapshot,
@@ -44,6 +45,9 @@ import {
  * - `long_tail`: 3 000 rows × 2 columns whose text is short in the first window and much
  *   longer after it (the grid widens its columns when those rows load).
  * - `empty` or `where false`: the sample columns, no row.
+ * - `SELECT <columns> FROM <schema>.<table> [alias] [LIMIT n]` on a table of the mock catalog
+ *   (schema-qualified): the table's own rows as they are now, editable like the backend's
+ *   results of one table (F-087, see `mock/resultEdit.ts`).
  * - any other `FROM`: the sample `orders` result, 1 284 rows of every kind (NULLs, long
  *   cut text, arrays, a column of mixed kinds).
  * - a `SELECT` without `FROM`: one row of its literals.
@@ -83,6 +87,36 @@ export interface MockQueryHost {
   logStatement(connectionId: string | null, connectionName: string, sql: string): void;
   /** A user statement ran, was refused or was cancelled (the history, F-100). */
   recordHistory?(statement: MockHistoryRecord): void;
+  /** The rows of a plain `SELECT` of one mock table, `null` for any other statement (F-087). */
+  tableSelect?(connectionId: string, database: string | null, sql: string): MockTableSelect | null;
+}
+
+/** A result read from a mock table: its columns over a snapshot of the rows. */
+export interface MockTableSelect {
+  columns: MockColumn[];
+  total: number;
+  edit: MockResultEditSource;
+}
+
+/** Where the columns of a result of one table come from (F-087). */
+export interface MockResultEditSource {
+  connectionId: string;
+  table: ObjectRef;
+  /** Per result column, the table column it shows; `null`: computed. */
+  sources: (string | null)[];
+}
+
+/** What a result edit needs to know about a result (F-087). */
+export interface MockResultOrigin {
+  tabId: string;
+  connectionId: string;
+  columns: ColumnMeta[];
+  status: ResultStatus;
+  /** `null`: the statement is not a plain `SELECT` of one mock table. */
+  edit: MockResultEditSource | null;
+  /** The statement mentions a join, a union, a subquery… (what the backend's check refuses). */
+  complex: boolean;
+  value(row: number, column: number): Value;
 }
 
 /** A result as an export reads it. */
@@ -115,7 +149,7 @@ const DEFAULT_TICK_MS = 40;
 /** A cell as stored: its kind and lossless text, `null` for SQL `NULL`. */
 export type Cell = readonly [ValueKind, string] | null;
 
-interface MockColumn {
+export interface MockColumn {
   meta: ColumnMeta;
   cell(row: number): Cell;
 }
@@ -134,6 +168,8 @@ interface MockResult {
   status: ResultStatus;
   pausedBy: PauseReason | null;
   resume: ((mode: 'more' | 'all') => void) | null;
+  /** The query tab and statement of a user result (F-087). */
+  origin?: { tabId: string; connectionId: string; sql: string; edit: MockResultEditSource | null };
 }
 
 interface MockExecution {
@@ -653,8 +689,21 @@ export function createMockQuery(host: MockQueryHost) {
     return true;
   }
 
-  function newResult(exec: MockExecution, index: number, columns: MockColumn[], total: number) {
+  function newResult(
+    exec: MockExecution,
+    index: number,
+    columns: MockColumn[],
+    total: number,
+    edit: MockResultEditSource | null = null,
+  ) {
+    const range = exec.statements[index];
     const result: MockResult = {
+      origin: {
+        tabId: exec.tabId,
+        connectionId: exec.connectionId,
+        sql: range ? exec.text.slice(range.from, range.to) : '',
+        edit,
+      },
       id: nextResult++,
       statementIndex: index,
       columns,
@@ -829,7 +878,11 @@ export function createMockQuery(host: MockQueryHost) {
       const series = /generate_series\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/.exec(lower);
       let columns: MockColumn[];
       let total: number;
-      if (series) {
+      const fromTable = host.tableSelect?.(exec.connectionId, exec.database, sql) ?? null;
+      if (fromTable) {
+        columns = fromTable.columns;
+        total = fromTable.total;
+      } else if (series) {
         const from = Number(series[1]);
         columns = [col('generate_series', 'int4', 'int', (r) => ['int', String(from + r)])];
         total = Math.max(0, Number(series[2]) - from + 1);
@@ -855,7 +908,7 @@ export function createMockQuery(host: MockQueryHost) {
         columns = sampleColumns();
         total = /\bempty\b|\bwhere\s+false\b/.test(lower) ? 0 : 1284;
       }
-      const result = newResult(exec, index, columns, total);
+      const result = newResult(exec, index, columns, total, fromTable?.edit ?? null);
       if (!(await stream(exec, result))) return cancelled(result);
       result.status = 'complete';
       exec.dirtyResults.add(result.id);
@@ -1014,6 +1067,35 @@ export function createMockQuery(host: MockQueryHost) {
   /** Explains in progress, by tab: `cancelQuery` aborts them. */
   const explaining = new Map<string, AbortController>();
 
+  /** Rows `[offset, offset + limit)` of a result in the window format. */
+  function windowOf(result: MockResult, offset: number, limit: number): ResultWindow {
+    const start = Math.min(offset, result.rowCount);
+    const count = Math.max(0, Math.min(limit, result.rowCount - start));
+    const columns: WindowColumn[] = result.columns.map((column) => {
+      const values: (string | null)[] = [];
+      const kinds: ValueKind[] = [];
+      const truncated: number[] = [];
+      let mixed = false;
+      for (let i = 0; i < count; i++) {
+        const cell = column.cell(start + i);
+        if (!cell) {
+          values.push(null);
+          kinds.push(column.meta.kind);
+          continue;
+        }
+        const [kind, text] = cell;
+        if (kind !== column.meta.kind) mixed = true;
+        kinds.push(kind);
+        if (text.length > CELL_PREVIEW_CHARS) {
+          truncated.push(i);
+          values.push(text.slice(0, CELL_PREVIEW_CHARS));
+        } else values.push(text);
+      }
+      return { values, kinds: mixed ? kinds : null, truncated };
+    });
+    return { resultId: result.id, offset: start, rowCount: count, columns };
+  }
+
   const commands: QueryCommands = {
     splitStatements: (engine, text) =>
       ok(mockSplit(engine, text).map(({ from, to }) => ({ from, to }))),
@@ -1120,32 +1202,7 @@ export function createMockQuery(host: MockQueryHost) {
           ),
         );
       }
-      const start = Math.min(offset, result.rowCount);
-      const count = Math.max(0, Math.min(limit, result.rowCount - start));
-      const columns: WindowColumn[] = result.columns.map((column) => {
-        const values: (string | null)[] = [];
-        const kinds: ValueKind[] = [];
-        const truncated: number[] = [];
-        let mixed = false;
-        for (let i = 0; i < count; i++) {
-          const cell = column.cell(start + i);
-          if (!cell) {
-            values.push(null);
-            kinds.push(column.meta.kind);
-            continue;
-          }
-          const [kind, text] = cell;
-          if (kind !== column.meta.kind) mixed = true;
-          kinds.push(kind);
-          if (text.length > CELL_PREVIEW_CHARS) {
-            truncated.push(i);
-            values.push(text.slice(0, CELL_PREVIEW_CHARS));
-          } else values.push(text);
-        }
-        return { values, kinds: mixed ? kinds : null, truncated };
-      });
-      const window: ResultWindow = { resultId, offset: start, rowCount: count, columns };
-      return ok(window);
+      return ok(windowOf(result, offset, limit));
     },
 
     fetchResultCell: (resultId, row, column) => {
@@ -1267,6 +1324,33 @@ export function createMockQuery(host: MockQueryHost) {
         total: result.total,
         value: (row, column) => cellValue(result.columns[column]?.cell(row) ?? null),
       };
+    },
+    /** A window of a result, at once (the result edits remap rows with it). */
+    window(resultId: number, offset: number, limit: number): ResultWindow | null {
+      const result = results.get(resultId);
+      return result ? windowOf(result, offset, limit) : null;
+    },
+    /** Where a user result comes from (F-087); `undefined` once its execution is gone. */
+    resultOrigin(resultId: number): MockResultOrigin | undefined {
+      const result = results.get(resultId);
+      const origin = result?.origin;
+      if (!result || !origin) return undefined;
+      return {
+        tabId: origin.tabId,
+        connectionId: origin.connectionId,
+        columns: result.columns.map((column) => ({ ...column.meta })),
+        status: result.status,
+        edit: origin.edit,
+        complex:
+          /\b(join|union|intersect|except|with)\b|\bfrom\s*\(|\bfrom\s+[^\s,;]+(?:\s+\w+)?\s*,/i.test(
+            origin.sql,
+          ),
+        value: (row, column) => cellValue(result.columns[column]?.cell(row) ?? null),
+      };
+    },
+    /** The transaction state of a query tab. */
+    tabTransaction(tabId: string): TransactionState {
+      return { ...(tabs.get(tabId)?.transaction ?? { mode: 'autoCommit', status: 'idle' }) };
     },
     /**
      * Stores finished rows (table pages, M2-1) where `fetchResultWindow` / `fetchResultCell`

@@ -927,6 +927,7 @@
   "tableData.readOnly.column.rowVersion": "Row version: the server maintains it.",
   "tableData.readOnly.column.unsupportedType": "yadbe shows this type as text but cannot write it back exactly.",
   "tableData.readOnly.column.array": "Arrays are edited with SQL for now.",
+  "tableData.readOnly.column.computed": "Computed by the query: edit the table column it reads instead.",
   "tableData.edit.columnReadOnly": "{column} cannot be changed. {reason}",
   "tableData.edit.deletedRow": "This row is marked for deletion: revert the row to edit it.",
   "tableData.edit.notNullable": "{column} does not accept NULL.",

@@ -927,6 +927,7 @@
   "tableData.readOnly.column.rowVersion": "Version de ligne : le serveur la maintient.",
   "tableData.readOnly.column.unsupportedType": "yadbe affiche ce type en texte mais ne sait pas le réécrire à l'identique.",
   "tableData.readOnly.column.array": "Les tableaux se modifient en SQL pour l'instant.",
+  "tableData.readOnly.column.computed": "Calculée par la requête : modifiez plutôt la colonne de la table qu'elle lit.",
   "tableData.edit.columnReadOnly": "{column} ne peut pas être modifiée. {reason}",
   "tableData.edit.deletedRow": "Cette ligne est marquée pour suppression : annulez la ligne pour la modifier.",
   "tableData.edit.notNullable": "{column} n'accepte pas NULL.",

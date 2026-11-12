@@ -12,6 +12,7 @@ use crate::session::journal::ChangeJournal;
 use crate::session::library::Library;
 use crate::session::meta_cache::{MetaService, ObservingSink};
 use crate::session::references::ReferenceService;
+use crate::session::result_edit::ResultEditService;
 use crate::session::statement_log::StatementLog;
 use crate::session::table_data::TableDataService;
 use crate::session::{ConnectionManager, QueryRunner};
@@ -34,6 +35,7 @@ pub struct AppState {
     pub tables: Arc<TableDataService>,
     pub references: Arc<ReferenceService>,
     pub journal: Arc<ChangeJournal>,
+    pub result_edits: Arc<ResultEditService>,
 }
 
 impl AppState {
@@ -79,6 +81,11 @@ impl AppState {
             Arc::clone(&tables),
             queries.shared_store(),
         ));
+        let result_edits = Arc::new(ResultEditService::new(
+            Arc::clone(&connections),
+            Arc::clone(&queries),
+            Arc::clone(&tables),
+        ));
         let exports = Arc::new(ExportManager::new(
             Arc::clone(&queries),
             Arc::clone(&tables),
@@ -103,6 +110,7 @@ impl AppState {
             tables,
             references,
             journal,
+            result_edits,
         }
     }
 }

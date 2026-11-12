@@ -13,6 +13,7 @@ pub mod meta;
 pub mod objects;
 pub mod query;
 pub mod references;
+pub mod result_edit;
 pub mod saved_queries;
 pub mod secrets;
 pub mod sessions;

@@ -13,6 +13,7 @@ pub mod edit_dialect;
 pub mod errors;
 pub mod params;
 pub mod plan;
+pub mod result_source;
 pub mod split;
 pub mod value;
 
