@@ -85,7 +85,7 @@ Exit: MySQL / MariaDB is supported, data can be navigated through its relations 
 | M3-12 ✅ | **Shell comfort**: rebindable shortcuts, per-tab history, result client-side sort / filter and selection aggregates, row detail view, remaining export formats (SQL inserts, Markdown, Excel), TLS client certificates, keep-alive and timeouts per connection, CLI arguments | M3-5 | F-009, F-014, F-065, F-066, F-068, F-102, F-121, F-126 | sonnet · high |
 | M3-13 ⬜ | **Entra ID authentication** for Azure SQL (needs an Azure tenant to test) | M3-4 | F-011 | opus · high |
 | M3-14 ⬜ | **Distribution**: packaging per OS, signing, auto-update, release workflow, website with user docs (needs signing certificates) | all of M3 | — | opus · medium |
-| M3-15 ⬜ | **Integration and validation**: real-app scenarios on the four engines, measurements, `docs/validation/M3.md` | all of M3 | — | opus · medium |
+| M3-15 🟦 | **Integration and validation**: real-app scenarios on the four engines, measurements, `docs/validation/M3.md` | all of M3 | — | opus · medium |
 
 Order: wave 1 = M3-1 ∥ M3-2 ∥ M3-3 ∥ M3-4 ∥ M3-5; wave 2 = M3-6 ∥ M3-8 ∥ M3-9 ∥ M3-10; wave 3 = M3-7 ∥ M3-11 ∥ M3-12; then M3-13 and M3-14 (blocked on external means), then M3-15.
 
