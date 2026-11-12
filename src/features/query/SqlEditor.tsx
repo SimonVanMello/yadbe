@@ -19,7 +19,8 @@ import {
 } from '@codemirror/view';
 import { useEffect, useMemo, useRef } from 'react';
 
-import { runAction, type ActionId } from '../../app/actions';
+import { runAction, shortcutOf, type ActionId, type BoundActionId } from '../../app/actions';
+import { matchShortcut } from '../../ui/shortcuts';
 import { useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import type { Engine, TextRange } from '../../ipc';
@@ -27,6 +28,12 @@ import { styleNonce } from '../../ui/cspNonce';
 import { useCatalogLoading } from '../completion/catalogStore';
 import { completionExtension } from '../completion/completionExtension';
 import { createCompletionHost } from '../completion/completionHost';
+import {
+  definitionResolver,
+  hoverExtension,
+  openDefinitionData,
+  revealDefinition,
+} from '../completion/hoverExtension';
 import { STANDARD_QUOTING, quotingOf, type Quoting } from '../completion/identifierQuoting';
 import { useEngineInfo } from '../connections/connectionStore';
 import { usePreference, usePreferenceStore } from '../preferences/preferenceStore';
@@ -95,12 +102,38 @@ function runKeys(): Extension {
   );
 }
 
+/** Editor shortcuts of the query tools, matched like the app's (exact modifiers, key codes). */
+const TOOL_ACTIONS: readonly BoundActionId[] = [
+  // `Mod-l` selects the line in CodeMirror; SSMS and Azure Data Studio explain with it.
+  'query.explain',
+  'query.explainAnalyze',
+  'query.format',
+  'query.goToDefinition',
+];
+
+function toolKeys(): Extension {
+  // A keymap entry for `Mod-l` would also take `Mod-Shift-l` when the browser reports a
+  // lower-case key with Shift held: the app's matcher compares every modifier.
+  return Prec.highest(
+    EditorView.domEventHandlers({
+      keydown: (event) => {
+        const id = TOOL_ACTIONS.find((action) => matchShortcut(event, shortcutOf(action)));
+        if (!id || !runAction(id)) return false;
+        event.preventDefault();
+        return true;
+      },
+    }),
+  );
+}
+
 interface EditorOptions {
   tabId: string;
   getEngine: () => Engine;
   label: string;
   /** Schema-aware suggestions (F-043). */
   completion: Extension;
+  /** Hover cards and go to definition (F-052). */
+  hover: Extension;
 }
 
 function editorExtensions(
@@ -117,6 +150,7 @@ function editorExtensions(
     // `<style>` tags of its own.
     nonce === null ? [] : EditorView.cspNonce.of(nonce),
     runKeys(),
+    toolKeys(),
     highlightSpecialChars(),
     history(),
     drawSelection(),
@@ -129,6 +163,7 @@ function editorExtensions(
     bracketMatching(),
     closeBrackets(),
     options.completion,
+    options.hover,
     highlightActiveLine(),
     highlightSelectionMatches(),
     search({ top: true }),
@@ -257,17 +292,24 @@ export function SqlEditor({ tabId, engine, connectionId, connectionDatabase }: S
     const parent = host.current;
     if (!parent) return;
     const stored = getQueryTabState(tabId);
-    const completion = completionExtension(
-      createCompletionHost({
-        tabId,
-        connectionId: () => connectionRef.current,
-        connectionDatabase: () => databaseRef.current,
-        engine: () => engineRef.current,
-        quoting: () => quotingRef.current,
-      }),
-    );
+    const completionHost = createCompletionHost({
+      tabId,
+      connectionId: () => connectionRef.current,
+      connectionDatabase: () => databaseRef.current,
+      engine: () => engineRef.current,
+      quoting: () => quotingRef.current,
+    });
+    const completion = completionExtension(completionHost);
+    const hover = hoverExtension(completionHost);
+    const resolveDefinition = definitionResolver(completionHost);
     const extensions = editorExtensions(
-      { tabId, getEngine: () => engineRef.current, label: labelRef.current, completion },
+      {
+        tabId,
+        getEngine: () => engineRef.current,
+        label: labelRef.current,
+        completion,
+        hover,
+      },
       compartments.current,
       engineRef.current,
       useI18nStore.getState().locale,
@@ -341,6 +383,36 @@ export function SqlEditor({ tabId, engine, connectionId, connectionDatabase }: S
         const { from, to } = view.state.selection.main;
         view.focus();
         snippet(template)(view, null, from, to);
+      },
+      format: (format) => {
+        const { state } = view;
+        const { from, to } = state.selection.main;
+        const whole = from === to;
+        const start = whole ? 0 : from;
+        const end = whole ? state.doc.length : to;
+        const before = state.sliceDoc(start, end);
+        const after = format(before);
+        if (after === before) return false;
+        // One change, one undo step; the cursor keeps its place in the whole-text case.
+        view.dispatch({
+          changes: { from: start, to: end, insert: after },
+          selection: whole
+            ? { anchor: Math.min(state.selection.main.head, after.length) }
+            : { anchor: start, head: start + after.length },
+          scrollIntoView: true,
+          userEvent: 'input.format',
+        });
+        view.focus();
+        return true;
+      },
+      definitionAtCursor: async (action) => {
+        const definition = await resolveDefinition(view, view.state.selection.main.head);
+        if (!definition) return false;
+        if (action === 'reveal') {
+          revealDefinition(definition);
+          return true;
+        }
+        return openDefinitionData(definition);
       },
     };
     const unregister = registerEditor(tabId, controller);

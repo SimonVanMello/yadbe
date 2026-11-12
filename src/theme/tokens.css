@@ -117,6 +117,16 @@
   --fk-lookup-width: 420px;
   --fk-lookup-max-height: 240px;
 
+  /* Query tools (F-048, F-052, F-053): the parameter prompt, the hover card, the plan tree. */
+  --param-name-width: 140px;
+  --param-kind-width: 120px;
+  --plan-row-height: 26px;
+  --plan-indent: 16px;
+  --plan-weight-width: 64px;
+  --plan-number-width: 84px;
+  --plan-facts-width: 320px;
+  --hover-card-max-width: 420px;
+
   /* Motion: transitions only signal a state change, ≤ 150 ms (spec §6.7). */
   --duration-fast: 100ms;
   --duration-normal: 150ms;

@@ -29,6 +29,7 @@ use crate::db::driver::{
 };
 use crate::db::errors::{ErrorCode, YadbeError};
 use crate::db::meta::MetaNode;
+use crate::db::params::{ParamStatement, ParamValues, bind_all, parameter_value, parameters_of};
 use crate::db::split::{SqlSyntax, Statement, Utf16Map, split, statement_at};
 use crate::db::value::Value;
 use crate::events::{
@@ -40,9 +41,10 @@ use crate::session::connection::ConnectionSession;
 use crate::session::history_hook::{HistoryEntry, HistoryRecorder};
 use crate::session::query_model::{
     ExecuteRequest, ExecuteScope, ExecutionDelta, ExecutionSnapshot, ExecutionStarted,
-    ExecutionStatus, MAX_WINDOW_ROWS, MessageBody, PauseReason, QueryMessage, QueryTabInfo,
-    ResultLimits, ResultStatus, ResultSummary, ResultWindow, ResumeMode, StatementCompleted,
-    StatementError, TextPosition, TextRange, TransactionMode, TransactionState, TransactionStatus,
+    ExecutionStatus, ExplainRequest, ExplainResult, MAX_WINDOW_ROWS, MessageBody, ParameterValue,
+    PauseReason, QueryMessage, QueryParameter, QueryTabInfo, ResultLimits, ResultStatus,
+    ResultSummary, ResultWindow, ResumeMode, StatementCompleted, StatementError, TextPosition,
+    TextRange, TransactionMode, TransactionState, TransactionStatus,
 };
 use crate::session::result_store::{ResultStore, StoredResult};
 use crate::session::result_tap::{ResultStream, TAP_CAPACITY, TapEnd, TapMsg};
@@ -190,6 +192,8 @@ struct Execution {
     text: String,
     syntax: SqlSyntax,
     statements: Vec<Statement>,
+    /// Each statement as it is sent, with its query parameters bound (F-048).
+    prepared: Vec<ParamStatement>,
     ranges: Vec<TextRange>,
     started_at: SystemTime,
     started: Instant,
@@ -316,6 +320,24 @@ impl Execution {
         }
     }
 
+    /// The editor position of a server-reported error location in what was sent.
+    fn sent_position(&self, index: usize, location: ErrorLocation) -> TextPosition {
+        let statement = &self.statements[index];
+        let Some(prepared) = self.prepared.get(index).filter(|p| p.rewritten()) else {
+            return self.position(statement, location);
+        };
+        // Placeholders were rewritten: map the position back to the text as written.
+        let sent = &prepared.sql;
+        let location = match location {
+            ErrorLocation::Char(n) => ErrorLocation::Byte(
+                prepared.original_byte(sent.char_indices().nth(n).map_or(sent.len(), |(i, _)| i)),
+            ),
+            ErrorLocation::Byte(n) => ErrorLocation::Byte(prepared.original_byte(n)),
+            line @ ErrorLocation::Line(_) => line,
+        };
+        self.position(statement, location)
+    }
+
     /// The editor position of a server-reported error location.
     fn position(&self, statement: &Statement, location: ErrorLocation) -> TextPosition {
         let sql = &self.text[statement.range()];
@@ -402,6 +424,87 @@ struct Tab {
     id: String,
     shared: Mutex<TabShared>,
     conn: Arc<AsyncMutex<Option<TabConnection>>>,
+    /// The explain running in the tab, for `cancel`.
+    explaining: Mutex<Option<Arc<ExplainRun>>>,
+}
+
+/// An explain in progress: cancelled like an execution.
+#[derive(Default)]
+struct ExplainRun {
+    cancel: Signal,
+    handle: Mutex<Option<Arc<dyn CancelHandle>>>,
+}
+
+/// The statements of `text` a scope designates.
+fn statements_of(
+    text: &str,
+    scope: ExecuteScope,
+    syntax: &SqlSyntax,
+    map: &Utf16Map<'_>,
+) -> Vec<Statement> {
+    match scope {
+        ExecuteScope::All => split(text, syntax),
+        ExecuteScope::Range { from, to } => {
+            let (from, to) = (map.to_byte(from), map.to_byte(to));
+            let (from, to) = (from.min(to), from.max(to));
+            split(&text[from..to], syntax)
+                .into_iter()
+                .map(|s| Statement {
+                    start: s.start + from,
+                    end: s.end + from,
+                    delimiter_end: s.delimiter_end + from,
+                    repeat: s.repeat,
+                })
+                .collect()
+        }
+        ExecuteScope::StatementAt { offset } => {
+            let all = split(text, syntax);
+            statement_at(text, &all, map.to_byte(offset))
+                .into_iter()
+                .collect()
+        }
+    }
+}
+
+/// The typed values of a request, by parameter name.
+fn parameter_values(values: &[ParameterValue]) -> Result<ParamValues, YadbeError> {
+    values
+        .iter()
+        .map(|p| Ok((p.name.clone(), parameter_value(p.kind, &p.value)?)))
+        .collect()
+}
+
+/// The parameters of the statements a run of `scope` would send (F-048).
+pub fn query_parameters(
+    engine: crate::db::dialect::Engine,
+    text: &str,
+    scope: ExecuteScope,
+) -> Vec<QueryParameter> {
+    let dialect = engine.dialect();
+    let syntax = dialect.syntax();
+    let map = Utf16Map::new(text);
+    let statements = statements_of(text, scope, &syntax, &map);
+    parameters_of(
+        text,
+        &statements,
+        &syntax,
+        dialect.capabilities().parameter_styles,
+    )
+    .into_iter()
+    .map(|found| QueryParameter {
+        name: found.key,
+        label: found.label,
+        style: found.style,
+        occurrences: found
+            .occurrences
+            .into_iter()
+            .map(|(from, to)| TextRange {
+                from: map.to_utf16(from),
+                to: map.to_utf16(to),
+            })
+            .collect(),
+    })
+    .collect()
 }
 
 impl Tab {
@@ -520,6 +623,7 @@ impl QueryRunner {
                         id: tab_id.to_owned(),
                         shared: Mutex::new(TabShared::default()),
                         conn: Arc::new(AsyncMutex::new(None)),
+                        explaining: Mutex::new(None),
                     })
                 }),
         )
@@ -544,34 +648,22 @@ impl QueryRunner {
         let text = request.text;
         let syntax = dialect.syntax();
         let map = Utf16Map::new(&text);
-        let statements: Vec<Statement> = match request.scope {
-            ExecuteScope::All => split(&text, &syntax),
-            ExecuteScope::Range { from, to } => {
-                let (from, to) = (map.to_byte(from), map.to_byte(to));
-                let (from, to) = (from.min(to), from.max(to));
-                split(&text[from..to], &syntax)
-                    .into_iter()
-                    .map(|s| Statement {
-                        start: s.start + from,
-                        end: s.end + from,
-                        delimiter_end: s.delimiter_end + from,
-                        repeat: s.repeat,
-                    })
-                    .collect()
-            }
-            ExecuteScope::StatementAt { offset } => {
-                let all = split(&text, &syntax);
-                statement_at(&text, &all, map.to_byte(offset))
-                    .into_iter()
-                    .collect()
-            }
-        };
+        let statements = statements_of(&text, request.scope, &syntax, &map);
         if statements.is_empty() {
             return Err(YadbeError::invalid_argument(
                 "There is no statement to run.",
                 "Il n'y a aucune instruction à exécuter.",
             ));
         }
+        let values = parameter_values(&request.parameters)?;
+        let prepared = bind_all(
+            &text,
+            &statements,
+            &syntax,
+            dialect.capabilities().parameter_styles,
+            dialect.param_binding(),
+            &values,
+        )?;
         let ranges: Vec<TextRange> = statements
             .iter()
             .map(|s| TextRange {
@@ -601,6 +693,7 @@ impl QueryRunner {
             text,
             syntax,
             statements,
+            prepared,
             ranges: ranges.clone(),
             started_at: SystemTime::now(),
             started: Instant::now(),
@@ -730,7 +823,18 @@ impl QueryRunner {
             }
         }
 
-        let conn = match self.ensure_connection(tab, exec, guard, session).await {
+        let connecting = || exec.update(|state| state.status = ExecutionStatus::Connecting);
+        let conn = match self
+            .ensure_connection(
+                tab,
+                (&exec.connection_id, exec.database.as_ref()),
+                guard,
+                session,
+                &exec.cancel,
+                &connecting,
+            )
+            .await
+        {
             Ok(conn) => conn,
             Err(error) => {
                 if exec.cancel.is_raised() {
@@ -816,14 +920,16 @@ impl QueryRunner {
     async fn ensure_connection(
         &self,
         tab: &Arc<Tab>,
-        exec: &Arc<Execution>,
+        (connection_id, database): (&String, Option<&String>),
         guard: &mut Option<TabConnection>,
         session: &Arc<ConnectionSession>,
+        cancel: &Signal,
+        connecting: &(dyn Fn() + Sync),
     ) -> Result<Arc<dyn Connection>, YadbeError> {
         if let Some(current) = guard.as_ref()
             && current.is_alive()
-            && current.connection_id == exec.connection_id
-            && current.database == exec.database
+            && current.connection_id == *connection_id
+            && current.database.as_ref() == database
         {
             return Ok(Arc::clone(&current.conn));
         }
@@ -837,10 +943,10 @@ impl QueryRunner {
             shared.ddl_in_transaction = false;
         }
         tab.set_transaction(&*self.sink, |t| t.status = TransactionStatus::Idle);
-        exec.update(|state| state.status = ExecutionStatus::Connecting);
+        connecting();
         let opened = tokio::select! {
-            opened = session.open_dedicated(exec.database.as_deref()) => opened?,
-            () = exec.cancel.wait() => return Err(YadbeError::cancelled()),
+            opened = session.open_dedicated(database.map(String::as_str)) => opened?,
+            () = cancel.wait() => return Err(YadbeError::cancelled()),
         };
         let conn: Arc<dyn Connection> = Arc::from(opened);
         let dead = Arc::new(AtomicBool::new(false));
@@ -853,15 +959,15 @@ impl QueryRunner {
         );
         *guard = Some(TabConnection {
             conn: Arc::clone(&conn),
-            connection_id: exec.connection_id.clone(),
-            database: exec.database.clone(),
+            connection_id: connection_id.clone(),
+            database: database.cloned(),
             dead,
             watcher,
         });
         {
             let mut shared = lock(&tab.shared);
-            shared.connection_id = Some(exec.connection_id.clone());
-            shared.database.clone_from(&exec.database);
+            shared.connection_id = Some(connection_id.clone());
+            shared.database = database.cloned();
         }
         Ok(conn)
     }
@@ -915,7 +1021,11 @@ impl QueryRunner {
             tab_id: exec.tab_id.clone(),
             connection_id: exec.connection_id.clone(),
             database: exec.database.clone(),
-            sql: exec.text[exec.statements[index].range()].to_owned(),
+            // As sent: a statement whose placeholders were rewritten reads as it ran.
+            sql: exec.prepared.get(index).map_or_else(
+                || exec.text[exec.statements[index].range()].to_owned(),
+                |p| p.sql.clone(),
+            ),
             started_at,
             duration,
             rows,
@@ -1023,9 +1133,13 @@ impl QueryRunner {
         let started = Instant::now();
         let (sender, mut events) = mpsc::channel(self.config.channel_capacity.max(1));
         let driver_conn = Arc::clone(conn);
-        let sql = exec.text[statement.range()].to_owned();
+        let prepared = exec
+            .prepared
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| ParamStatement::plain(&exec.text[statement.range()]));
         let task: JoinHandle<Result<ExecSummary, ExecError>> =
-            tokio::spawn(async move { driver_conn.execute(&sql, sender).await });
+            tokio::spawn(async move { driver_conn.execute_params(&prepared, sender).await });
 
         let mut result: Option<usize> = None;
         let mut pending: Option<Vec<Vec<Value>>> = None;
@@ -1252,7 +1366,7 @@ impl QueryRunner {
                     MessageBody::Error(StatementError {
                         error: error.clone(),
                         server: failure.server.map(|s| *s),
-                        position: failure.location.map(|l| exec.position(&statement, l)),
+                        position: failure.location.map(|l| exec.sent_position(index, l)),
                     }),
                 );
                 Outcome::Failed(error)
@@ -1260,8 +1374,145 @@ impl QueryRunner {
         }
     }
 
+    /// Explains one statement on the tab's own connection (F-053). Fails with
+    /// `executionRunning` while the tab runs, `readOnlyViolation` for an analyze that would
+    /// write on a read-only connection.
+    pub async fn explain(&self, request: ExplainRequest) -> Result<ExplainResult, YadbeError> {
+        let session = self.manager.session(&request.connection_id)?;
+        session.connection()?;
+        let target = session.target();
+        let dialect = target.engine.dialect();
+        let capabilities = dialect.capabilities();
+        if !capabilities.explain || (request.analyze && !capabilities.explain_analyze) {
+            return Err(YadbeError::invalid_argument(
+                format!("{} cannot show this kind of plan.", dialect.label()),
+                format!("{} ne sait pas montrer ce type de plan.", dialect.label()),
+            ));
+        }
+        let database = request.database.filter(|db| {
+            capabilities.multiple_databases && !db.is_empty() && *db != target.database
+        });
+        let text = request.text;
+        let syntax = dialect.syntax();
+        let map = Utf16Map::new(&text);
+        let statements = statements_of(&text, request.scope, &syntax, &map);
+        let [statement] = statements.as_slice() else {
+            return Err(if statements.is_empty() {
+                YadbeError::invalid_argument(
+                    "There is no statement to explain.",
+                    "Il n'y a aucune instruction à expliquer.",
+                )
+            } else {
+                YadbeError::invalid_argument(
+                    "Explain one statement at a time: put the cursor in it or select it alone.",
+                    "Expliquez une instruction à la fois : placez le curseur dedans ou sélectionnez-la seule.",
+                )
+            });
+        };
+        let statement = *statement;
+        let sql = &text[statement.range()];
+        if request.analyze
+            && target.read_only
+            && let Some(keyword) = read_only_refusal(sql, &syntax)
+        {
+            return Err(YadbeError::read_only_violation(&keyword));
+        }
+        let values = parameter_values(&request.parameters)?;
+        let prepared = bind_all(
+            &text,
+            &[statement],
+            &syntax,
+            capabilities.parameter_styles,
+            dialect.param_binding(),
+            &values,
+        )?
+        .pop()
+        .unwrap_or_else(|| ParamStatement::plain(sql));
+
+        let tab = self.tab(&request.tab_id);
+        let mut guard = tab.try_conn()?;
+        let reusable = guard.as_ref().is_some_and(|c| {
+            c.is_alive() && c.connection_id == request.connection_id && c.database == database
+        });
+        if !reusable
+            && guard.as_ref().is_some_and(TabConnection::is_alive)
+            && tab.transaction().status != TransactionStatus::Idle
+        {
+            return Err(YadbeError::transaction_open());
+        }
+        let run = Arc::new(ExplainRun::default());
+        *lock(&tab.explaining) = Some(Arc::clone(&run));
+        let started = Instant::now();
+        let outcome = async {
+            let conn = self
+                .ensure_connection(
+                    &tab,
+                    (&request.connection_id, database.as_ref()),
+                    &mut guard,
+                    &session,
+                    &run.cancel,
+                    &|| {},
+                )
+                .await?;
+            *lock(&run.handle) = Some(conn.cancel_handle());
+            if run.cancel.is_raised() {
+                return Err(YadbeError::cancelled());
+            }
+            let transaction = tab.transaction();
+            if request.analyze
+                && transaction.mode == TransactionMode::Manual
+                && transaction.status == TransactionStatus::Idle
+            {
+                conn.query(dialect.begin_transaction(), 0).await?;
+                tab.set_transaction(&*self.sink, |t| t.status = TransactionStatus::Open);
+            }
+            let explained = conn.explain(&prepared, request.analyze).await;
+            if request.analyze {
+                let outcome = match &explained {
+                    Ok(_) => Outcome::Done,
+                    Err(failure) => Outcome::Failed(failure.error.clone()),
+                };
+                self.track_transaction(&tab, &conn, dialect, sql, &outcome);
+            }
+            explained.map_err(|failure| {
+                if run.cancel.is_raised() {
+                    YadbeError::cancelled()
+                } else {
+                    failure.error
+                }
+            })
+        }
+        .await;
+        *lock(&tab.explaining) = None;
+        drop(guard);
+        let explained = outcome?;
+        let plan = crate::db::plan::parse(explained.raw, request.analyze)?;
+        Ok(ExplainResult {
+            statement: TextRange {
+                from: map.to_utf16(statement.start),
+                to: map.to_utf16(statement.end),
+            },
+            plan,
+            sent: explained.sent,
+            duration_ms: (started.elapsed().as_secs_f64() * 10_000.0).round() / 10.0,
+        })
+    }
+
     /// Cancels the tab's running execution with the engine's native mechanism.
     pub async fn cancel(&self, tab_id: &str) {
+        let explaining = self
+            .existing_tab(tab_id)
+            .and_then(|t| lock(&t.explaining).clone());
+        if let Some(run) = explaining {
+            run.cancel.raise();
+            let handle = lock(&run.handle).clone();
+            if let Some(handle) = handle
+                && let Err(err) = handle.cancel().await
+            {
+                tracing::warn!(error = %err, "cancel request failed");
+            }
+            return;
+        }
         let Some(exec) = self.existing_tab(tab_id).and_then(|t| t.execution()) else {
             return;
         };

@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::db::params::{ParamBinding, ParameterStyles};
 use crate::db::split::{BlockRule, Separator, SqlSyntax};
 
 /// Database engines yadbe knows. Every engine has a dialect; drivers arrive one by one.
@@ -73,6 +74,12 @@ pub struct Capabilities {
     /// The engine reads an unquoted identifier in lower case (PostgreSQL), so a name with
     /// capitals needs its quotes to be found again.
     pub folds_unquoted_to_lower: bool,
+    /// Placeholders read as query parameters (F-048).
+    pub parameter_styles: ParameterStyles,
+    /// The engine shows its plan for a statement without running it (F-053).
+    pub explain: bool,
+    /// The engine runs a statement and shows its plan with actual rows and times.
+    pub explain_analyze: bool,
 }
 
 pub trait Dialect:
@@ -112,6 +119,9 @@ pub trait Dialect:
     fn error_aborts_transaction(&self) -> bool {
         false
     }
+
+    /// How query parameters reach the engine (F-048).
+    fn param_binding(&self) -> ParamBinding;
 }
 
 /// Doubles the closing quote inside the identifier, then wraps it.
@@ -149,6 +159,13 @@ impl Dialect for PostgresDialect {
             identifier_quote_open: '"',
             identifier_quote_close: '"',
             folds_unquoted_to_lower: true,
+            parameter_styles: ParameterStyles {
+                colon: true,
+                dollar_number: true,
+                ..ParameterStyles::default()
+            },
+            explain: true,
+            explain_analyze: true,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -159,6 +176,9 @@ impl Dialect for PostgresDialect {
     }
     fn default_username(&self) -> Option<&'static str> {
         Some("postgres")
+    }
+    fn param_binding(&self) -> ParamBinding {
+        ParamBinding::DollarNumbers
     }
     fn syntax(&self) -> SqlSyntax {
         SqlSyntax {
@@ -201,6 +221,13 @@ impl Dialect for MssqlDialect {
             identifier_quote_open: '[',
             identifier_quote_close: ']',
             folds_unquoted_to_lower: false,
+            parameter_styles: ParameterStyles {
+                at: true,
+                at_declared_are_variables: true,
+                ..ParameterStyles::default()
+            },
+            explain: true,
+            explain_analyze: true,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -211,6 +238,9 @@ impl Dialect for MssqlDialect {
     }
     fn default_username(&self) -> Option<&'static str> {
         Some("sa")
+    }
+    fn param_binding(&self) -> ParamBinding {
+        ParamBinding::AsWritten
     }
     fn syntax(&self) -> SqlSyntax {
         SqlSyntax {
@@ -253,6 +283,13 @@ impl Dialect for MysqlDialect {
             identifier_quote_open: '`',
             identifier_quote_close: '`',
             folds_unquoted_to_lower: false,
+            parameter_styles: ParameterStyles {
+                colon: true,
+                question: true,
+                ..ParameterStyles::default()
+            },
+            explain: true,
+            explain_analyze: true,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -263,6 +300,9 @@ impl Dialect for MysqlDialect {
     }
     fn default_username(&self) -> Option<&'static str> {
         Some("root")
+    }
+    fn param_binding(&self) -> ParamBinding {
+        ParamBinding::QuestionMarks
     }
     fn syntax(&self) -> SqlSyntax {
         SqlSyntax {
@@ -305,6 +345,16 @@ impl Dialect for SqliteDialect {
             identifier_quote_open: '"',
             identifier_quote_close: '"',
             folds_unquoted_to_lower: false,
+            parameter_styles: ParameterStyles {
+                colon: true,
+                at: true,
+                dollar_name: true,
+                question: true,
+                question_number: true,
+                ..ParameterStyles::default()
+            },
+            explain: true,
+            explain_analyze: false,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -312,6 +362,9 @@ impl Dialect for SqliteDialect {
     }
     fn placeholder(&self, index: usize) -> String {
         format!("?{index}")
+    }
+    fn param_binding(&self) -> ParamBinding {
+        ParamBinding::AsWritten
     }
     fn syntax(&self) -> SqlSyntax {
         SqlSyntax {

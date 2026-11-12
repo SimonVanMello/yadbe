@@ -1,0 +1,128 @@
+{
+  "query_block": {
+    "union_result": {
+      "using_temporary_table": false,
+      "query_specifications": [
+        {
+          "dependent": false,
+          "cacheable": true,
+          "query_block": {
+            "select_id": 1,
+            "cost_info": {
+              "query_cost": "8.01"
+            },
+            "nested_loop": [
+              {
+                "table": {
+                  "table_name": "<subquery2>",
+                  "access_type": "ALL",
+                  "attached_condition": "(`<subquery2>`.`a_id` is not null)",
+                  "materialized_from_subquery": {
+                    "using_temporary_table": true,
+                    "query_block": {
+                      "table": {
+                        "table_name": "plan_b",
+                        "access_type": "range",
+                        "possible_keys": [
+                          "PRIMARY",
+                          "a_id"
+                        ],
+                        "key": "PRIMARY",
+                        "used_key_parts": [
+                          "id"
+                        ],
+                        "key_length": "4",
+                        "rows_examined_per_scan": 9,
+                        "rows_produced_per_join": 9,
+                        "filtered": "100.00",
+                        "cost_info": {
+                          "read_cost": "1.16",
+                          "eval_cost": "0.90",
+                          "prefix_cost": "2.06",
+                          "data_read_per_join": "144"
+                        },
+                        "used_columns": [
+                          "id",
+                          "a_id"
+                        ],
+                        "attached_condition": "(`yadbe_test`.`plan_b`.`id` < 10)"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "table": {
+                  "table_name": "plan_a",
+                  "access_type": "eq_ref",
+                  "possible_keys": [
+                    "PRIMARY"
+                  ],
+                  "key": "PRIMARY",
+                  "used_key_parts": [
+                    "id"
+                  ],
+                  "key_length": "4",
+                  "ref": [
+                    "<subquery2>.a_id"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 1,
+                  "filtered": "100.00",
+                  "cost_info": {
+                    "read_cost": "0.25",
+                    "eval_cost": "0.10",
+                    "prefix_cost": "8.01",
+                    "data_read_per_join": "88"
+                  },
+                  "used_columns": [
+                    "id",
+                    "v"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "dependent": false,
+          "cacheable": true,
+          "query_block": {
+            "select_id": 3,
+            "cost_info": {
+              "query_cost": "1.00"
+            },
+            "table": {
+              "table_name": "plan_a",
+              "access_type": "const",
+              "possible_keys": [
+                "PRIMARY"
+              ],
+              "key": "PRIMARY",
+              "used_key_parts": [
+                "id"
+              ],
+              "key_length": "4",
+              "ref": [
+                "const"
+              ],
+              "rows_examined_per_scan": 1,
+              "rows_produced_per_join": 1,
+              "filtered": "100.00",
+              "cost_info": {
+                "read_cost": "0.00",
+                "eval_cost": "0.10",
+                "prefix_cost": "0.00",
+                "data_read_per_join": "88"
+              },
+              "used_columns": [
+                "id",
+                "v"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

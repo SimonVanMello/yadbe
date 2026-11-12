@@ -27,10 +27,11 @@ use crate::db::config::{ConnectTarget, TlsMode};
 use crate::db::dialect::Engine;
 use crate::db::driver::{
     BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Connection, Driver,
-    ExecError, ExecSender, ExecSummary, LinkSignal, LinkWatch, StatementRecorder, recorded,
-    recorded_bound,
+    ExecError, ExecSender, ExecSummary, Explained, LinkSignal, LinkWatch, StatementRecorder,
+    recorded, recorded_bound,
 };
 use crate::db::errors::{YadbeError, from_mssql_login_error, from_mssql_query_error};
+use crate::db::params::ParamStatement;
 use crate::db::value::{QueryResult, Value};
 
 type Tds = Client<Compat<TcpStream>>;
@@ -439,7 +440,28 @@ impl Connection for MssqlConnection {
         sql: &'a str,
         events: ExecSender,
     ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
-        Box::pin(self.execute_streaming(sql, events))
+        Box::pin(self.execute_streaming(sql, Vec::new(), events))
+    }
+
+    fn execute_params<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+        events: ExecSender,
+    ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
+        let params = statement
+            .params
+            .iter()
+            .map(|p| (p.name.clone(), bound::user_param(&p.value)))
+            .collect();
+        Box::pin(self.execute_streaming(&statement.sql, params, events))
+    }
+
+    fn explain<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+        analyze: bool,
+    ) -> BoxFuture<'a, Result<Explained, ExecError>> {
+        Box::pin(self.explain(statement, analyze))
     }
 
     fn in_transaction(&self) -> Option<bool> {

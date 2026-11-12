@@ -4,6 +4,8 @@ import type { Preferences as BackendPreferences } from '../../ipc';
 export type ThemeChoice = 'light' | 'dark' | 'system';
 export type Density = 'comfortable' | 'compact';
 export type NullStyle = 'italic' | 'plain';
+export type FormatKeywordCase = 'upper' | 'lower' | 'preserve';
+export type FormatIndent = 'two' | 'four' | 'tab';
 
 /** Every setting of the preferences screen, by key (F-125). */
 export interface PreferenceValues {
@@ -26,6 +28,9 @@ export interface PreferenceValues {
   lineNumbers: boolean;
   highlightStatement: boolean;
   confirmDangerous: boolean;
+  /** SQL formatter (F-049): keyword case and one indentation level. */
+  formatKeywordCase: FormatKeywordCase;
+  formatIndent: FormatIndent;
   // Results and data
   /** Rows after which a result pauses, and its memory in MB: the default `limits` of a run. */
   resultMaxRows: number;
@@ -134,6 +139,8 @@ export const DEFINITIONS = {
   lineNumbers: flag(true),
   highlightStatement: flag(true),
   confirmDangerous: flag(true),
+  formatKeywordCase: oneOf<FormatKeywordCase>('upper', ['upper', 'lower', 'preserve']),
+  formatIndent: oneOf<FormatIndent>('two', ['two', 'four', 'tab']),
   resultMaxRows: amount(100_000, 1000, 10_000_000),
   resultMaxMb: amount(256, 16, 2048),
   defaultPageSize: numberFrom(PAGE_SIZES, 500),

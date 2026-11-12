@@ -16,6 +16,8 @@ import {
 import { useElapsedMs, useExecutionStore, useTabExecution } from './executionStore';
 import { formatDuration } from './format';
 import { MessagesPanel } from './MessagesPanel';
+import { usePlanStore, useShowingPlan, useTabPlan } from './planStore';
+import { PlanView } from './PlanView';
 import styles from './ResultsArea.module.css';
 
 const tabDomId = (tabId: string, key: string) => `results-${tabId}-${key}`;
@@ -30,25 +32,45 @@ export function ResultsArea({ tabId }: { tabId: string }) {
   const execution = useTabExecution(tabId);
   const picked = useExecutionStore((state) => state.selections[tabId]);
   const selection = effectiveSelection(picked, execution);
-  const select = (next: ResultsSelection) => {
+  const plan = useTabPlan(tabId);
+  const showingPlan = useShowingPlan(tabId);
+  const select = (next: ResultsSelection | 'plan') => {
+    if (next === 'plan') {
+      usePlanStore.getState().show(tabId);
+      return;
+    }
+    usePlanStore.getState().hide(tabId);
     useExecutionStore.getState().select(tabId, next);
   };
 
-  const tabs: { key: string; label: string; detail?: string; value: ResultsSelection }[] = [
-    ...execution.results.map((result, index) => ({
-      key: `result-${String(result.resultId)}`,
-      label: t('query.results.result', { number: index + 1 }),
-      detail: `· ${formatNumber(locale, result.rowCount)}${result.status === 'paused' || result.truncated ? '+' : ''}`,
-      value: { kind: 'result', resultId: result.resultId } as const,
-    })),
-    {
-      key: 'messages',
-      label: t('query.results.messages'),
-      value: { kind: 'messages' } as const,
-    },
-  ];
-  const selectedKey =
-    selection.kind === 'messages' ? 'messages' : `result-${String(selection.resultId)}`;
+  const tabs: { key: string; label: string; detail?: string; value: ResultsSelection | 'plan' }[] =
+    [
+      ...execution.results.map((result, index) => ({
+        key: `result-${String(result.resultId)}`,
+        label: t('query.results.result', { number: index + 1 }),
+        detail: `· ${formatNumber(locale, result.rowCount)}${result.status === 'paused' || result.truncated ? '+' : ''}`,
+        value: { kind: 'result', resultId: result.resultId } as const,
+      })),
+      {
+        key: 'messages',
+        label: t('query.results.messages'),
+        value: { kind: 'messages' } as const,
+      },
+      ...(plan
+        ? [
+            {
+              key: 'plan',
+              label: t(plan.analyze ? 'query.results.actualPlan' : 'query.results.plan'),
+              value: 'plan' as const,
+            },
+          ]
+        : []),
+    ];
+  const selectedKey = showingPlan
+    ? 'plan'
+    : selection.kind === 'messages'
+      ? 'messages'
+      : `result-${String(selection.resultId)}`;
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
@@ -111,7 +133,9 @@ export function ResultsArea({ tabId }: { tabId: string }) {
         aria-labelledby={tabDomId(tabId, selectedKey)}
         className={styles.panel}
       >
-        {execution.status === 'idle' ? (
+        {showingPlan ? (
+          <PlanView tabId={tabId} />
+        ) : execution.status === 'idle' ? (
           <EmptyResults />
         ) : selection.kind === 'messages' || !selectedResult ? (
           <MessagesPanel tabId={tabId} execution={execution} />

@@ -6,10 +6,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use rusqlite::ErrorCode;
+use rusqlite::types::Value as SqlValue;
 
 use super::{SqliteConnection, blocking, kind_of, to_value};
-use crate::db::driver::{ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary};
+use crate::db::driver::{
+    ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary, Explained, recorded_sync,
+};
 use crate::db::errors::YadbeError;
+use crate::db::params::{BoundParam, ParamStatement};
+use crate::db::plan::{RawPlan, SqlitePlanRow};
 use crate::db::value::{ColumnMeta, Value};
 use crate::session::query_model::ServerMessage;
 
@@ -66,14 +71,46 @@ fn send(events: &ExecSender, event: ExecEvent) -> Result<(), ExecError> {
         .map_err(|_| YadbeError::cancelled().into())
 }
 
+/// A query parameter as SQLite stores it: integers and reals as numbers, the rest as text.
+fn user_param(value: &Value) -> SqlValue {
+    match value {
+        Value::Null => SqlValue::Null,
+        Value::Bool(b) => SqlValue::Integer(i64::from(*b)),
+        Value::Int(s) => s
+            .parse::<i64>()
+            .map_or_else(|_| SqlValue::Text(s.clone()), SqlValue::Integer),
+        Value::Decimal(s) | Value::Float(s) => s
+            .parse::<f64>()
+            .map_or_else(|_| SqlValue::Text(s.clone()), SqlValue::Real),
+        other => SqlValue::Text(crate::db::edit_dialect::plain_text(other).unwrap_or_default()),
+    }
+}
+
+/// Binds query parameters by the names SQLite reads in the statement (`:a`, `@a`, `$a`,
+/// `?2`); anonymous `?` take the positional values in order.
+fn bind(stmt: &mut rusqlite::Statement<'_>, params: &[BoundParam]) -> rusqlite::Result<()> {
+    let mut anonymous = params.iter().filter(|p| p.name == "?");
+    for index in 1..=stmt.parameter_count() {
+        let param = match stmt.parameter_name(index) {
+            Some(name) => params.iter().find(|p| p.name == name),
+            None => anonymous.next(),
+        };
+        let value = param.map_or(SqlValue::Null, |p| user_param(&p.value));
+        stmt.raw_bind_parameter(index, value)?;
+    }
+    Ok(())
+}
+
 fn run(
     conn: &rusqlite::Connection,
     sql: &str,
+    params: &[BoundParam],
     path: &Path,
     read_only: bool,
     events: &ExecSender,
 ) -> Result<ExecSummary, ExecError> {
     let mut stmt = conn.prepare(sql).map_err(|e| exec_error(&e, path))?;
+    bind(&mut stmt, params).map_err(|e| exec_error(&e, path))?;
     // Third guard after the classifier and the read-only open: SQLite's own verdict.
     if read_only && !stmt.readonly() {
         return Err(YadbeError::read_only_violation("").into());
@@ -91,7 +128,7 @@ fn run(
     if width > 0 {
         send(events, ExecEvent::Columns(columns))?;
     }
-    let mut rows = stmt.query([]).map_err(|e| exec_error(&e, path))?;
+    let mut rows = stmt.raw_query();
     let mut batch: Vec<Vec<Value>> = Vec::with_capacity(BATCH_ROWS);
     let mut batch_started = Instant::now();
     loop {
@@ -136,18 +173,75 @@ fn run(
 
 pub(super) async fn execute(
     connection: &SqliteConnection,
-    sql: &str,
+    statement: ParamStatement,
     events: ExecSender,
 ) -> Result<ExecSummary, ExecError> {
     let conn: Arc<Mutex<rusqlite::Connection>> = Arc::clone(&connection.conn);
     let path = connection.path.clone();
     let read_only = connection.read_only;
-    let sql = sql.to_owned();
     let result = blocking(move || {
         let conn = conn
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        Ok(run(&conn, &sql, &path, read_only, &events))
+        Ok(run(
+            &conn,
+            &statement.sql,
+            &statement.params,
+            &path,
+            read_only,
+            &events,
+        ))
+    })
+    .await;
+    result.map_err(ExecError::from)?
+}
+
+/// `EXPLAIN QUERY PLAN` of a user statement, its parameters bound (F-053).
+pub(super) async fn explain(
+    connection: &SqliteConnection,
+    statement: ParamStatement,
+) -> Result<Explained, ExecError> {
+    let conn: Arc<Mutex<rusqlite::Connection>> = Arc::clone(&connection.conn);
+    let recorder = Arc::clone(&connection.recorder);
+    let path = connection.path.clone();
+    let sql = format!("EXPLAIN QUERY PLAN {}", statement.sql);
+    let result = blocking(move || {
+        let conn = conn
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut failure = None;
+        let rows_of = |rows: &Vec<SqlitePlanRow>| u64::try_from(rows.len()).ok();
+        let read = recorded_sync(&*recorder, &sql, rows_of, || {
+            let fail = |e: rusqlite::Error, failure: &mut Option<ExecError>| {
+                let error = exec_error(&e, &path);
+                let yadbe = error.error.clone();
+                *failure = Some(error);
+                yadbe
+            };
+            let mut stmt = conn.prepare(&sql).map_err(|e| fail(e, &mut failure))?;
+            bind(&mut stmt, &statement.params).map_err(|e| fail(e, &mut failure))?;
+            let mut rows = stmt.raw_query();
+            let mut out = Vec::new();
+            while let Some(row) = rows.next().map_err(|e| fail(e, &mut failure))? {
+                out.push(SqlitePlanRow {
+                    id: row.get(0).map_err(|e| fail(e, &mut failure))?,
+                    parent: row.get(1).map_err(|e| fail(e, &mut failure))?,
+                    detail: row.get(3).map_err(|e| fail(e, &mut failure))?,
+                });
+            }
+            Ok(out)
+        });
+        Ok(match read {
+            Ok(rows) => Ok(Explained {
+                raw: RawPlan::SqliteRows(rows),
+                sent: sql,
+            }),
+            Err(error) => {
+                let mut failure = failure.unwrap_or_else(|| error.into());
+                failure.location = None;
+                Err(failure)
+            }
+        })
     })
     .await;
     result.map_err(ExecError::from)?

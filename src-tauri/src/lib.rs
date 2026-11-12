@@ -77,6 +77,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::query::commit_transaction,
             commands::query::rollback_transaction,
             commands::query::close_query_tab,
+            commands::query::query_parameters,
+            commands::query::explain_query,
             commands::history::search_history,
             commands::history::get_history_entry,
             commands::history::delete_history_entry,

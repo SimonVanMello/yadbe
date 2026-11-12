@@ -8,6 +8,7 @@ import {
   unwrap,
   type Engine,
   type ExecuteScope,
+  type ParameterValue,
   type TextRange,
   type TransactionMode,
   type TransactionState,
@@ -24,6 +25,8 @@ import { findDangerousStatements, type DangerousStatement } from './dangerousSta
 import { getEditor } from './editorRegistry';
 import { canRun, isActive } from './executionModel';
 import { getTabExecution, getTabTransaction, useExecutionStore } from './executionStore';
+import { askParameters, rememberedValues } from './parameterStore';
+import { usePlanStore } from './planStore';
 import { normalizeLineEndings, useFileIssues } from './fileIssues';
 import { fileNameOf, getQueryTabState, hashText, isDirty, useQueryTabStore } from './queryTabStore';
 import { scopeFor, type RunMode } from './runScope';
@@ -118,21 +121,54 @@ async function confirmDangerous(
  * before dangerous statements, then hands the whole text to the backend with the scope: results
  * and messages arrive through the execution store.
  */
-export async function runQuery(tabId: string, mode: RunMode = 'auto'): Promise<void> {
+export async function runQuery(
+  tabId: string,
+  mode: RunMode = 'auto',
+  options: RunOptions = {},
+): Promise<void> {
   // A second press while the first is still connecting or being confirmed would start a second run.
   if (starting.has(tabId)) return;
   starting.add(tabId);
   try {
-    await startRun(tabId, mode);
+    await startRun(tabId, mode, options);
   } finally {
     starting.delete(tabId);
   }
 }
 
+export interface RunOptions {
+  /** Run with the parameter values the tab used last, without asking (F-048). */
+  sameValues?: boolean;
+}
+
+/**
+ * The values of the query parameters the run sends (F-048): none without placeholders, the
+ * remembered ones when asked to reuse them and all are known, else what the prompt returns;
+ * `null` when the user cancelled.
+ */
+export async function parameterValuesFor(
+  tabId: string,
+  engine: Engine,
+  text: string,
+  scope: ExecuteScope,
+  sameValues: boolean,
+): Promise<ParameterValue[] | null> {
+  let found;
+  try {
+    found = await unwrap(ipc.commands.queryParameters(engine, text, scope));
+  } catch {
+    // Without the scan the backend cannot bind either: it reports why.
+    return [];
+  }
+  if (found.length === 0) return [];
+  const remembered = sameValues ? rememberedValues(tabId, found) : null;
+  return remembered ?? askParameters(tabId, found);
+}
+
 /** Tabs whose run is being prepared: connecting, asking, waiting for the backend's answer. */
 const starting = new Set<string>();
 
-async function startRun(tabId: string, mode: RunMode): Promise<void> {
+async function startRun(tabId: string, mode: RunMode, options: RunOptions): Promise<void> {
   const tab = queryTab(tabId);
   const connection = findConnection(tab?.connectionId ?? null);
   if (!tab || !connection) return;
@@ -148,6 +184,15 @@ async function startRun(tabId: string, mode: RunMode): Promise<void> {
     return;
   }
   if (!(await connectTo(connection))) return;
+
+  const parameters = await parameterValuesFor(
+    tabId,
+    connection.engine,
+    text,
+    scope,
+    options.sameValues === true,
+  );
+  if (parameters === null) return;
 
   if (guardApplies(connection, getPreference('confirmDangerous'))) {
     let ranges: TextRange[] = [];
@@ -167,6 +212,8 @@ async function startRun(tabId: string, mode: RunMode): Promise<void> {
   const store = useExecutionStore.getState();
   getEditor(tabId)?.markRunStart();
   store.markStarting(tabId);
+  // The results take the area back from a plan shown before.
+  usePlanStore.getState().hide(tabId);
   const result = await ipc.commands.executeQuery({
     tabId,
     connectionId: connection.id,
@@ -174,6 +221,7 @@ async function startRun(tabId: string, mode: RunMode): Promise<void> {
     text,
     scope,
     limits: resultLimits(),
+    parameters,
   });
   if (result.status === 'ok') {
     store.begin(tabId, result.data, { connectionId: connection.id, database, sourceText: text });

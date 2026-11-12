@@ -102,6 +102,8 @@ describe('inserting a saved query', () => {
       insertAtCursor: (text) => {
         calls.push({ kind: 'text', text });
       },
+      format: () => false,
+      definitionAtCursor: () => Promise.resolve(false),
       insertSnippet: (text) => {
         calls.push({ kind: 'snippet', text });
       },

@@ -15,10 +15,11 @@ use rusqlite::{InterruptHandle, OpenFlags};
 use crate::db::dialect::Engine;
 use crate::db::driver::{
     BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Connection, Driver,
-    ExecError, ExecSender, ExecSummary, LinkWatch, StatementRecorder, recorded_bound_sync,
-    recorded_sync,
+    ExecError, ExecSender, ExecSummary, Explained, LinkWatch, StatementRecorder,
+    recorded_bound_sync, recorded_sync,
 };
 use crate::db::errors::YadbeError;
+use crate::db::params::ParamStatement;
 use crate::db::value::{ColumnMeta, QueryResult, Value, ValueKind};
 
 const VERSION_SQL: &str = "SELECT sqlite_version()";
@@ -276,7 +277,23 @@ impl Connection for SqliteConnection {
         sql: &'a str,
         events: ExecSender,
     ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
-        Box::pin(execute::execute(self, sql, events))
+        Box::pin(execute::execute(self, ParamStatement::plain(sql), events))
+    }
+
+    fn execute_params<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+        events: ExecSender,
+    ) -> BoxFuture<'a, Result<ExecSummary, ExecError>> {
+        Box::pin(execute::execute(self, statement.clone(), events))
+    }
+
+    fn explain<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+        _analyze: bool,
+    ) -> BoxFuture<'a, Result<Explained, ExecError>> {
+        Box::pin(execute::explain(self, statement.clone()))
     }
 
     fn query_bound<'a>(

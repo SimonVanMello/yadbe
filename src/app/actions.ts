@@ -62,6 +62,13 @@ export const DEFAULT_BINDINGS = {
   'table.referencingRows': 'Shift+F12',
   'table.navigateBack': 'Alt+ArrowLeft',
   'table.navigateForward': 'Alt+ArrowRight',
+  // Query tools (F-049, F-052, F-053). `Mod+L` explains as in SSMS and Azure Data Studio; F12
+  // goes to the definition of the name at the cursor, as code editors do (and as table tabs
+  // follow a foreign key with it).
+  'query.format': 'Shift+Alt+F',
+  'query.explain': 'Mod+L',
+  'query.explainAnalyze': 'Mod+Alt+L',
+  'query.goToDefinition': 'F12',
 } as const;
 
 /**
@@ -105,6 +112,8 @@ export const UNBOUND_ACTIONS = [
   'table.import',
   'connection.import',
   'connection.export',
+  'query.runSameParameters',
+  'query.openDefinitionData',
 ] as const;
 
 export type BoundActionId = keyof typeof DEFAULT_BINDINGS;
@@ -189,6 +198,12 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'table.navigateForward': 'action.table.navigateForward',
   'view.journal': 'action.view.journal',
   'table.journal': 'action.table.journal',
+  'query.format': 'action.query.format',
+  'query.explain': 'action.query.explain',
+  'query.explainAnalyze': 'action.query.explainAnalyze',
+  'query.goToDefinition': 'action.query.goToDefinition',
+  'query.runSameParameters': 'action.query.runSameParameters',
+  'query.openDefinitionData': 'action.query.openDefinitionData',
 };
 
 /** Shortcut of an action that has one, as written in `DEFAULT_BINDINGS` (`Mod+T`). */

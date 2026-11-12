@@ -27,6 +27,12 @@ const NEEDS_QUERY_TAB: ReadonlySet<ActionId> = new Set([
   'query.saveAs',
   'query.saveToLibrary',
   'query.updateSavedQuery',
+  'query.format',
+  'query.explain',
+  'query.explainAnalyze',
+  'query.goToDefinition',
+  'query.runSameParameters',
+  'query.openDefinitionData',
   'tab.togglePin',
 ]);
 

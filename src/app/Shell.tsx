@@ -10,6 +10,7 @@ import { refreshNode } from '../features/explorer/explorerActions';
 import { useExplorerStore } from '../features/explorer/explorerStore';
 import { useHistoryActions } from '../features/history/useHistoryActions';
 import { SaveQueryDialog } from '../features/library/SaveQueryDialog';
+import { ParameterDialog } from '../features/query/ParameterDialog';
 import { useLibraryActions } from '../features/library/useLibraryActions';
 import { useJournalActions } from '../features/journal/useJournalActions';
 import { ConnectionExportDialog } from '../features/connections/ConnectionExportDialog';
@@ -232,6 +233,7 @@ export function Shell() {
       <ConnectionImportDialog />
       <ConnectionExportDialog />
       <SaveQueryDialog />
+      <ParameterDialog />
       <CommandPalette />
       <PreferencesDialog />
     </div>

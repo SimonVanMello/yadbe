@@ -30,6 +30,44 @@ impl ToSql for NText {
     }
 }
 
+/// A query parameter (F-048) with the SQL Server type its value calls for: `bigint`,
+/// `numeric(p,s)`, `float`, `bit`, else `nvarchar` (dates and times included: the server
+/// converts the text where the parameter is compared or stored).
+pub(super) fn user_param(value: &Value) -> ColumnData<'static> {
+    let text = || ColumnData::String(plain_text(value).map(Cow::Owned));
+    match value {
+        Value::Null => ColumnData::String(None),
+        Value::Bool(b) => ColumnData::Bit(Some(*b)),
+        Value::Int(s) => s
+            .parse::<i64>()
+            .map_or_else(|_| text(), |v| ColumnData::I64(Some(v))),
+        Value::Decimal(s) => numeric(s).map_or_else(text, |n| ColumnData::Numeric(Some(n))),
+        Value::Float(s) => s
+            .parse::<f64>()
+            .map_or_else(|_| text(), |v| ColumnData::F64(Some(v))),
+        _ => text(),
+    }
+}
+
+/// `-12.345` as a `numeric(5,3)`; `None` past 38 digits.
+fn numeric(text: &str) -> Option<tiberius::numeric::Numeric> {
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
+    };
+    let (whole, fraction) = digits.split_once('.').unwrap_or((digits, ""));
+    let all: String = format!("{whole}{fraction}");
+    if all.is_empty() || all.len() > 38 || !all.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let value: i128 = all.parse().ok()?;
+    let scale = u8::try_from(fraction.len()).ok()?;
+    Some(tiberius::numeric::Numeric::new_with_scale(
+        if negative { -value } else { value },
+        scale,
+    ))
+}
+
 fn text_of(value: &Value) -> Option<String> {
     match value {
         Value::Bool(b) => Some(if *b { "1" } else { "0" }.to_owned()),

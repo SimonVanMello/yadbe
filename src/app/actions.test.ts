@@ -102,12 +102,15 @@ describe('action labels', () => {
 });
 
 describe('default bindings', () => {
-  it('never give two actions the same shortcut, but Save and Apply (query and table tabs)', () => {
+  it('never give two actions the same shortcut, but Save / Apply and F12 (query and table tabs)', () => {
+    const shared = new Set(['table.apply', 'query.goToDefinition']);
     const shortcuts = Object.entries(DEFAULT_BINDINGS)
-      .filter(([id]) => id !== 'table.apply')
+      .filter(([id]) => !shared.has(id))
       .map(([, shortcut]) => shortcut);
     expect(new Set(shortcuts).size).toBe(shortcuts.length);
     expect(DEFAULT_BINDINGS['table.apply']).toBe(DEFAULT_BINDINGS['query.save']);
+    // Go to the definition of a name in a query tab, follow a foreign key in a table tab.
+    expect(DEFAULT_BINDINGS['query.goToDefinition']).toBe(DEFAULT_BINDINGS['table.goToReference']);
   });
 
   it('cover the tab shortcuts of F-122: ⌘T, ⌘W, ⌘1…9 and ⌃Tab', () => {

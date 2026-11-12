@@ -186,6 +186,19 @@ export const commands = {
 	 */
 	closeQueryTab: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("close_query_tab", { tabId })),
 	/**
+	 *  The query parameters (`:name`, `@name`, `$1`, `?`… as the engine reads them) of the
+	 *  statements a run of `scope` would send, merged by name, in order of first appearance
+	 *  (F-048). Their values go in `ExecuteRequest::parameters`.
+	 */
+	queryParameters: (engine: Engine, text: string, scope: ExecuteScope) => typedError<QueryParameter[], YadbeError>(__TAURI_INVOKE("query_parameters", { engine, text, scope })),
+	/**
+	 *  The plan of one statement (F-053), on the tab's own connection: estimated, or with
+	 *  `analyze` actual (the statement runs). What yadbe sends goes to the statement log.
+	 *  Cancelled by `cancel_query`. Fails with `executionRunning` while the tab runs,
+	 *  `readOnlyViolation` for an analyze that may write on a read-only connection.
+	 */
+	explainQuery: (request: ExplainRequest) => typedError<ExplainResult, YadbeError>(__TAURI_INVOKE("explain_query", { request })),
+	/**
 	 *  One page of the history, newest first: full-text `text`, filters, keyset pagination
 	 *  (`after` is the previous page's `next`). Statements are cut in list rows.
 	 */
@@ -602,6 +615,12 @@ export type Capabilities = {
 	 *  capitals needs its quotes to be found again.
 	 */
 	foldsUnquotedToLower: boolean,
+	/**  Placeholders read as query parameters (F-048). */
+	parameterStyles: ParameterStyles,
+	/**  The engine shows its plan for a statement without running it (F-053). */
+	explain: boolean,
+	/**  The engine runs a statement and shows its plan with actual rows and times. */
+	explainAnalyze: boolean,
 };
 
 /**  A foreign key between two relations of the catalog (join suggestions). */
@@ -1251,6 +1270,11 @@ export type ExecuteRequest = {
 	scope: ExecuteScope,
 	/**  `null`: 100 000 rows / 256 MB per result. */
 	limits: ResultLimits | null,
+	/**
+	 *  Values of the statements' parameters (F-048), from `query_parameters`. A statement
+	 *  whose parameters lack a value fails the whole run before anything is sent.
+	 */
+	parameters?: ParameterValue[],
 };
 
 /**  Which statements of the text run (F-041). */
@@ -1314,6 +1338,32 @@ export type ExecutionStatus =
 "paused" | "succeeded" | 
 /**  A statement failed (or was refused); the next ones did not run. */
 "failed" | "cancelled";
+
+/**  Explain the statement of a scope (F-053). */
+export type ExplainRequest = {
+	/**  Runs on the tab's own connection (its transaction, temporary tables, settings). */
+	tabId: string,
+	connectionId: string,
+	database: string | null,
+	text: string,
+	/**  Must hold exactly one statement. */
+	scope: ExecuteScope,
+	/**
+	 *  Run the statement and report actual rows and times (`EXPLAIN ANALYZE`, actual
+	 *  execution plan). A statement that writes does write.
+	 */
+	analyze: boolean,
+	parameters?: ParameterValue[],
+};
+
+/**  A plan and what was run to get it. */
+export type ExplainResult = {
+	statement: TextRange,
+	plan: QueryPlan,
+	/**  What yadbe sent (also in the statement log), e.g. `EXPLAIN (FORMAT JSON) …`. */
+	sent: string,
+	durationMs: number | null,
+};
 
 /**
  *  The export ended; always the last event of an export. A failed or cancelled export left
@@ -2171,6 +2221,59 @@ export type ObjectRef = {
 	name: string,
 };
 
+/**  The type a query parameter's value is given as (F-048). */
+export type ParameterKind = "text" | 
+/**  Digits, optionally a sign, a decimal part and an exponent. */
+"number" | 
+/**  `true` / `false`. */
+"boolean" | 
+/**  SQL `NULL`; the value is ignored. */
+"null" | 
+/**  `YYYY-MM-DD`, `HH:MM[:SS[.ffffff]]` or both, with an optional offset. */
+"dateTime";
+
+/**  How a placeholder is written. */
+export type ParameterStyle = 
+/**  `:name`. */
+"colon" | 
+/**  `@name`. */
+"at" | 
+/**  `$name` (SQLite). */
+"dollarName" | 
+/**  `$1` (PostgreSQL), `?1` (SQLite). */
+"numbered" | 
+/**  `?`: each one is its own parameter, numbered in order of appearance. */
+"positional";
+
+/**  The placeholders an engine reads as query parameters (F-048). */
+export type ParameterStyles = {
+	/**  `:name`. */
+	colon: boolean,
+	/**  `@name`. */
+	at: boolean,
+	/**
+	 *  `@name` is also how variables are written (T-SQL): only the names the batch does not
+	 *  declare are parameters.
+	 */
+	atDeclaredAreVariables: boolean,
+	/**  `$name`. */
+	dollarName: boolean,
+	/**  `$1`. */
+	dollarNumber: boolean,
+	/**  `?`. */
+	question: boolean,
+	/**  `?1`. */
+	questionNumber: boolean,
+};
+
+/**  The value given for one query parameter. */
+export type ParameterValue = {
+	/**  `QueryParameter::name`. */
+	name: string,
+	kind: ParameterKind,
+	value: string,
+};
+
 /**
  *  Form fields found in a connection string; `null`: absent from the string (keep the
  *  form's value).
@@ -2210,6 +2313,65 @@ export type PinnedObject = {
 	/**  The object's id in its list (see [`DdlTarget::Object`]); equal to `name` for a schema. */
 	id: string,
 };
+
+/**  A labelled property of a node, as the engine names it (never translated). */
+export type PlanFact = {
+	label: string,
+	value: string,
+};
+
+/**  The form the engine gave its plan in. */
+export type PlanFormat = 
+/**  `EXPLAIN (FORMAT JSON)`. */
+"postgresJson" | 
+/**  Showplan XML (`SET SHOWPLAN_XML` / `SET STATISTICS XML`). */
+"showplanXml" | 
+/**  `EXPLAIN FORMAT=JSON` (MySQL), `EXPLAIN` / `ANALYZE FORMAT=JSON` (MariaDB). */
+"mysqlJson" | 
+/**  `EXPLAIN ANALYZE` tree text (MySQL 8.0.18+). */
+"mysqlTree" | 
+/**  `EXPLAIN QUERY PLAN` rows. */
+"sqliteRows";
+
+/**  One operation of a plan. */
+export type PlanNode = {
+	/**  Position in `nodes` (pre-order). */
+	id: number,
+	parent: number | null,
+	depth: number,
+	/**  `Seq Scan`, `Hash Join`, `Clustered Index Seek`, `SCAN orders`… */
+	operation: string,
+	/**  The table or view it reads. */
+	relation: string | null,
+	index: string | null,
+	/**  Its main condition (index condition, filter, join condition…). */
+	detail: string | null,
+	/**  Rows the planner expected (per loop). */
+	estimatedRows: number | null,
+	/**  Rows it produced (per loop, as the engine reports them). */
+	actualRows: number | null,
+	/**  How many times it ran. */
+	loops: number | null,
+	/**  Estimated cost of the node and everything under it, in the engine's units. */
+	estimatedCost: number | null,
+	/**  Time it took with everything under it, all loops, in milliseconds. */
+	actualTimeMs: number | null,
+	/**  Its share of the plan's own work (0 to 1): see `QueryPlan::weight_basis`. */
+	weight: number | null,
+	/**  Everything else the engine says about it. */
+	facts: PlanFact[],
+};
+
+/**  What the plan's weights measure. */
+export type PlanWeightBasis = 
+/**  Actual time of each node, its children's left out. */
+"time" | 
+/**  Estimated cost of each node, its children's left out. */
+"cost" | 
+/**  No measure from the engine: full scans and temporary sorts count (SQLite). */
+"heuristic" | 
+/**  Nothing to weigh. */
+"none";
 
 /**  What a planned statement does, pointing back into the change set. */
 export type PlannedChange = { kind: "update"; key: Value[]; 
@@ -2278,6 +2440,34 @@ export type QueryMessage = {
 	/**  Milliseconds since the execution started. */
 	atMs: number,
 	body: MessageBody,
+};
+
+/**  A parameter of the statements a run would send (F-048). */
+export type QueryParameter = {
+	/**
+	 *  What the value is given for: the name without its sigil (`id`), the number of a
+	 *  numbered one (`2`), `#` and the order of a `?` in the run (`#1`, `#2`…).
+	 */
+	name: string,
+	/**  As written the first time (`:id`, `@id`, `$2`, `?`). */
+	label: string,
+	style: ParameterStyle,
+	/**  Where it appears in the editor text. */
+	occurrences: TextRange[],
+};
+
+/**  A parsed plan. */
+export type QueryPlan = {
+	format: PlanFormat,
+	/**  Actual rows and times are known: the statement ran. */
+	analyzed: boolean,
+	weightBasis: PlanWeightBasis,
+	/**  Pre-order; roots have no parent (a SQL Server batch has one per statement). */
+	nodes: PlanNode[],
+	/**  Plan-wide figures: planning and execution time, total cost… */
+	summary: PlanFact[],
+	/**  The plan as the engine sent it (JSON pretty-printed). */
+	raw: string,
 };
 
 /**

@@ -46,6 +46,8 @@ function controller(inserted: string[]): EditorController {
     setErrors: () => undefined,
     replaceContent: () => undefined,
     insertSnippet: () => undefined,
+    format: () => false,
+    definitionAtCursor: () => Promise.resolve(false),
     insertAtCursor: (text) => {
       inserted.push(text);
     },

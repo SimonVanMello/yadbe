@@ -77,6 +77,17 @@ export const POSTGRES: Capabilities = {
   identifierQuoteOpen: '"',
   identifierQuoteClose: '"',
   foldsUnquotedToLower: true,
+  parameterStyles: {
+    colon: true,
+    at: false,
+    atDeclaredAreVariables: false,
+    dollarName: false,
+    dollarNumber: true,
+    question: false,
+    questionNumber: false,
+  },
+  explain: true,
+  explainAnalyze: true,
 };
 
 export const SQLITE: Capabilities = {
@@ -90,6 +101,17 @@ export const SQLITE: Capabilities = {
   identifierQuoteOpen: '"',
   identifierQuoteClose: '"',
   foldsUnquotedToLower: false,
+  parameterStyles: {
+    colon: true,
+    at: true,
+    atDeclaredAreVariables: false,
+    dollarName: true,
+    dollarNumber: false,
+    question: true,
+    questionNumber: true,
+  },
+  explain: true,
+  explainAnalyze: false,
 };
 
 export const MYSQL: Capabilities = {
