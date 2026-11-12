@@ -1,7 +1,7 @@
 import { useId, useMemo, useState, type KeyboardEvent } from 'react';
 
 import { ErrorPanel } from '../../app/errors/ErrorPanel';
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useShellStore } from '../../app/shellStore';
 import { useT } from '../../i18n/useT';
 import { YadbeIpcError } from '../../ipc';
@@ -47,6 +47,7 @@ function ActionTile({ icon, title, description, shortcut, onClick }: ActionTileP
 
 /** New tab / welcome screen (F-123): favorite and recent connections, fuzzy search, new connection. */
 export function WelcomeScreen() {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const listId = useId();
   const now = useNow();

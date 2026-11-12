@@ -196,6 +196,18 @@ const MIGRATIONS: &[&str] = &[
         pinned_at INTEGER NOT NULL,
         PRIMARY KEY (connection_id, database_name, schema_name, kind, object_id)
     );",
+    // v7: per-tab history (F-102): the editor tab a statement ran in. Entries written before
+    // have none. No foreign key: the history outlives the tab.
+    "ALTER TABLE history ADD COLUMN tab_id TEXT;
+    CREATE INDEX history_by_tab ON history(tab_id, id);",
+    // v8: statement timeout and keep-alive per connection (F-014). NULL: no timeout / the
+    // default interval; connections saved before have neither.
+    "ALTER TABLE connections ADD COLUMN statement_timeout_secs INTEGER;
+    ALTER TABLE connections ADD COLUMN keep_alive_secs INTEGER;",
+    // v9: TLS client certificate and key files of a connection (F-009). Paths only: the key's
+    // passphrase is a secret and lives in the keychain.
+    "ALTER TABLE connections ADD COLUMN tls_client_cert_path TEXT;
+    ALTER TABLE connections ADD COLUMN tls_client_key_path TEXT;",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -216,6 +228,18 @@ pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {
 /// Schema version after all migrations.
 pub fn latest_version() -> i64 {
     i64::try_from(MIGRATIONS.len()).unwrap_or(i64::MAX)
+}
+
+/// An older database for a test: the schema as it was after `version` migrations.
+#[cfg(test)]
+pub fn apply_through(conn: &mut Connection, version: usize) -> rusqlite::Result<()> {
+    for (number, sql) in (1_i64..).zip(MIGRATIONS.iter().take(version)) {
+        let tx = conn.transaction()?;
+        tx.execute_batch(sql)?;
+        tx.pragma_update(None, "user_version", number)?;
+        tx.commit()?;
+    }
+    Ok(())
 }
 
 /// The schema of version 1, to build older databases in tests.

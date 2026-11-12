@@ -83,7 +83,7 @@ describe('TableRowSource', () => {
 
   it('builds composite keys from the window, fetching a cut key cell whole', async () => {
     const fetchCell = vi
-      .spyOn(ipc.commands, 'fetchResultCell')
+      .spyOn(ipc.commands, 'fetchResultStoredCell')
       .mockResolvedValue({ status: 'ok', data: { kind: 'text', value: 'acme-full-name' } });
     const s = source();
     expect(await s.keyOf(1, [0, 1])).toEqual([
@@ -177,7 +177,7 @@ describe('TableRowSource', () => {
   });
 
   it('reads a query result that grows, after an apply too (F-087)', () => {
-    const fetchWindow = vi.spyOn(ipc.commands, 'fetchResultWindow');
+    const fetchWindow = vi.spyOn(ipc.commands, 'fetchResultStoredWindow');
     const s = new TableRowSource(
       columns,
       columns.map((c) => ({ name: c.name, typeName: c.typeName, kind: c.kind })),

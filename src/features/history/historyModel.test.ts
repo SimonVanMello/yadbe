@@ -76,8 +76,9 @@ describe('filters', () => {
         outcome: 'error',
         range: 'today',
         minDuration: '100',
+        thisTab: true,
       }),
-    ).toBe(4);
+    ).toBe(5);
     expect(isFiltered(EMPTY_FILTERS)).toBe(false);
     expect(isFiltered({ ...EMPTY_FILTERS, text: '  ' })).toBe(false);
     expect(isFiltered({ ...EMPTY_FILTERS, outcome: 'cancelled' })).toBe(true);
@@ -87,6 +88,7 @@ describe('filters', () => {
     expect(toBaseQuery(EMPTY_FILTERS, NOW)).toEqual({
       text: null,
       connectionId: null,
+      tabId: null,
       outcomes: [],
       from: null,
       to: null,
@@ -101,18 +103,39 @@ describe('filters', () => {
           outcome: 'refused',
           range: 'today',
           minDuration: '1000',
+          thisTab: false,
         },
         NOW,
       ),
     ).toEqual({
       text: 'orders',
       connectionId: 'c1',
+      tabId: null,
       outcomes: ['refused'],
       from: DAY,
       to: null,
       minDurationMs: 1000,
       limit: null,
     });
+  });
+});
+
+describe('the filter of the active tab (F-102)', () => {
+  const thisTab = { ...EMPTY_FILTERS, thisTab: true };
+
+  it('names the editor tab on screen', () => {
+    expect(toBaseQuery(thisTab, NOW, 'tab-1').tabId).toBe('tab-1');
+    // Not asked for: no tab, whatever is on screen.
+    expect(toBaseQuery(EMPTY_FILTERS, NOW, 'tab-1').tabId).toBeNull();
+  });
+
+  it('asks for a tab that ran nothing when no editor tab is on screen, not for everything', () => {
+    expect(toBaseQuery(thisTab, NOW, null).tabId).toBe('');
+  });
+
+  it('counts as a filter, so the panel offers to reset it', () => {
+    expect(isFiltered(thisTab)).toBe(true);
+    expect(activeFilterCount(thisTab)).toBe(1);
   });
 });
 

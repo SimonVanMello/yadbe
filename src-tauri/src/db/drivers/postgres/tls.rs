@@ -20,6 +20,7 @@ use tokio_postgres::tls::{ChannelBinding, MakeTlsConnect, TlsConnect, TlsStream}
 
 use crate::db::config::TlsMode;
 use crate::db::errors::YadbeError;
+use crate::db::tls_identity::TlsIdentity;
 
 fn provider() -> Arc<CryptoProvider> {
     static PROVIDER: OnceLock<Arc<CryptoProvider>> = OnceLock::new();
@@ -61,7 +62,11 @@ fn roots_from_pem(path: &Path) -> Result<Arc<RootCertStore>, YadbeError> {
 
 /// The rustls configuration of a TLS mode. `prefer` and `require` (without CA) encrypt
 /// without authenticating the server, like libpq.
-pub fn client_config(mode: TlsMode, ca: Option<&Path>) -> Result<Arc<ClientConfig>, YadbeError> {
+pub fn client_config(
+    mode: TlsMode,
+    ca: Option<&Path>,
+    identity: Option<&TlsIdentity>,
+) -> Result<Arc<ClientConfig>, YadbeError> {
     let provider = provider();
     let algorithms = provider.signature_verification_algorithms;
     let webpki = |roots: Arc<RootCertStore>| {
@@ -75,12 +80,17 @@ pub fn client_config(mode: TlsMode, ca: Option<&Path>) -> Result<Arc<ClientConfi
         (TlsMode::Require, Some(ca)) => Arc::new(ChainOnly(webpki(roots_from_pem(ca)?)?)),
         _ => Arc::new(EncryptOnly(algorithms)),
     };
-    let config = ClientConfig::builder_with_provider(Arc::clone(&provider))
+    let builder = ClientConfig::builder_with_provider(Arc::clone(&provider))
         .with_safe_default_protocol_versions()
         .map_err(|e| YadbeError::tls_failed().with_detail(e.to_string()))?
         .dangerous()
-        .with_custom_certificate_verifier(verifier)
-        .with_no_client_auth();
+        .with_custom_certificate_verifier(verifier);
+    let config = match identity {
+        Some(identity) => builder
+            .with_client_auth_cert(identity.cert_chain(), identity.private_key()?)
+            .map_err(|e| YadbeError::tls_client_cert_invalid(e.to_string()))?,
+        None => builder.with_no_client_auth(),
+    };
     Ok(Arc::new(config))
 }
 

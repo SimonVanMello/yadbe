@@ -49,6 +49,8 @@ pub struct ConnectionSession {
     conn: RwLock<Option<Arc<dyn Connection>>>,
     shutdown: watch::Sender<bool>,
     monitor: Mutex<Option<JoinHandle<()>>>,
+    /// The keep-alive task (F-014), when the connection crosses a network.
+    keeper: Mutex<Option<JoinHandle<()>>>,
     /// The SSH tunnel every connection of the session goes through, if any.
     tunnel: Option<TunnelSlot>,
 }
@@ -91,6 +93,7 @@ impl ConnectionSession {
             conn: RwLock::new(None),
             shutdown: watch::channel(false).0,
             monitor: Mutex::new(None),
+            keeper: Mutex::new(None),
             tunnel,
         })
     }
@@ -221,7 +224,31 @@ impl ConnectionSession {
         });
         let session = Arc::clone(self);
         *lock(&self.monitor) = Some(tokio::spawn(async move { session.watch().await }));
+        if let Some(every) = self.target.keep_alive {
+            let session = Arc::clone(self);
+            *lock(&self.keeper) =
+                Some(tokio::spawn(async move { session.keep_alive(every).await }));
+        }
         Ok(self.info())
+    }
+
+    /// Pings the open connection every `every` while the session lives (F-014), so a firewall
+    /// or NAT that forgets idle connections does not drop it. Not recorded; a failed ping is
+    /// left to the link watch, which reconnects.
+    async fn keep_alive(self: Arc<Self>, every: Duration) {
+        let mut shutdown = self.shutdown.subscribe();
+        loop {
+            tokio::select! {
+                () = tokio::time::sleep(every) => {}
+                _ = shutdown.wait_for(|closed| *closed) => return,
+            }
+            let Ok(conn) = self.connection() else {
+                continue;
+            };
+            if let Err(err) = conn.keep_alive().await {
+                tracing::debug!(connection = %self.id, error = %err, "keep-alive ping failed");
+            }
+        }
     }
 
     /// Waits for the link to drop, then reconnects; ends on close or when the attempts are
@@ -362,11 +389,15 @@ impl ConnectionSession {
         });
         self.shutdown.send_replace(true);
         let monitor = lock(&self.monitor).take();
+        let keeper = lock(&self.keeper).take();
         if let Some(conn) = self.install(None) {
             conn.close().await;
         }
         if let Some(monitor) = monitor {
             monitor.abort();
+        }
+        if let Some(keeper) = keeper {
+            keeper.abort();
         }
         if let Some(slot) = &self.tunnel {
             slot.close(&*self.recorder).await;

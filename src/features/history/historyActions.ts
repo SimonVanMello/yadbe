@@ -4,7 +4,11 @@ import { ipc, unwrap } from '../../ipc';
 import { toast } from '../../ui/toastStore';
 import { connectTo } from '../connections/connectionActions';
 import { findConnection } from '../query/connectionLookup';
-import { insertIntoActiveEditor, openQueryTab } from '../query/openQueryTab';
+import {
+  insertIntoActiveEditor,
+  openQueryTab,
+  replaceActiveEditorText,
+} from '../query/openQueryTab';
 import type { HistoryEntry } from './historyModel';
 import { useHistoryUi } from './historyStore';
 import { refreshHistory } from './useHistory';
@@ -51,6 +55,18 @@ export async function insertEntry(entry: HistoryEntry): Promise<void> {
   try {
     const text = await fullStatement(entry);
     if (!insertIntoActiveEditor(text)) {
+      toast({ variant: 'info', title: t('history.insert.noEditor') });
+    }
+  } catch (error) {
+    showError(error);
+  }
+}
+
+/** The statement in place of the active tab's text: an earlier version of it (F-102). */
+export async function restoreEntry(entry: HistoryEntry): Promise<void> {
+  try {
+    const text = await fullStatement(entry);
+    if (!replaceActiveEditorText(text)) {
       toast({ variant: 'info', title: t('history.insert.noEditor') });
     }
   } catch (error) {

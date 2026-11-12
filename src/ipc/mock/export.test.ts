@@ -129,6 +129,46 @@ describe('the mock export', () => {
     ).toMatchObject({ status: 'error', error: { code: 'invalidArgument' } });
   });
 
+  it('writes SQL inserts for the engine asked, Markdown, and the rows of an Excel workbook', async () => {
+    const { exporter, files, finished } = setup(3);
+    const source: ExportSourceSpec = {
+      kind: 'result',
+      resultId: 1,
+      scope: { kind: 'all' },
+    };
+    const sql: ExportFormat = {
+      format: 'sql',
+      options: {
+        engine: 'mysql',
+        schema: 'shop',
+        table: 'orders',
+        rowsPerStatement: 2,
+        lineEnding: 'lf',
+      },
+    };
+    await exporter.commands.startExport({ source, format: sql, path: '/home/ana/rows.sql' });
+    await waitFor(() => finished.length > 0);
+    expect(files.get('/home/ana/rows.sql')).toBe(
+      "INSERT INTO `shop`.`orders` (`id`, `name`) VALUES\n  (1, 'n,0'),\n  (2, 'n,1');\n" +
+        'INSERT INTO `shop`.`orders` (`id`, `name`) VALUES\n  (3, NULL);\n',
+    );
+    const markdown: ExportFormat = {
+      format: 'markdown',
+      options: { nullText: 'NULL', alignNumbers: true, binary: 'hex', lineEnding: 'lf' },
+    };
+    expect(await exporter.commands.previewExport(source, markdown, 3)).toEqual({
+      status: 'ok',
+      data: '| id | name |\n| ---: | --- |\n| 1 | n,0 |\n| 2 | n,1 |\n| 3 | NULL |\n',
+    });
+    const excel: ExportFormat = { format: 'excel', options: { sheetName: 'S', binary: 'hex' } };
+    expect(
+      await exporter.commands.startExport({ source, format: excel, path: '/home/ana/rows.csv' }),
+    ).toMatchObject({ status: 'error', error: { code: 'invalidArgument' } });
+    expect(
+      await exporter.commands.startExport({ source, format: excel, path: '/home/ana/rows.xlsx' }),
+    ).toMatchObject({ status: 'ok' });
+  });
+
   it('refuses a relative path, a wrong extension and a freed result', async () => {
     const { exporter } = setup(5);
     const request = (resultId: number, path: string) => ({

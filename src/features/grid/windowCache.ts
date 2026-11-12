@@ -49,6 +49,8 @@ export class WindowCache {
   private movedAt = -Infinity;
   private lastStart = -Infinity;
   private rows = 0;
+  /** Bumped by `reset`: an answer for an older generation is dropped. */
+  private generation = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
 
@@ -104,6 +106,22 @@ export class WindowCache {
     for (const index of [...this.blockMap.keys()]) {
       if (index * this.windowSize >= count) this.blockMap.delete(index);
     }
+    this.notify();
+    this.pump();
+  }
+
+  /**
+   * The rows behind the indices changed (a sort or a filter): forgets every window and starts
+   * over with `count` rows. Answers still in flight are dropped.
+   */
+  reset(count: number): void {
+    this.generation++;
+    this.blockMap.clear();
+    this.inflight.clear();
+    this.lastFetch.clear();
+    this.failures.clear();
+    this.rows = count;
+    this.wantedKey = '';
     this.notify();
     this.pump();
   }
@@ -218,8 +236,10 @@ export class WindowCache {
     this.lastStart = now;
     this.lastFetch.set(index, now);
     this.fetchCount++;
+    const generation = this.generation;
     this.options.fetch(index * this.windowSize, this.windowSize).then(
       (block) => {
+        if (generation !== this.generation) return;
         this.inflight.delete(index);
         if (this.disposed) return;
         this.failures.delete(index);
@@ -234,6 +254,7 @@ export class WindowCache {
         this.pump();
       },
       () => {
+        if (generation !== this.generation) return;
         this.inflight.delete(index);
         if (this.disposed) return;
         const count = (this.failures.get(index)?.count ?? 0) + 1;

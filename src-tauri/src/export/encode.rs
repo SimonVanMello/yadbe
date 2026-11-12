@@ -12,12 +12,22 @@ pub trait RowEncoder: Send {
     fn row(&mut self, row: &[Value], out: &mut Vec<u8>);
     /// After the last row.
     fn end(&mut self, out: &mut Vec<u8>);
+    /// The format cannot hold another row (an Excel worksheet has a last row): the export
+    /// stops there and says so.
+    fn is_full(&self) -> bool {
+        false
+    }
 }
 
 pub fn encoder(format: &ExportFormat) -> Box<dyn RowEncoder> {
     match format {
         ExportFormat::Csv { options } => Box::new(super::csv::CsvEncoder::new(options.clone())),
         ExportFormat::Json { options } => Box::new(super::json::JsonEncoder::new(options.clone())),
+        ExportFormat::Sql { options } => Box::new(super::sql::SqlEncoder::new(options.clone())),
+        ExportFormat::Markdown { options } => {
+            Box::new(super::markdown::MarkdownEncoder::new(options.clone()))
+        }
+        ExportFormat::Excel { options } => Box::new(super::xlsx::XlsxEncoder::new(options.clone())),
     }
 }
 

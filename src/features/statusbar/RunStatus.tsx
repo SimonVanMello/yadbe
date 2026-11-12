@@ -1,6 +1,7 @@
 import { selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
+import type { SelectionAggregate } from '../../ipc';
 import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
 import { Tooltip } from '../../ui/Tooltip';
@@ -30,6 +31,11 @@ function RunStatusLine({ tabId }: { tabId: string }) {
   const selection = useResultSelectionStore((state) =>
     state.size && execution.results.some((result) => result.resultId === state.resultId)
       ? state.size
+      : null,
+  );
+  const aggregate = useResultSelectionStore((state) =>
+    state.size && execution.results.some((result) => result.resultId === state.resultId)
+      ? state.aggregate
       : null,
   );
   const { status } = execution;
@@ -73,7 +79,41 @@ function RunStatusLine({ tabId }: { tabId: string }) {
       {cells > 1 && (
         <span className={styles.muted}>· {formatCount(locale, 'grid.cellsSelected', cells)}</span>
       )}
+      {cells > 1 && aggregate && <AggregateFigures aggregate={aggregate} />}
     </span>
   );
   return wall ? <Tooltip content={wall}>{line}</Tooltip> : line;
+}
+
+const MAX_FIGURE_CHARS = 28;
+
+/** The count, and for numbers the sum, average, minimum and maximum of the selection (F-065). */
+function AggregateFigures({ aggregate }: { aggregate: SelectionAggregate }) {
+  const t = useT();
+  const locale = useI18nStore((state) => state.locale);
+  const figures = [
+    ['sum', aggregate.sum],
+    ['avg', aggregate.avg],
+    ['min', aggregate.min],
+    ['max', aggregate.max],
+  ] as const;
+  return (
+    <span className={styles.figures} data-testid="selection-aggregate">
+      <span title={t('grid.aggregate.count.hint')}>
+        {t('grid.aggregate.count', {
+          count: new Intl.NumberFormat(locale).format(aggregate.nonNull),
+        })}
+      </span>
+      {figures.map(([name, value]) => {
+        if (value === null) return null;
+        const shown =
+          value.length > MAX_FIGURE_CHARS ? `${value.slice(0, MAX_FIGURE_CHARS)}…` : value;
+        return (
+          <span key={name} title={value}>
+            {t(`grid.aggregate.${name}`, { value: `${aggregate.exact ? '' : '≈ '}${shown}` })}
+          </span>
+        );
+      })}
+    </span>
+  );
 }

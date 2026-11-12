@@ -15,7 +15,7 @@ import {
   type TestConnectionResult,
   type TunnelSecretInput,
 } from '../../ipc';
-import { secretOf, toDefinition, type ConnectionDraft } from './model';
+import { secretOf, tlsSecretsOf, toDefinition, type ConnectionDraft } from './model';
 import {
   SSH_SECRET_KINDS,
   sshSecretsToForget,
@@ -86,6 +86,21 @@ export const connectionsApi = {
         ),
       );
     }
+    // The passphrase of the TLS client key: kept with the connection while it has a certificate.
+    if (definition.tlsClientCertPath !== null) {
+      if (draft.tlsKeyPassphrase !== '') {
+        await unwrap(
+          ipc.commands.setConnectionSecret(
+            saved.id,
+            'tlsKeyPassphrase',
+            { kind: 'value', value: draft.tlsKeyPassphrase },
+            draft.rememberTlsKeyPassphrase,
+          ),
+        );
+      }
+    } else if (storedSshSecrets.tlsKeyPassphrase !== undefined) {
+      await unwrap(ipc.commands.deleteConnectionSecret(saved.id, 'tlsKeyPassphrase'));
+    }
     const typedKinds = new Set(typedSshSecrets(ssh).map((typed) => typed.kind));
     for (const kind of sshSecretsToForget(ssh, storedSshSecrets)) {
       if (!typedKinds.has(kind)) {
@@ -126,7 +141,9 @@ export const connectionsApi = {
         toDefinition(draft, info),
         secretOf(draft),
         draft.id,
-        info.capabilities.usesFile ? null : tunnelSecretsOf(draft.ssh),
+        info.capabilities.usesFile
+          ? null
+          : [...tunnelSecretsOf(draft.ssh), ...tlsSecretsOf(draft, info)],
       ),
     );
   },
@@ -156,7 +173,7 @@ export const connectionsApi = {
   /** Where each SSH secret of a connection is kept. */
   async sshSecretLocations(id: string): Promise<SshSecretLocations> {
     const found = await Promise.all(
-      SSH_SECRET_KINDS.map(
+      [...SSH_SECRET_KINDS, 'tlsKeyPassphrase' as const].map(
         async (kind) => [kind, await unwrap(ipc.commands.hasConnectionSecret(id, kind))] as const,
       ),
     );

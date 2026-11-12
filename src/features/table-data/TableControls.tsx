@@ -1,4 +1,4 @@
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
@@ -32,6 +32,7 @@ export function TableControls({
   tabId: string;
   connection: ConnectionSummary;
 }) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const state = useConnectionState(connection.id);
   const { info, pendingCount, applying } = useTableSession(tabId);

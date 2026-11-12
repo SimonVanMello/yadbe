@@ -69,6 +69,14 @@ pub fn parse(input: &str, hint: Option<Engine>) -> Result<Parsed, YadbeError> {
     Err(invalid())
 }
 
+/// Whether `text` is a connection URL of a known engine (`postgres://…`, `jdbc:…`), as opposed
+/// to a file path: what the command line uses to tell the two apart.
+pub fn looks_like_url(text: &str) -> bool {
+    let text = text.trim();
+    strip_prefix_ci(text, "jdbc:").is_some()
+        || scheme_of(text).is_some_and(|scheme| engine_of_scheme(&scheme).is_some())
+}
+
 fn invalid() -> YadbeError {
     YadbeError::invalid_connection_string(
         "This connection string is not a URL, an ADO.NET string or a JDBC URL.",

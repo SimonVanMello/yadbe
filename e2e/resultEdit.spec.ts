@@ -128,6 +128,79 @@ for (const { name, colorScheme } of THEMES) {
       await expect(cell(page, 1, 1)).toHaveText('NULL');
     });
 
+    test('a sorted or filtered result waits read-only, its edits go to the rows they were made on', async ({
+      page,
+    }) => {
+      await run(page, 'select id, full_name from shop.customers limit 20');
+      await expect(status(page)).toHaveAttribute('data-editable', 'true');
+      await cell(page, 0, 1).dblclick();
+      await page.getByRole('textbox', { name: 'Edit full_name, row 1' }).fill('First');
+      await page.keyboard.press('Enter');
+      await expect(pending(page)).toHaveText('1 pending');
+
+      // Sorted: read-only, the change waits.
+      const id = results(page).getByRole('columnheader', { name: /^id\b/ });
+      await id.click();
+      await id.click();
+      await expect(id).toHaveAttribute('aria-sort', 'descending');
+      await expect(status(page)).toHaveAttribute('data-editable', 'false');
+      await expect(status(page)).toContainText('1 pending change waits');
+      await expect(status(page)).toHaveAttribute('title', /sorted or filtered/);
+      await expect(cell(page, 0, 0)).toHaveText('20');
+      await cell(page, 0, 1).dblclick();
+      await expect(page.getByRole('textbox', { name: /^Edit / })).toHaveCount(0);
+      await page.keyboard.press('Escape');
+      await capture(page, name, 'sorted');
+
+      // Back to the stored order: the change is still on its row.
+      await id.click();
+      await expect(status(page)).toHaveAttribute('data-editable', 'true');
+      await expect(pending(page)).toHaveText('1 pending');
+      await expect(cell(page, 0, 1)).toHaveText('First');
+      await cell(page, 2, 0).click();
+      await page.keyboard.press('ControlOrMeta+Delete');
+      await expect(pending(page)).toHaveText('2 pending');
+      await page.keyboard.press('ControlOrMeta+s');
+      const preview = page.getByRole('dialog', { name: 'Preview SQL' });
+      if (await preview.isVisible()) await preview.getByRole('button', { name: /^Apply/ }).click();
+      await expect(page.getByText('Changes applied', { exact: true })).toBeVisible();
+      await expect(cell(page, 2, 0)).toHaveText('4');
+
+      // The filter bar keeps the keyboard while the grid turns read-only under it.
+      await cell(page, 0, 0).click();
+      await page.keyboard.press('Control+Shift+f');
+      const bar = page.getByRole('search', { name: 'Filter the rows of the result' });
+      const value = bar.getByRole('textbox', { name: 'Value' });
+      // Typed a key at a time: the first one already turns the grid read-only.
+      await value.pressSequentially('Firs', { delay: 120 });
+      await expect(value).toHaveValue('Firs');
+      await expect(value).toBeFocused();
+      await expect(results(page).getByText('1 of 19 rows')).toBeVisible();
+      await expect(cell(page, 0, 0)).toHaveText('1');
+      await expect(status(page)).toHaveAttribute('data-editable', 'false');
+      await capture(page, name, 'filtered');
+
+      // Sorted after the apply: the deleted row is gone, the changed one shows its new value.
+      await bar.getByRole('button', { name: 'Clear sort and filter' }).click();
+      await bar.getByRole('button', { name: 'Hide the filter' }).click();
+      await id.click();
+      await expect(id).toHaveAttribute('aria-sort', 'ascending');
+      await expect(results(page).getByText('19 of 19 rows')).toBeVisible();
+      await expect(cell(page, 0, 1)).toHaveText('First');
+      await expect(cell(page, 1, 0)).toHaveText('2');
+      await expect(cell(page, 2, 0)).toHaveText('4');
+      await id.click();
+      await expect(id).toHaveAttribute('aria-sort', 'descending');
+      await expect(cell(page, 0, 0)).toHaveText('20');
+      await id.click();
+      await expect(status(page)).toHaveAttribute('data-editable', 'true');
+
+      // What the table holds.
+      await run(page, 'select id, full_name from shop.customers limit 3');
+      await expect(cell(page, 0, 1)).toHaveText('First');
+      await expect(cell(page, 2, 0)).toHaveText('4');
+    });
+
     test('a result that cannot be edited says why', async ({ page }) => {
       await run(
         page,

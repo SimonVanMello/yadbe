@@ -3,11 +3,12 @@ import styles from './Kbd.module.css';
 
 interface KbdProps {
   /** Shortcut such as `Mod+K`; `Mod` renders as ⌘ on macOS and Ctrl elsewhere. */
-  shortcut: string;
+  shortcut: string | undefined;
   className?: string;
 }
 
 export function Kbd({ shortcut, className }: KbdProps) {
+  if (!shortcut) return null;
   const keys = formatShortcut(shortcut);
   return (
     <span className={[styles.shortcut, className].filter(Boolean).join(' ')}>

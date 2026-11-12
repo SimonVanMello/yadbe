@@ -3,6 +3,7 @@ import { useId } from 'react';
 import { useT } from '../../i18n/useT';
 import { Button } from '../../ui/Button';
 import { Select, type SelectOption } from '../../ui/Select';
+import { Switch } from '../../ui/Switch';
 import { useConnections } from '../connections/connectionStore';
 import styles from './HistoryFilterFields.module.css';
 import {
@@ -86,6 +87,16 @@ export function HistoryFilterFields() {
           onChange={(minDuration) => {
             patch({ minDuration });
           }}
+        />
+      </div>
+      <div className={`${styles.field} ${styles.wide}`}>
+        <Switch
+          checked={filters.thisTab}
+          onCheckedChange={(thisTab) => {
+            patch({ thisTab });
+          }}
+          label={t('history.filter.thisTab')}
+          hint={t('history.filter.thisTabHint')}
         />
       </div>
       <div className={styles.reset}>

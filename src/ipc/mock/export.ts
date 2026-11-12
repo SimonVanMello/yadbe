@@ -25,6 +25,9 @@ const fail = <T>(error: YadbeError): Result<T> => Promise.resolve({ status: 'err
 const EXTENSIONS = {
   csv: ['csv', 'tsv', 'txt'],
   json: ['json', 'ndjson', 'jsonl', 'txt'],
+  sql: ['sql', 'txt'],
+  markdown: ['md', 'markdown', 'txt'],
+  excel: ['xlsx'],
 } as const;
 
 const BOM = String.fromCharCode(0xfeff);
@@ -68,11 +71,13 @@ interface Selection {
   columns: number[] | null;
   /** The rows a statement past its limit would still send. */
   total: number;
+  /** Rows are numbered as the grid shows them (a selection of a sorted or filtered result). */
+  shown: boolean;
 }
 
 function selection(source: MockResultSource, scope: ExportScope): Selection | YadbeError {
   if (scope.kind === 'all') {
-    return { rows: [0, source.total], columns: null, total: source.total };
+    return { rows: [0, source.total], columns: null, total: source.total, shown: false };
   }
   if (
     scope.rowFrom > scope.rowTo ||
@@ -84,8 +89,13 @@ function selection(source: MockResultSource, scope: ExportScope): Selection | Ya
       'La sélection est hors du résultat.',
     );
   }
-  const end = Math.min(scope.rowTo + 1, source.loaded);
-  return { rows: [Math.min(scope.rowFrom, end), end], columns: scope.columns, total: end };
+  const end = Math.min(scope.rowTo + 1, source.shown ? source.shown.count : source.loaded);
+  return {
+    rows: [Math.min(scope.rowFrom, end), end],
+    columns: scope.columns,
+    total: end,
+    shown: source.shown !== undefined,
+  };
 }
 
 const isError = (value: object): value is YadbeError => 'code' in value && 'message' in value;
@@ -98,7 +108,10 @@ function resolve(
   if (spec.kind === 'table') {
     const source = host.table(spec.tabId, spec.filter, spec.sort);
     if (isError(source)) return source;
-    return { source, picked: { rows: [0, source.total], columns: null, total: source.total } };
+    return {
+      source,
+      picked: { rows: [0, source.total], columns: null, total: source.total, shown: false },
+    };
   }
   const source = host.source(spec.resultId);
   if (!source) return mockErrors.resultNotFound(spec.resultId);
@@ -107,9 +120,15 @@ function resolve(
   return { source, picked };
 }
 
-function rowOf(source: MockResultSource, row: number, columns: number[] | null): Value[] {
+function rowOf(
+  source: MockResultSource,
+  row: number,
+  columns: number[] | null,
+  shown: boolean,
+): Value[] {
   const indexes = columns ?? source.columns.map((_, i) => i);
-  return indexes.map((c) => source.value(row, c));
+  const rows = shown && source.shown ? source.shown : source;
+  return indexes.map((c) => rows.value(row, c));
 }
 
 function columnsOf(source: MockResultSource, columns: number[] | null): ColumnMeta[] {
@@ -136,7 +155,7 @@ export function createMockExport(host: MockExportHost) {
     const [from, to] = picked.rows;
     let lastEmit = 0;
     for (let row = from; row < to; row++) {
-      const text = encoder.row(rowOf(source, row, picked.columns));
+      const text = encoder.row(rowOf(source, row, picked.columns, picked.shown));
       parts.push(text);
       bytes += text.length;
       const written = row + 1 - from;
@@ -158,6 +177,7 @@ export function createMockExport(host: MockExportHost) {
         bytes: 0,
         path,
         truncated: false,
+        limited: false,
         error: null,
       });
       return;
@@ -173,6 +193,7 @@ export function createMockExport(host: MockExportHost) {
       bytes,
       path,
       truncated: false,
+      limited: false,
       error: null,
     });
   }
@@ -208,7 +229,7 @@ export function createMockExport(host: MockExportHost) {
       const end = Math.min(to, source.loaded, from + Math.min(limit, MAX_PREVIEW_ROWS));
       let text = stripBom(encoder.begin(columnsOf(source, picked.columns)));
       for (let row = from; row < end; row++) {
-        text += encoder.row(rowOf(source, row, picked.columns));
+        text += encoder.row(rowOf(source, row, picked.columns, picked.shown));
       }
       return ok(text + encoder.end());
     },

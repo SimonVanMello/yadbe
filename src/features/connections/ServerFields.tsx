@@ -7,6 +7,7 @@ import { Select } from '../../ui/Select';
 import { Switch } from '../../ui/Switch';
 import { TextInput } from '../../ui/TextInput';
 import styles from './ConnectionForm.module.css';
+import { TlsClientFields } from './TlsClientFields';
 import {
   TLS_MODES,
   looksLikeConnectionString,
@@ -22,6 +23,10 @@ interface ServerFieldsProps {
   /** Where the password of the connection being edited is kept, `null` when there is none. */
   passwordLocation: SecretLocation | null;
   keychainAvailable: boolean;
+  /** Where the passphrase of the TLS client key is kept, `null` when there is none. */
+  tlsKeyLocation: SecretLocation | null;
+  /** Picks the certificate or the key file with the native picker. */
+  onPickTlsFile: (file: 'cert' | 'key') => void;
   onChange: (patch: Partial<ConnectionDraft>) => void;
   /** Pasted text that looks like a connection string: the form fills itself from it. */
   onPasteConnectionString: (text: string) => void;
@@ -34,6 +39,8 @@ export function ServerFields({
   errors,
   passwordLocation,
   keychainAvailable,
+  tlsKeyLocation,
+  onPickTlsFile,
   onChange,
   onPasteConnectionString,
 }: ServerFieldsProps) {
@@ -180,6 +187,15 @@ export function ServerFields({
             }}
           />
         </Field>
+      )}
+      {info.capabilities.clientCertificate && draft.tlsMode !== 'disable' && (
+        <TlsClientFields
+          draft={draft}
+          keyLocation={tlsKeyLocation}
+          keychainAvailable={keychainAvailable}
+          onChange={onChange}
+          onPick={onPickTlsFile}
+        />
       )}
     </>
   );

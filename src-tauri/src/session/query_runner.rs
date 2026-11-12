@@ -41,14 +41,15 @@ use crate::session::ConnectionManager;
 use crate::session::connection::ConnectionSession;
 use crate::session::history_hook::{HistoryEntry, HistoryRecorder};
 use crate::session::query_model::{
-    ExecuteRequest, ExecuteScope, ExecutionDelta, ExecutionSnapshot, ExecutionStarted,
-    ExecutionStatus, ExplainRequest, ExplainResult, MAX_WINDOW_ROWS, MessageBody, ParameterValue,
-    PauseReason, QueryMessage, QueryParameter, QueryTabInfo, ResultLimits, ResultStatus,
-    ResultSummary, ResultWindow, ResumeMode, StatementCompleted, StatementError, TextPosition,
-    TextRange, TransactionMode, TransactionState, TransactionStatus,
+    AggregateRange, ExecuteRequest, ExecuteScope, ExecutionDelta, ExecutionSnapshot,
+    ExecutionStarted, ExecutionStatus, ExplainRequest, ExplainResult, MAX_WINDOW_ROWS, MessageBody,
+    ParameterValue, PauseReason, QueryMessage, QueryParameter, QueryTabInfo, ResultLimits,
+    ResultStatus, ResultSummary, ResultWindow, ResumeMode, SelectionAggregate, StatementCompleted,
+    StatementError, TextPosition, TextRange, TransactionMode, TransactionState, TransactionStatus,
 };
 use crate::session::result_store::{ResultStore, StoredResult};
 use crate::session::result_tap::{ResultStream, TAP_CAPACITY, TapEnd, TapMsg};
+use crate::session::result_view::{ResultViewInfo, ResultViewSpec};
 
 #[derive(Debug, Clone)]
 pub struct RunnerConfig {
@@ -56,6 +57,8 @@ pub struct RunnerConfig {
     pub progress_interval: Duration,
     /// Row batches buffered between a driver and the runner.
     pub channel_capacity: usize,
+    /// How often the idle tab connections are looked at for the keep-alive pings (F-014).
+    pub keep_alive_sweep: Duration,
 }
 
 impl Default for RunnerConfig {
@@ -63,6 +66,7 @@ impl Default for RunnerConfig {
         Self {
             progress_interval: Duration::from_millis(100),
             channel_capacity: 4,
+            keep_alive_sweep: Duration::from_secs(5),
         }
     }
 }
@@ -225,6 +229,8 @@ struct Execution {
     started_at: SystemTime,
     started: Instant,
     limits: ResultLimits,
+    /// A statement running longer is cancelled (F-014); the connection's setting.
+    statement_timeout: Option<Duration>,
     state: Mutex<ExecState>,
     /// Something changed: the emitter sends a `query-progress`.
     wake: Notify,
@@ -594,6 +600,13 @@ enum Outcome {
     Failed(YadbeError),
 }
 
+fn outside_cell() -> YadbeError {
+    YadbeError::invalid_argument(
+        "This cell is outside the result.",
+        "Cette cellule est hors du résultat.",
+    )
+}
+
 pub struct QueryRunner {
     manager: Arc<ConnectionManager>,
     sink: Arc<dyn EventSink>,
@@ -619,6 +632,53 @@ impl QueryRunner {
             next_execution: AtomicU32::new(0),
             config: RunnerConfig::default(),
         }
+    }
+
+    /// Starts pinging the idle connections of the editor tabs (F-014) at the interval of each
+    /// connection's keep-alive setting: the tab's own connection would otherwise sit unused
+    /// while the user reads or types, and a firewall or NAT may forget it. A tab that is
+    /// running a statement is left alone; the ping is not recorded. Stops with the runner.
+    pub fn start_keep_alive(self: &Arc<Self>) {
+        let runner = Arc::downgrade(self);
+        let sweep = self.config.keep_alive_sweep.max(Duration::from_millis(10));
+        // Not `tokio::spawn`: the app builds the runner before any async context exists.
+        tauri::async_runtime::spawn(async move {
+            let mut last: HashMap<String, tokio::time::Instant> = HashMap::new();
+            loop {
+                tokio::time::sleep(sweep).await;
+                let Some(runner) = runner.upgrade() else {
+                    return;
+                };
+                let tabs: Vec<Arc<Tab>> = lock(&runner.tabs).values().cloned().collect();
+                last.retain(|id, _| tabs.iter().any(|tab| &tab.id == id));
+                for tab in tabs {
+                    // Busy: a statement is running or the tab is being opened.
+                    let Ok(guard) = Arc::clone(&tab.conn).try_lock_owned() else {
+                        continue;
+                    };
+                    let Some(connection) = guard.as_ref().filter(|c| c.is_alive()) else {
+                        continue;
+                    };
+                    let every = runner
+                        .manager
+                        .session(&connection.connection_id)
+                        .ok()
+                        .and_then(|session| session.target().keep_alive);
+                    let Some(every) = every else {
+                        continue;
+                    };
+                    let now = tokio::time::Instant::now();
+                    let due = last.get(&tab.id).is_none_or(|at| now - *at >= every);
+                    if !due {
+                        continue;
+                    }
+                    last.insert(tab.id.clone(), now);
+                    if let Err(err) = connection.conn.keep_alive().await {
+                        tracing::debug!(tab = %tab.id, error = %err, "keep-alive ping failed");
+                    }
+                }
+            }
+        });
     }
 
     pub fn with_config(mut self, config: RunnerConfig) -> Self {
@@ -725,6 +785,7 @@ impl QueryRunner {
             started_at: SystemTime::now(),
             started: Instant::now(),
             limits,
+            statement_timeout: target.statement_timeout,
             state: Mutex::new(ExecState {
                 status: if reusable {
                     ExecutionStatus::Running
@@ -1188,6 +1249,8 @@ impl QueryRunner {
         let mut result: Option<usize> = None;
         let mut pending: Option<Vec<Vec<Value>>> = None;
         let mut cancelling = false;
+        // The statement ran past its timeout and was cancelled for it (F-014).
+        let mut timed_out = false;
         let mut paused_for = Duration::ZERO;
         loop {
             if let Some(rows) = pending.take()
@@ -1258,11 +1321,32 @@ impl QueryRunner {
                     }
                 }
             }
+            // The time a result waits at its cap for the user does not count against the timeout.
+            let deadline = exec
+                .statement_timeout
+                .filter(|_| !cancelling)
+                .map(|limit| tokio::time::Instant::from_std(started + limit + paused_for));
             let event = tokio::select! {
                 biased;
                 () = exec.cancel.wait(), if !cancelling => {
                     // Keep draining: the driver finishes once the engine stops the statement.
                     cancelling = true;
+                    continue;
+                }
+                () = async {
+                    match deadline {
+                        Some(at) => tokio::time::sleep_until(at).await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    cancelling = true;
+                    timed_out = true;
+                    let handle = lock(&exec.cancel_handle).clone();
+                    if let Some(handle) = handle
+                        && let Err(err) = handle.cancel().await
+                    {
+                        tracing::warn!(error = %err, "cancel request for a timed out statement failed");
+                    }
                     continue;
                 }
                 event = events.recv() => event,
@@ -1342,6 +1426,7 @@ impl QueryRunner {
             Err(failure) if !cancelling && failure.error.code != ErrorCode::Cancelled => {
                 ResultStatus::Failed
             }
+            _ if timed_out => ResultStatus::Failed,
             _ => ResultStatus::Cancelled,
         };
         let ended_tap = result.and_then(|position| {
@@ -1398,12 +1483,16 @@ impl QueryRunner {
                     Ok(_) => YadbeError::cancelled().into(),
                 };
                 let cancelled = cancelling || failure.error.code == ErrorCode::Cancelled;
-                let error = if cancelled {
+                let error = if timed_out {
+                    YadbeError::statement_timeout(
+                        exec.statement_timeout.map_or(0, |limit| limit.as_secs()),
+                    )
+                } else if cancelled {
                     YadbeError::cancelled()
                 } else {
                     failure.error
                 };
-                set_result_status(if cancelled {
+                set_result_status(if cancelled && !timed_out {
                     ResultStatus::Cancelled
                 } else {
                     ResultStatus::Failed
@@ -1684,16 +1773,61 @@ impl QueryRunner {
         Ok(stored.window(offset as usize, limit as usize))
     }
 
+    /// What a selection of cells adds up to (F-065): scanned in the backend, exactly, so a
+    /// whole column of a large result never crosses the IPC.
+    pub fn aggregate(
+        &self,
+        result_id: u32,
+        ranges: &[AggregateRange],
+    ) -> Result<SelectionAggregate, YadbeError> {
+        Ok(self.store.get(result_id)?.aggregate(ranges))
+    }
+
+    /// Sorts and filters the rows of a stored result as the grid shows them (F-065), without
+    /// running the statement again. An empty spec shows them as they came.
+    pub fn set_result_view(
+        &self,
+        result_id: u32,
+        spec: ResultViewSpec,
+    ) -> Result<ResultViewInfo, YadbeError> {
+        self.store.get(result_id)?.set_view(spec)
+    }
+
+    /// Rows a result view shows now (it follows a result that is still streaming).
+    pub fn result_view(&self, result_id: u32) -> Result<ResultViewInfo, YadbeError> {
+        Ok(self.store.get(result_id)?.view_info())
+    }
+
     pub fn cell(&self, result_id: u32, row: u32, column: u32) -> Result<Value, YadbeError> {
         self.store
             .get(result_id)?
             .cell(row as usize, column as usize)
-            .ok_or_else(|| {
-                YadbeError::invalid_argument(
-                    "This cell is outside the result.",
-                    "Cette cellule est hors du résultat.",
-                )
-            })
+            .ok_or_else(outside_cell)
+    }
+
+    /// A window in the order the rows were stored (an edit of the result, F-087).
+    pub fn stored_window(
+        &self,
+        result_id: u32,
+        offset: u32,
+        limit: u32,
+    ) -> Result<ResultWindow, YadbeError> {
+        if limit > MAX_WINDOW_ROWS {
+            return Err(YadbeError::invalid_argument(
+                format!("A window has at most {MAX_WINDOW_ROWS} rows."),
+                format!("Une fenêtre compte au plus {MAX_WINDOW_ROWS} lignes."),
+            ));
+        }
+        let stored = self.store.get(result_id)?;
+        Ok(stored.stored_window(offset as usize, limit as usize))
+    }
+
+    /// One whole cell of a stored row (an edit of the result, F-087).
+    pub fn stored_cell(&self, result_id: u32, row: u32, column: u32) -> Result<Value, YadbeError> {
+        self.store
+            .get(result_id)?
+            .stored_cell(row as usize, column as usize)
+            .ok_or_else(outside_cell)
     }
 
     pub fn tab_info(&self, tab_id: &str) -> QueryTabInfo {

@@ -1,6 +1,7 @@
 import type {
   ActivitySession,
   AppInfo,
+  LaunchRequest,
   ConnectionDefinition,
   ConnectionGroup,
   Engine,
@@ -104,8 +105,27 @@ function sleep(ms: number, signal?: AbortSignal): Promise<boolean> {
  * `fail-timeout` → connectionTimeout (after 3× the latency), `fail-tls` → tlsFailed (unless
  * TLS is disabled), `fail-auth` or password `wrong` → authFailed, database `missing` →
  * unknownDatabase, a SQLite path containing `missing` → fileNotFound. Host `fail-lost`
- * connects, then drops 3 s later and reconnects.
+ * connects, then drops 3 s later and reconnects. A TLS client certificate or key path containing
+ * `missing` → tlsClientCertInvalid; a key path (or certificate, when it holds the key) containing
+ * `encrypted` needs its passphrase (`wrong` is refused).
  */
+function tlsIdentityFailure(
+  def: ConnectionDefinition,
+  passphrase: string | null,
+): YadbeError | null {
+  const cert = def.tlsClientCertPath ?? null;
+  if (cert === null || def.tlsMode === 'disable') return null;
+  const key = def.tlsClientKeyPath ?? cert;
+  for (const path of [cert, key]) {
+    if (path.includes('missing')) {
+      return mockErrors.tlsClientCertInvalid(`cannot read the client file ${path}: No such file`);
+    }
+  }
+  if (!key.includes('encrypted')) return null;
+  if (passphrase === null || passphrase === '') return mockErrors.tlsKeyPassphraseRequired();
+  return passphrase === 'wrong' ? mockErrors.tlsKeyPassphraseWrong() : null;
+}
+
 function unsupportedEngine(def: ConnectionDefinition): YadbeError | null {
   const engine = MOCK_ENGINES.find((e) => e.engine === def.engine);
   return engine && !engine.available ? mockErrors.engineNotSupported(engine.label) : null;
@@ -246,7 +266,17 @@ function createMockBackend() {
     if (def.groupId !== null && !groups.some((g) => g.id === def.groupId)) {
       return mockErrors.groupNotFound(def.groupId);
     }
-    return { ...clone(def), name, host: def.host.trim() };
+    // Like the backend: only an engine that can present a certificate keeps one.
+    const certificate = engine?.capabilities.clientCertificate
+      ? (def.tlsClientCertPath ?? '').trim() || null
+      : null;
+    return {
+      ...clone(def),
+      name,
+      host: def.host.trim(),
+      tlsClientCertPath: certificate,
+      tlsClientKeyPath: certificate === null ? null : (def.tlsClientKeyPath ?? '').trim() || null,
+    };
   }
 
   function isError(value: unknown): value is YadbeError {
@@ -343,6 +373,7 @@ function createMockBackend() {
         'sshPassphrase',
         'jumpPassword',
         'jumpPassphrase',
+        'tlsKeyPassphrase',
       ] as const) {
         const stored = secrets.get(secretKey(connectionId, kind));
         if (!found.has(kind) && stored) found.set(kind, stored.value);
@@ -463,6 +494,10 @@ function createMockBackend() {
       query.freeResults(ids);
     },
     window: (resultId, offset, limit) => query.window(resultId, offset, limit),
+    patchRow: (resultId, row, cells) => {
+      query.patchRow(resultId, row, cells);
+    },
+    removeRows: (resultId, rows) => query.removeRows(resultId, rows),
   });
 
   const references = createMockReferences({
@@ -509,6 +544,11 @@ function createMockBackend() {
     }
     const found = tunnelSecrets(typedTunnel, connectionId);
     if (isError(found)) return fail(found);
+    const identityError = tlsIdentityFailure(
+      conn.definition,
+      found.get('tlsKeyPassphrase') ?? null,
+    );
+    if (identityError) return fail(identityError);
     const base: SessionInfo = {
       connectionId,
       state: 'connecting',
@@ -620,6 +660,15 @@ function createMockBackend() {
 
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
+
+    // The command line of the browser mock: a test sets `window.__YADBE_MOCK_LAUNCH__`.
+    takeLaunchRequests: () => {
+      const injected = (globalThis as { __YADBE_MOCK_LAUNCH__?: LaunchRequest[] })
+        .__YADBE_MOCK_LAUNCH__;
+      const taken = injected ?? [];
+      (globalThis as { __YADBE_MOCK_LAUNCH__?: LaunchRequest[] }).__YADBE_MOCK_LAUNCH__ = [];
+      return ok(clone(taken));
+    },
 
     listEngines: () => ok(clone(MOCK_ENGINES)),
 
@@ -780,6 +829,8 @@ function createMockBackend() {
       if (def.auth === 'password' && secret === null) return fail(mockErrors.passwordRequired());
       const found = tunnelSecrets(typedTunnel ?? [], connectionId);
       if (isError(found)) return fail(found);
+      const identityError = tlsIdentityFailure(def, found.get('tlsKeyPassphrase') ?? null);
+      if (identityError) return fail(identityError);
       const controller = new AbortController();
       tests.set(requestId, controller);
       const started = performance.now();

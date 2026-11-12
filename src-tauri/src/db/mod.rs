@@ -18,6 +18,7 @@ pub mod params;
 pub mod plan;
 pub mod result_source;
 pub mod split;
+pub mod tls_identity;
 pub mod value;
 
 pub mod ddl;

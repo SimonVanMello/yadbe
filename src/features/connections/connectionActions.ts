@@ -8,7 +8,7 @@ import { toast } from '../../ui/toastStore';
 import { refreshLibrary } from '../library/useLibrary';
 import { connectionsApi } from './connectionsApi';
 import { connectionKeys, refreshConnections, stateOf, useSessions } from './connectionStore';
-import type { ConnectionSummary } from './model';
+import { isTlsKeyError, type ConnectionSummary } from './model';
 import { askTrustHostKey } from './hostKeyPromptStore';
 import { askPassword, type PromptedPassword } from './passwordPromptStore';
 import { endpointOfHop } from './sshModel';
@@ -40,6 +40,21 @@ async function askTunnelSecret(
   const secret = await askPassword(connection, { kind, endpoint: endpointOf(connection, failure) });
   if (!secret) return false;
   typed.tunnel.set(kind, secret);
+  return true;
+}
+
+/** The passphrase of the TLS client key (`tlsKeyPassphraseRequired`, or refused as wrong). */
+async function askTlsKeyPassphrase(
+  connection: ConnectionSummary,
+  typed: TypedSecrets,
+): Promise<boolean> {
+  const { tlsClientKeyPath, tlsClientCertPath } = connection.definition;
+  const secret = await askPassword(connection, {
+    kind: 'tlsKeyPassphrase',
+    endpoint: tlsClientKeyPath ?? tlsClientCertPath ?? '',
+  });
+  if (!secret) return false;
+  typed.tunnel.set('tlsKeyPassphrase', secret);
   return true;
 }
 
@@ -96,6 +111,10 @@ async function attempt(connection: ConnectionSummary, typed: TypedSecrets): Prom
         if (!(await askTunnelSecret(connection, failure.tunnel, typed))) return false;
         continue;
       }
+      if (failure && isTlsKeyError(failure)) {
+        if (!(await askTlsKeyPassphrase(connection, typed))) return false;
+        continue;
+      }
       if (failure?.code === 'sshHostKeyUnknown' && failure.tunnel) {
         if (!(await askTrustHostKey(failure.tunnel))) return false;
         continue;
@@ -127,14 +146,16 @@ function reportConnectFailure(connection: ConnectionSummary, error: unknown): vo
     },
     enterPassword: () => {
       const typed = freshTyped();
-      // A refused SSH secret is asked again; otherwise the database password.
+      // A refused SSH secret or TLS key passphrase is asked again; otherwise the database password.
       const asked =
-        tunnel?.secret != null
-          ? askTunnelSecret(connection, tunnel, typed)
-          : askPassword(connection).then((secret) => {
-              typed.password = secret;
-              return secret !== null;
-            });
+        typedError && isTlsKeyError(typedError)
+          ? askTlsKeyPassphrase(connection, typed)
+          : tunnel?.secret != null
+            ? askTunnelSecret(connection, tunnel, typed)
+            : askPassword(connection).then((secret) => {
+                typed.password = secret;
+                return secret !== null;
+              });
       void asked.then((ok) => (ok ? attempt(connection, typed) : false));
     },
     trustHostKey: tunnel

@@ -1,4 +1,4 @@
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import { ContextMenuCheckboxItem } from '../../ui/ContextMenuCheckboxItem';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
@@ -15,6 +15,9 @@ interface GridMenuProps {
   onCopy: (format: CopyFormat, headers: boolean) => void;
   onSelectAll: () => void;
   onViewCell: () => void;
+  /** Opens (or closes) the row detail panel (F-068). */
+  onRowDetail: () => void;
+  rowDetailOpen: boolean;
   /** Present when the grid can be exported. */
   onExport: (() => void) | undefined;
   /** Set when the menu opened on a column header. */
@@ -30,10 +33,13 @@ export function GridMenu({
   onCopy,
   onSelectAll,
   onViewCell,
+  onRowDetail,
+  rowDetailOpen,
   onExport,
   onAutoFit,
   extras,
 }: GridMenuProps) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const copyHeaders = usePreference('copyHeaders');
   return (
@@ -94,6 +100,14 @@ export function GridMenu({
         onSelect={onViewCell}
       >
         {viewerOpen ? t('grid.viewer.hide') : t('grid.menu.viewCell')}
+      </ContextMenuItem>
+      <ContextMenuItem
+        icon="list"
+        shortcut={shortcutOf('result.rowDetail')}
+        disabled={!hasSelection}
+        onSelect={onRowDetail}
+      >
+        {rowDetailOpen ? t('grid.row.hide') : t('grid.menu.rowDetail')}
       </ContextMenuItem>
       {onAutoFit && (
         <>

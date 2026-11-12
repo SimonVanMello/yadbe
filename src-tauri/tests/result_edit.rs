@@ -23,9 +23,12 @@ use yadbe_lib::edit::model::{ApplyOutcome, CellUpdate, ChangeSet, ColumnValue, R
 use yadbe_lib::secrets::Secret;
 use yadbe_lib::session::journal::ChangeJournal;
 use yadbe_lib::session::meta_cache::MetaService;
-use yadbe_lib::session::query_model::{ExecutionStatus, ResultLimits, ResultStatus, ResultSummary};
+use yadbe_lib::session::query_model::{
+    ExecutionStatus, ResultLimits, ResultStatus, ResultSummary, ResumeMode,
+};
 use yadbe_lib::session::result_edit::ResultEditService;
 use yadbe_lib::session::result_edit_model::{ResultEditInfo, ResultReadOnlyReason, ResultRowRef};
+use yadbe_lib::session::result_view::{ResultViewSpec, ViewFilter, ViewFilterOp, ViewSort};
 use yadbe_lib::session::table_data::TableDataService;
 use yadbe_lib::session::table_model::ColumnReadOnlyReason;
 use yadbe_lib::store::JournalQuery;
@@ -180,6 +183,7 @@ async fn suite(fx: &Fixture) {
     let b = bench(fx).await;
     editability(&b, fx).await;
     edits(&b, fx).await;
+    through_a_view(&b, fx).await;
     conflicts(&b, fx).await;
     open_transaction(&b, fx).await;
     read_only(fx).await;
@@ -503,6 +507,287 @@ async fn edits(b: &Bench, fx: &Fixture) {
         .expect_err("refused");
     assert_eq!(refused.code, ErrorCode::InvalidArgument);
     b.edits.close(result.result_id).await;
+}
+
+/// The `id` column of a window, as texts.
+fn ids(window: &yadbe_lib::session::query_model::ResultWindow) -> Vec<String> {
+    window.columns[0]
+        .values
+        .iter()
+        .map(|v| v.clone().unwrap_or_default())
+        .collect()
+}
+
+/// A change set of one name update (stored row `row` of `rows`) and one deletion, as the grid
+/// sends them: keys and values read from the stored rows.
+fn name_and_delete(rows: &[Vec<Value>], update: usize, name: &str, delete: usize) -> ChangeSet {
+    ChangeSet {
+        updates: vec![CellUpdate {
+            key: vec![rows[update][0].clone()],
+            column: "name".into(),
+            value: text(name),
+            original: Some(rows[update][2].clone()),
+        }],
+        inserts: vec![],
+        deletes: vec![RowDelete {
+            key: vec![rows[delete][0].clone()],
+            values: vec![
+                ColumnValue {
+                    column: "id".into(),
+                    value: rows[delete][0].clone(),
+                },
+                ColumnValue {
+                    column: "name".into(),
+                    value: rows[delete][2].clone(),
+                },
+            ],
+        }],
+    }
+}
+
+/// Edits of a result its grid shows sorted and filtered (F-065 × F-087): the grid's positions
+/// are not the stored rows. Keys come from the stored rows, a row read back replaces its stored
+/// row, deleted rows leave the view, and rows that arrive later join it.
+async fn through_a_view(b: &Bench, fx: &Fixture) {
+    let before = b.items(fx).await;
+    assert_eq!(
+        names(&before),
+        [
+            ("1".into(), "one".into()),
+            ("2".into(), "two".into()),
+            ("3".into(), "three".into()),
+            ("4".into(), "four".into())
+        ]
+    );
+    let result = b
+        .result(&fx.sql("SELECT id, UPPER(name) AS loud, name FROM {t}items ORDER BY id"))
+        .await;
+    assert_eq!(b.describe(&result).await.read_only_reasons, []);
+    let store = b.q.runner.shared_store();
+    let stored = store.get(result.result_id).expect("result");
+    // Names with an "o", highest id first: ids 4, 2, 1 (stored rows 3, 1, 0).
+    let view = ResultViewSpec {
+        sort: vec![ViewSort {
+            column: 0,
+            descending: true,
+        }],
+        filters: vec![ViewFilter {
+            column: Some(2),
+            op: ViewFilterOp::Contains,
+            value: "O".into(),
+        }],
+        match_case: false,
+    };
+    let info = stored.set_view(view.clone()).expect("view");
+    assert_eq!((info.row_count, info.source_rows), (3, 4));
+    assert_eq!(ids(&stored.window(0, 10)), ["4", "2", "1"]);
+    // What an edit reads ignores the view.
+    assert_eq!(ids(&stored.stored_window(0, 10)), ["1", "2", "3", "4"]);
+    assert_eq!(stored.cell(0, 0), Some(int(4)));
+    assert_eq!(stored.stored_cell(0, 0), Some(int(1)));
+
+    // Grid position 0 shows id 4, stored row 3; position 1 shows id 2, stored row 1. The edit
+    // names stored rows: id 4 renamed, id 2 deleted.
+    let rows = b.rows(result.result_id);
+    let changes = name_and_delete(&rows, 3, "cuatro", 1);
+    let journal_id = applied(b.edits.apply(&b.meta, result.result_id, &changes).await);
+    assert_eq!(
+        names(&b.items(fx).await),
+        [
+            ("1".into(), "one".into()),
+            ("3".into(), "three".into()),
+            ("4".into(), "cuatro".into())
+        ]
+    );
+
+    // The row read back replaces stored row 3 (the expression keeps what it read); the deleted
+    // one leaves what the grid shows, every other row keeps its number.
+    let fresh = b
+        .edits
+        .refresh(
+            &b.meta,
+            result.result_id,
+            &[ResultRowRef {
+                row: 3,
+                key: vec![int(4)],
+            }],
+        )
+        .await
+        .expect("refresh");
+    assert_eq!(fresh.positions, [Some(0)]);
+    b.edits
+        .remove_rows(result.result_id, &[1])
+        .expect("remove rows");
+    let row = &stored.rows(3, 1)[0];
+    assert_eq!(
+        (
+            plain_text(&row[0]),
+            plain_text(&row[1]),
+            plain_text(&row[2])
+        ),
+        (
+            Some("4".to_owned()),
+            Some("FOUR".to_owned()),
+            Some("cuatro".to_owned())
+        )
+    );
+    let info = stored.view_info();
+    assert_eq!((info.row_count, info.source_rows), (2, 3));
+    assert_eq!(ids(&stored.window(0, 10)), ["4", "1"]);
+    assert_eq!(
+        stored.window(0, 1).columns[2].values[0].as_deref(),
+        Some("cuatro")
+    );
+    assert_eq!(ids(&stored.stored_window(0, 10)), ["1", "2", "3", "4"]);
+    // Without the view, the deleted row stays out of what the grid shows.
+    let info = stored.set_view(ResultViewSpec::default()).expect("clear");
+    assert_eq!((info.row_count, info.source_rows), (3, 3));
+    assert_eq!(ids(&stored.window(0, 10)), ["1", "3", "4"]);
+
+    // A second edit, again through the view: stored row 0 (id 1) renamed, stored row 2 (id 3)
+    // deleted, the view showing them in another order.
+    stored.set_view(view.clone()).expect("view");
+    let rows = b.rows(result.result_id);
+    let mut journal = vec![journal_id];
+    journal.push(applied(
+        b.edits
+            .apply(
+                &b.meta,
+                result.result_id,
+                &name_and_delete(&rows, 0, "eins", 2),
+            )
+            .await,
+    ));
+    b.edits
+        .refresh(
+            &b.meta,
+            result.result_id,
+            &[ResultRowRef {
+                row: 0,
+                key: vec![int(1)],
+            }],
+        )
+        .await
+        .expect("refresh");
+    b.edits
+        .remove_rows(result.result_id, &[2])
+        .expect("remove rows");
+    assert_eq!(
+        names(&b.items(fx).await),
+        [("1".into(), "eins".into()), ("4".into(), "cuatro".into())]
+    );
+    // "eins" has no "o": the view shows id 4 only.
+    assert_eq!(ids(&stored.window(0, 10)), ["4"]);
+    assert_eq!(
+        b.edits
+            .remove_rows(9_999_999, &[0])
+            .expect_err("unknown")
+            .code,
+        ErrorCode::ResultNotFound
+    );
+    let table = b.describe(&result).await.table.expect("table");
+    b.edits.close(result.result_id).await;
+
+    // Rows that arrive after a pause join an active view; an edit of one of them names its
+    // stored row.
+    let id =
+        b.q.run_limited(
+            "paused",
+            &fx.sql("SELECT id, UPPER(name) AS loud, name FROM {t}items ORDER BY id"),
+            ResultLimits {
+                max_rows: 1,
+                max_bytes: u32::MAX,
+            },
+        )
+        .await;
+    let run =
+        b.q.wait_for(id, |r| {
+            r.results
+                .first()
+                .is_some_and(|x| x.status == ResultStatus::Paused)
+        })
+        .await;
+    let paused = run.results[0].clone();
+    assert_eq!(b.describe(&paused).await.read_only_reasons, []);
+    let stored = store.get(paused.result_id).expect("result");
+    stored
+        .set_view(ResultViewSpec {
+            sort: vec![ViewSort {
+                column: 0,
+                descending: true,
+            }],
+            filters: vec![],
+            match_case: false,
+        })
+        .expect("view");
+    assert_eq!(ids(&stored.window(0, 10)), ["1"]);
+    b.q.runner
+        .resume(paused.result_id, ResumeMode::All)
+        .expect("resume");
+    b.q.wait(id).await;
+    assert_eq!(ids(&stored.window(0, 10)), ["4", "1"]);
+    assert_eq!(ids(&stored.stored_window(0, 10)), ["1", "4"]);
+    let rows = b.rows(paused.result_id);
+    let change = ChangeSet {
+        updates: vec![CellUpdate {
+            key: vec![rows[1][0].clone()],
+            column: "name".into(),
+            value: text("vier"),
+            original: Some(rows[1][2].clone()),
+        }],
+        ..ChangeSet::default()
+    };
+    journal.push(applied(
+        b.edits.apply(&b.meta, paused.result_id, &change).await,
+    ));
+    b.edits
+        .refresh(
+            &b.meta,
+            paused.result_id,
+            &[ResultRowRef {
+                row: 1,
+                key: vec![int(4)],
+            }],
+        )
+        .await
+        .expect("refresh");
+    assert_eq!(
+        stored.window(0, 1).columns[2].values[0].as_deref(),
+        Some("vier")
+    );
+    assert_eq!(
+        names(&b.items(fx).await),
+        [("1".into(), "eins".into()), ("4".into(), "vier".into())]
+    );
+    b.edits.close(paused.result_id).await;
+
+    // Back to the four rows for the rest of the suite: the journal reverts the edits, the
+    // deleted rows come back whole.
+    b.tables
+        .open(&b.meta, "revert", &b.q.connection_id, &table)
+        .await
+        .expect("open");
+    for journal_id in journal.into_iter().rev() {
+        match b
+            .tables
+            .apply_revert("revert", journal_id)
+            .await
+            .expect("revert")
+        {
+            ApplyOutcome::Applied { .. } => {}
+            other => panic!("not reverted: {other:?}"),
+        }
+    }
+    b.tables.close("revert").await;
+    assert_eq!(b.items(fx).await, before);
+}
+
+/// The journal entry of an apply that went through.
+fn applied(outcome: Result<ApplyOutcome, yadbe_lib::db::errors::YadbeError>) -> u32 {
+    match outcome.expect("apply") {
+        ApplyOutcome::Applied { journal_id, .. } => journal_id.expect("journaled"),
+        other => panic!("not applied: {other:?}"),
+    }
 }
 
 /// A row changed by someone else since the query read it is reported, not overwritten.

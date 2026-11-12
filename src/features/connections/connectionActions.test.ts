@@ -158,4 +158,52 @@ describe('connectTo', () => {
     // Remembered once it worked.
     expect((await connectionsApi.sshSecretLocations(saved.id)).sshPassword).toBe('keychain');
   });
+
+  it('asks for the passphrase of an encrypted TLS key, asks again when it is wrong (F-009)', async () => {
+    const saved = await connectionsApi.save(
+      {
+        ...draftOf('conn-local-pg'),
+        id: null,
+        name: 'mutual TLS',
+        password: 'db-pw',
+        tlsClientCert: '/certs/client.crt',
+        tlsClientKey: '/certs/client.encrypted.key',
+      },
+      postgres,
+      null,
+    );
+    const attempt = connectTo(summarize(saved));
+    await expect
+      .poll(() => usePasswordPrompt.getState().pending?.secret?.kind)
+      .toBe('tlsKeyPassphrase');
+    expect(usePasswordPrompt.getState().pending?.secret?.endpoint).toBe(
+      '/certs/client.encrypted.key',
+    );
+    usePasswordPrompt.getState().settle({ password: 'wrong', remember: true });
+    // Refused: the same question again, and nothing was remembered.
+    await expect
+      .poll(() => usePasswordPrompt.getState().pending?.secret?.kind)
+      .toBe('tlsKeyPassphrase');
+    expect((await connectionsApi.sshSecretLocations(saved.id)).tlsKeyPassphrase).toBeUndefined();
+    usePasswordPrompt.getState().settle({ password: 'right', remember: true });
+    expect(await attempt).toBe(true);
+    expect((await connectionsApi.sshSecretLocations(saved.id)).tlsKeyPassphrase).toBe('keychain');
+  });
+
+  it('explains an unreadable TLS certificate instead of asking for anything', async () => {
+    const saved = await connectionsApi.save(
+      {
+        ...draftOf('conn-local-pg'),
+        id: null,
+        name: 'bad cert',
+        password: 'db-pw',
+        tlsClientCert: '/certs/missing.crt',
+      },
+      postgres,
+      null,
+    );
+    expect(await connectTo(summarize(saved))).toBe(false);
+    expect(useSessions.getState().errors[saved.id]?.code).toBe('tlsClientCertInvalid');
+    expect(usePasswordPrompt.getState().pending).toBeNull();
+  });
 });

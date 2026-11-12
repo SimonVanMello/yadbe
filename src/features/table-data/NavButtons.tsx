@@ -1,4 +1,4 @@
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import { IconButton } from '../../ui/IconButton';
 import { moveInTrail, useFkStore } from './fkNavigation';
@@ -10,6 +10,7 @@ import { canMove } from './navTrail';
  * stands in: the same as `Alt+←` / `Alt+→`.
  */
 export function NavButtons({ tabId }: { tabId: string }) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const back = useFkStore((state) => canMove(state.trail, tabId, -1));
   const forward = useFkStore((state) => canMove(state.trail, tabId, 1));

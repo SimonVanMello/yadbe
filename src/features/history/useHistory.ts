@@ -37,10 +37,10 @@ export const LOAD_MORE_MARGIN = 40;
 /** How often the list notices that the day changed. */
 const CLOCK_MS = 60_000;
 
-export function useHistoryList(filters: HistoryFilters) {
+export function useHistoryList(filters: HistoryFilters, tabId: string | null = null) {
   // The period bounds are whole days: the query only changes with the filters, or at midnight.
   const today = startOfDay(useNow(CLOCK_MS));
-  const base = useMemo(() => toBaseQuery(filters, today), [filters, today]);
+  const base = useMemo(() => toBaseQuery(filters, today, tabId), [filters, today, tabId]);
   const query = useInfiniteQuery({
     queryKey: historyKeys.list(base),
     queryFn: async ({ pageParam }): Promise<HistoryPage> => {

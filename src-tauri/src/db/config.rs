@@ -3,6 +3,7 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -10,11 +11,18 @@ use specta::Type;
 
 use crate::db::dialect::Engine;
 use crate::db::errors::YadbeError;
+use crate::db::tls_identity::TlsIdentity;
 use crate::tunnel::SshTunnel;
 
 /// Connect timeout when the definition does not set one.
 pub const DEFAULT_CONNECT_TIMEOUT_SECS: u32 = 15;
 pub const MAX_CONNECT_TIMEOUT_SECS: u32 = 600;
+/// Longest statement timeout a definition may set: a day.
+pub const MAX_STATEMENT_TIMEOUT_SECS: u32 = 86_400;
+/// Keep-alive interval when the definition does not set one (F-014).
+pub const DEFAULT_KEEP_ALIVE_SECS: u32 = 60;
+pub const MIN_KEEP_ALIVE_SECS: u32 = 5;
+pub const MAX_KEEP_ALIVE_SECS: u32 = 3_600;
 pub const MAX_NAME_CHARS: usize = 100;
 const MAX_FIELD_CHARS: usize = 1024;
 const MAX_OPTIONS: usize = 64;
@@ -183,8 +191,24 @@ pub struct ConnectionDefinition {
     pub tls_mode: TlsMode,
     /// PEM file of the CA that signs the server certificate (instead of the OS trust store).
     pub ca_cert_path: Option<String>,
+    /// PEM file of the TLS client certificate (chain) presented to the server (F-009). The
+    /// key's passphrase, when it has one, is a secret kept in the keychain, not here.
+    #[serde(default)]
+    pub tls_client_cert_path: Option<String>,
+    /// PEM file of the client certificate's private key; `null`: the key is in the
+    /// certificate file.
+    #[serde(default)]
+    pub tls_client_key_path: Option<String>,
     /// `null`: 15 s.
     pub connect_timeout_secs: Option<u32>,
+    /// A statement that runs longer than this is cancelled with the engine's own mechanism
+    /// (F-014). `null`: no limit. Applies to the statements of query tabs.
+    #[serde(default)]
+    pub statement_timeout_secs: Option<u32>,
+    /// Seconds between the pings that keep an idle connection open through firewalls and NAT
+    /// (F-014). `null`: 60 s; `0`: none. Not used by file engines.
+    #[serde(default)]
+    pub keep_alive_secs: Option<u32>,
     pub options: Vec<ConnectionOption>,
     pub group_id: Option<String>,
     pub environment: Environment,
@@ -221,6 +245,14 @@ impl ConnectionDefinition {
             .ca_cert_path
             .map(|p| p.trim().to_owned())
             .filter(|p| !p.is_empty());
+        let path = |p: Option<String>| p.map(|p| p.trim().to_owned()).filter(|p| !p.is_empty());
+        self.tls_client_cert_path = path(self.tls_client_cert_path);
+        self.tls_client_key_path = path(self.tls_client_key_path);
+        // Only an engine that can present a certificate keeps one, and a key goes with a cert.
+        if !caps.client_certificate || self.tls_client_cert_path.is_none() {
+            self.tls_client_cert_path = None;
+            self.tls_client_key_path = None;
+        }
         self.group_id = self.group_id.filter(|g| !g.is_empty());
 
         if self.name.is_empty() {
@@ -274,6 +306,33 @@ impl ConnectionDefinition {
                 ),
             ));
         }
+        // 0 means "no limit" for a statement: the same as none.
+        self.statement_timeout_secs = self.statement_timeout_secs.filter(|&secs| secs != 0);
+        if let Some(secs) = self.statement_timeout_secs
+            && secs > MAX_STATEMENT_TIMEOUT_SECS
+        {
+            return Err(YadbeError::invalid_argument(
+                format!(
+                    "The statement timeout must be between 1 and {MAX_STATEMENT_TIMEOUT_SECS} seconds."
+                ),
+                format!(
+                    "Le délai d'une instruction doit être compris entre 1 et {MAX_STATEMENT_TIMEOUT_SECS} secondes."
+                ),
+            ));
+        }
+        if let Some(secs) = self.keep_alive_secs
+            && secs != 0
+            && !(MIN_KEEP_ALIVE_SECS..=MAX_KEEP_ALIVE_SECS).contains(&secs)
+        {
+            return Err(YadbeError::invalid_argument(
+                format!(
+                    "The keep-alive interval must be between {MIN_KEEP_ALIVE_SECS} and {MAX_KEEP_ALIVE_SECS} seconds, or 0 for none."
+                ),
+                format!(
+                    "L'intervalle de maintien de connexion doit être compris entre {MIN_KEEP_ALIVE_SECS} et {MAX_KEEP_ALIVE_SECS} secondes, ou 0 pour aucun."
+                ),
+            ));
+        }
         if self.options.len() > MAX_OPTIONS {
             return Err(YadbeError::invalid_argument(
                 format!("A connection has at most {MAX_OPTIONS} options."),
@@ -316,9 +375,17 @@ impl ConnectionDefinition {
             file_path: PathBuf::from(&self.file_path),
             tls_mode: self.tls_mode,
             ca_cert_path: self.ca_cert_path.as_ref().map(PathBuf::from),
+            tls_identity: None,
             connect_timeout: Duration::from_secs(u64::from(
                 self.connect_timeout_secs.unwrap_or(default_timeout_secs),
             )),
+            statement_timeout: self
+                .statement_timeout_secs
+                .map(|secs| Duration::from_secs(u64::from(secs))),
+            keep_alive: (!caps.uses_file)
+                .then(|| self.keep_alive_secs.unwrap_or(DEFAULT_KEEP_ALIVE_SECS))
+                .filter(|&secs| secs != 0)
+                .map(|secs| Duration::from_secs(u64::from(secs))),
             options: self.options.clone(),
             read_only: self.read_only,
             dial: None,
@@ -370,7 +437,14 @@ pub struct ConnectTarget {
     pub file_path: PathBuf,
     pub tls_mode: TlsMode,
     pub ca_cert_path: Option<PathBuf>,
+    /// The client certificate and key, read and decrypted by the connection manager from the
+    /// definition's paths (F-009); only engines with the `client_certificate` capability use it.
+    pub tls_identity: Option<Arc<TlsIdentity>>,
     pub connect_timeout: Duration,
+    /// Statements of query tabs are cancelled after this long (F-014); `None`: never.
+    pub statement_timeout: Option<Duration>,
+    /// Pause between the pings of an idle connection; `None`: no keep-alive.
+    pub keep_alive: Option<Duration>,
     pub options: Vec<ConnectionOption>,
     /// The session must refuse writes (F-008): drivers set the engine's read-only mode.
     pub read_only: bool,
@@ -405,7 +479,11 @@ pub(crate) fn sample_definition(engine: Engine) -> ConnectionDefinition {
         },
         tls_mode: TlsMode::Prefer,
         ca_cert_path: None,
+        tls_client_cert_path: None,
+        tls_client_key_path: None,
         connect_timeout_secs: None,
+        statement_timeout_secs: None,
+        keep_alive_secs: None,
         options: Vec::new(),
         group_id: None,
         environment: Environment::default(),
@@ -489,5 +567,99 @@ mod tests {
             TlsMode::default_for_host("db.example.com"),
             TlsMode::VerifyFull
         );
+    }
+
+    #[test]
+    fn statement_timeout_and_keep_alive_reach_the_target() {
+        let mut def = sample_definition(Engine::Postgres);
+        let target = def.target();
+        assert_eq!(target.statement_timeout, None);
+        assert_eq!(
+            target.keep_alive,
+            Some(Duration::from_secs(u64::from(DEFAULT_KEEP_ALIVE_SECS)))
+        );
+        def.statement_timeout_secs = Some(30);
+        def.keep_alive_secs = Some(20);
+        let target = def.target();
+        assert_eq!(target.statement_timeout, Some(Duration::from_secs(30)));
+        assert_eq!(target.keep_alive, Some(Duration::from_secs(20)));
+        def.keep_alive_secs = Some(0);
+        assert_eq!(def.target().keep_alive, None, "0 turns it off");
+        // A file has no connection to keep open.
+        assert_eq!(sample_definition(Engine::Sqlite).target().keep_alive, None);
+    }
+
+    #[test]
+    fn timeouts_are_checked_when_a_definition_is_saved() {
+        let valid = |change: &dyn Fn(&mut ConnectionDefinition)| {
+            let mut def = sample_definition(Engine::Postgres);
+            change(&mut def);
+            def.normalized()
+        };
+        // 0 is "no limit" for a statement: stored as none.
+        assert_eq!(
+            valid(&|d| d.statement_timeout_secs = Some(0))
+                .expect("ok")
+                .statement_timeout_secs,
+            None
+        );
+        assert!(valid(&|d| d.statement_timeout_secs = Some(MAX_STATEMENT_TIMEOUT_SECS)).is_ok());
+        assert!(
+            valid(&|d| d.statement_timeout_secs = Some(MAX_STATEMENT_TIMEOUT_SECS + 1)).is_err()
+        );
+        for secs in [0, MIN_KEEP_ALIVE_SECS, 60, MAX_KEEP_ALIVE_SECS] {
+            assert!(valid(&|d| d.keep_alive_secs = Some(secs)).is_ok(), "{secs}");
+        }
+        for secs in [1, MIN_KEEP_ALIVE_SECS - 1, MAX_KEEP_ALIVE_SECS + 1] {
+            assert!(
+                valid(&|d| d.keep_alive_secs = Some(secs)).is_err(),
+                "{secs}"
+            );
+        }
+    }
+    #[test]
+    fn a_client_certificate_is_kept_only_where_the_engine_can_present_one() {
+        let normalized = |engine: Engine, cert: Option<&str>, key: Option<&str>| {
+            let mut def = sample_definition(engine);
+            def.tls_client_cert_path = cert.map(str::to_owned);
+            def.tls_client_key_path = key.map(str::to_owned);
+            def.normalized().expect("valid")
+        };
+        let kept = normalized(
+            Engine::Postgres,
+            Some("  /c/client.crt "),
+            Some(" /c/client.key"),
+        );
+        assert_eq!(kept.tls_client_cert_path.as_deref(), Some("/c/client.crt"));
+        assert_eq!(kept.tls_client_key_path.as_deref(), Some("/c/client.key"));
+        let mysql = normalized(Engine::Mysql, Some("/c/client.pem"), None);
+        assert_eq!(mysql.tls_client_cert_path.as_deref(), Some("/c/client.pem"));
+        assert_eq!(mysql.tls_client_key_path, None);
+        // No certificate: a stray key path goes too; blank paths are no paths.
+        let keyless = normalized(Engine::Postgres, Some("  "), Some("/c/client.key"));
+        assert_eq!(
+            (keyless.tls_client_cert_path, keyless.tls_client_key_path),
+            (None, None)
+        );
+        // SQL Server and SQLite cannot present one: nothing is stored.
+        for engine in [Engine::Mssql, Engine::Sqlite] {
+            let def = normalized(engine, Some("/c/client.crt"), Some("/c/client.key"));
+            assert_eq!(
+                (def.tls_client_cert_path, def.tls_client_key_path),
+                (None, None),
+                "{engine:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn older_payloads_have_no_client_certificate() {
+        let mut json = serde_json::to_value(sample_definition(Engine::Postgres)).expect("json");
+        let object = json.as_object_mut().expect("object");
+        object.remove("tlsClientCertPath");
+        object.remove("tlsClientKeyPath");
+        let def: ConnectionDefinition = serde_json::from_value(json).expect("old payload");
+        assert_eq!(def.tls_client_cert_path, None);
+        assert_eq!(def.tls_client_key_path, None);
     }
 }

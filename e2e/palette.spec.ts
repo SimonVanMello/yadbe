@@ -87,11 +87,9 @@ for (const { name, colorScheme } of THEMES) {
       await page.getByRole('button', { name: 'Search commands, objects and tabs' }).click();
       await page.keyboard.type('>');
       await expect(option(page, 'New tab')).toContainText('Ctrl');
-      await expect(option(page, 'Cancel the running query')).toContainText('Nothing is running');
-      await expect(option(page, 'Cancel the running query')).toHaveAttribute(
-        'aria-disabled',
-        'true',
-      );
+      // An action that needs a query tab says so (the list shows only its first rows).
+      await expect(option(page, 'Run the query')).toContainText('Needs a query tab');
+      await expect(option(page, 'Run the query')).toHaveAttribute('aria-disabled', 'true');
       await capture(page, name, 'actions');
       await page.keyboard.type('toggle sidebar');
       await expect(options(page).first()).toContainText('Toggle the sidebar');

@@ -8,6 +8,12 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	/**  Returns the app version and the platform it runs on. */
 	appInfo: () => typedError<AppInfo, YadbeError>(__TAURI_INVOKE("app_info")),
+	/**
+	 *  What the command line asked for (`yadbe file.sql`, `yadbe postgres://…`, F-126): handed out
+	 *  once, to the frontend that opens the tabs once it is ready. A password in a URL was dropped
+	 *  before this point.
+	 */
+	takeLaunchRequests: () => typedError<LaunchRequest[], YadbeError>(__TAURI_INVOKE("take_launch_requests")),
 	/**  Engines yadbe knows, with their capabilities and whether this build can connect. */
 	listEngines: () => typedError<EngineInfo[], YadbeError>(__TAURI_INVOKE("list_engines")),
 	/**  Every saved connection, by group then position. */
@@ -166,6 +172,29 @@ export const commands = {
 	fetchResultWindow: (resultId: number, offset: number, limit: number) => typedError<ResultWindow, YadbeError>(__TAURI_INVOKE("fetch_result_window", { resultId, offset, limit })),
 	/**  One whole cell (windows cut long values), for the cell viewer (F-064). */
 	fetchResultCell: (resultId: number, row: number, column: number) => typedError<Value, YadbeError>(__TAURI_INVOKE("fetch_result_cell", { resultId, row, column })),
+	/**
+	 *  A window of a result in the order its rows were stored, whatever sort or filter the grid
+	 *  shows it with: the rows an edit of the result addresses (F-087).
+	 */
+	fetchResultStoredWindow: (resultId: number, offset: number, limit: number) => typedError<ResultWindow, YadbeError>(__TAURI_INVOKE("fetch_result_stored_window", { resultId, offset, limit })),
+	/**  One whole cell of a stored row (see `fetch_result_stored_window`). */
+	fetchResultStoredCell: (resultId: number, row: number, column: number) => typedError<Value, YadbeError>(__TAURI_INVOKE("fetch_result_stored_cell", { resultId, row, column })),
+	/**
+	 *  Count, sum, average, minimum and maximum of a selection of cells (F-065), computed where
+	 *  the rows are: exact for integers and decimals, whatever the size of the selection.
+	 */
+	aggregateResultSelection: (resultId: number, ranges: AggregateRange[]) => typedError<SelectionAggregate, YadbeError>(__TAURI_INVOKE("aggregate_result_selection", { resultId, ranges })),
+	/**
+	 *  Sorts and filters the rows of a result as the grid shows them (F-065), in the backend and
+	 *  without running the statement again; an empty spec shows them as they came. Windows,
+	 *  cells, aggregates and selection exports then follow the view.
+	 */
+	setResultView: (resultId: number, spec: ResultViewSpec) => typedError<ResultViewInfo, YadbeError>(__TAURI_INVOKE("set_result_view", { resultId, spec })),
+	/**
+	 *  Rows the result's view shows and rows the result holds; the view follows a result that
+	 *  is still streaming.
+	 */
+	getResultView: (resultId: number) => typedError<ResultViewInfo, YadbeError>(__TAURI_INVOKE("get_result_view", { resultId })),
 	/**  The tab's transaction state, connection and running or last execution. */
 	getQueryTab: (tabId: string) => typedError<QueryTabInfo, YadbeError>(__TAURI_INVOKE("get_query_tab", { tabId })),
 	/**
@@ -438,6 +467,11 @@ export const commands = {
 	 */
 	refreshResultRows: (resultId: number, rows: ResultRowRef[]) => typedError<RefreshedRows, YadbeError>(__TAURI_INVOKE("refresh_result_rows", { resultId, rows })),
 	/**
+	 *  Rows an apply deleted leave the result (stored row numbers): a sort or a filter of it no
+	 *  longer shows them, and the others keep their numbers.
+	 */
+	removeResultRows: (resultId: number, rows: number[]) => typedError<null, YadbeError>(__TAURI_INVOKE("remove_result_rows", { resultId, rows })),
+	/**
 	 *  Stops what an edit of the result runs (an apply waiting for a lock), with the engine's
 	 *  native cancel.
 	 */
@@ -649,6 +683,16 @@ export type ActivitySnapshot = {
 	notes: ActivityNote[],
 };
 
+/**
+ *  A block of a selection of cells: rows `rowStart .. rowEnd` (exclusive, in the order the grid
+ *  shows them) of these columns (indices in the result's data order).
+ */
+export type AggregateRange = {
+	rowStart: number,
+	rowEnd: number,
+	columns: number[],
+};
+
 export type AppInfo = {
 	/**  yadbe version, from `Cargo.toml`. */
 	appVersion: string,
@@ -721,6 +765,8 @@ export type Capabilities = {
 	defaultPort: number | null,
 	/**  The engine supports TLS and the connection form shows the TLS settings. */
 	supportsTls: boolean,
+	/**  The connection can present a TLS client certificate (F-009). */
+	clientCertificate: boolean,
 	/**  A server hosts several databases that can be listed and switched. */
 	multipleDatabases: boolean,
 	/**  Schemas exist between the database and its tables. */
@@ -960,8 +1006,28 @@ export type ConnectionDefinition = {
 	tlsMode: TlsMode,
 	/**  PEM file of the CA that signs the server certificate (instead of the OS trust store). */
 	caCertPath: string | null,
+	/**
+	 *  PEM file of the TLS client certificate (chain) presented to the server (F-009). The
+	 *  key's passphrase, when it has one, is a secret kept in the keychain, not here.
+	 */
+	tlsClientCertPath?: string | null,
+	/**
+	 *  PEM file of the client certificate's private key; `null`: the key is in the
+	 *  certificate file.
+	 */
+	tlsClientKeyPath?: string | null,
 	/**  `null`: 15 s. */
 	connectTimeoutSecs: number | null,
+	/**
+	 *  A statement that runs longer than this is cancelled with the engine's own mechanism
+	 *  (F-014). `null`: no limit. Applies to the statements of query tabs.
+	 */
+	statementTimeoutSecs?: number | null,
+	/**
+	 *  Seconds between the pings that keep an idle connection open through firewalls and NAT
+	 *  (F-014). `null`: 60 s; `0`: none. Not used by file engines.
+	 */
+	keepAliveSecs?: number | null,
 	options: ConnectionOption[],
 	groupId: string | null,
 	environment: Environment,
@@ -1357,6 +1423,12 @@ export type ErrorCode =
 "tlsFailed" | 
 /**  TLS is required but the server does not offer it. */
 "tlsNotSupported" | 
+/**  The TLS client certificate or its key could not be read or do not match (F-009). */
+"tlsClientCertInvalid" | 
+/**  The TLS client key is encrypted and no passphrase was given. */
+"tlsKeyPassphraseRequired" | 
+/**  The passphrase given for the TLS client key does not decrypt it. */
+"tlsKeyPassphraseWrong" | 
 /**  The server rejected the user name or the password. */
 "authFailed" | 
 /**  The database does not exist on the server. */
@@ -1377,6 +1449,8 @@ export type ErrorCode =
 "queryFailed" | 
 /**  The operation was cancelled by the user. */
 "cancelled" | 
+/**  A statement ran past the statement timeout of its connection and was cancelled. */
+"statementTimeout" | 
 /**  A database object (table, schema…) no longer exists, or was renamed. */
 "objectNotFound" | 
 /**  A query is already running in this tab. */
@@ -1463,6 +1537,13 @@ export type ErrorCode =
 "insufficientPrivilege" | 
 /**  The session to act on ended, or was replaced by another one, since the list was read. */
 "sessionChanged";
+
+/**  An Excel workbook (`.xlsx`), streamed: one worksheet, a frozen bold header row. */
+export type ExcelOptions = {
+	/**  Name of the worksheet (at most 31 characters, none of `[]:*?/\`). */
+	sheetName: string,
+	binary: BinaryEncoding,
+};
 
 export type ExecuteRequest = {
 	/**  The editor tab: it owns a dedicated server connection, opened on its first run. */
@@ -1588,10 +1669,15 @@ export type ExportFinished = {
 	 *  rows the limit left out.
 	 */
 	truncated: boolean,
+	/**
+	 *  The format's own limit stopped the export: the file lacks the rows past it (an Excel
+	 *  worksheet holds 1 048 575 rows below its header).
+	 */
+	limited: boolean,
 	error: YadbeError | null,
 };
 
-export type ExportFormat = { format: "csv"; options: CsvOptions } | { format: "json"; options: JsonOptions };
+export type ExportFormat = { format: "csv"; options: CsvOptions } | { format: "json"; options: JsonOptions } | { format: "sql"; options: SqlOptions } | { format: "markdown"; options: MarkdownOptions } | { format: "excel"; options: ExcelOptions };
 
 /**  Rows and bytes written so far. Throttled (at most about ten per second). */
 export type ExportProgress = {
@@ -1710,6 +1796,8 @@ export type HistoryQuery = {
 	/**  Words of the statement text; each matches as a prefix, all must match. */
 	text: string | null,
 	connectionId: string | null,
+	/**  Only what ran in this editor tab (F-102). */
+	tabId?: string | null,
 	/**  Empty: every outcome. */
 	outcomes: HistoryOutcome[],
 	/**  Unix milliseconds, inclusive. */
@@ -2224,6 +2312,21 @@ export type KnownHost = {
 	addedAt: number,
 };
 
+/**  What the command line asked for. */
+export type LaunchRequest = 
+/**  Open this script (an absolute path) in a query tab. */
+{ kind: "sqlFile"; path: string } | 
+/**  Open this connection: a saved one when it matches, else the connection form filled in. */
+{ kind: "connection"; 
+/**  The URL's fields, without its password. */
+parsed: ParsedConnectionString; 
+/**  The URL carried a password: it was ignored. */
+passwordIgnored: boolean } | 
+/**  An argument that could not be used. */
+{ kind: "rejected"; reason: RejectedReason; 
+/**  The argument, for file paths; `null` for a URL (it may hold a password). */
+argument: string | null };
+
 export type LineEnding = "lf" | "crlf";
 
 export type Locale = "en" | "fr";
@@ -2259,6 +2362,16 @@ export type LookupRequest = {
 	offset: number,
 	/**  1 to 500. */
 	limit: number,
+};
+
+/**  A Markdown (GitHub flavoured) table. */
+export type MarkdownOptions = {
+	/**  Written for SQL NULL. */
+	nullText: string,
+	/**  Numeric columns are right-aligned. */
+	alignNumbers: boolean,
+	binary: BinaryEncoding,
+	lineEnding: LineEnding,
 };
 
 export type MessageBody = {
@@ -2745,6 +2858,14 @@ export type RefreshedRows = {
 	positions: (number | null)[],
 };
 
+export type RejectedReason = 
+/**  Not a script file (`.sql`, `.ddl`, …). */
+"notAScript" | 
+/**  The file does not exist. */
+"fileNotFound" | 
+/**  A connection URL that could not be understood. */
+"invalidUrl";
+
 export type RelationSummary = {
 	/**  The planner's estimate (statistics), when the engine has one. */
 	rowEstimate: number | null,
@@ -2831,7 +2952,10 @@ export type ResultReadOnlyReason =
 
 /**  A row of a result set to read again, with its identity as last known. */
 export type ResultRowRef = {
-	/**  Its row in the result (columns the query computed keep the value read there). */
+	/**
+	 *  Its stored row in the result, whatever sort or filter the grid shows (columns the query
+	 *  computed keep the value read there; the row read replaces it).
+	 */
 	row: number,
 	key: Value[],
 };
@@ -2866,6 +2990,22 @@ export type ResultSummary = {
 	 *  rows the statement returned, and the statement cannot be resumed.
 	 */
 	truncated: boolean,
+};
+
+/**  The rows a view shows. */
+export type ResultViewInfo = {
+	/**  Rows shown. */
+	rowCount: number,
+	/**  Rows the result holds, shown or not. */
+	sourceRows: number,
+};
+
+/**  How the grid shows a result: the rows that pass every filter, ordered by the sort keys. */
+export type ResultViewSpec = {
+	sort: ViewSort[],
+	filters: ViewFilter[],
+	/**  Text conditions and sorts tell `a` from `A`. */
+	matchCase?: boolean,
 };
 
 /**  Rows `offset .. offset + rowCount` of a result, column by column. */
@@ -3077,7 +3217,9 @@ export type SecretKind = "password" | "sshPassphrase" | "token" |
 /**  Password of the SSH tunnel's server. */
 "sshPassword" | 
 /**  Password and key passphrase of the SSH tunnel's jump host. */
-"jumpPassword" | "jumpPassphrase";
+"jumpPassword" | "jumpPassphrase" | 
+/**  Passphrase of the encrypted private key of a TLS client certificate (F-009). */
+"tlsKeyPassphrase";
 
 /**  Where a secret is kept. */
 export type SecretLocation = 
@@ -3085,6 +3227,26 @@ export type SecretLocation =
 "keychain" | 
 /**  Memory only: forgotten when yadbe quits. */
 "session";
+
+/**  What a selection of cells adds up to (F-065). A cell in two ranges counts once. */
+export type SelectionAggregate = {
+	/**  Cells selected, `NULL`s included (saturates at 4 billion). */
+	cells: number,
+	/**  Cells that are not `NULL`. */
+	nonNull: number,
+	/**  Cells holding a number (integers, decimals, floats). */
+	numeric: number,
+	/**
+	 *  `sum`, `avg`, `min` and `max` are only given when every non-`NULL` cell is a number
+	 *  (at least one). Plain decimals, exact unless `exact` is false.
+	 */
+	sum: string | null,
+	avg: string | null,
+	min: string | null,
+	max: string | null,
+	/**  False when a floating-point cell took part: the figures are then floating point. */
+	exact: boolean,
+};
 
 export type SequenceSummary = {
 	dataType: string,
@@ -3169,6 +3331,22 @@ export type SortDirection = "asc" | "desc";
 export type SortKey = {
 	column: string,
 	direction: SortDirection,
+};
+
+/**
+ *  `INSERT` statements (F-066): identifiers quoted and values written as literals the way the
+ *  chosen engine reads them, so the script runs on that engine.
+ */
+export type SqlOptions = {
+	/**  The engine whose quoting and literals the script uses (not necessarily the source's). */
+	engine: Engine,
+	/**  Schema of the target table; empty: none. */
+	schema: string,
+	/**  Target table, unquoted. */
+	table: string,
+	/**  Rows per `INSERT` (1 to 500): one multi-row statement holds this many. */
+	rowsPerStatement: number,
+	lineEnding: LineEnding,
 };
 
 /**  How yadbe authenticates to an SSH server. */
@@ -3568,9 +3746,12 @@ export type TunnelPhase =
 /**  Closed or dropped; reopened before the next database connection. */
 "down";
 
-/**  An SSH password or key passphrase typed for one attempt (F-010). */
+/**
+ *  An SSH password or key passphrase (F-010), or the passphrase of a TLS client key (F-009),
+ *  typed for one attempt.
+ */
 export type TunnelSecretInput = {
-	/**  `sshPassword`, `sshPassphrase`, `jumpPassword` or `jumpPassphrase`. */
+	/**  `sshPassword`, `sshPassphrase`, `jumpPassword`, `jumpPassphrase` or `tlsKeyPassphrase`. */
 	kind: SecretKind,
 	secret: SecretInput,
 };
@@ -3640,6 +3821,26 @@ export type ValueFileEncoding =
  *  still differ (SQLite columns are dynamically typed).
  */
 export type ValueKind = "bool" | "int" | "decimal" | "float" | "text" | "bytes" | "date" | "time" | "timestamp" | "timestampTz" | "interval" | "uuid" | "json" | "array" | "other";
+
+/**
+ *  A condition on one column, or on every column (`column` absent: some cell matches; for the
+ *  negative operators, no cell does).
+ */
+export type ViewFilter = {
+	column: number | null,
+	op: ViewFilterOp,
+	/**  As typed; ignored by `isNull` / `isNotNull`. */
+	value: string,
+};
+
+/**  What a condition asks of a cell. */
+export type ViewFilterOp = "contains" | "notContains" | "startsWith" | "endsWith" | "equals" | "notEquals" | "greater" | "greaterOrEqual" | "less" | "lessOrEqual" | "isNull" | "isNotNull";
+
+/**  One sort key: a column of the result (data order) and a direction. */
+export type ViewSort = {
+	column: number,
+	descending: boolean,
+};
 
 /**
  *  The cells of one column in a window. Each cell is its lossless text, `null` for SQL

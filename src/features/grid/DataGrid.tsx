@@ -23,7 +23,11 @@ import { IconButton } from '../../ui/IconButton';
 import { matchShortcut } from '../../ui/shortcuts';
 import { getPreference, usePreference } from '../preferences/preferenceStore';
 import { displayLength } from './cellDisplay';
+import { runAction } from '../../app/actions';
 import { CellViewer } from './CellViewer';
+import { RowDetail } from './RowDetail';
+import { onGridAction } from './gridActions';
+import type { ViewerPanel } from './ViewerModeSwitch';
 import {
   SETTLE_MS,
   createExtents,
@@ -103,6 +107,13 @@ function notOnGrid(event: { target: EventTarget; currentTarget: EventTarget }): 
   );
 }
 
+/** A block of selected cells: rows `[rowStart, rowEnd)` of these data columns. */
+export interface SelectionBlock {
+  rowStart: number;
+  rowEnd: number;
+  columns: number[];
+}
+
 export interface DataGridProps {
   source: RowSource;
   /** Identifies the source in caches (e.g. `result-42`). */
@@ -121,6 +132,13 @@ export interface DataGridProps {
    * `null`: what an export of the selection writes.
    */
   onSelectionRange?: (range: { rowFrom: number; rowTo: number; columns: number[] } | null) => void;
+  /**
+   * Every range of the selection as rows `[rowStart, rowEnd)` of data columns, `null` without
+   * a selection: what its aggregates (F-065) are computed over.
+   */
+  onSelectionBlocks?: (blocks: SelectionBlock[] | null) => void;
+  /** Shown above the rows (the filter bar of a result). */
+  top?: ReactNode;
   /** Adds "Export…" to the context menu. */
   onExport?: () => void;
   /** Header sorting (table tabs): a click sorts instead of selecting the column. */
@@ -186,6 +204,8 @@ export interface DataGridApi {
   selectRows: (from: number, to: number) => void;
   /** Gives the keyboard focus back to the grid. */
   focus: () => void;
+  /** Forgets the selection (the rows behind the indices changed). */
+  clearSelection: () => void;
 }
 
 export interface ColumnLayout {
@@ -232,6 +252,8 @@ export function DataGrid({
   copyExtras,
   onSelectionSize,
   onSelectionRange,
+  onSelectionBlocks,
+  top,
   onExport,
   sort,
   editing,
@@ -274,6 +296,7 @@ export function DataGrid({
   const [widths, setWidths] = useState<number[]>([]);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerPanel, setViewerPanel] = useState<ViewerPanel>('cell');
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [colsStore] = useState(createRangeStore);
   const [menuColumn, setMenuColumn] = useState<number | null>(null);
@@ -709,6 +732,43 @@ export function DataGrid({
     setViewerOpen((open) => !open);
   }, []);
 
+  // The row detail panel (F-068): the action opens it, or closes it when it is the one shown.
+  const panelRef = useRef<{ open: boolean; panel: ViewerPanel }>({ open: false, panel: 'cell' });
+  panelRef.current = { open: viewerOpen, panel: viewerPanel };
+  useEffect(
+    () =>
+      onGridAction((action) => {
+        if (action !== 'result.rowDetail') return;
+        const { open, panel } = panelRef.current;
+        setViewerPanel('row');
+        setViewerOpen(!(open && panel === 'row'));
+      }),
+    [],
+  );
+
+  const moveRow = useCallback(
+    (delta: number) => {
+      const s = snapshot.current;
+      if (!s?.selection || rowCount === 0) return;
+      const row = Math.max(0, Math.min(rowCount - 1, s.selection.focus.row + delta));
+      const pos = { row, col: s.selection.focus.col };
+      setSelection(cellSelection(pos));
+      revealRef.current = pos;
+    },
+    [rowCount],
+  );
+
+  const openCell = useCallback(
+    (dataCol: number) => {
+      const row = snapshot.current?.selection?.focus.row ?? 0;
+      const pos = { row, col: Math.max(0, order.indexOf(dataCol)) };
+      setSelection(cellSelection(pos));
+      revealRef.current = pos;
+      setViewerPanel('cell');
+    },
+    [order],
+  );
+
   const selectColumn = useCallback((col: number, mode: SelectMode) => {
     setSelection((sel) => selectCols(sel, col, mode));
   }, []);
@@ -888,6 +948,9 @@ export function DataGrid({
         setSelection(selectRows(selectRows(null, from, 'replace'), to, 'extend'));
         revealRef.current = { row: from, col: 0 };
       },
+      clearSelection: () => {
+        setSelection(null);
+      },
       focus: () => {
         scrollerRef.current?.focus({ preventScroll: true });
       },
@@ -939,6 +1002,20 @@ export function DataGrid({
       columns,
     });
   }, [onSelectionRange, selection, rowCount, colCount, order]);
+  useEffect(() => {
+    if (!onSelectionBlocks) return;
+    if (!selection || rowCount === 0 || colCount === 0) {
+      onSelectionBlocks(null);
+      return;
+    }
+    onSelectionBlocks(
+      selection.ranges.map((range) => ({
+        rowStart: range.r0,
+        rowEnd: Math.min(range.r1, rowCount - 1) + 1,
+        columns: order.slice(range.c0, Math.min(range.c1, colCount - 1) + 1),
+      })),
+    );
+  }, [onSelectionBlocks, selection, rowCount, colCount, order]);
   const focusCell =
     selection && rowCount > 0
       ? { row: selection.focus.row, col: order[selection.focus.col] ?? selection.focus.col }
@@ -951,16 +1028,21 @@ export function DataGrid({
 
   return (
     <div className={styles.grid}>
+      {top}
       <div className={styles.main}>
         <ContextMenu
           content={
             <GridMenu
               hasSelection={!!selection && rowCount > 0}
-              viewerOpen={viewerOpen}
+              viewerOpen={viewerOpen && viewerPanel === 'cell'}
               onCopy={runCopy}
               onSelectAll={() => {
                 setSelection((sel) => selectAll(sel));
               }}
+              onRowDetail={() => {
+                runAction('result.rowDetail');
+              }}
+              rowDetailOpen={viewerOpen && viewerPanel === 'row'}
               onViewCell={toggleViewer}
               onExport={onExport}
               extras={menuExtras}
@@ -1088,11 +1170,27 @@ export function DataGrid({
             {rowCount === 0 && emptyText && <div className={styles.emptyRows}>{emptyText}</div>}
           </div>
         </ContextMenu>
-        {viewerOpen && (
+        {viewerOpen && viewerPanel === 'row' && (
+          <RowDetail
+            source={source}
+            sourceKey={sourceKey}
+            row={focusCell?.row ?? null}
+            order={order}
+            onMode={setViewerPanel}
+            onMove={moveRow}
+            onOpenCell={openCell}
+            onClose={() => {
+              setViewerOpen(false);
+              scrollerRef.current?.focus({ preventScroll: true });
+            }}
+          />
+        )}
+        {viewerOpen && viewerPanel === 'cell' && (
           <CellViewer
             source={source}
             sourceKey={sourceKey}
             target={focusCell}
+            onMode={setViewerPanel}
             onClose={() => {
               setViewerOpen(false);
               scrollerRef.current?.focus({ preventScroll: true });

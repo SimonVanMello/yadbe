@@ -1,6 +1,6 @@
 import { Popover as RadixPopover } from 'radix-ui';
 
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import { IconButton } from '../../ui/IconButton';
 import { setReferencingOpen, useFkStore } from './fkNavigation';
@@ -13,6 +13,7 @@ import { gridOf } from './tableActions';
  * open the same panel, anchored here.
  */
 export function ReferencingButton({ tabId }: { tabId: string }) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const open = useFkStore((state) => state.referencing[tabId] ?? false);
   const label = t('tableData.fk.referencing.button');

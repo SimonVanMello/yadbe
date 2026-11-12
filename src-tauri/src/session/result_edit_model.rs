@@ -80,7 +80,8 @@ pub struct ResultEditInfo {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ResultRowRef {
-    /// Its row in the result (columns the query computed keep the value read there).
+    /// Its stored row in the result, whatever sort or filter the grid shows (columns the query
+    /// computed keep the value read there; the row read replaces it).
     pub row: u32,
     pub key: RowKey,
 }

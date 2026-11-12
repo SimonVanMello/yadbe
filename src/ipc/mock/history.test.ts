@@ -188,4 +188,20 @@ describe('statements run through the mock runner', () => {
     expect(row).toMatchObject({ sql: 'delete from orders', outcome: 'refused' });
     expect(row?.errorCode).toBe('readOnlyViolation');
   });
+
+  it('keeps the editor tab each statement ran in, and can list what ran in one tab (F-102)', async () => {
+    await unwrap(commands.connect('conn-shop-staging', null));
+    await run('conn-shop-staging', 'select 1', 'tab-a');
+    await run('conn-shop-staging', 'select 2', 'tab-b');
+    await run('conn-shop-staging', 'select 3', 'tab-a');
+    const sqls = async (tabId: string | null) =>
+      (await search({ tabId, connectionId: 'conn-shop-staging', limit: 10 })).rows
+        .map((row) => row.sql)
+        .filter((sql) => /^select [123]$/.test(sql));
+    expect(await sqls('tab-a')).toEqual(['select 3', 'select 1']);
+    expect(await sqls('tab-b')).toEqual(['select 2']);
+    expect(await sqls('tab-gone')).toEqual([]);
+    // No tab filter: every tab's statements, and the seeded history that ran in none.
+    expect(await sqls(null)).toEqual(['select 3', 'select 2', 'select 1']);
+  });
 });

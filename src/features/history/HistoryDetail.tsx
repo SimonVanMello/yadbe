@@ -11,7 +11,7 @@ import { MatchText } from './MatchText';
 import { OutcomeIcon } from './OutcomeIcon';
 import { saveHistoryEntry } from '../library/libraryActions';
 import { useSavedSqlSet } from '../library/useLibrary';
-import { copyEntry, deleteEntry, insertEntry, openEntry } from './historyActions';
+import { copyEntry, deleteEntry, insertEntry, openEntry, restoreEntry } from './historyActions';
 import type { HistoryEntry } from './historyModel';
 import { useHistoryEntry } from './useHistory';
 
@@ -64,6 +64,14 @@ export function HistoryDetail({ entry: listed, search }: HistoryDetailProps) {
             label={t('history.action.insert')}
             onClick={() => {
               void insertEntry(entry);
+            }}
+          />
+          <IconButton
+            icon="undo"
+            size="sm"
+            label={t('history.action.restore')}
+            onClick={() => {
+              void restoreEntry(entry);
             }}
           />
           <IconButton

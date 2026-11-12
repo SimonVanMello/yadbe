@@ -36,6 +36,8 @@ export interface ExportDialogRequest {
   label: string;
   /** Connection the rows come from: its environment is shown in the dialog. */
   connectionId?: string | null;
+  /** The table the rows come from, which a script of `INSERT` statements names (F-066). */
+  target?: { schema: string; table: string };
   source: ResultExportSource | TableExportSource;
 }
 

@@ -121,7 +121,7 @@ export function secretKindOf(hop: SshHopName, auth: SshAuthMethod): SecretKind |
 
 /** Whether a secret kind is a key passphrase (else a password). */
 export function isPassphrase(kind: SecretKind): boolean {
-  return kind === 'sshPassphrase' || kind === 'jumpPassphrase';
+  return kind === 'sshPassphrase' || kind === 'jumpPassphrase' || kind === 'tlsKeyPassphrase';
 }
 
 export const SSH_SECRET_KINDS: readonly SecretKind[] = [

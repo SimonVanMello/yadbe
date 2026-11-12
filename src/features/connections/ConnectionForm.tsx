@@ -11,6 +11,7 @@ import { ColorPicker } from './ColorPicker';
 import styles from './ConnectionForm.module.css';
 import { ServerFields } from './ServerFields';
 import { SshFields } from './SshFields';
+import { TimeoutFields } from './TimeoutFields';
 import type { SshHopName, SshSecretLocations } from './sshModel';
 import { defaultTagColor } from './tagColors';
 import { SqliteFields } from './SqliteFields';
@@ -40,6 +41,8 @@ interface ConnectionFormProps {
   sshSecretLocations?: SshSecretLocations;
   /** Picks the private key file of an SSH hop with the native picker. */
   onPickKey?: (hop: SshHopName) => void;
+  /** Picks the TLS client certificate or its key with the native picker. */
+  onPickTlsFile?: (file: 'cert' | 'key') => void;
 }
 
 /** The connection form (F-001, F-005 to F-009): engine, engine-specific fields, identity. */
@@ -55,6 +58,7 @@ export function ConnectionForm({
   onPickFile,
   sshSecretLocations = {},
   onPickKey = () => undefined,
+  onPickTlsFile = () => undefined,
 }: ConnectionFormProps) {
   const t = useT();
   const id = useId();
@@ -93,6 +97,8 @@ export function ConnectionForm({
               errors={errors}
               passwordLocation={passwordLocation}
               keychainAvailable={keychainAvailable}
+              tlsKeyLocation={sshSecretLocations.tlsKeyPassphrase ?? null}
+              onPickTlsFile={onPickTlsFile}
               onChange={patch}
               onPasteConnectionString={onPasteConnectionString}
             />
@@ -108,6 +114,10 @@ export function ConnectionForm({
             />
           </>
         )
+      )}
+
+      {info && (
+        <TimeoutFields draft={draft} fileEngine={info.capabilities.usesFile} onChange={patch} />
       )}
 
       <hr className={styles.separator} />

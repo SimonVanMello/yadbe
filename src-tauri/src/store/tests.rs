@@ -61,6 +61,8 @@ fn connections_round_trip() {
     };
     def.read_only = true;
     def.favorite = true;
+    def.tls_client_cert_path = Some("/certs/client.crt".into());
+    def.tls_client_key_path = Some("/certs/client.key".into());
     let saved = store.create_connection(&def).expect("create");
     assert_eq!(saved.definition, def);
     assert_eq!(saved.position, 0);
@@ -73,6 +75,10 @@ fn connections_round_trip() {
         .update_connection(&saved.id, &changed)
         .expect("update");
     assert_eq!(updated.definition.name, "Renamed");
+    assert_eq!(
+        updated.definition.tls_client_key_path.as_deref(),
+        Some("/certs/client.key")
+    );
     assert_eq!(updated.created_at, saved.created_at);
 
     store.touch_connection(&saved.id).expect("touch");

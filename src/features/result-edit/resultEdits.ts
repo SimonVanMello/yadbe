@@ -30,6 +30,9 @@ import { gridColumnsOf, sessionIdOf, tableName, toTableInfo } from './resultEdit
  * the tab, or closing it, ends it (after asking when changes are pending).
  */
 
+/** A stored row no result has (`u32::MAX`): what a row added after the result refers to. */
+const NO_ROW = 0xffff_ffff;
+
 function t(key: MessageKey, params?: MessageParams): string {
   return translate(useI18nStore.getState().locale, key, params);
 }
@@ -132,15 +135,25 @@ function openSession(
     alive: () => entryOf(resultId) !== undefined && present(tabId, resultId),
     preview: (changes) => ipc.commands.previewResultChanges(resultId, changes),
     apply: (changes) => ipc.commands.applyResultChanges(resultId, changes),
+    // Stored rows, never grid positions: the backend replaces the row it reads back.
     refresh: (rows, keys) =>
       ipc.commands.refreshResultRows(
         resultId,
-        rows.map((row, i) => ({ row: source.baseRow(row) ?? row, key: keys[i] ?? [] })),
+        rows.map((row, i) => ({ row: source.baseRow(row) ?? NO_ROW, key: keys[i] ?? [] })),
       ),
     reload: () => {
       useTableSessionStore.getState().patch(id, { stale: true });
       return Promise.resolve();
     },
+    // The grid rows of the source are stored rows minus those an earlier apply deleted.
+    removed: (rows) =>
+      ipc.commands.removeResultRows(
+        resultId,
+        rows.flatMap((row) => {
+          const base = source.baseRow(row);
+          return base === null ? [] : [base];
+        }),
+      ),
     identity: info.identityColumns,
     sourced: (dataCol) => (info.columns[dataCol]?.source ?? null) !== null,
     block: () =>

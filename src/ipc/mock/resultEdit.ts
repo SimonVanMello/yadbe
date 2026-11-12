@@ -36,6 +36,7 @@ export type ResultEditCommands = Pick<
   | 'previewResultChanges'
   | 'applyResultChanges'
   | 'refreshResultRows'
+  | 'removeResultRows'
   | 'cancelResultEdit'
   | 'closeResultEdit'
 >;
@@ -60,6 +61,10 @@ export interface ResultEditDeps {
   storeRows(columns: readonly ColumnMeta[], rows: readonly (readonly Cell[])[]): number;
   freeResults(ids: readonly number[]): void;
   window(resultId: number, offset: number, limit: number): ResultWindow | null;
+  /** Stored row `row` of a result becomes what an apply read back. */
+  patchRow(resultId: number, row: number, cells: readonly Cell[]): void;
+  /** Stored rows an apply deleted leave what the grid shows; `false`: no such result. */
+  removeRows(resultId: number, rows: readonly number[]): boolean;
 }
 
 function ok<T>(data: T): Result<T> {
@@ -319,7 +324,10 @@ export function createMockResultEdit(deps: ResultEditDeps) {
         );
   }
 
-  /** Rows a hidden table tab read (table columns), in the result's columns. */
+  /**
+   * Rows a hidden table tab read (table columns), in the result's columns; a row read with its
+   * stored row (`rows[i]`) replaces it in the result, as the backend does.
+   */
   function remap(
     edit: {
       connectionId: string;
@@ -351,6 +359,8 @@ export function createMockResultEdit(deps: ResultEditDeps) {
         const text = column?.values[position] ?? null;
         return text === null ? null : [column?.kinds?.[position] ?? meta.kind, text];
       });
+      const at = rows[i];
+      if (at !== null && at !== undefined && origin) deps.patchRow(resultId, at, row);
       out.push(row);
       return out.length - 1;
     });
@@ -459,6 +469,11 @@ export function createMockResultEdit(deps: ResultEditDeps) {
           rows.map((r) => r.row),
         ),
       );
+    },
+    removeResultRows: (resultId, rows) => {
+      if (!edits.has(resultId)) return fail(mockErrors.resultNotFound(resultId));
+      if (!deps.removeRows(resultId, rows)) return fail(mockErrors.resultNotFound(resultId));
+      return ok(null);
     },
     cancelResultEdit: (resultId) => deps.tables.cancelTableData(hidden(resultId)),
     closeResultEdit: async (resultId) => {

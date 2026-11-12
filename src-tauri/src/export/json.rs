@@ -34,7 +34,7 @@ fn push_string(out: &mut String, text: &str) {
 }
 
 /// `-?digits[.digits][e[+-]digits]`, the JSON number grammar.
-fn is_json_number(text: &str) -> bool {
+pub(super) fn is_json_number(text: &str) -> bool {
     let bytes = text.as_bytes();
     let mut i = usize::from(bytes.first() == Some(&b'-'));
     let digits = |from: usize| {
@@ -69,13 +69,13 @@ fn is_json_number(text: &str) -> bool {
     i == bytes.len()
 }
 
-fn significant_digits(text: &str) -> usize {
+pub(super) fn significant_digits(text: &str) -> usize {
     let mantissa = text.split(['e', 'E']).next().unwrap_or(text);
     let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
     digits.trim_matches('0').len()
 }
 
-fn int_is_exact(text: &str) -> bool {
+pub(super) fn int_is_exact(text: &str) -> bool {
     let digits = text.strip_prefix('-').unwrap_or(text);
     is_json_number(text)
         && digits

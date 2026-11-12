@@ -536,7 +536,9 @@ impl ResultEditService {
     }
 
     /// Rows a table tab read (table columns), in the result's columns: a computed column
-    /// takes its value from row `rows[i]` of the result, `NULL` without one.
+    /// takes its value from stored row `rows[i]` of the result, `NULL` without one. A row read
+    /// with its stored row replaces it in the result, so a sort or a filter of the result shows
+    /// what the server holds now.
     fn remap(
         &self,
         edit: &ResultEdit,
@@ -569,10 +571,8 @@ impl ResultEditService {
                 positions.push(None);
                 continue;
             };
-            let old = rows
-                .get(i)
-                .copied()
-                .flatten()
+            let stored_row = rows.get(i).copied().flatten();
+            let old = stored_row
                 .and_then(|row| original.as_ref()?.rows(row as usize, 1).into_iter().next());
             let row: Vec<Value> = at
                 .iter()
@@ -585,6 +585,11 @@ impl ResultEditService {
                         .unwrap_or(Value::Null),
                 })
                 .collect();
+            if let (Some(original), Some(stored_row)) = (&original, stored_row)
+                && old.is_some()
+            {
+                original.replace_row(stored_row as usize, row.clone());
+            }
             out.push(row);
             positions.push(Some(u32::try_from(out.len() - 1).unwrap_or(u32::MAX)));
         }
@@ -595,6 +600,17 @@ impl ResultEditService {
             window: stored.window(0, PAGE_WINDOW_ROWS as usize),
             positions,
         })
+    }
+
+    /// Rows an apply deleted leave what the grid shows of the result (stored row numbers).
+    pub fn remove_rows(&self, result_id: u32, rows: &[u32]) -> Result<(), YadbeError> {
+        if !lock(&self.edits).contains_key(&result_id) {
+            return Err(YadbeError::result_not_found(result_id));
+        }
+        let stored = self.store.get(result_id)?;
+        let rows: Vec<usize> = rows.iter().map(|&row| row as usize).collect();
+        stored.remove_rows(&rows);
+        Ok(())
     }
 
     pub async fn cancel(&self, result_id: u32) {

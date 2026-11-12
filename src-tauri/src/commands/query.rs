@@ -8,9 +8,11 @@ use crate::db::errors::YadbeError;
 use crate::db::split::{Utf16Map, split, statement_at as db_statement_at};
 use crate::db::value::Value;
 use crate::session::query_model::{
-    ExecuteRequest, ExecuteScope, ExecutionStarted, ExplainRequest, ExplainResult, QueryParameter,
-    QueryTabInfo, ResultWindow, ResumeMode, TextRange, TransactionMode, TransactionState,
+    AggregateRange, ExecuteRequest, ExecuteScope, ExecutionStarted, ExplainRequest, ExplainResult,
+    QueryParameter, QueryTabInfo, ResultWindow, ResumeMode, SelectionAggregate, TextRange,
+    TransactionMode, TransactionState,
 };
+use crate::session::result_view::{ResultViewInfo, ResultViewSpec};
 use crate::state::AppState;
 
 /// The statements of `text`, split the way `engine` reads them (dollar quoting, `GO`
@@ -107,6 +109,70 @@ pub async fn fetch_result_cell(
     column: u32,
 ) -> Result<Value, YadbeError> {
     state.queries.cell(result_id, row, column)
+}
+
+/// A window of a result in the order its rows were stored, whatever sort or filter the grid
+/// shows it with: the rows an edit of the result addresses (F-087).
+#[tauri::command]
+#[specta::specta]
+pub async fn fetch_result_stored_window(
+    state: State<'_, AppState>,
+    result_id: u32,
+    offset: u32,
+    limit: u32,
+) -> Result<ResultWindow, YadbeError> {
+    state.queries.stored_window(result_id, offset, limit)
+}
+
+/// One whole cell of a stored row (see `fetch_result_stored_window`).
+#[tauri::command]
+#[specta::specta]
+pub async fn fetch_result_stored_cell(
+    state: State<'_, AppState>,
+    result_id: u32,
+    row: u32,
+    column: u32,
+) -> Result<Value, YadbeError> {
+    state.queries.stored_cell(result_id, row, column)
+}
+
+/// Count, sum, average, minimum and maximum of a selection of cells (F-065), computed where
+/// the rows are: exact for integers and decimals, whatever the size of the selection.
+#[tauri::command]
+#[specta::specta]
+pub async fn aggregate_result_selection(
+    state: State<'_, AppState>,
+    result_id: u32,
+    ranges: Vec<AggregateRange>,
+) -> Result<SelectionAggregate, YadbeError> {
+    let queries = std::sync::Arc::clone(&state.queries);
+    super::blocking(move || queries.aggregate(result_id, &ranges)).await
+}
+
+/// Sorts and filters the rows of a result as the grid shows them (F-065), in the backend and
+/// without running the statement again; an empty spec shows them as they came. Windows,
+/// cells, aggregates and selection exports then follow the view.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_result_view(
+    state: State<'_, AppState>,
+    result_id: u32,
+    spec: ResultViewSpec,
+) -> Result<ResultViewInfo, YadbeError> {
+    let queries = std::sync::Arc::clone(&state.queries);
+    super::blocking(move || queries.set_result_view(result_id, spec)).await
+}
+
+/// Rows the result's view shows and rows the result holds; the view follows a result that
+/// is still streaming.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_result_view(
+    state: State<'_, AppState>,
+    result_id: u32,
+) -> Result<ResultViewInfo, YadbeError> {
+    let queries = std::sync::Arc::clone(&state.queries);
+    super::blocking(move || queries.result_view(result_id)).await
 }
 
 /// The tab's transaction state, connection and running or last execution.

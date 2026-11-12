@@ -11,6 +11,8 @@ import type {
   QueryMessage,
   QueryTabInfo,
   ResultStatus,
+  ResultViewInfo,
+  ResultViewSpec,
   ResultSummary,
   ResultWindow,
   SavedConnection,
@@ -27,6 +29,8 @@ import type {
 import type { YadbeCommands } from './client';
 import type { EventEmitter } from './emitter';
 import type { MockHistoryRecord } from './mock/history';
+import { aggregateSelection } from './mock/resultAggregate';
+import { viewRows } from './mock/resultView';
 import { mockErrors } from './mockErrors';
 import { mockSplit, mockStatementAt } from './mockSplit';
 import {
@@ -70,6 +74,11 @@ type QueryCommandName =
   | 'resumeResult'
   | 'fetchResultWindow'
   | 'fetchResultCell'
+  | 'fetchResultStoredWindow'
+  | 'fetchResultStoredCell'
+  | 'aggregateResultSelection'
+  | 'setResultView'
+  | 'getResultView'
   | 'getQueryTab'
   | 'setTransactionMode'
   | 'commitTransaction'
@@ -125,6 +134,8 @@ export interface MockResultSource {
   loaded: number;
   total: number;
   value(row: number, column: number): Value;
+  /** The rows as the grid shows them, when the user sorted or filtered the result (F-065). */
+  shown?: { count: number; value(row: number, column: number): Value };
 }
 
 type Result<T> = Promise<{ status: 'ok'; data: T } | { status: 'error'; error: YadbeError }>;
@@ -170,6 +181,12 @@ interface MockResult {
   resume: ((mode: 'more' | 'all') => void) | null;
   /** The query tab and statement of a user result (F-087). */
   origin?: { tabId: string; connectionId: string; sql: string; edit: MockResultEditSource | null };
+  /** The sort and filter the grid shows (F-065), and the rows fetched when it was last built. */
+  view?: { spec: ResultViewSpec; rows: number[]; built: number } | null;
+  /** Stored rows an apply deleted (F-087): kept in place, left out of what the grid shows. */
+  removed?: Set<number>;
+  /** Stored rows an apply read back, which replace what the query returned. */
+  patched?: Map<number, Cell[]>;
 }
 
 interface MockExecution {
@@ -689,6 +706,52 @@ export function createMockQuery(host: MockQueryHost) {
     return true;
   }
 
+  /**
+   * The stored rows the grid shows, in order, `null` without a view; built again as rows arrive.
+   * Rows an apply deleted are left out, with or without a sort or filter.
+   */
+  function shownRows(result: MockResult): number[] | null {
+    const removed = result.removed;
+    if (!result.view && removed && removed.size > 0) {
+      result.view = { spec: { sort: [], filters: [], matchCase: false }, rows: [], built: -1 };
+    }
+    const view = result.view;
+    if (!view) return null;
+    if (view.built !== result.rowCount) {
+      view.rows = viewRows(view.spec, result.rowCount, result.columns.length, (row, column) => {
+        return result.columns[column]?.cell(row) ?? null;
+      });
+      if (removed) view.rows = view.rows.filter((row) => !removed.has(row));
+      view.built = result.rowCount;
+    }
+    return view.rows;
+  }
+
+  function viewInfo(result: MockResult): ResultViewInfo {
+    const shown = shownRows(result);
+    return {
+      rowCount: shown ? shown.length : result.rowCount,
+      sourceRows: result.rowCount - (result.removed?.size ?? 0),
+    };
+  }
+
+  /** Stored row `row` becomes `cells` (an apply read it back); a view is built again. */
+  function patchRow(result: MockResult, row: number, cells: readonly Cell[]): void {
+    if (row >= result.rowCount) return;
+    let patched = result.patched;
+    if (!patched) {
+      const rows = new Map<number, Cell[]>();
+      patched = rows;
+      result.patched = rows;
+      result.columns = result.columns.map((column, c) => ({
+        ...column,
+        cell: (r: number) => (rows.has(r) ? (rows.get(r)?.[c] ?? null) : column.cell(r)),
+      }));
+    }
+    patched.set(row, [...cells]);
+    if (result.view) result.view.built = -1;
+  }
+
   function newResult(
     exec: MockExecution,
     index: number,
@@ -849,6 +912,18 @@ export function createMockQuery(host: MockQueryHost) {
     const pause = /\b(?:pg_sleep|sleep)\s*\(\s*([\d.]+)\s*\)|waitfor\s+delay\s+''/i.exec(words);
     if (pause) {
       const seconds = pause[1] ? Number(pause[1]) : Number(/(\d+)'/.exec(sql)?.[1] ?? '1');
+      // The connection's statement timeout (F-014) cuts the wait short.
+      const limit = host.connection(exec.connectionId)?.definition.statementTimeoutSecs ?? null;
+      if (limit !== null && limit > 0 && seconds > limit) {
+        if (!(await sleep(limit * 1000, signal))) return cancelled();
+        message(exec, index, {
+          kind: 'error',
+          error: mockErrors.statementTimeout(limit),
+          server: null,
+          position: null,
+        });
+        return failed();
+      }
       if (!(await sleep(seconds * 1000, signal))) return cancelled();
       if (verb === 'select') {
         const result = newResult(
@@ -938,6 +1013,7 @@ export function createMockQuery(host: MockQueryHost) {
     const status =
       outcome === 'refused' || outcome === 'cancelled' ? outcome : error ? 'error' : 'ok';
     host.recordHistory?.({
+      tabId: exec.tabId,
       connectionId: exec.connectionId,
       database: exec.database,
       sql: exec.text.slice(range.from, range.to),
@@ -1067,17 +1143,26 @@ export function createMockQuery(host: MockQueryHost) {
   /** Explains in progress, by tab: `cancelQuery` aborts them. */
   const explaining = new Map<string, AbortController>();
 
-  /** Rows `[offset, offset + limit)` of a result in the window format. */
-  function windowOf(result: MockResult, offset: number, limit: number): ResultWindow {
-    const start = Math.min(offset, result.rowCount);
-    const count = Math.max(0, Math.min(limit, result.rowCount - start));
+  /**
+   * Rows `[offset, offset + limit)` of a result in the window format: of the rows `shown`, in
+   * that order, or of the stored rows.
+   */
+  function windowOf(
+    result: MockResult,
+    offset: number,
+    limit: number,
+    shown: readonly number[] | null = null,
+  ): ResultWindow {
+    const total = shown ? shown.length : result.rowCount;
+    const start = Math.min(offset, total);
+    const count = Math.max(0, Math.min(limit, total - start));
     const columns: WindowColumn[] = result.columns.map((column) => {
       const values: (string | null)[] = [];
       const kinds: ValueKind[] = [];
       const truncated: number[] = [];
       let mixed = false;
       for (let i = 0; i < count; i++) {
-        const cell = column.cell(start + i);
+        const cell = column.cell(shown ? (shown[start + i] ?? 0) : start + i);
         if (!cell) {
           values.push(null);
           kinds.push(column.meta.kind);
@@ -1202,10 +1287,40 @@ export function createMockQuery(host: MockQueryHost) {
           ),
         );
       }
-      return ok(windowOf(result, offset, limit));
+      return ok(windowOf(result, offset, limit, shownRows(result)));
     },
 
     fetchResultCell: (resultId, row, column) => {
+      const result = results.get(resultId);
+      if (!result) return fail(mockErrors.resultNotFound(resultId));
+      const target = result.columns[column];
+      const shown = shownRows(result);
+      if (!target || row >= (shown ? shown.length : result.rowCount)) {
+        return fail(
+          mockErrors.invalidArgument(
+            'This cell is outside the result.',
+            'Cette cellule est hors du résultat.',
+          ),
+        );
+      }
+      return ok(cellValue(target.cell(shown ? (shown[row] ?? 0) : row)));
+    },
+
+    fetchResultStoredWindow: (resultId, offset, limit) => {
+      const result = results.get(resultId);
+      if (!result) return fail(mockErrors.resultNotFound(resultId));
+      if (limit > MAX_WINDOW_ROWS) {
+        return fail(
+          mockErrors.invalidArgument(
+            `A window has at most ${MAX_WINDOW_ROWS} rows.`,
+            `Une fenêtre compte au plus ${MAX_WINDOW_ROWS} lignes.`,
+          ),
+        );
+      }
+      return ok(windowOf(result, offset, limit));
+    },
+
+    fetchResultStoredCell: (resultId, row, column) => {
       const result = results.get(resultId);
       if (!result) return fail(mockErrors.resultNotFound(resultId));
       const target = result.columns[column];
@@ -1218,6 +1333,47 @@ export function createMockQuery(host: MockQueryHost) {
         );
       }
       return ok(cellValue(target.cell(row)));
+    },
+
+    aggregateResultSelection: (resultId, ranges) => {
+      const result = results.get(resultId);
+      if (!result) return fail(mockErrors.resultNotFound(resultId));
+      const shown = shownRows(result);
+      return ok(
+        aggregateSelection(
+          ranges,
+          shown ? shown.length : result.rowCount,
+          result.columns.length,
+          (row, column) => result.columns[column]?.cell(shown ? (shown[row] ?? 0) : row) ?? null,
+        ),
+      );
+    },
+
+    setResultView: (resultId, spec) => {
+      const result = results.get(resultId);
+      if (!result) return fail(mockErrors.resultNotFound(resultId));
+      const highest = Math.max(
+        -1,
+        ...spec.sort.map((key) => key.column),
+        ...spec.filters.map((f) => f.column ?? -1),
+      );
+      if (highest >= result.columns.length) {
+        return fail(
+          mockErrors.invalidArgument(
+            'A sort or filter names a column the result does not have.',
+            'Un tri ou un filtre nomme une colonne absente du résultat.',
+          ),
+        );
+      }
+      result.view =
+        spec.sort.length === 0 && spec.filters.length === 0 ? null : { spec, rows: [], built: -1 };
+      return ok(viewInfo(result));
+    },
+
+    getResultView: (resultId) => {
+      const result = results.get(resultId);
+      if (!result) return fail(mockErrors.resultNotFound(resultId));
+      return ok(viewInfo(result));
     },
 
     getQueryTab: (tabId) => ok(info(tabs.get(tabId) ?? tabOf(tabId))),
@@ -1318,11 +1474,28 @@ export function createMockQuery(host: MockQueryHost) {
     resultSource(resultId: number): MockResultSource | undefined {
       const result = results.get(resultId);
       if (!result) return undefined;
+      const shown = shownRows(result);
+      // A whole export leaves out the rows an apply deleted (F-087), like the backend.
+      const removed = result.removed;
+      const kept =
+        removed && removed.size > 0
+          ? Array.from({ length: result.rowCount }, (_, row) => row).filter((r) => !removed.has(r))
+          : null;
+      const at = (row: number) => (kept ? (kept[row] ?? row - kept.length + result.rowCount) : row);
       return {
         columns: result.columns.map((column) => column.meta),
-        loaded: result.rowCount,
-        total: result.total,
-        value: (row, column) => cellValue(result.columns[column]?.cell(row) ?? null),
+        loaded: kept ? kept.length : result.rowCount,
+        total: result.total - (removed?.size ?? 0),
+        value: (row, column) => cellValue(result.columns[column]?.cell(at(row)) ?? null),
+        ...(shown
+          ? {
+              shown: {
+                count: shown.length,
+                value: (row: number, column: number) =>
+                  cellValue(result.columns[column]?.cell(shown[row] ?? 0) ?? null),
+              },
+            }
+          : {}),
       };
     },
     /** A window of a result, at once (the result edits remap rows with it). */
@@ -1347,6 +1520,20 @@ export function createMockQuery(host: MockQueryHost) {
           ),
         value: (row, column) => cellValue(result.columns[column]?.cell(row) ?? null),
       };
+    },
+    /** Stored row `row` of a result as an apply read it back (F-087). */
+    patchRow(resultId: number, row: number, cells: readonly Cell[]): void {
+      const result = results.get(resultId);
+      if (result) patchRow(result, row, cells);
+    },
+    /** Stored rows an apply deleted leave what the grid shows (F-087). */
+    removeRows(resultId: number, rows: readonly number[]): boolean {
+      const result = results.get(resultId);
+      if (!result) return false;
+      const removed = (result.removed ??= new Set());
+      for (const row of rows) if (row < result.rowCount) removed.add(row);
+      if (result.view) result.view.built = -1;
+      return true;
     },
     /** The transaction state of a query tab. */
     tabTransaction(tabId: string): TransactionState {

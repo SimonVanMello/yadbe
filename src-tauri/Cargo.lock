@@ -6753,10 +6753,13 @@ dependencies = [
 name = "yadbe"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "fallible-iterator 0.2.0",
+ "flate2",
  "futures-util",
  "keyring",
  "mysql_async",
+ "pkcs8",
  "postgres-protocol",
  "rusqlite",
  "russh",

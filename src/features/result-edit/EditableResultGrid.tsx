@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import type { ResultSummary, TableDataInfo } from '../../ipc';
 import { Button } from '../../ui/Button';
@@ -11,8 +11,12 @@ import type { ConnectionSummary } from '../connections/model';
 import { useExportStore } from '../export/exportStore';
 import type { ExportGridRange } from '../export/exportOptions';
 import { DataGrid, type DataGridApi } from '../grid/DataGrid';
+import type { HeaderSort } from '../grid/GridHeader';
 import { openResultExport, ResultFooter } from '../grid/ResultFooter';
 import { useResultSelectionStore, type SelectionSize } from '../grid/resultSelectionStore';
+import { EMPTY_VIEW } from '../grid/resultViewModel';
+import { useResultViewStore } from '../grid/resultViewStore';
+import { useSelectionAggregate } from '../grid/useSelectionAggregate';
 import { useTabTransaction } from '../query/executionStore';
 import { ConflictDialog } from '../table-data/ConflictDialog';
 import { FailureBanner } from '../table-data/FailureBanner';
@@ -30,7 +34,7 @@ import { useCellEditing } from '../table-data/useCellEditing';
 import { ResultEditMenu } from './ResultEditMenu';
 import styles from './ResultEdit.module.css';
 import { ResultEditStatus } from './ResultEditStatus';
-import { growResult, useResultEdit } from './resultEdits';
+import { useResultEdit } from './resultEdits';
 import { sessionIdOf } from './resultEditModel';
 
 interface EditableResultGridProps {
@@ -45,7 +49,8 @@ interface EditableResultGridProps {
 /**
  * A result of a `SELECT` on one table holding its key, edited like a table tab (F-087): cell
  * editors, `NULL`, row deletion, pending changes drawn over the rows, the SQL preview and Apply
- * in one transaction, the conflicts of rows changed elsewhere. Rows cannot be added.
+ * in one transaction, the conflicts of rows changed elsewhere. Rows cannot be added. A header
+ * click sorts the rows (F-065): the result is then shown read-only (see `ResultView`).
  */
 export function EditableResultGrid({
   resultId,
@@ -61,10 +66,17 @@ export function EditableResultGrid({
   const entry = useResultEdit(resultId);
   const transaction = useTabTransaction(entry?.tabId ?? '');
   const apiRef = useRef<DataGridApi | null>(null);
-
-  useLayoutEffect(() => {
-    growResult(resultId, summary.rowCount);
-  }, [resultId, summary.rowCount]);
+  const shortcutOf = useShortcutOf();
+  const view = useResultViewStore((state) => state.views[resultId]) ?? EMPTY_VIEW;
+  const headerSort: HeaderSort = {
+    keys: view.sort,
+    onSort: (dataCol, additive) => {
+      void flushEditor(id).then(() => {
+        useResultViewStore.getState().sortBy(resultId, dataCol, additive);
+      });
+    },
+  };
+  const onSelectionBlocks = useSelectionAggregate(resultId);
 
   const setApi = useCallback(
     (api: DataGridApi | null) => {
@@ -107,7 +119,13 @@ export function EditableResultGrid({
   const blocked = transaction.status !== 'idle';
   const footer = (
     <>
-      <ResultFooter resultId={resultId} summary={summary} label={label} />
+      <ResultFooter
+        resultId={resultId}
+        summary={summary}
+        label={label}
+        viewInfo={null}
+        view={view}
+      />
       <ResultEditStatus entry={entry} />
       {session.stale && (
         <span className={styles.stale} role="status">
@@ -169,6 +187,8 @@ export function EditableResultGrid({
         menuExtras={<ResultEditMenu sessionId={id} />}
         onSelectionSize={onSelectionSize}
         onSelectionRange={onSelectionRange}
+        onSelectionBlocks={onSelectionBlocks}
+        sort={headerSort}
         onExport={() => {
           openResultExport(resultId, summary, label);
         }}

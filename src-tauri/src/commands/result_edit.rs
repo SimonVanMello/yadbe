@@ -72,6 +72,18 @@ pub async fn refresh_result_rows(
         .await
 }
 
+/// Rows an apply deleted leave the result (stored row numbers): a sort or a filter of it no
+/// longer shows them, and the others keep their numbers.
+#[tauri::command]
+#[specta::specta]
+pub async fn remove_result_rows(
+    state: State<'_, AppState>,
+    result_id: u32,
+    rows: Vec<u32>,
+) -> Result<(), YadbeError> {
+    state.result_edits.remove_rows(result_id, &rows)
+}
+
 /// Stops what an edit of the result runs (an apply waiting for a lock), with the engine's
 /// native cancel.
 #[tauri::command]

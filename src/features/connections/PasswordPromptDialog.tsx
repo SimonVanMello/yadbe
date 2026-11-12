@@ -20,6 +20,7 @@ const PROMPT_TITLES: Partial<Record<SecretKind, MessageKey>> = {
   sshPassphrase: 'connection.ssh.prompt.sshPassphrase',
   jumpPassword: 'connection.ssh.prompt.jumpPassword',
   jumpPassphrase: 'connection.ssh.prompt.jumpPassphrase',
+  tlsKeyPassphrase: 'connection.tls.prompt.title',
 };
 
 function PromptForm({
@@ -51,7 +52,12 @@ function PromptForm({
       })}
       description={
         secret
-          ? t('connection.ssh.prompt.description', { endpoint: secret.endpoint })
+          ? t(
+              secret.kind === 'tlsKeyPassphrase'
+                ? 'connection.tls.prompt.description'
+                : 'connection.ssh.prompt.description',
+              { endpoint: secret.endpoint },
+            )
           : t('connection.password.prompt.description', { target: connection.target })
       }
       footer={

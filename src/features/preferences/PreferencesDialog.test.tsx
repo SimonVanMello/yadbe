@@ -5,6 +5,8 @@ import { Tooltip } from 'radix-ui';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { resetBackendPreferences } from '../../app/backendPreferences';
+import { shortcutFor } from '../../app/actions';
+import { useKeybindingsStore } from '../../app/keybindingsStore';
 import { queryClient } from '../../app/queryClient';
 import { useShellStore } from '../../app/shellStore';
 import { initI18n } from '../../i18n/i18n';
@@ -22,6 +24,7 @@ beforeEach(() => {
   initI18n('en');
   usePreferenceStore.setState({ values: defaultValues() });
   useShellStore.setState({ preferences: null });
+  useKeybindingsStore.getState().resetAll();
 });
 
 function openDialog() {
@@ -46,7 +49,15 @@ describe('the preferences screen', () => {
       within(nav)
         .getAllByRole('button')
         .map((button) => button.textContent),
-    ).toEqual(['Appearance', 'Editor', 'Results and data', 'History', 'Connections', 'About']);
+    ).toEqual([
+      'Appearance',
+      'Editor',
+      'Results and data',
+      'Keyboard shortcuts',
+      'History',
+      'Connections',
+      'About',
+    ]);
     expect(within(nav).getByRole('button', { name: 'Appearance' })).toHaveAttribute(
       'aria-current',
       'page',
@@ -112,6 +123,38 @@ describe('the preferences screen', () => {
     await user.clear(screen.getByRole('searchbox'));
     await user.type(screen.getByRole('searchbox'), 'zzzz');
     expect(await screen.findByText(/No setting matches/)).toBeInTheDocument();
+  });
+
+  it('rebinds an action from the shortcuts section, and warns before taking a used shortcut', async () => {
+    const user = userEvent.setup();
+    openDialog();
+    await user.click(await screen.findByRole('button', { name: 'Keyboard shortcuts' }));
+    await user.click(screen.getByRole('button', { name: 'Change the shortcut of New tab' }));
+    await user.keyboard('{Control>}{Alt>}j{/Alt}{/Control}');
+    expect(shortcutFor('tab.new')).toBe('Mod+Alt+J');
+
+    // `Ctrl+W` closes a tab: taking it asks first.
+    await user.click(screen.getByRole('button', { name: 'Change the shortcut of New tab' }));
+    await user.keyboard('{Control>}w{/Control}');
+    expect(await screen.findByText(/Already used by Close the tab/)).toBeInTheDocument();
+    expect(shortcutFor('tab.new')).toBe('Mod+Alt+J');
+    await user.click(screen.getByRole('button', { name: 'Take it over' }));
+    expect(shortcutFor('tab.new')).toBe('Mod+W');
+    expect(shortcutFor('tab.close')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Reset all' }));
+    expect(shortcutFor('tab.new')).toBe('Mod+T');
+    expect(shortcutFor('tab.close')).toBe('Mod+W');
+  }, 20_000);
+
+  it('finds the shortcuts section by searching for a shortcut', async () => {
+    const user = userEvent.setup();
+    openDialog();
+    await user.type(
+      await screen.findByRole('searchbox', { name: 'Search the settings' }),
+      'rebind',
+    );
+    expect(await screen.findByTestId('keybindings')).toBeInTheDocument();
   });
 
   it('says that the production guard cannot be turned off', async () => {

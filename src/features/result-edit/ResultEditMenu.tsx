@@ -1,4 +1,4 @@
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
 import { ContextMenuSeparator } from '../../ui/ContextMenuSeparator';
@@ -13,6 +13,7 @@ import { usePendingCount } from '../table-data/tableSessionStore';
 /** The editing entries of an editable result's context menu (F-087): no inserts. */
 export function ResultEditMenu({ sessionId }: { sessionId: string }) {
   const t = useT();
+  const shortcutOf = useShortcutOf();
   const pending = usePendingCount(sessionId) > 0;
   return (
     <>

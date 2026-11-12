@@ -27,6 +27,9 @@ import { EMPTY_PENDING, type ChangeTarget, type Pending } from './pendingChanges
  *
  * After an apply, the rows the server sent back (refreshed and inserted rows) replace or extend
  * the page in place, and deleted rows leave it, so the user keeps seeing what they changed.
+ *
+ * Rows are read in the order they were stored (`fetchResultStored*`): a sort or a filter of a
+ * query result's grid (F-065) never moves the rows an edit of that result addresses (F-087).
  */
 
 /** A row read outside the page: refreshed or inserted by an apply. */
@@ -258,7 +261,8 @@ export class TableRowSource implements RowSource {
     if (page) {
       const { resultId } = page;
       const cache = new WindowCache({
-        fetch: (offset, limit) => unwrap(ipc.commands.fetchResultWindow(resultId, offset, limit)),
+        fetch: (offset, limit) =>
+          unwrap(ipc.commands.fetchResultStoredWindow(resultId, offset, limit)),
         windowSize: WINDOW_ROWS,
         maxWindows: 120,
       });
@@ -396,14 +400,14 @@ export class TableRowSource implements RowSource {
   async underlyingValue(row: number, col: number): Promise<Value> {
     const known = this.underlying(row, this.cacheLookup);
     if (known && !known.truncated(col)) return cellValue(known.text(col), known.kind(col));
-    if (known) return unwrap(ipc.commands.fetchResultCell(known.resultId, known.index, col));
+    if (known) return unwrap(ipc.commands.fetchResultStoredCell(known.resultId, known.index, col));
     const base = this.mapping ? (this.mapping[row] ?? -1) : row;
     const page = this.page;
     if (base >= 0 && page) {
       const override = this.overrides.get(base);
       if (override)
-        return unwrap(ipc.commands.fetchResultCell(override.resultId, override.index, col));
-      return unwrap(ipc.commands.fetchResultCell(page.resultId, base, col));
+        return unwrap(ipc.commands.fetchResultStoredCell(override.resultId, override.index, col));
+      return unwrap(ipc.commands.fetchResultStoredCell(page.resultId, base, col));
     }
     return { kind: 'null' };
   }
@@ -467,7 +471,7 @@ export class TableRowSource implements RowSource {
     while (index < missing.length) {
       const first = missing[index] ?? 0;
       const limit = Math.min(READ_CHUNK_ROWS, (missing.at(-1) ?? first) - first + 1);
-      const block = await unwrap(ipc.commands.fetchResultWindow(page.resultId, first, limit));
+      const block = await unwrap(ipc.commands.fetchResultStoredWindow(page.resultId, first, limit));
       if (block.rowCount === 0) break;
       blocks.push(block);
       while (index < missing.length && (missing[index] ?? 0) < block.offset + block.rowCount)

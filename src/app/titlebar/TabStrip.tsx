@@ -12,7 +12,7 @@ import { ContextMenu } from '../../ui/ContextMenu';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
 import { ContextMenuSeparator } from '../../ui/ContextMenuSeparator';
 import { IconButton } from '../../ui/IconButton';
-import { shortcutOf } from '../actions';
+import { useShortcutOf } from '../useShortcutOf';
 import { openNewTab, useTabsStore, type ShellTab } from '../tabs/tabsStore';
 import { TabItem } from './TabItem';
 import styles from './TabStrip.module.css';
@@ -63,6 +63,7 @@ function dropIndex(strip: HTMLElement, drag: DragState): number {
 
 /** Tabs of the title bar (F-122): drag to reorder, middle click to close, arrows to navigate. */
 export function TabStrip() {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const tabs = useTabsStore((state) => state.tabs);
   const activeTabId = useTabsStore((state) => state.activeTabId);
@@ -197,6 +198,7 @@ interface TabContextMenuProps {
 }
 
 function TabContextMenu({ tab, index, tabs, children }: TabContextMenuProps) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const canReopen = useTabsStore((state) => state.closedTabs.length > 0);
   // Pinned tabs stay put on "Close others" / "Close to the right", and move among themselves.

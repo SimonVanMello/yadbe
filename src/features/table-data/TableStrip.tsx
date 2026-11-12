@@ -1,4 +1,5 @@
-import { runAction, shortcutOf } from '../../app/actions';
+import { runAction } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import { Button } from '../../ui/Button';
@@ -23,6 +24,7 @@ const PROGRESS_AFTER_MS = 150;
  * exact on demand and cancellable), refresh, and what is running.
  */
 export function TableStrip({ tabId }: { tabId: string }) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
   const session = useTableSession(tabId);

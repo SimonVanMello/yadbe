@@ -24,6 +24,8 @@ struct FakeDriver {
     failures: Mutex<VecDeque<YadbeError>>,
     links: Mutex<Vec<LinkSignal>>,
     attempts: AtomicU32,
+    /// Keep-alive pings its connections received.
+    keep_alives: Arc<AtomicU32>,
     delay: Duration,
 }
 
@@ -40,7 +42,7 @@ impl FakeDriver {
     }
 }
 
-struct FakeConnection(LinkWatch);
+struct FakeConnection(LinkWatch, Arc<AtomicU32>);
 struct NoCancel;
 
 impl CancelHandle for NoCancel {
@@ -54,6 +56,10 @@ impl Connection for FakeConnection {
         "Fake 1.0"
     }
     fn ping(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
+        Box::pin(async { Ok(()) })
+    }
+    fn keep_alive(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
+        self.1.fetch_add(1, Ordering::SeqCst);
         Box::pin(async { Ok(()) })
     }
     fn query<'a>(&'a self, _: &'a str, _: usize) -> BoxFuture<'a, Result<QueryResult, YadbeError>> {
@@ -94,7 +100,10 @@ impl Driver for FakeDriver {
             }
             let (signal, watch) = LinkWatch::new();
             self.links.lock().expect("lock").push(signal);
-            Ok(Box::new(FakeConnection(watch)) as Box<dyn Connection>)
+            Ok(
+                Box::new(FakeConnection(watch, Arc::clone(&self.keep_alives)))
+                    as Box<dyn Connection>,
+            )
         })
     }
 }
@@ -107,9 +116,15 @@ struct Fixture {
 }
 
 fn fixture(delay: Duration) -> Fixture {
+    fixture_with(delay, None)
+}
+
+/// `keep_alive_secs`: the connection's keep-alive setting.
+fn fixture_with(delay: Duration, keep_alive_secs: Option<u32>) -> Fixture {
     let store = Arc::new(Store::open_in_memory().expect("store"));
     let mut def = sample_definition(Engine::Postgres);
     def.auth = AuthMethod::None;
+    def.keep_alive_secs = keep_alive_secs;
     let id = store.create_connection(&def).expect("save").id;
     let sink = Arc::new(RecordingSink::default());
     let driver = Arc::new(FakeDriver {
@@ -261,4 +276,27 @@ async fn disconnect_stops_reconnecting() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(f.states().last(), Some(&Closed));
     assert_eq!(f.states().len(), count, "no event after closing");
+}
+
+#[tokio::test]
+async fn pings_an_idle_connection_at_its_keep_alive_interval_until_it_closes() {
+    let f = fixture_with(Duration::ZERO, Some(1));
+    f.manager.connect(&f.id, None).await.expect("connect");
+    let pings = || f.driver.keep_alives.load(Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(pings(), 0, "not before the interval");
+    tokio::time::sleep(Duration::from_millis(1_800)).await;
+    assert!((2..=3).contains(&pings()), "{}", pings());
+    f.manager.disconnect(&f.id).await;
+    let after_close = pings();
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert_eq!(pings(), after_close, "a closed session pings nothing");
+}
+
+#[tokio::test]
+async fn a_keep_alive_of_zero_pings_nothing() {
+    let f = fixture_with(Duration::ZERO, Some(0));
+    f.manager.connect(&f.id, None).await.expect("connect");
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert_eq!(f.driver.keep_alives.load(Ordering::SeqCst), 0);
 }

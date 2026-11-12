@@ -1,4 +1,4 @@
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useLayoutStore } from '../../app/layout/layoutStore';
 import { useTabsStore } from '../../app/tabs/tabsStore';
 import { useT } from '../../i18n/useT';
@@ -21,6 +21,7 @@ export function Toolbar({
   connection: ConnectionSummary | undefined;
   tabId: string;
 }) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const sidebarCollapsed = useLayoutStore((store) => store.panels.sidebar.collapsed);
   const bottomCollapsed = useLayoutStore((store) => store.panels.bottom.collapsed);

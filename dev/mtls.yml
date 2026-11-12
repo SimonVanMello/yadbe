@@ -1,0 +1,69 @@
+# Servers that require a TLS client certificate, for the client-certificate tests (F-009).
+# Separate from compose.yml, on other ports, so the shared engines are left alone:
+#   dev/tls-certs.sh                                  # once: server certificate in dev/certs/
+#   docker compose -p yadbe-mtls -f dev/mtls.yml up -d
+# Then, from src-tauri/:
+#   export YADBE_TEST_PG_MTLS_URL=postgres://yadbe_client@localhost:55433/yadbe_test
+#   export YADBE_TEST_PG_CA=../dev/certs/ca.crt
+#   export YADBE_TEST_MYSQL_MTLS_URL=mysql://yadbe_x509:yadbe-x509-pw@localhost:53307/yadbe_test
+#   export YADBE_TEST_MYSQL_CA=../dev/certs/ca.crt
+#   cargo test --test tls_client_cert
+# The servers trust the throwaway client CA of src-tauri/tests/fixtures/tls (ca.crt), which
+# signed the client certificate there (CN=yadbe_client). Throwaway credentials: never reuse.
+name: yadbe-mtls
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: yadbe
+      POSTGRES_PASSWORD: yadbe-test-pw
+      POSTGRES_DB: yadbe_test
+    ports:
+      - '55433:5432'
+    volumes:
+      - ./certs/server.crt:/certs/server.crt:ro
+      - ./certs/server.key:/certs/server.key.src:ro
+      - ../src-tauri/tests/fixtures/tls/ca.crt:/certs/client-ca.crt:ro
+      - ./mtls-pg-init.sql:/docker-entrypoint-initdb.d/mtls-init.sql:ro
+    # `cert` authentication for yadbe_client (the CN of the client certificate is the user);
+    # every other user still needs a password, over TLS.
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        install -o postgres -g postgres -m 600 /certs/server.key.src /tmp/server.key &&
+        printf 'local all all trust\nhostssl all yadbe_client all cert\nhostssl all all all scram-sha-256\n' > /tmp/pg_hba.conf &&
+        chown postgres:postgres /tmp/pg_hba.conf &&
+        exec docker-entrypoint.sh postgres -c ssl=on
+        -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/tmp/server.key
+        -c ssl_ca_file=/certs/client-ca.crt -c hba_file=/tmp/pg_hba.conf
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U yadbe -d yadbe_test']
+      interval: 2s
+      retries: 30
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: yadbe-test-root
+      MYSQL_DATABASE: yadbe_test
+    ports:
+      - '53307:3306'
+    volumes:
+      - ./certs/server.crt:/certs/server.crt:ro
+      - ./certs/server.key:/certs/server.key.src:ro
+      - ../src-tauri/tests/fixtures/tls/ca.crt:/certs/client-ca.crt:ro
+      - ./mtls-mysql-init.sql:/docker-entrypoint-initdb.d/mtls-init.sql:ro
+    # `ssl-ca` is the CA that signs the client certificates (REQUIRE X509).
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        install -o mysql -g mysql -m 600 /certs/server.key.src /tmp/server.key &&
+        exec docker-entrypoint.sh mysqld --ssl-ca=/certs/client-ca.crt
+        --ssl-cert=/certs/server.crt --ssl-key=/tmp/server.key --disable-log-bin
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uroot', '-pyadbe-test-root']
+      interval: 2s
+      retries: 30

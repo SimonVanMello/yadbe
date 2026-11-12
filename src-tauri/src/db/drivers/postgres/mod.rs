@@ -150,7 +150,11 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
         TlsMode::Prefer => SslMode::Prefer,
         TlsMode::Require | TlsMode::VerifyFull => SslMode::Require,
     });
-    let tls = RustlsConnect::new(tls::client_config(mode, target.ca_cert_path.as_deref())?);
+    let tls = RustlsConnect::new(tls::client_config(
+        mode,
+        target.ca_cert_path.as_deref(),
+        target.tls_identity.as_deref(),
+    )?);
 
     let (client, connection) = config
         .connect(tls.clone())
@@ -235,6 +239,16 @@ impl Connection for PgConnection {
                     .map_err(|e| classify_query(&e))
             })
             .await
+        })
+    }
+
+    fn keep_alive(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
+        Box::pin(async move {
+            self.client
+                .simple_query(PING_SQL)
+                .await
+                .map(|_| ())
+                .map_err(|e| classify_query(&e))
         })
     }
 

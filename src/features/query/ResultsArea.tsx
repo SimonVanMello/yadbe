@@ -5,7 +5,7 @@ import { useT } from '../../i18n/useT';
 import { Kbd } from '../../ui/Kbd';
 import { Spinner } from '../../ui/Spinner';
 import { ResultView } from '../result-edit/ResultView';
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import {
   effectiveSelection,
   isWorking,
@@ -156,6 +156,7 @@ export function ResultsArea({ tabId }: { tabId: string }) {
 }
 
 function EmptyResults() {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   return (
     <div className={styles.empty}>

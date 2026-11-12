@@ -23,6 +23,7 @@ import {
 } from './prettyValue';
 import type { RowSource } from './rowSource';
 import { useDebouncedValue } from './useDebouncedValue';
+import { ViewerModeSwitch, type ViewerPanel } from './ViewerModeSwitch';
 import { XmlView } from './XmlView';
 
 interface CellViewerProps {
@@ -31,13 +32,15 @@ interface CellViewerProps {
   sourceKey: string;
   /** The focused cell (data column), `null` without one. */
   target: { row: number; col: number } | null;
+  /** The Cell / Row choice (F-068): the panel shows one or the other. */
+  onMode: (mode: ViewerPanel) => void;
   onClose: () => void;
 }
 
 const SETTLE_MS = 80;
 
 /** Side panel showing the focused cell's whole value (F-064). */
-export function CellViewer({ source, sourceKey, target, onClose }: CellViewerProps) {
+export function CellViewer({ source, sourceKey, target, onMode, onClose }: CellViewerProps) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
   const key = useDebouncedValue(
@@ -195,6 +198,7 @@ export function CellViewer({ source, sourceKey, target, onClose }: CellViewerPro
   return (
     <aside className={styles.viewer} aria-label={t('grid.viewer.title')}>
       <header className={styles.header}>
+        <ViewerModeSwitch value="cell" onChange={onMode} />
         <div className={styles.title}>
           <span className={styles.name}>{column?.name ?? t('grid.viewer.title')}</span>
           {column?.typeName && <span className={styles.meta}>{column.typeName}</span>}

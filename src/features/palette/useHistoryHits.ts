@@ -24,6 +24,7 @@ export function useHistoryHits(text: string, enabled: boolean) {
         ipc.commands.searchHistory({
           text: settled === '' ? null : settled,
           connectionId: null,
+          tabId: null,
           outcomes: [],
           from: null,
           to: null,

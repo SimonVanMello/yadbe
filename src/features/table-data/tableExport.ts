@@ -18,6 +18,7 @@ export function openTableExport(tabId: string): void {
   useExportStore.getState().open({
     label: tableLabel(tab.table),
     connectionId: tab.connectionId,
+    target: { schema: tab.table.schema ?? '', table: tab.table.name },
     source: {
       kind: 'table',
       tabId,

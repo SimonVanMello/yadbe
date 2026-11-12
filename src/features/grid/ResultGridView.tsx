@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useT } from '../../i18n/useT';
 import { useExportStore } from '../export/exportStore';
-import { DataGrid } from './DataGrid';
+import { DataGrid, type DataGridApi } from './DataGrid';
+import type { HeaderSort } from './GridHeader';
 import type { ResultGridProps } from './ResultGrid';
 import type { ExportGridRange } from '../export/exportOptions';
 import { openResultExport, ResultFooter } from './ResultFooter';
 import { createResultRowSource } from './resultRowSource';
 import { useResultSelectionStore, type SelectionSize } from './resultSelectionStore';
+import { useResultViewStore } from './resultViewStore';
+import { useResultView } from './useResultView';
+import { useSelectionAggregate } from './useSelectionAggregate';
 
 /** `ResultGrid` for one result id (remounted when the id changes). */
 export function ResultGridView({ resultId, summary, label, note }: ResultGridProps) {
@@ -15,10 +19,23 @@ export function ResultGridView({ resultId, summary, label, note }: ResultGridPro
   const [source] = useState(() =>
     createResultRowSource(resultId, summary.columns, summary.rowCount),
   );
+  const gridApi = useRef<DataGridApi | null>(null);
+  const { view, info } = useResultView(
+    resultId,
+    source,
+    summary.rowCount,
+    summary.columns.length,
+    useCallback(() => {
+      gridApi.current?.clearSelection();
+    }, []),
+  );
 
-  useLayoutEffect(() => {
-    source.setRowCount(summary.rowCount);
-  }, [source, summary.rowCount]);
+  const headerSort: HeaderSort = {
+    keys: view.sort,
+    onSort: (dataCol, additive) => {
+      useResultViewStore.getState().sortBy(resultId, dataCol, additive);
+    },
+  };
 
   useEffect(() => {
     source.revive();
@@ -35,6 +52,8 @@ export function ResultGridView({ resultId, summary, label, note }: ResultGridPro
     },
     [resultId],
   );
+
+  const onSelectionBlocks = useSelectionAggregate(resultId);
 
   const onSelectionRange = useCallback(
     (range: ExportGridRange | null) => {
@@ -55,13 +74,22 @@ export function ResultGridView({ resultId, summary, label, note }: ResultGridPro
       label={name}
       footer={
         <>
-          <ResultFooter resultId={resultId} summary={summary} label={name} />
+          <ResultFooter
+            resultId={resultId}
+            summary={summary}
+            label={name}
+            viewInfo={info}
+            view={view}
+          />
           {note}
         </>
       }
       emptyText={summary.status === 'streaming' ? undefined : t('grid.noRows')}
       onSelectionSize={onSelectionSize}
       onSelectionRange={onSelectionRange}
+      onSelectionBlocks={onSelectionBlocks}
+      sort={headerSort}
+      apiRef={gridApi}
       onExport={openExport}
     />
   );

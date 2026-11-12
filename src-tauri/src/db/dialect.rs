@@ -59,6 +59,8 @@ pub struct Capabilities {
     pub default_port: Option<u16>,
     /// The engine supports TLS and the connection form shows the TLS settings.
     pub supports_tls: bool,
+    /// The connection can present a TLS client certificate (F-009).
+    pub client_certificate: bool,
     /// A server hosts several databases that can be listed and switched.
     pub multiple_databases: bool,
     /// Schemas exist between the database and its tables.
@@ -158,6 +160,7 @@ impl Dialect for PostgresDialect {
             uses_file: false,
             default_port: Some(5432),
             supports_tls: true,
+            client_certificate: true,
             multiple_databases: true,
             schemas: true,
             native_cancel: true,
@@ -222,6 +225,7 @@ impl Dialect for MssqlDialect {
             uses_file: false,
             default_port: Some(1433),
             supports_tls: true,
+            client_certificate: false,
             multiple_databases: true,
             schemas: true,
             native_cancel: true,
@@ -286,6 +290,7 @@ impl Dialect for MysqlDialect {
             uses_file: false,
             default_port: Some(3306),
             supports_tls: true,
+            client_certificate: true,
             multiple_databases: true,
             schemas: false,
             native_cancel: true,
@@ -350,6 +355,7 @@ impl Dialect for SqliteDialect {
             uses_file: true,
             default_port: None,
             supports_tls: false,
+            client_certificate: false,
             multiple_databases: false,
             schemas: false,
             native_cancel: true,

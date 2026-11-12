@@ -14,11 +14,12 @@ use crate::session::manager::TunnelSecrets;
 use crate::session::{SessionInfo, TestConnectionResult};
 use crate::state::AppState;
 
-/// An SSH password or key passphrase typed for one attempt (F-010).
+/// An SSH password or key passphrase (F-010), or the passphrase of a TLS client key (F-009),
+/// typed for one attempt.
 #[derive(Debug, Clone, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TunnelSecretInput {
-    /// `sshPassword`, `sshPassphrase`, `jumpPassword` or `jumpPassphrase`.
+    /// `sshPassword`, `sshPassphrase`, `jumpPassword`, `jumpPassphrase` or `tlsKeyPassphrase`.
     pub kind: SecretKind,
     pub secret: SecretInput,
 }
@@ -35,11 +36,12 @@ async fn resolve_tunnel(
                 | SecretKind::SshPassphrase
                 | SecretKind::JumpPassword
                 | SecretKind::JumpPassphrase
+                | SecretKind::TlsKeyPassphrase
         )
     }) {
         return Err(YadbeError::invalid_argument(
-            "Only SSH secrets go with the tunnel.",
-            "Seuls des secrets SSH accompagnent le tunnel.",
+            "Only SSH and TLS key secrets go with a connection attempt.",
+            "Seuls des secrets SSH et de clé TLS accompagnent une tentative de connexion.",
         ));
     }
     let secrets = Arc::clone(secrets);

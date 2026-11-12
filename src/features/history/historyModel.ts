@@ -32,6 +32,8 @@ export interface HistoryFilters {
   outcome: OutcomeFilter;
   range: RangePreset;
   minDuration: DurationPreset;
+  /** Only what ran in the active editor tab (F-102). */
+  thisTab: boolean;
 }
 
 export const EMPTY_FILTERS: HistoryFilters = {
@@ -40,6 +42,7 @@ export const EMPTY_FILTERS: HistoryFilters = {
   outcome: 'all',
   range: 'any',
   minDuration: 'any',
+  thisTab: false,
 };
 
 /** Filters other than the text: what the "Filters" button counts. */
@@ -48,7 +51,8 @@ export function activeFilterCount(filters: HistoryFilters): number {
     Number(filters.connectionId !== null) +
     Number(filters.outcome !== 'all') +
     Number(filters.range !== 'any') +
-    Number(filters.minDuration !== 'any')
+    Number(filters.minDuration !== 'any') +
+    Number(filters.thisTab)
   );
 }
 
@@ -107,11 +111,20 @@ export function clearScope(
 /** A search request without its page: the page cursor is the infinite query's. */
 export type HistoryBaseQuery = Omit<HistoryQuery, 'after'>;
 
-export function toBaseQuery(filters: HistoryFilters, now: number): HistoryBaseQuery {
+/**
+ * `tabId` is the active editor tab; with the "this tab" filter and no editor tab on screen the
+ * request names a tab that ran nothing (an empty list, not the whole history).
+ */
+export function toBaseQuery(
+  filters: HistoryFilters,
+  now: number,
+  tabId: string | null = null,
+): HistoryBaseQuery {
   const text = filters.text.trim();
   return {
     text: text === '' ? null : text,
     connectionId: filters.connectionId,
+    tabId: filters.thisTab ? (tabId ?? '') : null,
     outcomes: filters.outcome === 'all' ? [] : [filters.outcome],
     ...rangeBounds(filters.range, now),
     minDurationMs: filters.minDuration === 'any' ? null : Number(filters.minDuration),

@@ -199,6 +199,66 @@ describe('mock result edits', () => {
     expect(outcome.current.window.columns[1]?.values[0]).toBe('Theirs');
   });
 
+  it('addresses stored rows through a sorted and filtered view (F-065 × F-087)', async () => {
+    const id = await run('select id, email, upper(email) as loud from shop.customers limit 5');
+    await unwrap(commands.describeResultEdit(id));
+    const ids = (window: { columns: { values: (string | null)[] }[] }) => window.columns[0]?.values;
+    const view = await unwrap(
+      commands.setResultView(id, {
+        sort: [{ column: 0, descending: true }],
+        filters: [{ column: 0, op: 'lessOrEqual', value: '4' }],
+        matchCase: false,
+      }),
+    );
+    expect(view).toEqual({ rowCount: 4, sourceRows: 5 });
+    expect(ids(await unwrap(commands.fetchResultWindow(id, 0, 10)))).toEqual(['4', '3', '2', '1']);
+    const stored = await unwrap(commands.fetchResultStoredWindow(id, 0, 10));
+    expect(ids(stored)).toEqual(['1', '2', '3', '4', '5']);
+    expect(await unwrap(commands.fetchResultStoredCell(id, 0, 0))).toEqual(int(1));
+    expect(await unwrap(commands.fetchResultCell(id, 0, 0))).toEqual(int(4));
+
+    // Stored row 3 (shown first) gets a new email, stored row 1 (shown third) is deleted.
+    const email = stored.columns[1]?.values[3] ?? '';
+    const loud = stored.columns[2]?.values[3] ?? null;
+    const outcome = await unwrap(
+      commands.applyResultChanges(id, {
+        updates: [
+          {
+            key: [int(4)],
+            column: 'email',
+            value: text('four@example.com'),
+            original: text(email),
+          },
+        ],
+        inserts: [],
+        deletes: [{ key: [int(2)], values: [{ column: 'id', value: int(2) }] }],
+      }),
+    );
+    expect(outcome.status).toBe('applied');
+    await unwrap(commands.refreshResultRows(id, [{ row: 3, key: [int(4)] }]));
+    await unwrap(commands.removeResultRows(id, [1]));
+
+    expect(await unwrap(commands.getResultView(id))).toEqual({ rowCount: 3, sourceRows: 4 });
+    const shown = await unwrap(commands.fetchResultWindow(id, 0, 10));
+    expect(ids(shown)).toEqual(['4', '3', '1']);
+    expect(shown.columns[1]?.values[0]).toBe('four@example.com');
+    expect(shown.columns[2]?.values[0]).toBe(loud);
+    // An edit keeps addressing the stored rows, the deleted one included.
+    expect(ids(await unwrap(commands.fetchResultStoredWindow(id, 0, 10)))).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+    ]);
+    // Without the view, the deleted row stays out of what the grid shows.
+    await unwrap(commands.setResultView(id, { sort: [], filters: [], matchCase: false }));
+    expect(ids(await unwrap(commands.fetchResultWindow(id, 0, 10)))).toEqual(['1', '3', '4', '5']);
+
+    const other = await run('select * from orders', PG, 'query-tab-2');
+    expect(await errorCode(commands.removeResultRows(other, [0]))).toBe('resultNotFound');
+  });
+
   it('refuses an apply while the query tab has an open transaction', async () => {
     await run('begin');
     const id = await run('select id, email from shop.customers limit 3');

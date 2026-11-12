@@ -13,6 +13,8 @@ import {
   suggestedName,
   summarize,
   tintOf,
+  parseSeconds,
+  tlsSecretsOf,
   toDefinition,
   validateDraft,
   withEngine,
@@ -309,6 +311,109 @@ describe('toDefinition', () => {
       postgres,
     );
     expect(prod.environment).toEqual({ kind: 'prod', label: null, color: null });
+  });
+
+  it('sends the TLS client certificate where the engine can present one (F-009)', () => {
+    const draft = {
+      ...emptyDraft(postgres),
+      host: 'db',
+      tlsClientCert: ' /c/client.crt ',
+      tlsClientKey: ' ',
+      tlsKeyPassphrase: 'secret',
+    };
+    const definition = toDefinition(draft, postgres);
+    expect(definition).toMatchObject({
+      tlsClientCertPath: '/c/client.crt',
+      tlsClientKeyPath: null,
+    });
+    // The passphrase is a secret: it never reaches the definition.
+    expect(JSON.stringify(definition)).not.toContain('secret');
+    expect(
+      toDefinition({ ...draft, tlsClientKey: '/c/client.key' }, postgres).tlsClientKeyPath,
+    ).toBe('/c/client.key');
+    // No certificate, a stray key path goes too; without TLS nothing is presented.
+    expect(
+      toDefinition({ ...draft, tlsClientCert: '', tlsClientKey: '/c/k' }, postgres),
+    ).toMatchObject({ tlsClientCertPath: null, tlsClientKeyPath: null });
+    expect(toDefinition({ ...draft, tlsMode: 'disable' }, postgres).tlsClientCertPath).toBeNull();
+    // An engine without the capability keeps none.
+    const mssql = MOCK_ENGINES.find((engine) => engine.engine === 'mssql');
+    if (!mssql) throw new Error('no mssql engine');
+    expect(
+      toDefinition({ ...draft, engine: 'mssql', port: '' }, mssql).tlsClientCertPath,
+    ).toBeNull();
+    expect(withEngine(draft, mssql, postgres)).toMatchObject({
+      tlsClientCert: '',
+      tlsClientKey: '',
+      tlsKeyPassphrase: '',
+    });
+  });
+
+  it('sends the typed TLS key passphrase only for a connection that presents a certificate', () => {
+    const draft = {
+      ...emptyDraft(postgres),
+      tlsClientCert: '/c/client.crt',
+      tlsKeyPassphrase: 'pw',
+    };
+    expect(tlsSecretsOf(draft, postgres)).toEqual([
+      { kind: 'tlsKeyPassphrase', secret: { kind: 'value', value: 'pw' } },
+    ]);
+    expect(tlsSecretsOf({ ...draft, tlsClientCert: '' }, postgres)).toEqual([]);
+    expect(tlsSecretsOf({ ...draft, tlsKeyPassphrase: '' }, postgres)).toEqual([]);
+  });
+
+  it('sends the timeouts and the keep-alive as whole seconds, empty meaning the default (F-014)', () => {
+    const draft = { ...emptyDraft(postgres), host: 'db', database: 'shop' };
+    expect(toDefinition(draft, postgres)).toMatchObject({
+      connectTimeoutSecs: null,
+      statementTimeoutSecs: null,
+      keepAliveSecs: null,
+    });
+    expect(
+      toDefinition(
+        { ...draft, connectTimeout: ' 30 ', statementTimeout: '120', keepAlive: '0' },
+        postgres,
+      ),
+    ).toMatchObject({ connectTimeoutSecs: 30, statementTimeoutSecs: 120, keepAliveSecs: 0 });
+    // Not a whole number: left out, the backend would refuse it.
+    expect(
+      toDefinition(
+        { ...draft, connectTimeout: '1.5', statementTimeout: '-3', keepAlive: 'x' },
+        postgres,
+      ),
+    ).toMatchObject({ connectTimeoutSecs: null, statementTimeoutSecs: null, keepAliveSecs: null });
+    // A file engine has no connection to time out or keep open, only statements to limit.
+    expect(
+      toDefinition(
+        {
+          ...emptyDraft(sqlite),
+          filePath: '/a.sqlite',
+          connectTimeout: '9',
+          statementTimeout: '5',
+          keepAlive: '9',
+        },
+        sqlite,
+      ),
+    ).toMatchObject({ connectTimeoutSecs: null, statementTimeoutSecs: 5, keepAliveSecs: null });
+    expect(parseSeconds('')).toBeNull();
+    expect(parseSeconds('007')).toBe(7);
+  });
+
+  it('shows the saved timeouts back in the form', () => {
+    const saved = {
+      ...(MOCK_CONNECTIONS[0] as SavedConnection),
+    };
+    saved.definition = {
+      ...saved.definition,
+      connectTimeoutSecs: 20,
+      statementTimeoutSecs: 90,
+      keepAliveSecs: 0,
+    };
+    expect(draftFromSaved(saved)).toMatchObject({
+      connectTimeout: '20',
+      statementTimeout: '90',
+      keepAlive: '0',
+    });
   });
 
   it('round-trips a saved connection through the form without losing a field', () => {

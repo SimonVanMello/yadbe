@@ -4,7 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { localize } from '../../app/errors/presentError';
 import { useT } from '../../i18n/useT';
 import { ipc, type ForeignKey, type LookupPage, type Value, type YadbeError } from '../../ipc';
-import { matchShortcut } from '../../ui/shortcuts';
+import { matchesAction } from '../../app/actions';
 import { Spinner } from '../../ui/Spinner';
 import { useDebouncedValue } from '../../ui/useDebouncedValue';
 import { cellValue, editText, formatHint, parseInput } from './cellValues';
@@ -254,7 +254,7 @@ export function FkCellEditor({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (matchShortcut(event, 'Mod+Backspace')) {
+    if (matchesAction(event, 'table.setNull')) {
       event.preventDefault();
       setIsNull(true);
       setText('');

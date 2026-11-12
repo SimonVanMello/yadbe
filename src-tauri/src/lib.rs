@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod commands;
 pub mod conn_import;
 pub mod db;
@@ -25,6 +26,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             commands::app::app_info,
+            commands::app::take_launch_requests,
             commands::connections::list_engines,
             commands::connections::list_connections,
             commands::connections::create_connection,
@@ -72,6 +74,11 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::query::resume_result,
             commands::query::fetch_result_window,
             commands::query::fetch_result_cell,
+            commands::query::fetch_result_stored_window,
+            commands::query::fetch_result_stored_cell,
+            commands::query::aggregate_result_selection,
+            commands::query::set_result_view,
+            commands::query::get_result_view,
             commands::query::get_query_tab,
             commands::query::set_transaction_mode,
             commands::query::commit_transaction,
@@ -127,6 +134,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::result_edit::preview_result_changes,
             commands::result_edit::apply_result_changes,
             commands::result_edit::refresh_result_rows,
+            commands::result_edit::remove_result_rows,
             commands::result_edit::cancel_result_edit,
             commands::result_edit::close_result_edit,
             commands::references::get_incoming_foreign_keys,
@@ -222,6 +230,11 @@ fn perf_probe(app: tauri::AppHandle, started: std::time::Instant) {
 
 pub fn run() {
     let started = std::time::Instant::now();
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if let Some(text) = cli::info_flag(&args) {
+        print!("{text}");
+        return;
+    }
     init_logging();
     let builder = specta_builder();
 
@@ -233,6 +246,10 @@ pub fn run() {
             let config_dir = state::config_dir(app.path().app_config_dir()?);
             tracing::info!(path = %config_dir.display(), "config folder");
             let sink = Arc::new(events::TauriSink(app.handle().clone()));
+            // The command line, read once: the frontend takes it after it restored its tabs.
+            let args: Vec<_> = std::env::args_os().skip(1).collect();
+            let cwd = std::env::current_dir().unwrap_or_default();
+            app.manage(cli::LaunchRequests::new(cli::parse_args(&args, &cwd)));
             let app_state = state::AppState::new(
                 state::open_store(&config_dir),
                 Arc::new(secrets::OsKeychain),

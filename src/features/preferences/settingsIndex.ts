@@ -6,6 +6,7 @@ export const SECTION_IDS = [
   'appearance',
   'editor',
   'results',
+  'keybindings',
   'history',
   'connections',
   'about',
@@ -37,6 +38,12 @@ export const SECTIONS: readonly SectionInfo[] = [
     icon: 'table',
     label: 'preferences.section.results',
     description: 'preferences.section.results.desc',
+  },
+  {
+    id: 'keybindings',
+    icon: 'keyboard',
+    label: 'preferences.section.keybindings',
+    description: 'preferences.section.keybindings.desc',
   },
   {
     id: 'history',
@@ -108,6 +115,7 @@ export type SettingId =
   | 'copyHeaders'
   | 'previewBeforeApply'
   | 'displayFormats'
+  | 'keybindings'
   | 'historyEnabled'
   | 'historyMaxEntries'
   | 'historyMaxAgeDays'
@@ -332,6 +340,14 @@ export const SETTINGS: readonly SettingSpec[] = [
     key: null,
     control: custom,
     keywords: 'date time number iso',
+  },
+
+  {
+    id: 'keybindings',
+    section: 'keybindings',
+    key: null,
+    control: custom,
+    keywords: 'shortcuts keys keyboard rebind bind hotkeys',
   },
 
   { id: 'historyEnabled', section: 'history', key: 'historyEnabled', control: toggle },

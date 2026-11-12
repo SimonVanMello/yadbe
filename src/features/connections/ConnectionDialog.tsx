@@ -27,6 +27,7 @@ import {
   applyParsed,
   draftFromSaved,
   emptyDraft,
+  isTlsKeyError,
   validateDraft,
   withEngine,
   type ConnectionDraft,
@@ -210,6 +211,19 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
     return false;
   };
 
+  const pickTlsFile = (file: 'cert' | 'key') => {
+    void pickKeyFile(file === 'cert' ? 'connection.tls.cert.pick' : 'connection.tls.key.pick').then(
+      (path) => {
+        if (path) {
+          update({
+            ...draft,
+            ...(file === 'cert' ? { tlsClientCert: path } : { tlsClientKey: path }),
+          });
+        }
+      },
+    );
+  };
+
   const pickFile = () => {
     void pickDatabaseFile().then((filePath) => {
       if (filePath) update({ ...draft, filePath });
@@ -270,6 +284,10 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
               retry: runTest,
               editConnection: () => {
                 if (test.status === 'error' && focusHop(test.error, 'host')) return;
+                if (test.status === 'error' && test.error.code === 'tlsClientCertInvalid') {
+                  focusField('tls-cert');
+                  return;
+                }
                 focusField(info?.capabilities.usesFile ? 'file' : 'host');
               },
               changeTlsMode: () => {
@@ -277,6 +295,10 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
               },
               enterPassword: () => {
                 if (test.status === 'error' && focusHop(test.error, 'secret')) return;
+                if (test.status === 'error' && isTlsKeyError(test.error)) {
+                  focusField('tls-passphrase');
+                  return;
+                }
                 focusField('password');
               },
               chooseFile: pickFile,
@@ -374,6 +396,7 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
           onPickFile={pickFile}
           sshSecretLocations={sshSecretLocations}
           onPickKey={pickKey}
+          onPickTlsFile={pickTlsFile}
         />
       </form>
     </Dialog>
@@ -437,11 +460,12 @@ function LoadedDialog({
     const first = engines.find((candidate) => candidate.available) ?? engines[0];
     if (!first) return null;
     const wanted = engines.find((candidate) => candidate.engine === request.engine) ?? first;
-    initial = {
+    const blank: ConnectionDraft = {
       ...withEngine(emptyDraft(first), wanted, first),
       groupId: request.groupId ?? null,
       ...(request.filePath === undefined ? {} : { filePath: request.filePath }),
     };
+    initial = request.parsed ? applyParsed(blank, request.parsed, engines) : blank;
   }
   return <DialogBody initial={initial} engines={engines} onClose={onClose} />;
 }

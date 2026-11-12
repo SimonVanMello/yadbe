@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { catalogs, locales } from '../i18n/i18n';
 import {
@@ -8,12 +8,14 @@ import {
   DEFAULT_BINDINGS,
   findAction,
   findActions,
+  matchesAction,
   registerActions,
   runAction,
   shortcutFor,
   TAB_SCOPES,
   type ActionId,
 } from './actions';
+import { useKeybindingsStore } from './keybindingsStore';
 
 function key(init: Partial<KeyboardEvent> & { key: string; code: string }): KeyboardEvent {
   return new KeyboardEvent('keydown', { ...init });
@@ -148,5 +150,56 @@ describe('registerActions', () => {
     expect(handler).toHaveBeenCalledTimes(1);
     unregister();
     expect(runAction(id)).toBe(false);
+  });
+});
+
+describe('rebound shortcuts', () => {
+  afterEach(() => {
+    useKeybindingsStore.getState().resetAll();
+  });
+
+  it('follow the user: the new key triggers the action, the default no longer does', () => {
+    useKeybindingsStore.getState().set('tab.new', 'Mod+Alt+N');
+    expect(shortcutFor('tab.new')).toBe('Mod+Alt+N');
+    expect(findAction(key({ key: 'n', code: 'KeyN', ctrlKey: true, altKey: true }))).toBe(
+      'tab.new',
+    );
+    expect(findAction(key({ key: 't', code: 'KeyT', ctrlKey: true }))).toBeNull();
+  });
+
+  it('can leave an action without a shortcut, and give one to an action that had none', () => {
+    useKeybindingsStore.getState().setMany({ 'tab.close': null, 'query.commit': 'Mod+Alt+C' });
+    expect(shortcutFor('tab.close')).toBeNull();
+    expect(findAction(key({ key: 'w', code: 'KeyW', ctrlKey: true }))).toBeNull();
+    expect(findAction(key({ key: 'c', code: 'KeyC', ctrlKey: true, altKey: true }))).toBe(
+      'query.commit',
+    );
+  });
+
+  it('go back to the defaults', () => {
+    useKeybindingsStore.getState().set('tab.new', 'Mod+Alt+N');
+    useKeybindingsStore.getState().reset('tab.new');
+    expect(shortcutFor('tab.new')).toBe('Mod+T');
+    useKeybindingsStore.getState().set('tab.close', null);
+    useKeybindingsStore.getState().resetAll();
+    expect(shortcutFor('tab.close')).toBe('Mod+W');
+  });
+
+  it('drop the alias of an action once it is rebound, or once another action takes it', () => {
+    const modP = key({ key: 'p', code: 'KeyP', ctrlKey: true });
+    expect(findAction(modP)).toBe('palette.open');
+    useKeybindingsStore.getState().set('palette.open', 'Mod+Alt+K');
+    expect(findAction(modP)).toBeNull();
+    useKeybindingsStore.getState().resetAll();
+    useKeybindingsStore.getState().set('query.format', 'Mod+P');
+    expect(findAction(modP)).toBe('query.format');
+  });
+
+  it('are matched by matchesAction in handlers', () => {
+    useKeybindingsStore.getState().set('table.setNull', 'Mod+Alt+0');
+    const rebound = key({ key: '0', code: 'Digit0', ctrlKey: true, altKey: true });
+    const old = key({ key: 'Backspace', code: 'Backspace', ctrlKey: true });
+    expect(matchesAction(rebound, 'table.setNull')).toBe(true);
+    expect(matchesAction(old, 'table.setNull')).toBe(false);
   });
 });

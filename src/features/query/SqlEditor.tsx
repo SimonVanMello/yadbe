@@ -19,8 +19,7 @@ import {
 } from '@codemirror/view';
 import { useEffect, useMemo, useRef } from 'react';
 
-import { runAction, shortcutOf, type ActionId, type BoundActionId } from '../../app/actions';
-import { matchShortcut } from '../../ui/shortcuts';
+import { matchesAction, runAction, type ActionId } from '../../app/actions';
 import { useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import type { Engine, TextRange } from '../../ipc';
@@ -83,41 +82,30 @@ function currentOptions(): EditorPreferences {
 
 const SCROLL_SAVE_DELAY_MS = 200;
 
-function runKeys(): Extension {
-  const bind = (key: string, action: ActionId) => ({
-    key,
-    // Handled by the action registry (also reachable from the toolbar and the palette); CodeMirror
-    // only has to keep its own `Mod-Enter` (insert blank line) from winning.
-    run: () => runAction(action),
-    preventDefault: true,
-  });
-  return Prec.highest(
-    keymap.of([
-      bind('Mod-Enter', 'query.run'),
-      bind('Mod-Shift-Enter', 'query.runStatement'),
-      bind('Mod-.', 'query.cancel'),
-      // CodeMirror's search keymap binds `Mod-Shift-l` (select every match): the library is ours.
-      bind('Mod-Shift-l', 'query.saveToLibrary'),
-    ]),
-  );
-}
-
-/** Editor shortcuts of the query tools, matched like the app's (exact modifiers, key codes). */
-const TOOL_ACTIONS: readonly BoundActionId[] = [
-  // `Mod-l` selects the line in CodeMirror; SSMS and Azure Data Studio explain with it.
+/**
+ * Editor shortcuts of the query actions, matched like the app's (exact modifiers, key codes) on
+ * the shortcut each has now (F-121: they can be rebound). They win over CodeMirror's own keys:
+ * its `Mod-Enter` (insert blank line), `Mod-Shift-l` (select every match, the library is ours)
+ * and `Mod-l` (select line; SSMS and Azure Data Studio explain with it). A keymap entry for
+ * `Mod-l` would also take `Mod-Shift-l` when the browser reports a lower-case key with Shift
+ * held: the app's matcher compares every modifier.
+ */
+const EDITOR_ACTIONS: readonly ActionId[] = [
+  'query.run',
+  'query.runStatement',
+  'query.cancel',
+  'query.saveToLibrary',
   'query.explain',
   'query.explainAnalyze',
   'query.format',
   'query.goToDefinition',
 ];
 
-function toolKeys(): Extension {
-  // A keymap entry for `Mod-l` would also take `Mod-Shift-l` when the browser reports a
-  // lower-case key with Shift held: the app's matcher compares every modifier.
+function editorActionKeys(): Extension {
   return Prec.highest(
     EditorView.domEventHandlers({
       keydown: (event) => {
-        const id = TOOL_ACTIONS.find((action) => matchShortcut(event, shortcutOf(action)));
+        const id = EDITOR_ACTIONS.find((action) => matchesAction(event, action));
         if (!id || !runAction(id)) return false;
         event.preventDefault();
         return true;
@@ -149,8 +137,7 @@ function editorExtensions(
     // Outside `tauri dev` the CSP only accepts styles with the page's nonce: CodeMirror injects
     // `<style>` tags of its own.
     nonce === null ? [] : EditorView.cspNonce.of(nonce),
-    runKeys(),
-    toolKeys(),
+    editorActionKeys(),
     highlightSpecialChars(),
     history(),
     drawSelection(),

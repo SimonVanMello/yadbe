@@ -8,9 +8,16 @@ import { editTableLabel, type ResultEditEntry } from './resultEdits';
 
 /**
  * Whether a result can be edited, in its footer (F-087): "Editable · table", or "Read-only"
- * with the reason (the first one; all of them on hover).
+ * with the reason (the first one; all of them on hover). `sorted`: an editable result shown
+ * sorted or filtered (F-065), with the pending changes that wait for the view to be gone.
  */
-export function ResultEditStatus({ entry }: { entry: ResultEditEntry | undefined }) {
+export function ResultEditStatus({
+  entry,
+  sorted = null,
+}: {
+  entry: ResultEditEntry | undefined;
+  sorted?: { pending: number } | null;
+}) {
   const t = useT();
   const transaction = useTabTransaction(entry?.tabId ?? '');
   if (!entry || entry.status === 'loading') return null;
@@ -25,8 +32,14 @@ export function ResultEditStatus({ entry }: { entry: ResultEditEntry | undefined
   const reasons = readOnlyReasons(entry.info, transaction);
   const columns = entry.info?.rowIdentity.join(', ') ?? '';
   const text = (reason: ResultReadOnlyReason) => t(`resultEdit.readOnly.${reason}`, { columns });
-  if (reasons.length > 0) {
-    const all = reasons.map(text).join(' ');
+  const texts = reasons.map(text);
+  if (sorted && reasons.length === 0) {
+    // Changes that wait come first: they are what the user must not forget.
+    if (sorted.pending > 0) texts.push(t('resultEdit.pendingHidden', { count: sorted.pending }));
+    texts.push(t('resultEdit.readOnly.sorted'));
+  }
+  if (texts.length > 0) {
+    const all = texts.join(' ');
     return (
       <span
         className={styles.readOnly}
@@ -36,7 +49,7 @@ export function ResultEditStatus({ entry }: { entry: ResultEditEntry | undefined
       >
         <Icon name="lock" />
         <strong>{t('resultEdit.readOnly')}</strong>
-        <span className={styles.reason}>{reasons[0] ? text(reasons[0]) : ''}</span>
+        <span className={styles.reason}>{texts[0] ?? ''}</span>
       </span>
     );
   }

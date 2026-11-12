@@ -53,6 +53,7 @@ for (const { name, colorScheme } of THEMES) {
         'Appearance',
         'Editor',
         'Results and data',
+        'Keyboard shortcuts',
         'History',
         'Connections',
         'About',
@@ -139,6 +140,46 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'grid-null-changed');
       await dialog(page).getByRole('button', { name: 'Reset section to default' }).click();
       await expect(grid.getByText('NULL', { exact: true }).first()).toBeVisible();
+    });
+
+    test('a rebound shortcut works and shows in the hints, a conflict asks first', async ({
+      page,
+    }) => {
+      await sidebarItem(page, 'local postgres').dblclick();
+      await expect(page.getByRole('textbox', { name: 'SQL editor' })).toBeVisible();
+      const tabs = page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab');
+      const before = await tabs.count();
+      await page.keyboard.press('Control+,');
+      await section(page, 'Keyboard shortcuts').click();
+      await expect(dialog(page).getByTestId('keybindings')).toBeVisible();
+      await capture(page, name, 'shortcuts');
+
+      const row = dialog(page).locator('[data-binding-id="tab.new"]');
+      await row.getByRole('button', { name: 'Change the shortcut of New tab' }).click();
+      await page.keyboard.press('Control+Alt+j');
+      await expect(row.getByText('J', { exact: true })).toBeVisible();
+
+      const close = dialog(page).locator('[data-binding-id="tab.close"]');
+      await row.getByRole('button', { name: 'Change the shortcut of New tab' }).click();
+      await page.keyboard.press('Control+w');
+      await expect(row.getByText(/Already used by Close the tab/)).toBeVisible();
+      await capture(page, name, 'shortcuts-conflict');
+      await row.getByRole('button', { name: 'Cancel' }).click();
+      await expect(close.getByText('Ctrl')).toBeVisible();
+      await expect(row.getByText('J', { exact: true })).toBeVisible();
+
+      // Escape while capturing cancels the capture, not the screen.
+      await row.getByRole('button', { name: 'Change the shortcut of New tab' }).click();
+      await page.keyboard.press('Escape');
+      await expect(dialog(page)).toBeVisible();
+      await expect(row.getByText('J', { exact: true })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(dialog(page)).toBeHidden();
+
+      await page.keyboard.press('Control+t');
+      await expect(tabs).toHaveCount(before);
+      await page.keyboard.press('Control+Alt+j');
+      await expect(tabs).toHaveCount(before + 1);
     });
 
     test('an editor setting reaches the open editor', async ({ page }) => {

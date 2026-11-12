@@ -117,6 +117,8 @@ export interface EditTarget {
   refresh(rows: readonly number[], keys: Value[][]): Promise<IpcResult<RefreshedRows>>;
   /** Some rows could not be read back after an apply: everything is read again. */
   reload(): Promise<unknown>;
+  /** Rows an apply deleted (their grid rows), just before they leave the grid. */
+  removed?(rows: readonly number[]): Promise<unknown>;
   /** Data columns of the row identity, in its order (default: by name). */
   identity?: readonly number[];
   /**
@@ -1062,6 +1064,7 @@ export async function applyChanges(tabId: string): Promise<void> {
     if (!row) reload = true;
     return row ? [row] : [];
   });
+  if (deleted.size > 0) void target.removed?.([...deleted]);
   source.applied({ deleted, refreshed, inserted });
   traces.delete(tabId);
   const counts = { updated: 0, inserted: 0, deleted: 0 };
@@ -1144,7 +1147,7 @@ export function dismissFailure(tabId: string): void {
 /** The whole value of a cell of a loose row (its text may be cut). */
 function looseValue(loose: LooseRow, col: number): Promise<Value> {
   if (loose.truncated.has(col)) {
-    return unwrap(ipc.commands.fetchResultCell(loose.resultId, loose.index, col));
+    return unwrap(ipc.commands.fetchResultStoredCell(loose.resultId, loose.index, col));
   }
   return Promise.resolve(cellValue(loose.texts[col] ?? null, loose.kinds[col] ?? 'text'));
 }
