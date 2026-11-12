@@ -236,10 +236,15 @@ pub fn latest_version() -> i64 {
     i64::try_from(MIGRATIONS.len()).unwrap_or(i64::MAX)
 }
 
-/// An older database for a test: the schema as it was after `version` migrations.
+/// An older database for a test: the schema as it was after `version` migrations (those not
+/// applied yet).
 #[cfg(test)]
 pub fn apply_through(conn: &mut Connection, version: usize) -> rusqlite::Result<()> {
+    let current: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
     for (number, sql) in (1_i64..).zip(MIGRATIONS.iter().take(version)) {
+        if number <= current {
+            continue;
+        }
         let tx = conn.transaction()?;
         tx.execute_batch(sql)?;
         tx.pragma_update(None, "user_version", number)?;
