@@ -18,6 +18,7 @@ pub mod engine;
 pub mod errors;
 pub mod params;
 pub mod plan;
+pub mod redact;
 pub mod result_source;
 pub mod search;
 pub mod split;

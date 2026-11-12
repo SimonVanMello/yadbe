@@ -280,7 +280,12 @@ function CreateDialog({
 }) {
   const connection = useConnection(request.connectionId);
   const scopeDatabase = request.database ?? (connection?.database ? connection.database : null);
-  const initial = useMemo(() => initialFor(request), [request]);
+  // Text of another family would not run anywhere else: it is saved on its connection by default.
+  const otherFamily = connection !== undefined && connection.family !== 'sql';
+  const initial = useMemo(
+    () => ({ ...initialFor(request), ...(otherFamily ? { scope: 'connection' as const } : {}) }),
+    [request, otherFamily],
+  );
   return (
     <SaveForm
       request={request}

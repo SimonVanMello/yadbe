@@ -732,7 +732,7 @@ impl DocumentService {
             tab_id: tab_id.to_owned(),
             connection_id: connection_id.to_owned(),
             database: Some(request.database.clone()),
-            sql: finished.code,
+            sql: crate::db::redact::script(&finished.code),
             started_at,
             duration: started.elapsed(),
             rows: finished.rows,

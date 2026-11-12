@@ -10,6 +10,7 @@ import type { ConnectionSummary } from '../connections/model';
 import type { HistoryEntry } from '../history/historyModel';
 import { fullStatement } from '../history/historyActions';
 import { findConnection } from '../query/connectionLookup';
+import { sameFamily } from '../query/sameFamily';
 import { getEditor } from '../query/editorRegistry';
 import { insertIntoActiveEditor, openQueryTab } from '../query/openQueryTab';
 import { runQuery } from '../query/queryActions';
@@ -120,6 +121,10 @@ export async function runSaved(query: SavedQuery): Promise<void> {
 
 /** Inserts a saved query at the cursor of the active editor; a snippet starts its tab stops. */
 export async function insertSaved(query: SavedQuery): Promise<void> {
+  if (!sameFamily(query.connectionId, selectActiveTab(useTabsStore.getState()).connectionId)) {
+    toast({ variant: 'info', title: t('library.insert.otherFamily') });
+    return;
+  }
   try {
     const whole = await wholeQuery(query);
     const tab = selectActiveTab(useTabsStore.getState());

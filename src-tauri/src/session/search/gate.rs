@@ -183,7 +183,7 @@ impl Gate<'_> {
                 tab_id: user.tab_id.clone(),
                 connection_id: user.connection_id.clone(),
                 database: None,
-                sql: request.display(),
+                sql: crate::db::redact::request(&request.display()),
                 started_at,
                 duration,
                 rows: result.as_ref().ok().and_then(hits_count),

@@ -4,6 +4,8 @@ import { ipc, unwrap } from '../../ipc';
 import { toast } from '../../ui/toastStore';
 import { connectTo } from '../connections/connectionActions';
 import { findConnection } from '../query/connectionLookup';
+import { sameFamily } from '../query/sameFamily';
+import { selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
 import {
   insertIntoActiveEditor,
   openQueryTab,
@@ -52,6 +54,10 @@ export async function openEntry(entry: HistoryEntry): Promise<void> {
 
 /** The statement at the cursor of the active editor (F-101: Mod+Enter). */
 export async function insertEntry(entry: HistoryEntry): Promise<void> {
+  if (!sameFamily(entry.connectionId, selectActiveTab(useTabsStore.getState()).connectionId)) {
+    toast({ variant: 'info', title: t('history.insert.otherFamily') });
+    return;
+  }
   try {
     const text = await fullStatement(entry);
     if (!insertIntoActiveEditor(text)) {
@@ -64,6 +70,10 @@ export async function insertEntry(entry: HistoryEntry): Promise<void> {
 
 /** The statement in place of the active tab's text: an earlier version of it (F-102). */
 export async function restoreEntry(entry: HistoryEntry): Promise<void> {
+  if (!sameFamily(entry.connectionId, selectActiveTab(useTabsStore.getState()).connectionId)) {
+    toast({ variant: 'info', title: t('history.insert.otherFamily') });
+    return;
+  }
   try {
     const text = await fullStatement(entry);
     if (!replaceActiveEditorText(text)) {
