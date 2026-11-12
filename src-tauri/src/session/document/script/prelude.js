@@ -588,6 +588,9 @@
 
   // --- Extended JSON ----------------------------------------------------------------------
 
+  // mongosh's rule (js-bson): an integral number in the Int32 range is an Int32, any other a
+  // Double (2 ** 40 included). A whole Double read from the server is a plain number, so it is
+  // written back as an Int32, as mongosh does; `Double(3)` keeps it a Double.
   function numberEjson(n, relaxed) {
     if (Number.isInteger(n) && !Object.is(n, -0) && n >= -2147483648 && n <= 2147483647) {
       return relaxed ? n : { $numberInt: String(n) };
@@ -1430,7 +1433,7 @@
       return countOf(op({ op: 'count', ...this._ns(), filter: f }));
     },
     estimatedDocumentCount(options) {
-      checkOptions(options, ['maxTimeMS'], 'estimatedDocumentCount');
+      checkOptions(options, [], 'estimatedDocumentCount');
       return countOf(op({ op: 'estimatedCount', ...this._ns() }));
     },
     count(filter, options) {
@@ -1452,13 +1455,13 @@
       return reply.values ?? [];
     },
     insertOne(doc, options) {
-      checkOptions(options, ['writeConcern'], 'insertOne');
+      checkOptions(options, [], 'insertOne');
       const d = withId(doc, 'insertOne');
       op({ op: 'insert', ...this._ns(), documents: [document(d, 'The document')], ordered: true });
       return { acknowledged: true, insertedId: d._id };
     },
     insertMany(docs, options) {
-      checkOptions(options, ['ordered', 'writeConcern'], 'insertMany');
+      checkOptions(options, ['ordered'], 'insertMany');
       if (!Array.isArray(docs)) throw invalid('insertMany: the documents must be an array');
       const ready = docs.map((d) => withId(d, 'insertMany'));
       op({
@@ -1482,7 +1485,7 @@
       return { acknowledged: true, insertedIds: { 0: r.insertedId } };
     },
     _update(filter, update, options, many, method) {
-      checkOptions(options, ['upsert', 'arrayFilters', 'writeConcern'], method);
+      checkOptions(options, ['upsert', 'arrayFilters'], method);
       const request = {
         op: 'update',
         ...this._ns(),
@@ -1510,7 +1513,7 @@
       return this._update(filter, update, rest, Boolean(multi), 'update');
     },
     replaceOne(filter, replacement, options) {
-      checkOptions(options, ['upsert', 'writeConcern'], 'replaceOne');
+      checkOptions(options, ['upsert'], 'replaceOne');
       return updateResult(
         op({
           op: 'replace',
@@ -1522,7 +1525,7 @@
       );
     },
     _delete(filter, options, many, method) {
-      checkOptions(options, ['writeConcern'], method);
+      checkOptions(options, [], method);
       if (filter === undefined)
         throw invalid(`${method}: a filter is required ({} for every document)`);
       const reply = deserialize(
@@ -1551,7 +1554,6 @@
           'returnNewDocument',
           'arrayFilters',
           'includeResultMetadata',
-          'writeConcern',
         ],
         method,
       );
@@ -1611,7 +1613,7 @@
       return this.findOneAndUpdate(spec.query, spec.update, options);
     },
     bulkWrite(operations, options) {
-      checkOptions(options, ['ordered', 'writeConcern'], 'bulkWrite');
+      checkOptions(options, ['ordered'], 'bulkWrite');
       if (!Array.isArray(operations)) throw invalid('bulkWrite: the operations must be an array');
       const insertedIds = {};
       const encoded = operations.map((entry, index) => {
@@ -2013,7 +2015,7 @@
       return collection;
     },
     getCollectionInfos(filter, options) {
-      checkOptions(options, ['nameOnly', 'authorizedCollections'], 'getCollectionInfos');
+      checkOptions(options, [], 'getCollectionInfos');
       const request = { op: 'listCollections', db: this._name };
       if (filter !== undefined) request.filter = document(filter, 'The filter');
       return op(request).documents.map(deserialize);

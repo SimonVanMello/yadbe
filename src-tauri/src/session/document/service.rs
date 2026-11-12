@@ -689,8 +689,16 @@ impl DocumentService {
             }
         }
         let finished = finished?;
-        let old = std::mem::replace(&mut *lock(&tab.results), finished.result_ids.clone());
-        self.store.remove(old);
+        let open = lock(&self.tabs)
+            .get(tab_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &tab));
+        if open {
+            let old = std::mem::replace(&mut *lock(&tab.results), finished.result_ids.clone());
+            self.store.remove(old);
+        } else {
+            // The tab closed while the script ran: nobody will read or free its result.
+            self.store.remove(finished.result_ids.clone());
+        }
         let outcome = finished.outcome;
         self.history.record(HistoryEntry {
             tab_id: tab_id.to_owned(),

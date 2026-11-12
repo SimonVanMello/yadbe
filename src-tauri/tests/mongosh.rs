@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use common::mongo::{EVERY_TYPE, Mongo, RS_ENV, env, json, servers};
 use yadbe_lib::db::document::json::Json;
 use yadbe_lib::db::document::ops::DocOp;
-use yadbe_lib::db::errors::{ErrorCode, YadbeError};
+use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::session::document::model::{
     ScriptFailure, ScriptMessageKind, ScriptOutcome, ScriptRequest, ScriptResult,
 };
@@ -1212,6 +1212,15 @@ async fn options_yadbe_does_not_send_are_refused_by_name() {
             "db.orders.initializeOrderedBulkOp()",
             "collection.initializeOrderedBulkOp()",
         ),
+        // Options yadbe does not send are refused rather than silently ignored.
+        (
+            "db.orders.deleteOne({}, { writeConcern: { w: 'majority' } })",
+            "the option writeConcern of deleteOne()",
+        ),
+        (
+            "db.orders.estimatedDocumentCount({ maxTimeMS: 5 })",
+            "the option maxTimeMS of estimatedDocumentCount()",
+        ),
     ] {
         let outcome = mongo.script("t", script).await;
         let failure: &ScriptFailure = failure(&outcome);
@@ -1223,5 +1232,4 @@ async fn options_yadbe_does_not_send_are_refused_by_name() {
         );
     }
     assert!(mongo.find_all("orders").await.is_empty());
-    let _: Option<YadbeError> = None;
 }

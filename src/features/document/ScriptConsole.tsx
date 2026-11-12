@@ -237,7 +237,7 @@ function Output({ tabId }: { tabId: string }) {
             {result.text}
             {result.truncated && `\n… ${t('mongo.script.truncated')}`}
           </pre>
-        ) : running ? null : (
+        ) : running || failure || error ? null : (
           <p className={styles.empty}>
             {outcome ? t('mongo.script.noResult') : t('mongo.script.empty')}
           </p>

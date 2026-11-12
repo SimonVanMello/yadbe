@@ -185,9 +185,6 @@ struct Run<'a, 'js> {
 impl<'js> Run<'_, 'js> {
     /// The typed error and position of what a script threw.
     fn failure(&self, error: rquickjs::Error) -> (YadbeError, Option<(u32, u32)>) {
-        if let Some(stop) = self.bridge.control.stop_reason() {
-            return (stop, None);
-        }
         let caught = CaughtError::from_error(&self.ctx, error);
         let (value, stack) = match &caught {
             CaughtError::Exception(exception) => (
@@ -196,11 +193,19 @@ impl<'js> Run<'_, 'js> {
             ),
             CaughtError::Value(value) => (value.clone(), String::new()),
             CaughtError::Error(other) => {
-                let text = other.to_string();
-                return (YadbeError::script_error(text), None);
+                let error = self
+                    .bridge
+                    .control
+                    .stop_reason()
+                    .unwrap_or_else(|| YadbeError::script_error(other.to_string()));
+                return (error, None);
             }
         };
         let position = frame_position(&stack);
+        // Cancelled or out of time: where the script was when it was stopped.
+        if let Some(stop) = self.bridge.control.stop_reason() {
+            return (stop, position);
+        }
         let id: i64 = self.hooks.yadbe_id.call((value.clone(),)).unwrap_or(-1);
         if let Some(error) = self.bridge.stashed(id) {
             return (error, position);
