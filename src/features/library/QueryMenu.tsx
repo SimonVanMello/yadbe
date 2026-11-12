@@ -1,4 +1,4 @@
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import type { SavedQuery } from '../../ipc';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
@@ -52,6 +52,7 @@ function MoveItems({ query }: { query: SavedQuery }) {
 
 /** What can be done with a saved query: the context menu of its row. */
 export function QueryMenu({ query }: { query: SavedQuery }) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   return (
     <>

@@ -1,4 +1,4 @@
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import { ContextMenuCheckboxItem } from '../../ui/ContextMenuCheckboxItem';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
@@ -34,6 +34,7 @@ export function GridMenu({
   onAutoFit,
   extras,
 }: GridMenuProps) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const copyHeaders = usePreference('copyHeaders');
   return (

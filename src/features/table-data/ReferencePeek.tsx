@@ -1,6 +1,6 @@
 import { Popover as RadixPopover } from 'radix-ui';
 
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { localize } from '../../app/errors/presentError';
 import { useT } from '../../i18n/useT';
 import { Button } from '../../ui/Button';
@@ -16,6 +16,7 @@ import { tableLabel } from './tableNames';
 
 /** Over a cell, the peek of the row its foreign key value references (F-088). */
 export function ReferencePeek({ peek }: { peek: PeekState }) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const nullText = usePreference('nullText');
   const table = tableLabel(peek.fk.referencedTable);

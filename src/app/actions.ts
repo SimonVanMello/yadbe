@@ -1,9 +1,11 @@
 import type { MessageKey } from '../i18n/i18n';
 import { matchShortcut } from '../ui/shortcuts';
+import { shortcutKey, type Overrides } from './keybindingsLogic';
+import { useKeybindingsStore } from './keybindingsStore';
 
 /**
  * Stable action IDs and their default keyboard shortcuts (F-121). The command palette and the
- * rebinding screen (V1) are built on this table; `Mod` is ⌘ on macOS and Ctrl elsewhere.
+ * rebinding screen are built on this table (the user's changes live in `keybindingsStore`); `Mod` is ⌘ on macOS and Ctrl elsewhere.
  * Actions without a default shortcut are in `UNBOUND_ACTIONS`: reachable from the palette.
  */
 export const DEFAULT_BINDINGS = {
@@ -206,14 +208,57 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'query.openDefinitionData': 'action.query.openDefinitionData',
 };
 
-/** Shortcut of an action that has one, as written in `DEFAULT_BINDINGS` (`Mod+T`). */
-export function shortcutOf(id: BoundActionId): string {
-  return DEFAULT_BINDINGS[id];
+/** The default shortcut of an action, `null` when it has none. */
+export function defaultShortcutOf(id: ActionId): string | null {
+  return id in DEFAULT_BINDINGS ? DEFAULT_BINDINGS[id as BoundActionId] : null;
 }
 
-/** Shortcut of any action, `null` when it has none. */
+/** The shortcut of an action given what the user changed: theirs, else the default. */
+export function resolveShortcut(id: ActionId, overrides: Overrides): string | null {
+  return id in overrides ? (overrides[id] ?? null) : defaultShortcutOf(id);
+}
+
+/** Every action with the shortcut it has now (`null` when none), in registry order. */
+export function effectiveBindings(
+  overrides: Overrides = useKeybindingsStore.getState().overrides,
+): Map<ActionId, string | null> {
+  return new Map(ACTION_IDS.map((id) => [id, resolveShortcut(id, overrides)]));
+}
+
+/** Shortcut of any action as it is now, `null` when it has none. */
 export function shortcutFor(id: ActionId): string | null {
-  return id in DEFAULT_BINDINGS ? DEFAULT_BINDINGS[id as BoundActionId] : null;
+  return resolveShortcut(id, useKeybindingsStore.getState().overrides);
+}
+
+/** Like `shortcutFor`, for a prop that is absent when there is none. */
+export function shortcutOf(id: ActionId): string | undefined {
+  return shortcutFor(id) ?? undefined;
+}
+
+/**
+ * Every shortcut each action answers to: its own, and its aliases while nothing else takes them
+ * (an alias is a convenience: the user's bindings win over it, and rebinding the action drops it).
+ */
+function activeShortcuts(overrides: Overrides): Map<ActionId, string[]> {
+  const effective = effectiveBindings(overrides);
+  const taken = new Set<string>();
+  for (const shortcut of effective.values()) if (shortcut) taken.add(shortcutKey(shortcut));
+  return new Map(
+    ACTION_IDS.map((id) => {
+      const own = effective.get(id) ?? null;
+      const aliases = id in overrides ? [] : (ALIAS_BINDINGS[id as BoundActionId] ?? []);
+      return [
+        id,
+        [...(own ? [own] : []), ...aliases.filter((alias) => !taken.has(shortcutKey(alias)))],
+      ];
+    }),
+  );
+}
+
+/** Whether a key press is the shortcut of an action as it is now. */
+export function matchesAction(event: Parameters<typeof matchShortcut>[0], id: ActionId): boolean {
+  const shortcuts = activeShortcuts(useKeybindingsStore.getState().overrides).get(id) ?? [];
+  return shortcuts.some((shortcut) => matchShortcut(event, shortcut));
 }
 
 /** The action a key press triggers, if any (the first one when tab scopes share the key). */
@@ -223,10 +268,9 @@ export function findAction(event: KeyboardEvent): ActionId | null {
 
 /** Every action bound to a key press, in registry order. */
 export function findActions(event: KeyboardEvent): ActionId[] {
-  return (Object.keys(DEFAULT_BINDINGS) as BoundActionId[]).filter(
-    (id) =>
-      matchShortcut(event, DEFAULT_BINDINGS[id]) ||
-      ALIAS_BINDINGS[id]?.some((alias) => matchShortcut(event, alias)) === true,
+  const active = activeShortcuts(useKeybindingsStore.getState().overrides);
+  return ACTION_IDS.filter((id) =>
+    (active.get(id) ?? []).some((shortcut) => matchShortcut(event, shortcut)),
   );
 }
 

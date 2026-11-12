@@ -1,6 +1,6 @@
 import type { KeyboardEvent } from 'react';
 
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import { Icon, type IconName } from '../../ui/Icon';
 import { Tooltip } from '../../ui/Tooltip';
@@ -20,6 +20,7 @@ const VIEWS: readonly { view: SidebarView; icon: IconName }[] = [
 
 /** The sidebar: a switcher between its views (connections, history) and the view itself. */
 export function SidebarViews() {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const current = useSidebarView((state) => state.view);
   const setView = useSidebarView((state) => state.setView);

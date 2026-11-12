@@ -1,4 +1,5 @@
-import { runAction, shortcutOf } from '../../app/actions';
+import { runAction } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
 import { ContextMenuSeparator } from '../../ui/ContextMenuSeparator';
@@ -24,6 +25,7 @@ export function TableMenu({
   /** The table has foreign keys, or can be referenced (F-088). */
   references: { outgoing: boolean; incoming: boolean };
 }) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const pending = usePendingCount(tabId) > 0;
   return (

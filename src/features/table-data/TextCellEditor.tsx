@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 
 import { useT } from '../../i18n/useT';
+import { matchesAction } from '../../app/actions';
 import { matchShortcut } from '../../ui/shortcuts';
 import { editText, formatHint, parseInput } from './cellValues';
 import { stopMenu, type CellEditorProps, type EditMove } from './cellEditorTypes';
@@ -65,7 +66,7 @@ export function TextCellEditor({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (matchShortcut(event, 'Mod+Backspace')) {
+    if (matchesAction(event, 'table.setNull')) {
       event.preventDefault();
       setIsNull(true);
       setText('');

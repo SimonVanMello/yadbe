@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { useT } from '../../i18n/useT';
-import { matchShortcut } from '../../ui/shortcuts';
+import { matchesAction } from '../../app/actions';
 import { editText } from './cellValues';
 import { stopMenu, type CellEditorProps, type EditMove } from './cellEditorTypes';
 import styles from './CellEditor.module.css';
@@ -71,7 +71,7 @@ export function EnumCellEditor({
             event.stopPropagation();
             done.current = true;
             onCancel();
-          } else if (matchShortcut(event, 'Mod+Backspace') && column.nullable) {
+          } else if (matchesAction(event, 'table.setNull') && column.nullable) {
             event.preventDefault();
             commit(NULL_OPTION, 'none');
           }

@@ -88,6 +88,11 @@ function PreferencesContent({ requested }: { requested: string | null }) {
           }
         }}
         onEscapeKeyDown={(event) => {
+          // Escape cancels the shortcut being captured, not the screen.
+          if (document.activeElement?.hasAttribute('data-capturing')) {
+            event.preventDefault();
+            return;
+          }
           // Escape first clears the search, a second one closes the screen.
           if (query !== '' && document.activeElement === searchRef.current) {
             event.preventDefault();

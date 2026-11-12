@@ -1,13 +1,13 @@
 import { useEffect } from 'react';
 
-import { shortcutOf } from '../../app/actions';
+import { matchesAction } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { localize } from '../../app/errors/presentError';
 import { useT } from '../../i18n/useT';
 import { Button } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { Icon } from '../../ui/Icon';
 import { Kbd } from '../../ui/Kbd';
-import { matchShortcut } from '../../ui/shortcuts';
 import { Spinner } from '../../ui/Spinner';
 import { Switch } from '../../ui/Switch';
 import { ConnectionBanner } from '../connections/ConnectionBanner';
@@ -29,6 +29,7 @@ export function PreviewDialog({
   tabId: string;
   connection: ConnectionSummary;
 }) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const { preview, applying, info } = useTableSession(tabId);
   const previewFirst = usePreference('previewBeforeApply');
@@ -39,7 +40,7 @@ export function PreviewDialog({
   useEffect(() => {
     if (!ready) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || !matchShortcut(event, shortcutOf('table.apply'))) return;
+      if (event.defaultPrevented || !matchesAction(event, 'table.apply')) return;
       event.preventDefault();
       void applyChanges(tabId);
     };

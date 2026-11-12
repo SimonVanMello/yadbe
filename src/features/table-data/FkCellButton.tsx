@@ -1,4 +1,4 @@
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import { Icon } from '../../ui/Icon';
 import { Tooltip } from '../../ui/Tooltip';
@@ -19,6 +19,7 @@ interface FkCellButtonProps {
  * tab order.
  */
 export function FkCellButton({ tabId, cell, table }: FkCellButtonProps) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const label = t('tableData.fk.badge', { table });
   return (

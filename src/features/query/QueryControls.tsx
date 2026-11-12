@@ -1,4 +1,4 @@
-import { shortcutOf } from '../../app/actions';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import type { TransactionMode } from '../../ipc';
 import { Button } from '../../ui/Button';
@@ -40,6 +40,7 @@ interface QueryControlsProps {
  * (F-047), open / save (F-045) and the connection switcher (F-046).
  */
 export function QueryControls({ tabId, connection }: QueryControlsProps) {
+  const shortcutOf = useShortcutOf();
   const t = useT();
   const executing = useTabRunning(tabId);
   const explaining = useTabPlan(tabId)?.status === 'running';

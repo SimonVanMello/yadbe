@@ -13,6 +13,7 @@ import { initI18n, translate, useI18nStore } from '../i18n/i18n';
 import { ipc, unwrap } from '../ipc';
 import { initTheme } from '../theme/themeStore';
 import { loadPreferences } from './backendPreferences';
+import { restoreAndPersistKeybindings } from './keybindingsPersistence';
 import { restoreAndPersistLayout } from './layout/layoutStore';
 import { applyStoredPreferences } from './preferences';
 import {
@@ -158,6 +159,7 @@ export function startup(): Promise<void> {
       restoreAndPersistQueryUi(),
       restoreAndPersistExportPrefs(),
       restoreAndPersistPreferences(),
+      restoreAndPersistKeybindings(),
     ]);
     persistTabs();
   })();

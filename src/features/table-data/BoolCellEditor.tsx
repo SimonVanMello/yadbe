@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 
 import { useT } from '../../i18n/useT';
-import { matchShortcut } from '../../ui/shortcuts';
+import { matchesAction } from '../../app/actions';
 import { parseBool } from './cellValues';
 import { stopMenu, type CellEditorProps, type EditMove } from './cellEditorTypes';
 import styles from './CellEditor.module.css';
@@ -68,7 +68,7 @@ export function BoolCellEditor({
       event.stopPropagation();
       done.current = true;
       onCancel();
-    } else if (matchShortcut(event, 'Mod+Backspace') && column.nullable) {
+    } else if (matchesAction(event, 'table.setNull') && column.nullable) {
       event.preventDefault();
       commit('null', 'none');
     } else {
