@@ -83,7 +83,7 @@ src-tauri/
   vendor/tiberius/        tiberius 0.13.0, pristine commit then yadbe's patches (PATCHES.md says which and why)
   vendor/russh/           russh 0.65.1, same scheme (per-channel flow control; PATCHES.md)
 dev/                      compose.yml (test engines), mtls.yml (throwaway servers that require a client certificate), tls-certs.sh, mssql.conf, mysql-init.sql, ssh-test.sh (throwaway sshd servers)
-docs/                     SPEC.md, PLAN.md, validation/Mx.md (manual checklists)
+docs/                     SPEC.md, PLAN.md, validation/Mx.md (manual checklists), analysis/ (studies that precede a milestone)
 ```
 
 ## Commands

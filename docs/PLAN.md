@@ -87,7 +87,7 @@ Exit: MySQL / MariaDB is supported, data can be navigated through its relations 
 | M3-14 ⬜ | **Distribution**: packaging per OS, signing, auto-update, release workflow, website with user docs (needs signing certificates) | all of M3 | — | opus · medium |
 | M3-15 ✅ | **Integration and validation**: real-app scenarios on the four engines, measurements, `docs/validation/M3.md` | all of M3 | — | opus · medium |
 | M3-16 ✅ | **Validation fixes**: read-only (and other session settings) changed on an open connection, missing client certificate error, dropped table's tab, MySQL database in labels, history hint wording, import NULL wording, flaky highlight spec | M3-15 | F-safety | opus · medium |
-| M3-17 🟦 | **Performance after M3**: P-04 WebKitGTK scroll regression, P-01 (code splitting of the 2.0 MB chunk), P-07 at ×4 | M3-15 | P-01, P-04, P-07 | opus · high |
+| M3-17 ✅ | **Performance after M3**: P-04 WebKitGTK scroll regression, P-01 (code splitting of the 2.0 MB chunk), P-07 at ×4 | M3-15 | P-01, P-04, P-07 | opus · high |
 
 Order: wave 1 = M3-1 ∥ M3-2 ∥ M3-3 ∥ M3-4 ∥ M3-5; wave 2 = M3-6 ∥ M3-8 ∥ M3-9 ∥ M3-10; wave 3 = M3-7 ∥ M3-11 ∥ M3-12; then M3-15, then M3-16 ∥ M3-17 (validation follow-ups); M3-13 and M3-14 are blocked on external means.
 
@@ -105,7 +105,28 @@ Validation notes (M3-15, `docs/validation/M3.md`): every scenario passed in the 
 
 M3-16 notes: the read-only flag is read live by every backend check and the engine guard follows (`SET default_transaction_read_only`, `SET SESSION TRANSACTION READ ONLY`, `PRAGMA query_only`; SQLite files now always open read-write); with a transaction open, further writes are refused and COMMIT / ROLLBACK stay available. The statement timeout applies from the next execution; any other change on a connected connection returns `reconnectNeeded` and the toast offers Reconnect. `tlsClientCertRequired` exists for PostgreSQL only (MySQL answers 1045 as for a wrong password). Dialect capability `tableQualifier` (`schema` / `database` / `none`) drives table labels. The history records parameterized statements as typed (no values); the statement log keeps the SQL sent. Open: none of it was run in the real app; Reconnect, like Disconnect, ends an open transaction without asking; on PostgreSQL a `RESET ALL` after read-only was lifted restores the startup setting (fails on the safe side).
 
+M3-17 notes: the production bundle no longer contains the mock backend (≈ 75 ms at every launch), language catalogs, 11 dialogs and the tool tabs are separate chunks loaded in the background (`src/app/lazyModule.ts`, `lazyViews.ts`); 2,052 kB → 1,461 kB at startup. Warm welcome 725 ms (target met), warm restore 806 ms, cold 791–903 ms. The WebKitGTK scroll regression did not reproduce (M2 and M3 fronts equal under load; the cap is the full-window repaint without compositing under Xvfb, inferred). P-07 ×4 unchanged at about 110 ms; keeping recent tabs mounted would be the lever. **Performance work is parked by the product owner (after M3-17)**: the remaining misses (P-01 cold and restore, P-04 on WebKitGTK, P-07 ×4, P-09, P-02 MySQL, P-05 p95, SQL Server import) stay listed here and are not to be picked up without a new request.
+
 Open performance points carried from M2: P-09 (idle RAM ≈ 486 MB on WebKitGTK against 300 MB, to measure on WKWebView / WebView2) and one horizontal frame over 32 ms per run in the WebKitGTK grid scroll.
+
+## M4 — MongoDB, Elasticsearch, Redis
+
+Analysis in `docs/analysis/NOSQL.md`: read it first. **Nothing starts before the product owner has answered its section 8** (MongoDB query syntax, editing scope, non-atomic applies, compatible servers, topologies) and approved the amendment of rules 2, 3 and 10 in `CLAUDE.md`. The table is refined once the decisions are taken.
+
+| ID | Task | Depends on | Session |
+|---|---|---|---|
+| M4-0 ✅ | **Preliminary analysis** (`docs/analysis/NOSQL.md`) | M3 | master |
+| M4-1 ⬜ | **Engine families**: `Engine::family()`, `Connection` split into `Link` + `SqlConnection`, session backend enum, capabilities replacing every `engine ===` of the front, connection form built from capabilities, query tab and explorer shells per family. No new engine, no behaviour change, existing suites green | decisions | opus · high |
+| M4-2 ⬜ | **MongoDB, read**: driver, connection forms (URI, SRV, replica set), BSON values, explorer with sampled fields, query language, collection tab (grid + documents), read-only allow-list, cancel, compose service and conformance suite | M4-1 | opus · high |
+| M4-3 ⬜ | **MongoDB, edit**: pending changes, preview as commands, apply (transaction where the server has them), conflicts, journal and revert, dangerous-command confirmation | M4-2 | opus · high |
+| M4-4 ⬜ | **Redis, read**: driver, explorer on `SCAN` with the namespace tree, key tab per type, console, read-only from `COMMAND INFO`, compose service and suite | M4-1 | opus · medium |
+| M4-5 ⬜ | **Redis, edit**: per-type edits, `WATCH` / `MULTI` apply, TTL, rename, delete, journal, dangerous commands | M4-4 | opus · medium |
+| M4-6 ⬜ | **Elasticsearch, read**: HTTP client, authentication, explorer (indices, data streams, aliases, mappings), console syntax, hits grid + JSON (reusing the document view of M4-2), ES\|QL / SQL results, index tab with `search_after`, read-only allow-list, cancel | M4-2 | opus · high |
+| M4-7 ⬜ | **Elasticsearch, edit**: one document at a time with `if_seq_no` / `if_primary_term`, journal, dangerous requests | M4-6 | opus · medium |
+| M4-8 ⬜ | **Cross-cutting**: completion per family, JSON Lines export, palette objects, history and restore of the new tabs | M4-3, M4-5, M4-7 | sonnet · medium |
+| M4-9 ⬜ | **Integration and validation**: real-app scenarios on the three engines, installer size, `docs/validation/M4.md` | all of M4 | opus · medium |
+
+Order: M4-1, then M4-2 ∥ M4-4, then M4-3 ∥ M4-5 ∥ M4-6, then M4-7, M4-8, M4-9.
 
 ## V2
 

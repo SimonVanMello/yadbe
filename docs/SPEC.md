@@ -296,7 +296,7 @@ SQLite in the OS config folder (`yadbe.db`): `connections` (no secret column), `
 
 ## 11. Roadmap
 
-M0 foundations → M1 explore and query → M2 edit (= MVP) → M3 comfort (= V1) → V2. Details in `docs/PLAN.md`.
+M0 foundations → M1 explore and query → M2 edit (= MVP) → M3 comfort (= V1) → M4 MongoDB, Elasticsearch and Redis (analysis in `docs/analysis/NOSQL.md`; requirements are added to §5 once its decisions are taken) → V2. Details in `docs/PLAN.md`.
 
 Possible later evolutions: more engines (Oracle, DuckDB, ClickHouse, CockroachDB), notebooks, charts and dashboards, data generators, backup / restore wrappers, plugin API for drivers.
 
