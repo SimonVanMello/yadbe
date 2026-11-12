@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { useRef, type ReactElement } from 'react';
 
 import { useT } from '../../i18n/useT';
 import { ContextMenu } from '../../ui/ContextMenu';
@@ -40,6 +40,8 @@ export function ExplorerContextMenu({ row, children }: ExplorerContextMenuProps)
   const connection = useConnection(row.connectionId);
   const engine = useEngineInfo(connection?.engine ?? null);
   const pins = usePinStore((state) => state.pins);
+  // Rename waits for the menu to give the focus back, or the field would lose it at once.
+  const renameOnClose = useRef(false);
   const node = metaNodeOf(row);
   // A loading or failed row has the retry button and nothing else to offer.
   if (row.type === 'status' || node === null) return children;
@@ -64,6 +66,12 @@ export function ExplorerContextMenu({ row, children }: ExplorerContextMenuProps)
 
   return (
     <ContextMenu
+      onCloseAutoFocus={(event) => {
+        if (!renameOnClose.current) return;
+        renameOnClose.current = false;
+        event.preventDefault();
+        startRename(row);
+      }}
       content={
         <>
           <ContextMenuItem
@@ -159,11 +167,7 @@ export function ExplorerContextMenu({ row, children }: ExplorerContextMenuProps)
               disabled={disabled}
               hint={readOnlyHint}
               onSelect={() => {
-                // The menu closes first and hands the focus back to the tree; the field then
-                // takes it (the rename starts on the next frame).
-                requestAnimationFrame(() => {
-                  startRename(row);
-                });
+                renameOnClose.current = true;
               }}
             >
               {t('explorer.menu.rename')}

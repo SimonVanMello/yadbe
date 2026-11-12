@@ -8,15 +8,24 @@ interface ContextMenuProps {
   children: ReactElement;
   content: ReactNode;
   onOpenChange?: (open: boolean) => void;
+  /** Called when the menu has closed and focus is about to return to its trigger. */
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 /** Right-click menu. Compose with `ContextMenuItem` and `ContextMenuSeparator`. */
-export function ContextMenu({ children, content, onOpenChange }: ContextMenuProps) {
+export function ContextMenu({
+  children,
+  content,
+  onOpenChange,
+  onCloseAutoFocus,
+}: ContextMenuProps) {
   return (
     <RadixContextMenu.Root onOpenChange={onOpenChange}>
       <RadixContextMenu.Trigger asChild>{children}</RadixContextMenu.Trigger>
       <RadixContextMenu.Portal>
-        <RadixContextMenu.Content className={styles.content}>{content}</RadixContextMenu.Content>
+        <RadixContextMenu.Content className={styles.content} onCloseAutoFocus={onCloseAutoFocus}>
+          {content}
+        </RadixContextMenu.Content>
       </RadixContextMenu.Portal>
     </RadixContextMenu.Root>
   );
