@@ -8,7 +8,7 @@ import { useTableQualifier } from '../connections/connectionStore';
 import type { ConnectionSummary } from '../connections/model';
 import { ConnectionTag } from '../history/ConnectionTag';
 import { formatWhen } from '../history/HistoryRow';
-import { countParts, revertState, tableText } from './journalModel';
+import { countParts, entryTarget, revertState } from './journalModel';
 import styles from './JournalRow.module.css';
 
 interface JournalRowProps {
@@ -52,10 +52,13 @@ export function JournalRow({
       style={{ transform: `translateY(${String(offset)}px)` }}
       onClick={onSelect}
     >
-      <Icon name={entry.reverts === null ? 'table' : 'undo'} className={styles.icon} />
+      <Icon
+        name={entry.reverts !== null ? 'undo' : entry.family === 'keyValue' ? 'key' : 'table'}
+        className={styles.icon}
+      />
       <div className={styles.body}>
         <div className={styles.title}>
-          <code className={styles.table}>{tableText(entry.table, qualifier)}</code>
+          <code className={styles.table}>{entryTarget(entry, qualifier)}</code>
           <span className={styles.counts}>
             {countParts(entry)
               .map((part) => t(part.key, { count: part.count }))

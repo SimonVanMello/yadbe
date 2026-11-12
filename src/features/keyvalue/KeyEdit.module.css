@@ -1,0 +1,250 @@
+/* Key editing (M4-6): the pending bar of a key tab, the forms, the apply dialog. */
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+
+.pending {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-height-sm);
+  padding: 0 var(--space-3);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.pending[data-pending] {
+  border-radius: var(--radius-full);
+  background: var(--cell-modified-bg);
+  color: var(--cell-modified);
+  font-weight: var(--weight-semibold);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.readOnly {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.formError {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+.note {
+  margin: 0;
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+}
+
+.prod {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--env-prod);
+  font-weight: var(--weight-semibold);
+}
+
+.dangers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--danger);
+  border-radius: var(--radius-md);
+  list-style: none;
+}
+
+.danger {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--fg-primary);
+  font-size: var(--text-sm);
+}
+
+.dangerIcon {
+  flex: none;
+  color: var(--danger);
+}
+
+.commands {
+  max-height: var(--kv-commands-max-height);
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+.line {
+  display: block;
+  white-space: pre;
+}
+
+.line[data-role='check'],
+.line[data-role='snapshot'] {
+  color: var(--fg-muted);
+}
+
+.line[data-role='control'] {
+  color: var(--accent);
+  font-weight: var(--weight-semibold);
+}
+
+.line[data-role='command'] {
+  color: var(--fg-primary);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.conflict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.conflictHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.conflictTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.conflictIcon {
+  flex: none;
+  color: var(--warning);
+}
+
+.values {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--text-xs);
+}
+
+.values dt {
+  color: var(--fg-muted);
+}
+
+.values dd {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-code);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.values dd[data-kind='theirs'] {
+  color: var(--warning);
+}
+
+.values dd[data-kind='mine'] {
+  color: var(--cell-modified);
+}
+
+.editor {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: var(--space-3) var(--space-4);
+}
+
+.editor textarea {
+  flex: 1;
+  min-height: var(--kv-editor-min-height);
+  font-family: var(--font-code);
+}
+
+.editorActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pendingValue {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--cell-modified-bg);
+  color: var(--cell-modified);
+  font-size: var(--text-xs);
+}

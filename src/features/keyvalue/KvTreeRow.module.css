@@ -65,3 +65,8 @@
   height: var(--control-height-sm);
   font-size: var(--text-xs);
 }
+
+/* A key marked with Ctrl / Cmd + click (several keys deleted at once). */
+.marked {
+  background: var(--bg-selected);
+}

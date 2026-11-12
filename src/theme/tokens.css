@@ -149,6 +149,9 @@
   --collection-filter-min-width: 240px;
   --collection-option-width: 180px;
   --console-editor-height: 160px;
+  /* Key edits (M4-6): commands of the apply dialog, the string value editor. */
+  --kv-commands-max-height: 320px;
+  --kv-editor-min-height: 160px;
 
   /* Motion: transitions only signal a state change, ≤ 150 ms (spec §6.7). */
   --duration-fast: 100ms;

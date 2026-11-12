@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect } from 'react';
 
 import { ErrorPanel } from '../../app/errors/ErrorPanel';
 import type { ShellTab } from '../../app/tabs/tabsStore';
@@ -9,9 +9,12 @@ import { Spinner } from '../../ui/Spinner';
 import { ToolTabGuard } from '../tools/ToolTabGuard';
 import { CollectionViewer } from './CollectionViewer';
 import { JsonDocumentViewer } from './JsonDocumentViewer';
+import { KeyEditBar } from './KeyEditBar';
 import { KeyHeader } from './KeyHeader';
 import styles from './KeyTab.module.css';
 import { bytesId } from './kvBytes';
+import { initTabEdits, rereadTab } from './kvEditActions';
+import { useTabRound } from './kvEditStore';
 import { StringViewer } from './StringViewer';
 
 interface KeyTabBodyProps {
@@ -20,8 +23,9 @@ interface KeyTabBodyProps {
 }
 
 /**
- * Body of a key tab: the key's header (type, time to live, encoding, memory, length) and the
- * viewer of its type. Read-only (editing is M4-6). Needs the connection to be open.
+ * Body of a key tab: the key's header (type, time to live, encoding, memory, length and the
+ * key-level actions), the pending changes, and the viewer of its type, where its content is
+ * edited (M4-6). Needs the connection to be open.
  */
 export function KeyTabBody({ tab, target }: KeyTabBodyProps) {
   const t = useT();
@@ -32,24 +36,37 @@ export function KeyTabBody({ tab, target }: KeyTabBodyProps) {
       needsConnection={t('keyValue.tab.needsConnection')}
     >
       {(connection) => (
-        <KeyView connectionId={connection.id} database={target.database} keyBytes={target.key} />
+        <KeyView
+          tabId={tab.id}
+          connectionId={connection.id}
+          readOnly={connection.readOnly}
+          database={target.database}
+          keyBytes={target.key}
+        />
       )}
     </ToolTabGuard>
   );
 }
 
 function KeyView({
+  tabId,
   connectionId,
+  readOnly,
   database,
   keyBytes,
 }: {
+  tabId: string;
   connectionId: string;
+  readOnly: boolean;
   database: number;
   keyBytes: KvBytes;
 }) {
   const t = useT();
-  // Bumped by "Refresh": the viewer reads the key again from the start.
-  const [round, setRound] = useState(0);
+  useEffect(() => {
+    initTabEdits(tabId, connectionId, database, keyBytes);
+  }, [tabId, connectionId, database, keyBytes]);
+  // Moved by "Refresh" and by each apply: the viewer reads the key again from the start.
+  const round = useTabRound(tabId);
   const info = useQuery({
     queryKey: ['kvKeyInfo', connectionId, database, bytesId(keyBytes), round],
     queryFn: () => unwrap(ipc.commands.kvKeyInfo(connectionId, database, keyBytes)),
@@ -74,12 +91,21 @@ function KeyView({
   }
   const data = info.data;
   const refresh = () => {
-    setRound((n) => n + 1);
+    rereadTab(tabId);
   };
   const viewerKey = `${bytesId(keyBytes)}:${String(round)}`;
+  const editable = !readOnly && data.kind !== 'missing' && data.kind !== 'unknown';
   return (
     <div className={styles.tab} data-kind={data.kind}>
-      <KeyHeader info={data} refreshing={info.isFetching} onRefresh={refresh} />
+      <KeyHeader
+        tabId={tabId}
+        connectionId={connectionId}
+        info={data}
+        readOnly={readOnly}
+        refreshing={info.isFetching}
+        onRefresh={refresh}
+      />
+      {data.kind !== 'missing' && <KeyEditBar tabId={tabId} readOnly={readOnly} />}
       <div className={styles.viewer}>
         {(() => {
           switch (data.kind) {
@@ -87,6 +113,8 @@ function KeyView({
               return (
                 <StringViewer
                   key={viewerKey}
+                  tabId={tabId}
+                  editable={editable}
                   connectionId={connectionId}
                   database={database}
                   keyBytes={keyBytes}
@@ -100,6 +128,8 @@ function KeyView({
               return (
                 <CollectionViewer
                   key={viewerKey}
+                  tabId={tabId}
+                  editable={editable}
                   connectionId={connectionId}
                   database={database}
                   keyBytes={keyBytes}
@@ -110,6 +140,8 @@ function KeyView({
               return (
                 <JsonDocumentViewer
                   key={viewerKey}
+                  tabId={tabId}
+                  editable={editable}
                   connectionId={connectionId}
                   database={database}
                   keyBytes={keyBytes}

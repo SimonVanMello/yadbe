@@ -72,7 +72,7 @@ describe('the mock key-value edits', () => {
           op: 'hashSet' as const,
           key: t(MOCK_STALE_KEY),
           field: t('plan'),
-          original: t('free'),
+          original: t('team'),
           value: t('pro'),
         },
       ],

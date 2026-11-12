@@ -52,7 +52,7 @@ export interface MockKvStore {
 /** "Now" of the mock server: expiries are this plus the key's time to live. */
 export const MOCK_EPOCH_MS = Date.UTC(2026, 10, 12, 9, 0, 0);
 /** A key whose first apply finds it changed by someone else (a scripted conflict). */
-export const MOCK_STALE_KEY = 'user:7:profile';
+export const MOCK_STALE_KEY = 'user:10:profile';
 const MANY_KEYS = 10;
 const SNAPSHOT_BOUND = 16 * 1024 * 1024;
 

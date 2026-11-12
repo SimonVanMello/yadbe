@@ -33,6 +33,23 @@ export function tableText(table: ObjectRef, qualifier: Qualifier): string {
   return tableLabel(table, qualifier);
 }
 
+/**
+ * What an entry changed, as shown: a table (`schema.table`), or for a key-value entry its
+ * database and key(s) (`db0 · user:1`, `db0 · session:*`).
+ */
+export function entryTarget(
+  entry: Pick<JournalEntry, 'family' | 'table'>,
+  qualifier: Qualifier,
+): string {
+  if (entry.family === 'keyValue') return `db${entry.table.database} · ${entry.table.name}`;
+  return tableLabel(entry.table, qualifier);
+}
+
+/** A statement as the journal shows it: SQL ends with `;`, other families' commands do not. */
+export function statementText(entry: Pick<JournalEntry, 'family'>, sql: string): string {
+  return entry.family === 'sql' ? `${sql};` : sql;
+}
+
 /** A stable key of a table, for a select. */
 export function tableKey(table: ObjectRef): string {
   return JSON.stringify([table.database, table.schema, table.name]);

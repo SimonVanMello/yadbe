@@ -77,6 +77,18 @@
   margin-left: auto;
 }
 
+.keyActions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.readOnly + .keyActions {
+  margin-left: 0;
+}
+
 .facts {
   display: flex;
   flex-wrap: wrap;

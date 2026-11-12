@@ -16,7 +16,9 @@ import { localize } from '../../app/errors/presentError';
 import { rowStyle } from '../sidebar/rowStyle';
 import { openKeyTab, rescan, scanMore, setPattern, showMore, stopScan } from './kvActions';
 import { kvRowName, type KvRow } from './kvExplorerRows';
+import { KvEditMenuItems } from './KvEditMenuItems';
 import { formatTtl, kindIcon, typeBadge } from './kvFormat';
+import { toggleMark, useMarked } from './kvMarkStore';
 import { LEVEL_PAGE } from './kvTreeStore';
 import { SCAN_MORE } from './kvScanFeed';
 import styles from './KvTreeRow.module.css';
@@ -163,6 +165,8 @@ function ScanState({ row }: { row: Extract<KvRow, { type: 'kvScan' }> }) {
   );
 }
 
+const NO_KEY = { text: '', base64: null };
+
 /** A row of a key-value connection's tree: database, pattern, namespace, key, paging, scan state. */
 export const KvTreeRow = memo(function KvTreeRow({
   row,
@@ -180,6 +184,11 @@ export const KvTreeRow = memo(function KvTreeRow({
 }: KvTreeRowProps) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
+  const marked = useMarked(
+    row.connectionId,
+    row.type === 'kvKey' ? row.database : -1,
+    row.type === 'kvKey' ? row.fullKey : NO_KEY,
+  );
   const common = {
     id,
     role: 'treeitem',
@@ -334,14 +343,20 @@ export const KvTreeRow = memo(function KvTreeRow({
         </>
       );
       menu = (
-        <ContextMenuItem
-          icon="retry"
-          onSelect={() => {
-            void rescan(row.connectionId, row.database.index);
-          }}
-        >
-          {t('keyValue.tree.rescan', { database: row.database.index })}
-        </ContextMenuItem>
+        <>
+          <ContextMenuItem
+            icon="retry"
+            onSelect={() => {
+              void rescan(row.connectionId, row.database.index);
+            }}
+          >
+            {t('keyValue.tree.rescan', { database: row.database.index })}
+          </ContextMenuItem>
+          <KvEditMenuItems
+            connectionId={row.connectionId}
+            target={{ kind: 'database', database: row.database.index }}
+          />
+        </>
       );
       break;
     }
@@ -360,14 +375,20 @@ export const KvTreeRow = memo(function KvTreeRow({
         </>
       );
       menu = (
-        <ContextMenuItem
-          icon="copy"
-          onSelect={() => {
-            void writeClipboard(row.prefix.text);
-          }}
-        >
-          {t('keyValue.tree.copyPrefix')}
-        </ContextMenuItem>
+        <>
+          <ContextMenuItem
+            icon="copy"
+            onSelect={() => {
+              void writeClipboard(row.prefix.text);
+            }}
+          >
+            {t('keyValue.tree.copyPrefix')}
+          </ContextMenuItem>
+          <KvEditMenuItems
+            connectionId={row.connectionId}
+            target={{ kind: 'namespace', database: row.database, prefix: row.prefix }}
+          />
+        </>
       );
       break;
     case 'kvKey':
@@ -400,6 +421,10 @@ export const KvTreeRow = memo(function KvTreeRow({
           >
             {t('keyValue.tree.copyKey')}
           </ContextMenuItem>
+          <KvEditMenuItems
+            connectionId={row.connectionId}
+            target={{ kind: 'key', database: row.database, key: row.fullKey }}
+          />
         </>
       );
       break;
@@ -410,8 +435,14 @@ export const KvTreeRow = memo(function KvTreeRow({
       {...common}
       aria-expanded={row.expandable ? row.expanded : undefined}
       aria-label={kvRowName(row)}
-      className={rowStyles.row}
-      onClick={() => {
+      className={marked ? `${rowStyles.row} ${styles.marked}` : rowStyles.row}
+      data-marked={marked || undefined}
+      onClick={(event) => {
+        // Ctrl / Cmd + click marks keys, to delete several at once.
+        if (row.type === 'kvKey' && (event.ctrlKey || event.metaKey)) {
+          toggleMark(row.connectionId, row.database, row.fullKey);
+          return;
+        }
         onSelect(index);
         if (row.expandable) onToggle(row);
       }}
