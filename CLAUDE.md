@@ -35,17 +35,20 @@ Do not add a dependency outside this list without justifying it in the commit me
 src/                      Frontend
   app/                    Shell: window, title bar and tabs, layout, actions and shortcuts, errors, startup and restore
   features/<feature>/     One feature = components + hooks + styles + tests:
-    connections/          Connection list model, dialog and forms (SSH tunnel section), password / SSH secret / host key prompts, connection chip
-    sidebar/              Sidebar views (Connections / History / Saved), the virtualized tree of connections + explorer
+    connections/          Connection list model, dialog and forms (SSH tunnel section), password / SSH secret / host key prompts, connection chip, import (other tools' files) and export dialogs
+    sidebar/              Sidebar views (Connections / History / Saved / Journal), the virtualized tree of connections + explorer
     explorer/             Explorer rows (pure tree building and filter), metadata queries, context menu, Script as, the shared catalog cache (catalogCache.ts: palette + autocomplete)
-    query/                Query tab: SQL editor (CodeMirror), run / cancel, transactions, results area, files, danger guard
+    query/                Query tab: SQL editor (CodeMirror), run / cancel, transactions, results area, files, danger guard, parameter prompt, formatter, hover cards and go to definition, plan tree
     grid/                 Data grid (results and table tabs), selection and copy formats, cell viewer
-    table-data/           Table tab: pages, count, filter bar, sort, cell editors, pending changes, SQL preview, apply, table export, foreign key navigation (peek, jump, referencing rows, lookup editor, back / forward trail)
+    table-data/           Table tab: pages, count, filter bar, sort, cell editors, pending changes, SQL preview, apply, conflict and revert dialogs, table export, foreign key navigation (peek, jump, referencing rows, lookup editor, back / forward trail)
     completion/           Editor autocomplete: SQL context analysis, suggestions, quoting, index over the shared catalog
     palette/              Command palette: fuzzy matcher, sources (actions, connections, objects, tabs, history)
     preferences/          Preferences screen, schema and store; user-facing settings are read with `usePreference` / `getPreference`
     export/               Export dialog, options, progress toasts (result or table source)
     library/              Saved queries and snippets: Saved view, save dialog, snippet expansion, built-in snippets
+    journal/              Change journal view: search and filters, change set detail, revert entry point
+    objects/              DDL tab, properties dialog, drop / truncate / rename confirmation, pins, inline rename
+    import/               Data import wizard (file and format, column mapping, dry run and import)
     history/              History panel, search and filters, open / insert, clear
     statement-log/        Statement log panel
     statusbar/, toolbar/, welcome/   Bottom bar (run status, Ln/Col), query toolbar, welcome screen
@@ -60,14 +63,16 @@ scripts/                  check-case, P-01 startup and P-04 WebKitGTK measuremen
 src-tauri/
   src/
     commands/             Tauri handlers: thin, no logic (validation → service call → error mapping)
-    db/                   value.rs (Value model), driver.rs (traits), dialect.rs + edit_dialect.rs (paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
+    db/                   value.rs (Value model), driver.rs (traits), dialect.rs + edit_dialect.rs (paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), ddl.rs + object_ops.rs + object_model.rs (DDL text, object statements, properties), params.rs (query parameters: scanner, binding), plan/ (plan model, one parser per engine, fixtures of real plans), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
       drivers/<engine>/   postgres, mssql, sqlite, mysql: the only place a driver crate is used
-    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs, ReferenceService (references.rs: foreign key lookups), Library (library.rs: saved queries), tunnel.rs (SSH tunnel of a session)
+    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs, ReferenceService (references.rs: foreign key lookups), Library (library.rs: saved queries), journal.rs (change journal, reverts), meta_objects.rs (DDL, properties, object actions), tunnel.rs (SSH tunnel of a session)
     tunnel/               SSH tunnels (russh): hops, authentication, host key checks, the loopback listener drivers dial
-    edit/                 Change set → EditPlanner → parameterized DML, SQL preview
+    edit/                 Change set → EditPlanner → parameterized DML with original-value checks, SQL preview, inverse.rs (what reverts a change set)
     secrets/              Keychain access, Secret type
-    store/                SQLite: connections, tabs, history, preferences, saved queries, SSH known hosts
+    store/                SQLite: connections, tabs, history, preferences, saved queries, SSH known hosts, change journal, pinned objects
     export/               Streaming exports: sources (result, table), CSV / JSON encoders, the background job manager
+    import/               Data import: streaming text / CSV / JSON readers, type conversion, plan, run, rejects file, job manager
+    conn_import/          Connections from other tools (Azure Data Studio, DBeaver, pgpass, pg_service, SSMS) and yadbe's own file, without secrets
   examples/               export_bindings.rs (`pnpm bindings`)
   tests/                  Integration tests (common/, query_common/, conformance/) + fixture schema scripts (fixtures/)
   vendor/tiberius/        tiberius 0.13.0, pristine commit then yadbe's patches (PATCHES.md says which and why)
@@ -107,6 +112,8 @@ pnpm tauri build --bundles deb   # P-10: installer size (Linux .deb; macOS / Win
 cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… cargo test --test table_data --test export   # table browsing / edit plans on the three engines, exports
 cd src-tauri && YADBE_TEST_MYSQL_URL=mysql://yadbe:yadbe-test-pw@localhost:53306/yadbe_test YADBE_TEST_MYSQL_CA=../dev/certs/ca.crt cargo test --test query_mysql --test introspection --test table_data --test export   # MySQL (compose service; `up -d -V mysql` the first time so the init grants run); P-02: `p02_mysql`
 cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… cargo test --test references   # foreign key lookups (SQLite always runs)
+cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… cargo test --test change_journal --test objects --test query_tools --test import   # optimistic concurrency and journal, object DDL and actions, parameters and plans, data import (SQLite always runs)
+cd src-tauri && YADBE_BENCH_ROWS=1000000 cargo test --release --test import throughput -- --ignored --nocapture   # import throughput per engine; `large_file` instead for the 1 GiB file (about 2.5 GB of disk)
 dev/ssh-test.sh [dir]   # Throwaway OpenSSH servers (tunnel 2222, jump host 2223, no forwarding 2224) + ssh-agent; needs openssh-server and root; `dev/ssh-test.sh stop [dir]`
 cd src-tauri && YADBE_TEST_SSH_DIR=/tmp/yadbe-sshd YADBE_TEST_PG_URL=… YADBE_TEST_PG_CA=… [YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… YADBE_TEST_MYSQL_CA=…] cargo test --test ssh_tunnel   # SSH tunnels on every engine set (unset: SKIPPED; YADBE_TEST_SSH_PORT defaults to 2222)
 cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test table_data p_table_export -- --ignored --nocapture   # table export of 1M rows (keyset paging)
