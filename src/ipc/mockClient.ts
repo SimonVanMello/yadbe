@@ -48,6 +48,7 @@ import { createMockTableData } from './mock/tableData';
 import { createMockResultEdit, parseTableSelect, tableSelect } from './mock/resultEdit';
 import { createMockJournal } from './mock/journal';
 import { createMockDocument } from './mock/document';
+import { createMockDocumentEdit } from './mock/documentEdit';
 import { createMockKeyValue } from './mock/keyValue';
 import { createMockSearch } from './mock/search';
 
@@ -687,12 +688,19 @@ function createMockBackend() {
     },
   });
 
+  const mongoSession = (connectionId: string) => {
+    const conn = findConnection(connectionId);
+    if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
+    return {
+      readOnly: conn.definition.readOnly,
+      // A replica set name makes the mock server one (transactions); otherwise standalone.
+      topology: conn.definition.mongo?.replicaSet
+        ? ('replicaSet' as const)
+        : ('standalone' as const),
+    };
+  };
   const document = createMockDocument({
-    session: (connectionId) => {
-      const conn = findConnection(connectionId);
-      if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
-      return { readOnly: conn.definition.readOnly };
-    },
+    session: mongoSession,
     latency: () => meta.latency(),
     logStatement: (connectionId, sql, error = null) => {
       logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
@@ -717,6 +725,16 @@ function createMockBackend() {
       }
       return texts;
     },
+  });
+
+  const documentEdit = createMockDocumentEdit({
+    session: mongoSession,
+    collection: (database, name) => document.collection(database, name),
+    logStatement: (connectionId, sql, error = null) => {
+      logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
+    },
+    connectionName: (connectionId) => findConnection(connectionId)?.definition.name ?? connectionId,
+    journal,
   });
 
   const keyValue = createMockKeyValue({
@@ -1110,6 +1128,7 @@ function createMockBackend() {
     ...document.commands,
     ...keyValue.commands,
     ...search.commands,
+    ...documentEdit.commands,
   };
 
   function reset(): void {
@@ -1131,6 +1150,7 @@ function createMockBackend() {
     objects.reset();
     activity.reset();
     keyValue.reset();
+    documentEdit.reset();
     dotnet.reset();
     query.reset();
     history.reset();

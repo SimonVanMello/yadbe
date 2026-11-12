@@ -501,6 +501,31 @@ pub struct ExecOptions {
     pub token: String,
     /// A cursor stops after this many documents (the first window of a console result).
     pub max_documents: Option<u64>,
+    /// Runs inside this multi-document transaction
+    /// ([`crate::db::driver::DocumentConnection::begin_transaction`]); `None`: on its own.
+    pub transaction: Option<String>,
+}
+
+/// Appended to the detail of an error the server labelled `TransientTransactionError`: the
+/// transaction was aborted and running it again may succeed (yadbe never does it by itself).
+pub const TRANSIENT_MARK: &str = "[TransientTransactionError]";
+
+/// Whether `error` carries [`TRANSIENT_MARK`].
+pub fn is_transient(error: &crate::db::errors::YadbeError) -> bool {
+    error
+        .detail
+        .as_deref()
+        .is_some_and(|d| d.contains(TRANSIENT_MARK))
+}
+
+/// Why a commit failed.
+#[derive(Debug, Clone)]
+pub struct CommitError {
+    pub error: crate::db::errors::YadbeError,
+    /// `UnknownTransactionCommitResult`: the server may or may not have committed.
+    pub unknown_result: bool,
+    /// `TransientTransactionError`: nothing was committed; running it again may succeed.
+    pub transient: bool,
 }
 
 /// What a running operation produces.

@@ -56,12 +56,20 @@ export const LazySearchApplyDialog = lazyComponent(
   () => import('../features/search/SearchApplyDialog').then((m) => m.SearchApplyDialog),
   DIALOG,
 );
-export const LazyDocEditorDialog = lazyComponent(
+export const LazySearchDocEditorDialog = lazyComponent(
   () => import('../features/search/DocEditorDialog').then((m) => m.DocEditorDialog),
   DIALOG,
 );
 export const LazyKvFormDialog = lazyComponent(
   () => import('../features/keyvalue/KvFormDialog').then((m) => m.KvFormDialog),
+  DIALOG,
+);
+export const LazyDocApplyDialog = lazyComponent(
+  () => import('../features/document/DocApplyDialog').then((m) => m.DocApplyDialog),
+  DIALOG,
+);
+export const LazyDocFormDialog = lazyComponent(
+  () => import('../features/document/DocFormDialog').then((m) => m.DocFormDialog),
   DIALOG,
 );
 export const LazyPreferencesDialog = lazyComponent(

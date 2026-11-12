@@ -7,6 +7,7 @@ import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
 import { useConnection, useTableQualifier } from '../connections/connectionStore';
 import { ConnectionTag } from '../history/ConnectionTag';
+import { openDocRevert } from '../document/docEditActions';
 import { openKvRevert } from '../keyvalue/kvEditActions';
 import { openSearchRevert } from '../search/searchEditActions';
 import { revertChangeSet } from '../table-data/tableActions';
@@ -96,6 +97,12 @@ export function JournalDetail({ entry }: { entry: JournalEntry }) {
               if (entry.family === 'keyValue') void openKvRevert(entry.connectionId, entry.id);
               else if (entry.family === 'search')
                 void openSearchRevert(entry.connectionId, entry.id);
+              else if (entry.family === 'document')
+                void openDocRevert(
+                  entry.connectionId,
+                  entry.id,
+                  `${entry.table.database}.${entry.table.name}`,
+                );
               else void revertChangeSet(entry.connectionId, entry.table, entry.id);
             }}
           >

@@ -114,7 +114,8 @@ impl AppState {
                 queries.shared_store(),
                 history.clone(),
             )
-            .with_events(Arc::clone(&sink)),
+            .with_events(Arc::clone(&sink))
+            .with_journal(Arc::clone(&journal)),
         );
         // Hits, tables and console answers live in the query results' store as well.
         let searches = Arc::new(

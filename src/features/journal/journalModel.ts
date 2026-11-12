@@ -43,6 +43,7 @@ export function entryTarget(
 ): string {
   if (entry.family === 'keyValue') return `db${entry.table.database} · ${entry.table.name}`;
   if (entry.family === 'search') return entry.table.name;
+  if (entry.family === 'document') return `${entry.table.database}.${entry.table.name}`;
   return tableLabel(entry.table, qualifier);
 }
 

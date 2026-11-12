@@ -37,7 +37,9 @@ import {
   LazyKvApplyDialog,
   LazyKvFormDialog,
   LazySearchApplyDialog,
-  LazyDocEditorDialog,
+  LazySearchDocEditorDialog,
+  LazyDocApplyDialog,
+  LazyDocFormDialog,
   LazyParameterDialog,
   LazyPreferencesDialog,
   LazyPropertiesDialog,
@@ -250,7 +252,9 @@ export function Shell() {
       <LazyKvApplyDialog />
       <LazyKvFormDialog />
       <LazySearchApplyDialog />
-      <LazyDocEditorDialog />
+      <LazySearchDocEditorDialog />
+      <LazyDocApplyDialog />
+      <LazyDocFormDialog />
       <CommandPalette />
       <LazyPreferencesDialog />
     </div>

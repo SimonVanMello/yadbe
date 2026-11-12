@@ -1,5 +1,6 @@
 import type {
   ChangeSet,
+  DocChangeSet,
   Engine,
   EngineFamily,
   JournalTargetKind,
@@ -51,6 +52,8 @@ export interface MockJournalRecord {
   kvInverse?: KvChangeSet | null;
   /** The inverse of a search change set. */
   searchInverse?: SearchChangeSet | null;
+  /** The inverse of a document change set. */
+  docInverse?: DocChangeSet | null;
 }
 
 function familyOf(engine: Engine): EngineFamily {
@@ -247,6 +250,35 @@ export function createMockJournal(deps: { events: EventEmitter }) {
         );
       }
       return structuredClone(stored.kvInverse);
+    },
+    /** The inverse of a document entry for a revert on `connectionId`, or why it cannot be. */
+    docInverseFor(id: number, connectionId: string): DocChangeSet | YadbeError {
+      const stored = entries.find((e) => e.id === id);
+      if (!stored) {
+        return mockErrors.invalidArgument(
+          'This change set is no longer in the journal.',
+          "Cet ensemble de modifications n'est plus dans le journal.",
+        );
+      }
+      if (stored.connectionId !== connectionId || familyOf(stored.engine) !== 'document') {
+        return mockErrors.invalidArgument(
+          'This change set was applied to another connection.',
+          'Cet ensemble de modifications a été appliqué à une autre connexion.',
+        );
+      }
+      if (stored.revertedBy !== null) {
+        return mockErrors.invalidArgument(
+          `This change set was already reverted (#${String(stored.revertedBy)}).`,
+          `Cet ensemble de modifications a déjà été annulé (n° ${String(stored.revertedBy)}).`,
+        );
+      }
+      if (stored.blocker || !stored.docInverse) {
+        return mockErrors.invalidArgument(
+          'This change set cannot be reverted faithfully.',
+          'Cet ensemble de modifications ne peut pas être annulé fidèlement.',
+        );
+      }
+      return structuredClone(stored.docInverse);
     },
     /** The inverse of a search entry for a revert on `connectionId`, or why it cannot be. */
     searchInverseFor(id: number, connectionId: string): SearchChangeSet | YadbeError {

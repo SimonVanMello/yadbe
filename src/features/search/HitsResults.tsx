@@ -1,5 +1,6 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 
+import { showError } from '../../app/errors/presentError';
 import { ipc, unwrap, type DocumentResult } from '../../ipc';
 import type { DocNode } from '../documents/docTree';
 import { DocumentsView } from '../documents/DocumentsView';
@@ -7,7 +8,7 @@ import { ResultGrid } from '../grid/ResultGrid';
 import { HitMenuItems } from './HitMenuItems';
 import type { HitsView } from './indexStore';
 import { jsonDocument } from './jsonView';
-import { findHit, hitAt } from './searchEditActions';
+import { editHit, findHit, hitAt } from './searchEditActions';
 
 interface HitsResultsProps {
   result: DocumentResult;
@@ -16,6 +17,8 @@ interface HitsResultsProps {
   /** The index tab showing them: their menus edit, duplicate, delete (M4-8). */
   editTabId?: string;
 }
+
+const NO_DOCS: readonly DocNode[] = [];
 
 /** A string field of a hit shown in the documents view. */
 function hitField(node: DocNode | undefined, name: string): string | null {
@@ -37,11 +40,17 @@ function hitField(node: DocNode | undefined, name: string): string | null {
  */
 export function HitsResults({ result, view, label, editTabId }: HitsResultsProps) {
   const { documentsId } = result;
+  // The hits read, by number: a row's menu names the hit's index before reading it again.
+  const read = useRef(new Map<number, DocNode>());
   const load = useCallback(
-    async (offset: number, limit: number) =>
-      (await unwrap(ipc.commands.searchFetchDocuments(documentsId, offset, limit))).map(
-        jsonDocument,
-      ),
+    async (offset: number, limit: number) => {
+      const nodes = (
+        await unwrap(ipc.commands.searchFetchDocuments(documentsId, offset, limit))
+      ).map(jsonDocument);
+      if (offset === 0) read.current.clear();
+      nodes.forEach((node, i) => read.current.set(offset + i, node));
+      return nodes;
+    },
     [documentsId],
   );
   if (view === 'documents') {
@@ -51,16 +60,28 @@ export function HitsResults({ result, view, label, editTabId }: HitsResultsProps
         count={result.count}
         load={load}
         label={label}
-        documentMenu={
+        editing={
           editTabId === undefined
             ? undefined
-            : (document, node) => (
-                <HitMenuItems
-                  tabId={editTabId}
-                  index={hitField(node, '_index')}
-                  load={() => hitAt(editTabId, document)}
-                />
-              )
+            : {
+                // Edits of hits are staged as whole documents (the pending strip), not
+                // overlaid on the tree: only the row menu and F2 / double click are used.
+                document: () => undefined,
+                added: NO_DOCS,
+                version: '',
+                menu: (row) => (
+                  <HitMenuItems
+                    tabId={editTabId}
+                    index={hitField(read.current.get(row.document), '_index')}
+                    load={() => hitAt(editTabId, row.document)}
+                  />
+                ),
+                onEdit: (row) => {
+                  hitAt(editTabId, row.document)
+                    .then((hit) => (hit ? editHit(editTabId, hit) : undefined))
+                    .catch(showError);
+                },
+              }
         }
       />
     );

@@ -37,6 +37,28 @@ const INITIAL_RECT = { width: 800, height: 480 };
 /** "Expand all" opens this deep. */
 const EXPAND_ALL_DEPTH = 32;
 
+/** A document shown with its pending changes (an editing layer, M4-4). */
+export interface DocShown {
+  node: DocNode;
+  state: 'modified' | 'deleted';
+  /** Paths whose value changes (their rows and everything inside are marked). */
+  changed: readonly (readonly (string | number)[])[];
+}
+
+/** What an editing layer adds to the view: changed documents, new ones, row actions. */
+export interface DocumentsEditing {
+  /** Document `index` as it will be, `undefined`: unchanged. */
+  document: (index: number) => DocShown | undefined;
+  /** New documents, shown after the result's. */
+  added: readonly DocNode[];
+  /** Changes whenever what the two above give does. */
+  version: string;
+  /** More entries of a row's context menu (`added`: a new document's row). */
+  menu: (row: DocRow, added: boolean) => ReactNode;
+  /** Double click or F2 on a row. */
+  onEdit: (row: DocRow, added: boolean) => void;
+}
+
 export interface DocumentsViewProps {
   /** Documents in the result. */
   count: number;
@@ -44,8 +66,11 @@ export interface DocumentsViewProps {
   load: (offset: number, limit: number) => Promise<DocNode[]>;
   /** Accessible name of the list. */
   label: string;
-  /** More entries of a row's menu, for its document (number, and the document once read). */
-  documentMenu?: (document: number, node: DocNode | undefined) => ReactNode;
+  editing?: DocumentsEditing;
+}
+
+function startsWith(path: readonly (string | number)[], prefix: readonly (string | number)[]) {
+  return prefix.length <= path.length && prefix.every((seg, i) => seg === path[i]);
 }
 
 /** The text a row shows for its value. */
@@ -77,7 +102,7 @@ async function copy(text: string, what: string): Promise<void> {
  * on demand. Copy a value, its path or the whole document from a row's menu. Fed by plain values
  * (`DocNode`): it knows nothing of the store the documents come from.
  */
-export function DocumentsView({ count, load, label, documentMenu }: DocumentsViewProps) {
+export function DocumentsView({ count, load, label, editing }: DocumentsViewProps) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
   const [documents, setDocuments] = useState<(DocNode | undefined)[]>([]);
@@ -111,7 +136,26 @@ export function DocumentsView({ count, load, label, documentMenu }: DocumentsVie
     };
   }, [count, load]);
 
-  const rows = useMemo(() => flattenDocuments(documents, 0, openness), [documents, openness]);
+  const version = editing?.version;
+  const shown = useMemo(() => {
+    if (!editing) return documents;
+    const changed = documents.map((node, i) => (node ? (editing.document(i)?.node ?? node) : node));
+    return documents.length >= count ? [...changed, ...editing.added] : changed;
+    // `version` stands for what `editing` gives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documents, count, version]);
+  const rows = useMemo(() => flattenDocuments(shown, 0, openness), [shown, openness]);
+
+  /** A row's pending-change mark. */
+  const stateOf = (row: DocRow): 'modified' | 'deleted' | 'inserted' | undefined => {
+    if (!editing) return undefined;
+    if (row.document >= count) return 'inserted';
+    const doc = editing.document(row.document);
+    if (!doc) return undefined;
+    if (doc.state === 'deleted') return 'deleted';
+    if (row.path.length === 0) return 'modified';
+    return doc.changed.some((path) => startsWith(row.path, path)) ? 'modified' : undefined;
+  };
 
   // eslint-disable-next-line react-hooks/incompatible-library -- rows are not memoized children
   const virtualizer = useVirtualizer({
@@ -135,7 +179,7 @@ export function DocumentsView({ count, load, label, documentMenu }: DocumentsVie
     }));
   };
 
-  const documentOf = (row: DocRow) => documents[row.document];
+  const documentOf = (row: DocRow) => shown[row.document];
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const row = rows[active];
@@ -174,6 +218,10 @@ export function DocumentsView({ count, load, label, documentMenu }: DocumentsVie
       case ' ':
         event.preventDefault();
         if (row) toggle(row);
+        return;
+      case 'F2':
+        event.preventDefault();
+        if (row && editing) editing.onEdit(row, row.document >= count);
     }
   };
 
@@ -253,7 +301,7 @@ export function DocumentsView({ count, load, label, documentMenu }: DocumentsVie
                         {t('documents.copyDocument')}
                       </ContextMenuItem>
                     )}
-                    {documentMenu?.(row.document, document)}
+                    {editing?.menu(row, row.document >= count)}
                   </>
                 }
               >
@@ -264,6 +312,7 @@ export function DocumentsView({ count, load, label, documentMenu }: DocumentsVie
                   aria-expanded={container ? row.open : undefined}
                   aria-selected={item.index === active}
                   data-active={item.index === active || undefined}
+                  data-state={stateOf(row)}
                   data-depth={row.depth}
                   className={styles.row}
                   style={
@@ -276,13 +325,22 @@ export function DocumentsView({ count, load, label, documentMenu }: DocumentsVie
                     setActive(item.index);
                     toggle(row);
                   }}
+                  onDoubleClick={() => {
+                    editing?.onEdit(row, row.document >= count);
+                  }}
                 >
                   <span className={styles.twisty}>
                     {container && <Icon name={row.open ? 'chevronDown' : 'chevronRight'} />}
                   </span>
                   {row.label === null ? (
                     <span className={styles.document}>
-                      {t('documents.document', { number: formatNumber(locale, row.document + 1) })}
+                      {row.document >= count
+                        ? t('documents.newDocument', {
+                            number: formatNumber(locale, row.document - count + 1),
+                          })
+                        : t('documents.document', {
+                            number: formatNumber(locale, row.document + 1),
+                          })}
                     </span>
                   ) : (
                     <span className={styles.label}>{row.label}</span>

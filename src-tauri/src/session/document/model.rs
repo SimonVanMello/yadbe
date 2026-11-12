@@ -48,6 +48,9 @@ pub struct CollectionPage {
     /// The operation as it was sent, shell style.
     pub command: String,
     pub duration_ms: f64,
+    /// The `_id` of each document of the page, canonical Extended JSON; `null` for a document
+    /// read without one (a projection that leaves it out). What edits identify documents by.
+    pub ids: Vec<Option<String>>,
 }
 
 /// A collection as its tab opens it.
@@ -60,6 +63,8 @@ pub struct CollectionInfo {
     /// From the collection's metadata, at once (`estimatedDocumentCount`); `null` for a view.
     pub estimated_count: Option<f64>,
     pub topology: DocTopology,
+    /// A capped collection: its documents cannot be deleted (M4-4).
+    pub capped: bool,
 }
 
 /// How a console command ended.

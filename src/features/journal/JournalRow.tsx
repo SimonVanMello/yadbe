@@ -60,7 +60,9 @@ export function JournalRow({
               ? 'key'
               : entry.family === 'search'
                 ? 'index'
-                : 'table'
+                : entry.family === 'document'
+                  ? 'layers'
+                  : 'table'
         }
         className={styles.icon}
       />

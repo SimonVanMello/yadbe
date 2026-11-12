@@ -9,9 +9,11 @@
 
 use tauri::State;
 
+use crate::db::document::edit::DocChangeSet;
 use crate::db::document::meta::{DocCollection, DocDatabase, DocIndex, FieldSample};
 use crate::db::document::ops::Namespace;
 use crate::db::errors::YadbeError;
+use crate::session::document::edit::{DocApplyOutcome, DocPreview};
 use crate::session::document::model::{
     CollectionInfo, CollectionPage, CollectionQuery, ScriptOutcome, ScriptRequest,
 };
@@ -200,4 +202,63 @@ pub async fn mongo_fetch_documents(
     limit: u32,
 ) -> Result<Vec<String>, YadbeError> {
     state.documents.documents(documents_id, offset, limit)
+}
+
+/// What applying `changes` would send (M4-4): one guarded operation per document, in mongosh
+/// syntax, and whether they run in one transaction (replica set, sharded cluster) or one by
+/// one (standalone server).
+#[tauri::command]
+#[specta::specta]
+pub async fn mongo_preview_changes(
+    state: State<'_, AppState>,
+    connection_id: String,
+    changes: DocChangeSet,
+) -> Result<DocPreview, YadbeError> {
+    state
+        .documents
+        .preview_changes(&connection_id, &changes)
+        .await
+}
+
+/// Applies `changes`: every update / replace / delete must match its one document as it was
+/// read (otherwise a conflict, per document); in one transaction when the server has them,
+/// otherwise one by one, stopping at the first conflict or failure. What was applied goes to
+/// the change journal. Refused on a read-only connection.
+#[tauri::command]
+#[specta::specta]
+pub async fn mongo_apply_changes(
+    state: State<'_, AppState>,
+    connection_id: String,
+    changes: DocChangeSet,
+) -> Result<DocApplyOutcome, YadbeError> {
+    state
+        .documents
+        .apply_changes(&connection_id, &changes)
+        .await
+}
+
+/// What reverting the document journal entry `entryId` would send.
+#[tauri::command]
+#[specta::specta]
+pub async fn mongo_preview_revert(
+    state: State<'_, AppState>,
+    connection_id: String,
+    entry_id: u32,
+) -> Result<DocPreview, YadbeError> {
+    state
+        .documents
+        .preview_revert(&connection_id, entry_id)
+        .await
+}
+
+/// Reverts the document journal entry `entryId`: its inverse, guarded by what the entry
+/// left, applied like any change set.
+#[tauri::command]
+#[specta::specta]
+pub async fn mongo_apply_revert(
+    state: State<'_, AppState>,
+    connection_id: String,
+    entry_id: u32,
+) -> Result<DocApplyOutcome, YadbeError> {
+    state.documents.apply_revert(&connection_id, entry_id).await
 }
