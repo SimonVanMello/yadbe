@@ -8,7 +8,7 @@ function backend(readOnly = false, onConfirm: (requestId: number) => void = () =
   let next = 1;
   const history: string[] = [];
   const mock = createMockDocument({
-    session: () => ({ readOnly }),
+    session: () => ({ readOnly, topology: 'replicaSet' as const }),
     latency: () => 0,
     logStatement: () => undefined,
     recordHistory: (entry) => history.push(`${entry.outcome}:${entry.sql}`),

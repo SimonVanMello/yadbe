@@ -1,6 +1,7 @@
 import { isQueryTab, isTableTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { ipc } from '../../ipc';
 import { forgetCollectionTab } from './collectionActions';
+import { dropTabDocEdits } from './docEditStore';
 import { useScriptStore } from './scriptStore';
 
 let started = false;
@@ -24,6 +25,7 @@ export function startDocumentFeature(): void {
     for (const id of known) {
       if (ids.has(id)) continue;
       forgetCollectionTab(id);
+      dropTabDocEdits(id);
       useScriptStore.getState().remove(id);
       // Unknown to the backend unless it was a document tab: then nothing happens.
       void ipc.commands.mongoCloseTab(id).catch(() => undefined);

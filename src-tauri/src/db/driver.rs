@@ -368,6 +368,36 @@ pub trait DocumentConnection: Link {
 
     /// What the connection talks to, as known now.
     fn topology(&self) -> crate::db::document::ops::DocTopology;
+
+    /// Starts a multi-document transaction (replica sets and sharded clusters): operations run
+    /// in it when their `ExecOptions::transaction` holds the id returned, until
+    /// [`Self::commit_transaction`] or [`Self::abort_transaction`].
+    fn begin_transaction(&self) -> BoxFuture<'_, Result<String, YadbeError>> {
+        Box::pin(async {
+            Err(YadbeError::internal(
+                "this connection has no multi-document transactions",
+            ))
+        })
+    }
+
+    /// Commits transaction `id`; the transaction is gone either way.
+    fn commit_transaction<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<(), crate::db::document::ops::CommitError>> {
+        Box::pin(async move {
+            Err(crate::db::document::ops::CommitError {
+                error: YadbeError::internal(format!("no transaction {id}")),
+                unknown_result: false,
+                transient: false,
+            })
+        })
+    }
+
+    /// Aborts transaction `id` (nothing it wrote stays); the transaction is gone either way.
+    fn abort_transaction<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), YadbeError>> {
+        Box::pin(async move { Err(YadbeError::internal(format!("no transaction {id}"))) })
+    }
 }
 
 /// An open connection of the key-value family (Redis, Valkey): commands in as RESP arguments,

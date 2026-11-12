@@ -5,6 +5,7 @@ import type {
   DangerKind,
   DangerReport,
   DocDatabase,
+  DocTopology,
   DocumentResult,
   FieldSample,
   FieldTypeCount,
@@ -49,7 +50,7 @@ const SLOW_MS = 5000;
 const CONSOLE_MAX = 5000;
 
 export interface MockDocumentHost {
-  session(connectionId: string): { readOnly: boolean } | null;
+  session(connectionId: string): { readOnly: boolean; topology: DocTopology } | null;
   latency(): number;
   logStatement(connectionId: string, sql: string, error?: YadbeError | null): void;
   recordHistory(entry: MockHistoryRecord): void;
@@ -397,7 +398,8 @@ export function createMockDocument(host: MockDocumentHost) {
       return ok(fieldSample(found.documents.slice(0, n)));
     },
     async mongoOpenCollection(tabId, connectionId, database, collection) {
-      if (!host.session(connectionId)) return fail(mockErrors.notConnected());
+      const session = host.session(connectionId);
+      if (!session) return fail(mockErrors.notConnected());
       const found = collectionOf(database, collection);
       if (isError(found)) return fail(found);
       tabOf(tabId);
@@ -414,7 +416,8 @@ export function createMockDocument(host: MockDocumentHost) {
         collection,
         kind: found.info.kind,
         estimatedCount: view ? null : found.documents.length,
-        topology: 'replicaSet',
+        topology: session.topology,
+        capped: found.info.capped,
       });
     },
     async mongoFetchPage(tabId, connectionId, database, collection, query: CollectionQuery, page) {
@@ -464,6 +467,7 @@ export function createMockDocument(host: MockDocumentHost) {
         keyset,
         command,
         durationMs: Math.round(performance.now() - started),
+        ids: slice.map((d) => (d._id === undefined ? null : JSON.stringify(d._id))),
       };
       return ok(page_);
     },
@@ -802,6 +806,10 @@ export function createMockDocument(host: MockDocumentHost) {
 
   return {
     commands,
+    /** A collection of the mock server, to change its documents (edits, M4-4). */
+    collection(database: string, name: string): MockCollection | null {
+      return data.get(database)?.get(name) ?? null;
+    },
     reset(): void {
       data = mockDatabases();
       tabs.clear();

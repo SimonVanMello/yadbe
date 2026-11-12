@@ -26,8 +26,8 @@ use zeroize::Zeroizing;
 use crate::db::config::{AuthMethod, ConnectTarget, TlsMode};
 use crate::db::document::json::Json;
 use crate::db::document::ops::{
-    AggregateOptions, BulkOperation, DocEvent, DocOp, DocReply, DocSender, DocTopology,
-    ExecOptions, FindAndModify, FindAndModifyAction, FindOptions,
+    AggregateOptions, BulkOperation, CommitError, DocEvent, DocOp, DocReply, DocSender,
+    DocTopology, ExecOptions, FindAndModify, FindAndModifyAction, FindOptions,
 };
 use crate::db::document::settings::{
     MongoAuthMechanism, MongoSettings, percent_encode, seed_hosts,
@@ -308,6 +308,7 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Backend, YadbeError> {
         signal: Arc::new(signal),
         watch,
         running: Arc::new(Mutex::new(HashMap::new())),
+        transactions: Mutex::new(HashMap::new()),
     })))
 }
 
@@ -336,6 +337,9 @@ pub struct MongoConnection {
     watch: LinkWatch,
     /// Session id (`lsid`) of each running operation, by the gate's token.
     running: Running,
+    /// Open multi-document transactions, by id: each holds its session, taken out while one
+    /// of its operations runs.
+    transactions: Mutex<HashMap<String, ClientSession>>,
 }
 
 /// Forgets a running operation when it ends, however it ends.
@@ -1230,6 +1234,24 @@ impl CancelHandle for MongoCancel {
     }
 }
 
+impl MongoConnection {
+    fn yadbe_error(&self, e: &mongodb::error::Error, timeout: Option<u64>) -> YadbeError {
+        if let mongodb::error::ErrorKind::Custom(custom) = &*e.kind
+            && let Some(error) = custom.downcast_ref::<YadbeError>()
+        {
+            return error.clone();
+        }
+        self.lost_if_network(e);
+        errors::from_error(e, timeout)
+    }
+
+    fn take_transaction(&self, id: &str) -> Result<ClientSession, YadbeError> {
+        lock(&self.transactions).remove(id).ok_or_else(|| {
+            YadbeError::internal(format!("transaction {id} is not open on this connection"))
+        })
+    }
+}
+
 impl DocumentConnection for MongoConnection {
     fn execute<'a>(
         &'a self,
@@ -1239,26 +1261,36 @@ impl DocumentConnection for MongoConnection {
     ) -> BoxFuture<'a, Result<DocReply, YadbeError>> {
         Box::pin(async move {
             let timeout = options.max_time.map(|t| t.as_secs());
-            let mut session = self.client.start_session().await.map_err(|e| {
-                self.lost_if_network(&e);
-                errors::from_error(&e, timeout)
-            })?;
+            let mut session = match &options.transaction {
+                Some(id) => self.take_transaction(id)?,
+                None => self.client.start_session().await.map_err(|e| {
+                    self.lost_if_network(&e);
+                    errors::from_error(&e, timeout)
+                })?,
+            };
             lock(&self.running).insert(options.token.clone(), session.id().clone());
             let _guard = RunningGuard {
                 running: Arc::clone(&self.running),
                 token: options.token.clone(),
             };
-            self.run(op, options, events, &mut session)
-                .await
-                .map_err(|e| {
-                    if let mongodb::error::ErrorKind::Custom(custom) = &*e.kind
-                        && let Some(error) = custom.downcast_ref::<YadbeError>()
-                    {
-                        return error.clone();
-                    }
-                    self.lost_if_network(&e);
-                    errors::from_error(&e, timeout)
-                })
+            let result = self.run(op, options, events, &mut session).await;
+            if let Some(id) = &options.transaction {
+                lock(&self.transactions).insert(id.clone(), session);
+            }
+            result.map_err(|e| {
+                let error = self.yadbe_error(&e, timeout);
+                if options.transaction.is_some()
+                    && e.contains_label(mongodb::error::TRANSIENT_TRANSACTION_ERROR)
+                {
+                    let detail = error.detail.clone().unwrap_or_default();
+                    error.with_detail(format!(
+                        "{detail} {}",
+                        crate::db::document::ops::TRANSIENT_MARK
+                    ))
+                } else {
+                    error
+                }
+            })
         })
     }
 
@@ -1274,6 +1306,48 @@ impl DocumentConnection for MongoConnection {
 
     fn topology(&self) -> DocTopology {
         self.topology
+    }
+
+    fn begin_transaction(&self) -> BoxFuture<'_, Result<String, YadbeError>> {
+        Box::pin(async move {
+            let mut session = self
+                .client
+                .start_session()
+                .await
+                .map_err(|e| self.yadbe_error(&e, None))?;
+            session
+                .start_transaction()
+                .await
+                .map_err(|e| self.yadbe_error(&e, None))?;
+            let id = uuid::Uuid::new_v4().to_string();
+            lock(&self.transactions).insert(id.clone(), session);
+            Ok(id)
+        })
+    }
+
+    fn commit_transaction<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), CommitError>> {
+        Box::pin(async move {
+            let mut session = self.take_transaction(id).map_err(|error| CommitError {
+                error,
+                unknown_result: false,
+                transient: false,
+            })?;
+            session.commit_transaction().await.map_err(|e| CommitError {
+                error: self.yadbe_error(&e, None),
+                unknown_result: e.contains_label(mongodb::error::UNKNOWN_TRANSACTION_COMMIT_RESULT),
+                transient: e.contains_label(mongodb::error::TRANSIENT_TRANSACTION_ERROR),
+            })
+        })
+    }
+
+    fn abort_transaction<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), YadbeError>> {
+        Box::pin(async move {
+            let mut session = self.take_transaction(id)?;
+            session
+                .abort_transaction()
+                .await
+                .map_err(|e| self.yadbe_error(&e, None))
+        })
     }
 }
 
@@ -1328,6 +1402,7 @@ mod tests {
             max_time: Some(Duration::from_millis(1500)),
             token: "t".into(),
             max_documents: None,
+            transaction: None,
         };
         let op = DocOp::Find {
             ns: Namespace::new("shop", "orders"),

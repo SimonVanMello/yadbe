@@ -56,6 +56,14 @@ export const LazyKvFormDialog = lazyComponent(
   () => import('../features/keyvalue/KvFormDialog').then((m) => m.KvFormDialog),
   DIALOG,
 );
+export const LazyDocApplyDialog = lazyComponent(
+  () => import('../features/document/DocApplyDialog').then((m) => m.DocApplyDialog),
+  DIALOG,
+);
+export const LazyDocFormDialog = lazyComponent(
+  () => import('../features/document/DocFormDialog').then((m) => m.DocFormDialog),
+  DIALOG,
+);
 export const LazyPreferencesDialog = lazyComponent(
   () => import('../features/preferences/PreferencesDialog').then((m) => m.PreferencesDialog),
   DIALOG,

@@ -20,7 +20,7 @@ use specta::Type;
 
 use crate::db::document::classify::{Access, DangerKind, classify};
 use crate::db::document::json::Json;
-use crate::db::document::ops::{DocOp, DocReply, DocSender, ExecOptions, Namespace};
+use crate::db::document::ops::{CommitError, DocOp, DocReply, DocSender, ExecOptions, Namespace};
 use crate::db::driver::{DocumentConnection, RecordedStatement, StatementRecorder};
 use crate::db::errors::YadbeError;
 use crate::session::ConnectionSession;
@@ -121,6 +121,18 @@ pub async fn run(
     request: GateRequest<'_>,
     events: DocSender,
 ) -> Result<GateOutcome, YadbeError> {
+    run_in(ctx, conn, request, None, events).await
+}
+
+/// [`run`], inside the multi-document transaction `transaction` when one is given
+/// ([`begin`]).
+pub async fn run_in(
+    ctx: &GateContext,
+    conn: &dyn DocumentConnection,
+    request: GateRequest<'_>,
+    transaction: Option<&str>,
+    events: DocSender,
+) -> Result<GateOutcome, YadbeError> {
     let classified = classify(request.op);
     if ctx.read_only && classified.access == Access::Write {
         return Err(YadbeError::read_only_violation(&classified.name));
@@ -136,6 +148,7 @@ pub async fn run(
         max_time: request.max_time,
         token: request.token.clone(),
         max_documents: request.max_documents,
+        transaction: transaction.map(str::to_owned),
     };
     let started_at = SystemTime::now();
     let start = Instant::now();
@@ -182,6 +195,82 @@ pub async fn run_own(
     }
 }
 
+fn record_control<T, E>(
+    ctx: &GateContext,
+    text: &str,
+    started_at: SystemTime,
+    start: Instant,
+    outcome: &Result<T, E>,
+    error: impl Fn(&E) -> YadbeError,
+) {
+    ctx.recorder.record(RecordedStatement {
+        sql: text.to_owned(),
+        started_at,
+        duration: start.elapsed(),
+        outcome: match outcome {
+            Ok(_) => Ok(None),
+            Err(err) => Err(error(err)),
+        },
+    });
+}
+
+/// Starts a multi-document transaction for yadbe's own writes (an apply): refused on a
+/// read-only connection, recorded in the statement log.
+pub async fn begin(ctx: &GateContext, conn: &dyn DocumentConnection) -> Result<String, YadbeError> {
+    if ctx.read_only {
+        return Err(YadbeError::read_only_violation("startTransaction"));
+    }
+    let (started_at, start) = (SystemTime::now(), Instant::now());
+    let result = conn.begin_transaction().await;
+    record_control(
+        ctx,
+        "session.startTransaction()",
+        started_at,
+        start,
+        &result,
+        Clone::clone,
+    );
+    result
+}
+
+/// Commits a transaction [`begin`] started; recorded.
+pub async fn commit(
+    ctx: &GateContext,
+    conn: &dyn DocumentConnection,
+    transaction: &str,
+) -> Result<(), CommitError> {
+    let (started_at, start) = (SystemTime::now(), Instant::now());
+    let result = conn.commit_transaction(transaction).await;
+    record_control(
+        ctx,
+        "session.commitTransaction()",
+        started_at,
+        start,
+        &result,
+        |e: &CommitError| e.error.clone(),
+    );
+    result
+}
+
+/// Aborts a transaction [`begin`] started; recorded.
+pub async fn abort(
+    ctx: &GateContext,
+    conn: &dyn DocumentConnection,
+    transaction: &str,
+) -> Result<(), YadbeError> {
+    let (started_at, start) = (SystemTime::now(), Instant::now());
+    let result = conn.abort_transaction(transaction).await;
+    record_control(
+        ctx,
+        "session.abortTransaction()",
+        started_at,
+        start,
+        &result,
+        Clone::clone,
+    );
+    result
+}
+
 /// A count in a reply document (`{"count": …}`, `{"n": …}`), whatever its integer form.
 pub fn reply_number(reply: &Json, key: &str) -> Option<f64> {
     match reply.get(key)? {
@@ -207,6 +296,7 @@ async fn read_own(
         max_time: None,
         token: uuid::Uuid::new_v4().to_string(),
         max_documents: None,
+        transaction: None,
     };
     let started_at = SystemTime::now();
     let start = Instant::now();

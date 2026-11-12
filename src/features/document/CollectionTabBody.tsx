@@ -36,7 +36,9 @@ import {
   type DocumentViewMode,
   type QueryFields,
 } from './collectionStore';
-import { DocumentResults } from './DocumentResults';
+import { editBlockOf } from './docEditActions';
+import { DocEditBar } from './DocEditBar';
+import { EditableDocuments } from './EditableDocuments';
 
 /**
  * Body of a collection tab (a table tab of a document connection): filter, projection and sort
@@ -120,6 +122,7 @@ export function CollectionTabBody({ tab, table }: { tab: ShellTab; table: Object
       void applyQuery(tab.id);
     }
   };
+  const block = phase === 'ready' ? editBlockOf(tab.id, connection.readOnly) : null;
   const first = page ? page.page * collection.pageSize : 0;
   const shown = page?.documents.count ?? 0;
 
@@ -249,6 +252,7 @@ export function CollectionTabBody({ tab, table }: { tab: ShellTab; table: Object
           </Button>
         )}
         <span className={styles.spacer} />
+        {phase === 'ready' && <DocEditBar tabId={tab.id} block={block} />}
         {page && (
           <span className={styles.command} title={page.command}>
             {page.keyset ? t('mongo.page.keyset') : t('mongo.page.skip')}
@@ -268,10 +272,13 @@ export function CollectionTabBody({ tab, table }: { tab: ShellTab; table: Object
             <Spinner />
           </div>
         ) : page ? (
-          <DocumentResults
-            result={page.documents}
+          <EditableDocuments
+            tabId={tab.id}
+            page={page}
             view={view}
             label={t('mongo.collection.results', { name: label })}
+            block={block}
+            capped={info?.capped ?? false}
           />
         ) : null}
         {loading && page && (

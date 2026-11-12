@@ -31,6 +31,7 @@ use crate::session::document::model::{
 use crate::session::document::results::{documents_window, store_documents};
 use crate::session::document::script::{self, ScriptControl, ScriptRun};
 use crate::session::history_hook::{HistoryEntry, HistoryRecorder};
+use crate::session::journal::ChangeJournal;
 use crate::session::result_store::ResultStore;
 
 pub const MAX_PAGE_SIZE: u32 = 1_000;
@@ -84,6 +85,8 @@ pub struct DocumentService {
     history: Arc<dyn HistoryRecorder>,
     events: Arc<dyn EventSink>,
     tabs: Mutex<HashMap<String, Arc<DocTab>>>,
+    /// Where applied edits are recorded (M4-4).
+    pub(super) journal: Option<Arc<ChangeJournal>>,
 }
 
 /// A JSON text field of a form: empty is `default`.
@@ -155,7 +158,15 @@ impl DocumentService {
             history,
             events: Arc::new(NullSink),
             tabs: Mutex::new(HashMap::new()),
+            journal: None,
         }
+    }
+
+    /// Where applied edits are recorded.
+    #[must_use]
+    pub fn with_journal(mut self, journal: Arc<ChangeJournal>) -> Self {
+        self.journal = Some(journal);
+        self
     }
 
     /// Where a script's confirmation requests go (`mongo-script-confirm`).
@@ -165,11 +176,16 @@ impl DocumentService {
         self
     }
 
-    fn session(&self, connection_id: &str) -> Result<Arc<ConnectionSession>, YadbeError> {
+    pub(super) fn session(
+        &self,
+        connection_id: &str,
+    ) -> Result<Arc<ConnectionSession>, YadbeError> {
         self.manager.session(connection_id)
     }
 
-    fn connection(session: &ConnectionSession) -> Result<Arc<dyn DocumentConnection>, YadbeError> {
+    pub(super) fn connection(
+        session: &ConnectionSession,
+    ) -> Result<Arc<dyn DocumentConnection>, YadbeError> {
         session.backend()?.into_document()
     }
 
@@ -427,6 +443,12 @@ impl DocumentService {
             )
             .await?
             .1;
+        let capped = bool_of(
+            listed
+                .first()
+                .and_then(|info| info.get("options"))
+                .and_then(|o| o.get("capped")),
+        );
         let kind = match listed.first() {
             None => {
                 return Err(YadbeError::object_not_found(&format!(
@@ -457,6 +479,7 @@ impl DocumentService {
             kind: Some(kind),
             estimated_count,
             topology: conn.topology(),
+            capped,
         })
     }
 
@@ -602,9 +625,14 @@ impl DocumentService {
                 *slot = last;
             }
         }
+        let ids = docs
+            .iter()
+            .map(|d| d.get("_id").map(Json::to_text))
+            .collect();
         let documents = store_documents(&self.store, &docs);
         self.replace_results(&tab, &documents);
         Ok(CollectionPage {
+            ids,
             documents,
             page,
             has_more,

@@ -1,0 +1,226 @@
+/* Document editing (M4-4): the pending bar of a collection tab, the editors, the apply dialog. */
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pending {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-height-sm);
+  padding: 0 var(--space-3);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.pending[data-pending] {
+  border-radius: var(--radius-full);
+  background: var(--cell-modified-bg);
+  color: var(--cell-modified);
+  font-weight: var(--weight-semibold);
+}
+
+.readOnly {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.json {
+  min-height: var(--doc-json-min-height);
+  font-family: var(--font-code);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+}
+
+.note {
+  margin: 0;
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.detail {
+  display: block;
+  color: var(--fg-muted);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.prod {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--env-prod);
+  font-weight: var(--weight-semibold);
+}
+
+.warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--warning);
+  border-radius: var(--radius-md);
+  color: var(--fg-primary);
+  font-size: var(--text-sm);
+}
+
+.warning svg {
+  flex: none;
+  color: var(--warning);
+}
+
+.failure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--danger);
+  border-radius: var(--radius-md);
+}
+
+.failure > p:first-child {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--fg-primary);
+  font-size: var(--text-sm);
+}
+
+.failure > p:first-child svg {
+  flex: none;
+  color: var(--danger);
+}
+
+.commands {
+  max-height: var(--kv-commands-max-height);
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+.line {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.line + .line {
+  margin-top: var(--space-1);
+}
+
+.line[data-role='control'] {
+  color: var(--accent);
+  font-weight: var(--weight-semibold);
+}
+
+.line[data-role='write'] {
+  color: var(--fg-primary);
+}
+
+.legend {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.conflict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.conflictHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.conflictTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.conflictIcon {
+  flex: none;
+  color: var(--warning);
+}
+
+.values {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+
+.values th {
+  padding: var(--space-1) var(--space-2);
+  color: var(--fg-muted);
+  font-weight: var(--weight-regular);
+  text-align: left;
+}
+
+.values td {
+  max-width: var(--doc-label-max-width);
+  padding: var(--space-1) var(--space-2);
+  overflow: hidden;
+  border-top: var(--border-width) solid var(--border-subtle);
+  font-family: var(--font-code);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.values td[data-kind='theirs'] {
+  color: var(--warning);
+}
+
+.values td[data-kind='mine'] {
+  color: var(--cell-modified);
+}

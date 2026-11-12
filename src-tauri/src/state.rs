@@ -112,7 +112,8 @@ impl AppState {
                 queries.shared_store(),
                 history.clone(),
             )
-            .with_events(Arc::clone(&sink)),
+            .with_events(Arc::clone(&sink))
+            .with_journal(Arc::clone(&journal)),
         );
         let imports = Arc::new(ImportManager::new(
             Arc::clone(&connections),
