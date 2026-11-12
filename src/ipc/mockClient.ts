@@ -27,6 +27,7 @@ import {
   MOCK_GROUPS,
   MOCK_REMEMBERED_PASSWORDS,
   MOCK_SERVER_VERSIONS,
+  mockFamilyOf,
 } from './mockData';
 import { mockErrors } from './mockErrors';
 import { createMockConnectionImport } from './mock/connectionImport';
@@ -613,6 +614,7 @@ function createMockBackend() {
     const conn: SavedConnection = {
       id: newId('conn'),
       definition: def,
+      family: mockFamilyOf(def.engine),
       position: nextPosition(connections.filter((c) => c.definition.groupId === def.groupId)),
       createdAt: at,
       updatedAt: at,

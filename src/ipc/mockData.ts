@@ -2,6 +2,7 @@ import type {
   ConnectionDefinition,
   ConnectionGroup,
   Engine,
+  EngineFamily,
   EngineInfo,
   ObjectActionSupport,
   ObjectKind,
@@ -192,6 +193,11 @@ export const MOCK_ENGINES: EngineInfo[] = ENGINES.map((info) => ({
 }));
 
 /** A definition with every field at its neutral value, for building variants. */
+/** The family the backend derives from an engine (`SavedConnection.family`). */
+export function mockFamilyOf(engine: Engine): EngineFamily {
+  return MOCK_ENGINES.find((info) => info.engine === engine)?.capabilities.family ?? 'sql';
+}
+
 export function blankDefinition(engine: Engine, name = ''): ConnectionDefinition {
   return {
     name,
@@ -235,6 +241,7 @@ function saved(
   return {
     id,
     definition,
+    family: mockFamilyOf(definition.engine),
     position,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,

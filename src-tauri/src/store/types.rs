@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::db::config::ConnectionDefinition;
+use crate::db::engine::EngineFamily;
 
 /// A connection as saved in the app database. Never contains a secret.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
@@ -10,6 +11,9 @@ pub struct SavedConnection {
     /// UUID; also the keychain account prefix.
     pub id: String,
     pub definition: ConnectionDefinition,
+    /// The family of the definition's engine, so the front picks the query tab, explorer and
+    /// toolbar of the connection without waiting for the engine list. Derived, not stored.
+    pub family: EngineFamily,
     /// Order inside its group, from 0.
     pub position: u32,
     /// Unix time in seconds.

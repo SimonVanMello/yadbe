@@ -27,6 +27,7 @@ function setup(initial: SavedConnection[] = []) {
       const saved: SavedConnection = {
         id: `c${String(connections.length + 1)}`,
         definition,
+        family: 'sql',
         position: 0,
         createdAt: 0,
         updatedAt: 0,
@@ -47,6 +48,7 @@ function setup(initial: SavedConnection[] = []) {
 
 const existing: SavedConnection = {
   id: 'c0',
+  family: 'sql',
   definition: {
     ...blankDefinition('postgres', 'local postgres'),
     host: 'localhost',

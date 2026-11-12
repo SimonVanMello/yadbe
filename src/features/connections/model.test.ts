@@ -451,6 +451,7 @@ describe('summarize and tintOf', () => {
   const summary = (patch: Partial<ReturnType<typeof blankDefinition>>) =>
     summarize({
       id: 'c',
+      family: 'sql',
       definition: { ...blankDefinition('postgres', 'c'), host: 'h', port: 5432, ...patch },
       position: 0,
       createdAt: 0,
@@ -462,6 +463,7 @@ describe('summarize and tintOf', () => {
     expect(summary({}).target).toBe('h:5432');
     const file = summarize({
       id: 'f',
+      family: 'sql',
       definition: { ...blankDefinition('sqlite', 'f'), filePath: '/a/b/app.sqlite' },
       position: 0,
       createdAt: 0,

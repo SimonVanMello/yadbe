@@ -176,6 +176,7 @@ mod tests {
     fn saved(id: &str, definition: ConnectionDefinition) -> SavedConnection {
         SavedConnection {
             id: id.into(),
+            family: definition.engine.family(),
             definition,
             position: 0,
             created_at: 0,

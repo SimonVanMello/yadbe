@@ -808,17 +808,17 @@ export type Capabilities = {
 	 *  its schema, its database (MySQL), or nothing (SQLite).
 	 */
 	tableQualifier: Qualifier,
-	/**  The query editor formats its text (F-052). */
+	/**  The query editor formats its text (F-049). */
 	formatter: boolean,
-	/**  Objects show their DDL and their properties (F-025). */
+	/**  Objects show their DDL and their properties (F-024, F-025). */
 	ddl: boolean,
-	/**  Objects can be scripted as `SELECT` / `INSERT` / `CREATE`… (F-024). */
+	/**  Objects can be scripted as `SELECT` / `INSERT` / `CREATE`… (F-023). */
 	scriptAs: boolean,
-	/**  Files can be imported into a table (F-070). */
+	/**  Files can be imported into a table (F-091). */
 	dataImport: boolean,
-	/**  The EF Core migrations of a database can be listed (`__EFMigrationsHistory`). */
+	/**  The EF Core migrations of a database can be listed (F-143). */
 	efMigrations: boolean,
-	/**  The connection can be copied as an ADO.NET / EF Core connection string. */
+	/**  The connection can be copied as an ADO.NET / EF Core connection string (F-143). */
 	dotnetConnectionString: boolean,
 };
 
@@ -1377,8 +1377,8 @@ export type EfMigrations = {
 export type Engine = "postgres" | "mssql" | "mysql" | "sqlite";
 
 /**
- *  What kind of database an engine is: it decides the connection's backend (the `Connection`
- *  traits it implements), its query language, its explorer and its tabs.
+ *  What kind of database an engine is: it decides the connection's backend (the `Backend`
+ *  variant its driver returns), its query language, its explorer and its tabs.
  */
 export type EngineFamily = 
 /**  Relational engines spoken to in SQL, through a [`Dialect`]. */
@@ -3171,6 +3171,11 @@ export type SavedConnection = {
 	/**  UUID; also the keychain account prefix. */
 	id: string,
 	definition: ConnectionDefinition,
+	/**
+	 *  The family of the definition's engine, so the front picks the query tab, explorer and
+	 *  toolbar of the connection without waiting for the engine list. Derived, not stored.
+	 */
+	family: EngineFamily,
 	/**  Order inside its group, from 0. */
 	position: number,
 	/**  Unix time in seconds. */

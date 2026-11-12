@@ -89,11 +89,13 @@ fn row_to_connection(row: &Row<'_>) -> rusqlite::Result<SavedConnection> {
     let ssh = ssh
         .map(|json| serde_json::from_str(&json).map_err(|_| corrupt("SSH tunnel", &json)))
         .transpose()?;
+    let engine = Engine::from_id(&engine).ok_or_else(|| corrupt("engine", &engine))?;
     Ok(SavedConnection {
         id: row.get("id")?,
+        family: engine.family(),
         definition: ConnectionDefinition {
             name: row.get("name")?,
-            engine: Engine::from_id(&engine).ok_or_else(|| corrupt("engine", &engine))?,
+            engine,
             host: row.get("host")?,
             port: row.get("port")?,
             database: row.get("database_name")?,
