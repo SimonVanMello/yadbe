@@ -12,6 +12,8 @@ import { startTableDataFeature } from '../features/table-data/tableFeature';
 import { startDocumentFeature } from '../features/document/documentFeature';
 import { startSearchFeature } from '../features/search/searchFeature';
 import { startResultEditFeature } from '../features/result-edit/resultEdits';
+import { useCollectionStore } from '../features/document/collectionStore';
+import { useIndexStore } from '../features/search/indexStore';
 import { useTableTabStore } from '../features/table-data/tableTabStore';
 import { loadI18n, translate, useI18nStore } from '../i18n/i18n';
 import { ipc, unwrap } from '../ipc';
@@ -25,8 +27,10 @@ import {
   editorsFromBackendTabs,
   fromBackendTabs,
   tablesFromBackendTabs,
+  uiStatesFromBackendTabs,
   toBackendTabs,
 } from './tabs/tabsPersistence';
+import { familyStateOf, hydrateFamilyState, type FamilyTabState } from './tabs/familyTabState';
 import { toSavedTabs, useTabsStore } from './tabs/tabsStore';
 
 /**
@@ -44,6 +48,9 @@ export async function restoreTabs(): Promise<void> {
       // The editors first: a tab never shows before its text is there.
       useQueryTabStore.getState().hydrate(editorsFromBackendTabs(backend));
       useTableTabStore.getState().hydrate(tablesFromBackendTabs(backend));
+      for (const [id, ui] of Object.entries(uiStatesFromBackendTabs(backend))) {
+        hydrateFamilyState(id, ui);
+      }
       useTabsStore.getState().hydrate(saved);
     }
     tabsHydrated = true;
@@ -56,6 +63,15 @@ export async function restoreTabs(): Promise<void> {
 let tabsSaving: Promise<void> = Promise.resolve();
 let tabsSaveWarned = false;
 
+function familyStates(): Record<string, FamilyTabState> {
+  const states: Record<string, FamilyTabState> = {};
+  for (const tab of useTabsStore.getState().tabs) {
+    const state = familyStateOf(tab.id);
+    if (state) states[tab.id] = state;
+  }
+  return states;
+}
+
 function saveTabsNow(): void {
   tabsSaving = tabsSaving
     .then(async () => {
@@ -65,6 +81,7 @@ function saveTabsNow(): void {
         (number) => translate(locale, 'tab.query', { number }),
         useQueryTabStore.getState().tabs,
         useTableTabStore.getState().tabs,
+        familyStates(),
       );
       const result = await ipc.commands.saveTabs(state);
       if (result.status === 'error' && !tabsSaveWarned) {
@@ -111,6 +128,17 @@ export function persistTabs(): () => void {
     clearTimeout(timer);
     timer = setTimeout(flush, EDITOR_AUTOSAVE_MS);
   });
+  // The query of a collection or an index tab.
+  const offCollections = useCollectionStore.subscribe((state, previous) => {
+    if (state.tabs === previous.tabs || !tabsHydrated) return;
+    clearTimeout(timer);
+    timer = setTimeout(flush, EDITOR_AUTOSAVE_MS);
+  });
+  const offIndexes = useIndexStore.subscribe((state, previous) => {
+    if (state.tabs === previous.tabs || !tabsHydrated) return;
+    clearTimeout(timer);
+    timer = setTimeout(flush, EDITOR_AUTOSAVE_MS);
+  });
   // A hidden window may be about to close: do not hold the last keystrokes back.
   const onHidden = () => {
     if (document.visibilityState === 'hidden') flush();
@@ -121,6 +149,8 @@ export function persistTabs(): () => void {
     offTabs();
     offEditors();
     offTables();
+    offCollections();
+    offIndexes();
     document.removeEventListener('visibilitychange', onHidden);
     window.removeEventListener('pagehide', flush);
     clearTimeout(timer);

@@ -5,7 +5,8 @@ import {
   parseTableTabState,
   type TableTabState,
 } from '../../features/table-data/tableTabStore';
-import type { SavedTab, TabsState } from '../../ipc';
+import type { KvBytes, SavedTab, TabsState } from '../../ipc';
+import type { FamilyTabState } from './familyTabState';
 import type { SavedTabs } from './tabsStore';
 
 /** The frontend-owned part of a saved tab (`SavedTab.uiState`). */
@@ -37,6 +38,7 @@ function tableToBackend(
   tab: SavedTabs['tabs'][number],
   table: NonNullable<SavedTabs['tabs'][number]['table']>,
   view: TableTabState,
+  family: FamilyTabState | null,
 ): SavedTab {
   return {
     id: tab.id,
@@ -49,8 +51,53 @@ function tableToBackend(
     pinned: tab.pinned,
     filePath: null,
     table: { schema: table.schema, name: table.name },
-    uiState: JSON.stringify(view),
+    uiState: JSON.stringify({ ...view, ...family }),
   };
+}
+
+/**
+ * A key tab (key-value family) is stored as a table tab named after its key: the store has no
+ * other kind, and the key and database it reads are in `uiState`.
+ */
+function keyTabToBackend(
+  tab: SavedTabs['tabs'][number],
+  tool: { database: number; key: KvBytes },
+): SavedTab {
+  return {
+    id: tab.id,
+    kind: 'table',
+    title: tool.key.text,
+    connectionId: tab.connectionId,
+    database: String(tool.database),
+    content: '',
+    cursor: null,
+    pinned: tab.pinned,
+    filePath: null,
+    table: { schema: null, name: tool.key.text },
+    uiState: JSON.stringify({ kvKey: { database: tool.database, key: tool.key } }),
+  };
+}
+
+/** The key a saved key tab shows; `null` for any other tab. */
+function keyOf(tab: SavedTab): { database: number; key: KvBytes } | null {
+  const ui = parseUi(tab.uiState);
+  if (typeof ui !== 'object' || ui === null || !('kvKey' in ui)) return null;
+  const { kvKey } = ui;
+  if (typeof kvKey !== 'object' || kvKey === null) return null;
+  const database = 'database' in kvKey ? kvKey.database : undefined;
+  const key = 'key' in kvKey ? kvKey.key : undefined;
+  if (
+    typeof database !== 'number' ||
+    !Number.isInteger(database) ||
+    typeof key !== 'object' ||
+    key === null ||
+    !('text' in key) ||
+    typeof key.text !== 'string'
+  ) {
+    return null;
+  }
+  // `KvBytes` is generated from Rust: what was saved is what it serialized.
+  return { database, key: key as KvBytes };
 }
 
 /**
@@ -64,11 +111,20 @@ export function toBackendTabs(
   titleOf: (ordinal: number) => string,
   editors: Readonly<Record<string, QueryTabState>> = {},
   tables: Readonly<Record<string, TableTabState>> = {},
+  families: Readonly<Record<string, FamilyTabState>> = {},
 ): TabsState {
   return {
     tabs: saved.tabs.map((tab): SavedTab => {
+      if (tab.tool && tab.connectionId !== null) {
+        return keyTabToBackend(tab, tab.tool);
+      }
       if (tab.table && tab.connectionId !== null) {
-        return tableToBackend(tab, tab.table, tables[tab.id] ?? newTableTabState());
+        return tableToBackend(
+          tab,
+          tab.table,
+          tables[tab.id] ?? newTableTabState(),
+          families[tab.id] ?? null,
+        );
       }
       const editor = tab.connectionId === null ? undefined : editors[tab.id];
       const persisted = editor ? editorToSaved(editor) : null;
@@ -108,7 +164,7 @@ export function editorsFromBackendTabs(state: TabsState): Record<string, QueryTa
 export function tablesFromBackendTabs(state: TabsState): Record<string, TableTabState> {
   return Object.fromEntries(
     state.tabs
-      .filter((tab) => isRestorableTable(tab))
+      .filter((tab) => isRestorableTable(tab) && keyOf(tab) === null)
       .map((tab) => [tab.id, parseTableTabState(parseUi(tab.uiState))]),
   );
 }
@@ -132,6 +188,16 @@ export function fromBackendTabs(state: TabsState): SavedTabs | null {
   return {
     tabs: kept.map((tab) => {
       if (tab.kind === 'table' && tab.table && tab.database !== null) {
+        const key = keyOf(tab);
+        if (key) {
+          return {
+            id: tab.id,
+            connectionId: tab.connectionId,
+            ordinal: 0,
+            pinned: tab.pinned,
+            tool: { type: 'kvKey' as const, ...key },
+          };
+        }
         return {
           id: tab.id,
           connectionId: tab.connectionId,
@@ -146,4 +212,11 @@ export function fromBackendTabs(state: TabsState): SavedTabs | null {
     }),
     activeTabId: state.activeTabId,
   };
+}
+
+/** The saved `uiState` of every table tab, for the family stores to read back (`hydrateFamilyState`). */
+export function uiStatesFromBackendTabs(state: TabsState): Record<string, unknown> {
+  return Object.fromEntries(
+    state.tabs.filter((tab) => isRestorableTable(tab)).map((tab) => [tab.id, parseUi(tab.uiState)]),
+  );
 }

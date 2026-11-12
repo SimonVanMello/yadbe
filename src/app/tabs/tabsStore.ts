@@ -72,6 +72,8 @@ export interface SavedTabs {
     ordinal: number;
     pinned: boolean;
     table?: ObjectRef | null;
+    /** A key tab (the only tool tab that is saved: it is a name, not a view of the server). */
+    tool?: Extract<ToolTarget, { type: 'kvKey' }>;
   }[];
   activeTabId: string | null;
 }
@@ -262,6 +264,7 @@ export function createTabsStore() {
           ordinal: tab.connectionId === null ? 0 : tab.ordinal,
           pinned: tab.connectionId !== null && tab.pinned,
           ...(tab.table && tab.connectionId !== null ? { table: tab.table } : {}),
+          ...(tab.tool && tab.connectionId !== null ? { tool: tab.tool } : {}),
         });
       }
       if (tabs.length === 0) return;
@@ -533,13 +536,16 @@ export const useTabsStore = createTabsStore();
 export function toSavedTabs(state: Pick<TabsStore, 'tabs' | 'activeTabId'>): SavedTabs {
   return {
     tabs: state.tabs
-      .filter((tab) => tab.ddl === undefined && tab.tool === undefined)
+      .filter(
+        (tab) => tab.ddl === undefined && (tab.tool === undefined || tab.tool.type === 'kvKey'),
+      )
       .map((tab) => ({
         id: tab.id,
         connectionId: tab.connectionId,
         ordinal: tab.ordinal,
         pinned: tab.pinned,
         ...(tab.table ? { table: tab.table } : {}),
+        ...(tab.tool?.type === 'kvKey' ? { tool: tab.tool } : {}),
       })),
     activeTabId: state.activeTabId,
   };

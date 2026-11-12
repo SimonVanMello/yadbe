@@ -117,4 +117,38 @@ describe('saved tabs', () => {
     ]);
     expect(restored?.activeTabId).toBe('b');
   });
+
+  it('saves a key tab as a table tab named after its key and restores it as a key tab', () => {
+    const tool = { type: 'kvKey' as const, database: 2, key: { text: 'user:1', base64: null } };
+    const saved = {
+      tabs: [{ id: 'k', connectionId: 'c1', ordinal: 0, pinned: false, tool }],
+      activeTabId: 'k',
+    };
+    const backend = toBackendTabs(saved, title);
+    expect(backend.tabs[0]).toMatchObject({ kind: 'table', title: 'user:1', database: '2' });
+    expect(fromBackendTabs(backend)).toEqual(saved);
+    expect(tablesFromBackendTabs(backend)).toEqual({});
+  });
+
+  it('saves the query of a collection or index tab in the table tab state', () => {
+    const table = { database: 'shop', schema: null, name: 'orders' };
+    const family = {
+      collection: {
+        applied: { filter: '{"a":1}', projection: '', sort: '' },
+        pageSize: 50,
+        view: 'documents' as const,
+      },
+    };
+    const backend = toBackendTabs(
+      {
+        tabs: [{ id: 't', connectionId: 'c1', ordinal: 0, pinned: false, table }],
+        activeTabId: 't',
+      },
+      title,
+      {},
+      {},
+      { t: family },
+    );
+    expect(JSON.parse(backend.tabs[0]?.uiState ?? '{}')).toMatchObject(family);
+  });
 });
