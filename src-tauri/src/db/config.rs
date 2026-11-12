@@ -226,6 +226,10 @@ pub struct ConnectionDefinition {
     /// SSH tunnel in front of a server connection (F-010); absent in older payloads.
     #[serde(default)]
     pub ssh: Option<SshTunnel>,
+    // The fields only one engine family has (replica set, key delimiter, API key kind…) go
+    // here the way `ssh` does: one `Option` per family with `#[serde(default)]`, kept as JSON
+    // in a column that a migration adds (`ALTER TABLE connections ADD COLUMN`), so existing
+    // rows read as `None` and none is rewritten.
 }
 
 fn default_true() -> bool {

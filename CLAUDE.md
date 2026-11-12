@@ -36,8 +36,8 @@ Do not add a dependency outside this list without justifying it in the commit me
 src/                      Frontend
   app/                    Shell: window, title bar and tabs, layout, actions and shortcuts, errors, startup and restore
   features/<feature>/     One feature = components + hooks + styles + tests:
-    connections/          Connection list model, dialog and forms (SSH tunnel section), password / SSH secret / host key prompts, connection chip, import (other tools' files) and export dialogs
-    sidebar/              Sidebar views (Connections / History / Saved / Journal), the virtualized tree of connections + explorer
+    connections/          Connection list model, dialog and forms (EngineFields: the fields of each engine family; SSH tunnel section), password / SSH secret / host key prompts, connection chip, import (other tools' files) and export dialogs
+    sidebar/              Sidebar views (Connections / History / Saved / Journal), the virtualized tree of connections + explorer (rows dispatched by engine family)
     explorer/             Explorer rows (pure tree building and filter), metadata queries, context menu, Script as, the shared catalog cache (catalogCache.ts: palette + autocomplete)
     query/                Query tab: SQL editor (CodeMirror), run / cancel, transactions, results area, files, danger guard, parameter prompt, formatter, hover cards and go to definition, plan tree
     grid/                 Data grid (results and table tabs), selection and copy formats, cell viewer
@@ -56,7 +56,7 @@ src/                      Frontend
     import/               Data import wizard (file and format, column mapping, dry run and import)
     history/              History panel, search and filters, open / insert, clear
     statement-log/        Statement log panel
-    statusbar/, toolbar/, welcome/   Bottom bar (run status, Ln/Col), query toolbar, welcome screen
+    statusbar/, toolbar/, welcome/   Bottom bar (run status, Ln/Col), query toolbar (QueryTabControls: per engine family, like app/tabs/QueryTabBody), welcome screen
     demo/                 The /#primitives page
   ipc/                    Backend access: generated bindings + Tauri client + mock client (mock/ per domain)
   ui/                     Reusable primitives (Button, Menu, Dialog, Toast…)
@@ -69,7 +69,7 @@ src-tauri/
   src/
     cli.rs                Command-line arguments (`yadbe <file.sql>`, `yadbe <url>`) → launch requests the front takes at startup (src/app/launch.ts)
     commands/             Tauri handlers: thin, no logic (validation → service call → error mapping)
-    db/                   value.rs (Value model), driver.rs (traits), dialect.rs + edit_dialect.rs (paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), ddl.rs + object_ops.rs + object_model.rs (DDL text, object statements, properties), params.rs (query parameters: scanner, binding), activity.rs (sessions, locks, kill), ef.rs (EF Core migrations), dotnet.rs (ADO.NET / EF Core connection strings), result_source.rs (plain one-table SELECT check for editable results), tls_identity.rs (client certificate and key), plan/ (plan model, one parser per engine, fixtures of real plans), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
+    db/                   value.rs (Value model), engine.rs (engines, families, capabilities: one profile per engine), driver.rs (Driver, Backend by family, Link + SqlConnection), dialect.rs + edit_dialect.rs (SQL family only: quoting, paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), ddl.rs + object_ops.rs + object_model.rs (DDL text, object statements, properties), params.rs (query parameters: scanner, binding), activity.rs (sessions, locks, kill), ef.rs (EF Core migrations), dotnet.rs (ADO.NET / EF Core connection strings), result_source.rs (plain one-table SELECT check for editable results), tls_identity.rs (client certificate and key), plan/ (plan model, one parser per engine, fixtures of real plans), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
       drivers/<engine>/   postgres, mssql, sqlite, mysql: the only place a driver crate is used
     session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs, ReferenceService (references.rs: foreign key lookups), Library (library.rs: saved queries), journal.rs (change journal, reverts), result_edit.rs (editable query results), result_view.rs + result_agg.rs + decimal.rs (sort / filter view of a result, selection aggregates), meta_objects.rs (DDL, properties, object actions), meta_activity.rs (activity, kill, migrations), connection_string.rs (copy as .NET connection string), tunnel.rs (SSH tunnel of a session)
     tunnel/               SSH tunnels (russh): hops, authentication, host key checks, the loopback listener drivers dial
@@ -136,7 +136,7 @@ Driving the real app (WebKitGTK) on Linux, e.g. to check a change end to end: `a
 
 ## Architecture rules (non-negotiable)
 
-1. **Drivers stay behind the `Driver` trait.** No driver crate (`tokio_postgres`, `tiberius`, `mysql_async`, `rusqlite` for user databases) outside `db/drivers/<engine>/`. Engine differences are expressed by the `Dialect` and its capabilities, never by `match engine` in services or in the frontend.
+1. **Drivers stay behind the `Driver` trait.** No driver crate (`tokio_postgres`, `tiberius`, `mysql_async`, `rusqlite` for user databases) outside `db/drivers/<engine>/`. Engine differences are expressed by the engine's family and capabilities (`db/engine.rs`) and, inside the SQL family, by its `Dialect`; never by `match engine` in services or in the frontend. Dispatching on the family happens in the session and command layers (`Backend`) and at the front's seams (query tab, explorer, connection form); a SQL service refuses another family with `sqlOnly`.
 2. **Values are bound, identifiers are quoted.** SQL generated by yadbe (edits, filters, metadata) passes values as parameters and quotes identifiers through the dialect. Never concatenate a value into SQL. Outside SQL (M4), a value yadbe sends is always a structured argument (BSON document, JSON body, RESP argument), never text spliced into a command.
 3. **User SQL is sent as written.** No rewriting of what the user typed; the same holds for the scripts, requests and commands of the other engine families. The only SQL yadbe authors is metadata queries, table browsing and edit plans.
 4. **Secrets live in the keychain only**, through `secrets/`. Never in SQLite, logs, history, error messages, events or any payload sent to the frontend. The `Secret` type is not `Serialize`, has a redacted `Debug`, and is zeroized on drop. Connection strings are redacted before being logged.
