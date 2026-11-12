@@ -143,7 +143,7 @@ fn where_clause(dialect: &dyn Dialect, key: &[&ColumnInfo]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
     use crate::db::meta::{Generated, KeyConstraint, ObjectKind, ObjectRef};
     use crate::db::value::ValueKind;
 

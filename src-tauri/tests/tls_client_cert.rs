@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use common::{blank, from_url, mysql_ca, pg_ca, skip};
 use yadbe_lib::db::config::{ConnectionDefinition, TlsMode};
-use yadbe_lib::db::dialect::Engine;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::{ErrorCode, YadbeError};
 use yadbe_lib::events::RecordingSink;
 use yadbe_lib::secrets::{MemoryKeychain, Secret, SecretKind, SecretStore};
@@ -133,7 +133,7 @@ async fn check_identity(h: &Harness, base: ConnectionDefinition, password: Optio
         .await
         .expect("connects with the stored passphrase");
     let session = h.manager.session(&saved.id).expect("session");
-    let conn = session.connection().expect("connection");
+    let conn = session.sql().expect("connection");
     let status = conn
         .query(
             // PostgreSQL shows the certificate's subject, MySQL the cipher of the TLS session.

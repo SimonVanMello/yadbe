@@ -6,7 +6,7 @@ use tauri::State;
 
 use super::blocking;
 use crate::db::config::ConnectionDefinition;
-use crate::db::dialect::EngineInfo;
+use crate::db::engine::EngineInfo;
 use crate::db::errors::YadbeError;
 use crate::session::ConnectionUpdate;
 use crate::state::AppState;

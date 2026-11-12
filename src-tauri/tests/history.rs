@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use common::{blank, pg_definition, pg_url};
 use query_common::{Bench, bench_with_history};
-use yadbe_lib::db::dialect::Engine;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::events::BackendEvent;
 use yadbe_lib::session::history_writer::StoreHistory;
 use yadbe_lib::session::query_model::ExecuteScope;

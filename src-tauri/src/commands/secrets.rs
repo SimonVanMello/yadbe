@@ -7,7 +7,7 @@ use tauri::State;
 
 use super::blocking;
 use crate::db::connstring::{self, ParsedConnectionString};
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
 use crate::secrets::{KeychainStatus, Secret, SecretInput, SecretKind, SecretLocation};
 use crate::state::AppState;

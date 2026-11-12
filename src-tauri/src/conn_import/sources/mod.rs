@@ -12,7 +12,7 @@ pub mod yadbe;
 
 use super::model::{ConnectionNote, FoundConnection, SkippedEntry};
 use crate::db::config::{AuthMethod, ConnectionDefinition, Environment, TlsMode};
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::secrets::Secret;
 
 /// A connection found in a file, with the password the file holds (never sent anywhere

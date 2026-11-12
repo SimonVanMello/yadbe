@@ -11,9 +11,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use common::SqlEngine as _;
 use common::{blank, mssql_url, mysql_url, pg_definition, pg_url};
 use yadbe_lib::db::config::ConnectionDefinition;
-use yadbe_lib::db::dialect::Engine;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::db::meta::{ObjectRef, qualified_name};
 use yadbe_lib::db::value::Value;
@@ -100,7 +101,7 @@ impl Fixture {
     }
 
     /// A plain connection for reading the tables back.
-    async fn reader(&self) -> Box<dyn yadbe_lib::db::driver::Connection> {
+    async fn reader(&self) -> std::sync::Arc<dyn yadbe_lib::db::driver::SqlConnection> {
         common::open(&self.def, self.password.as_ref())
             .await
             .expect("reader")

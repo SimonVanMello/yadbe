@@ -10,7 +10,7 @@ use crate::db::activity::{
     KillOutcome, KillRequest, bound_id, check_target, locks_from_rows, parse_session_id,
     session_from_row, text_of,
 };
-use crate::db::driver::{BoundFailure, Connection};
+use crate::db::driver::{BoundFailure, SqlConnection};
 use crate::db::errors::{ErrorCode, YadbeError};
 use crate::db::value::{QueryResult, Value};
 
@@ -154,13 +154,13 @@ fn apply_waits(sessions: &mut [ActivitySession], waits: &QueryResult) {
 impl ActivityMonitor for MysqlConnection {
     fn activity(&self) -> ActivityFuture<'_, ActivitySnapshot> {
         Box::pin(async move {
-            let privileged = Connection::query(self, PRIVILEGE_SQL, 1)
+            let privileged = SqlConnection::query(self, PRIVILEGE_SQL, 1)
                 .await?
                 .rows
                 .first()
                 .and_then(|row| row.first())
                 .is_some_and(|count| !matches!(count, Value::Int(n) if n == "0"));
-            let sessions = Connection::query(
+            let sessions = SqlConnection::query(
                 self,
                 if privileged {
                     SESSIONS_SQL
@@ -179,8 +179,8 @@ impl ActivityMonitor for MysqlConnection {
             if !privileged {
                 notes.push(ActivityNote::OtherSessionsHidden);
             }
-            let waits = optional(Connection::query(self, WAITS_SQL, usize::MAX).await)?;
-            let locks = optional(Connection::query(self, LOCKS_SQL, usize::MAX).await)?;
+            let waits = optional(SqlConnection::query(self, WAITS_SQL, usize::MAX).await)?;
+            let locks = optional(SqlConnection::query(self, LOCKS_SQL, usize::MAX).await)?;
             let (locks, locks_truncated) = match (waits, locks) {
                 (Some(waits), Some(locks)) => {
                     apply_waits(&mut sessions, &waits);

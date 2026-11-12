@@ -757,8 +757,14 @@ export type BoundedCount = {
 	durationMs: number | null,
 };
 
-/**  What an engine supports, as data the services and the UI can branch on. */
+/**
+ *  What an engine supports, as data the services and the UI can branch on. Identifier
+ *  quoting, parameter styles, plans and the flags from `formatter` on describe SQL features:
+ *  the other families leave them off.
+ */
 export type Capabilities = {
+	/**  The engine's family: its query tab, explorer and connection fields. */
+	family: EngineFamily,
 	/**  The database is a local file (no host, port or user). */
 	usesFile: boolean,
 	/**  Default TCP port, for server engines. */
@@ -802,6 +808,18 @@ export type Capabilities = {
 	 *  its schema, its database (MySQL), or nothing (SQLite).
 	 */
 	tableQualifier: Qualifier,
+	/**  The query editor formats its text (F-052). */
+	formatter: boolean,
+	/**  Objects show their DDL and their properties (F-025). */
+	ddl: boolean,
+	/**  Objects can be scripted as `SELECT` / `INSERT` / `CREATE`… (F-024). */
+	scriptAs: boolean,
+	/**  Files can be imported into a table (F-070). */
+	dataImport: boolean,
+	/**  The EF Core migrations of a database can be listed (`__EFMigrationsHistory`). */
+	efMigrations: boolean,
+	/**  The connection can be copied as an ADO.NET / EF Core connection string. */
+	dotnetConnectionString: boolean,
 };
 
 /**  A foreign key between two relations of the catalog (join suggestions). */
@@ -1355,8 +1373,22 @@ export type EfMigrations = {
 	truncated: boolean,
 };
 
-/**  Database engines yadbe knows. Every engine has a dialect; drivers arrive one by one. */
+/**  Database engines yadbe knows; drivers arrive one by one. */
 export type Engine = "postgres" | "mssql" | "mysql" | "sqlite";
+
+/**
+ *  What kind of database an engine is: it decides the connection's backend (the `Connection`
+ *  traits it implements), its query language, its explorer and its tabs.
+ */
+export type EngineFamily = 
+/**  Relational engines spoken to in SQL, through a [`Dialect`]. */
+"sql" | 
+/**  Document stores (MongoDB). */
+"document" | 
+/**  Search engines (Elasticsearch, OpenSearch). */
+"search" | 
+/**  Key-value stores (Redis, Valkey). */
+"keyValue";
 
 /**  An engine as the connection form sees it. */
 export type EngineInfo = {
@@ -1423,6 +1455,11 @@ export type ErrorCode =
 "queryFolderNotFound" | 
 /**  The engine is known but its driver is not available yet. */
 "engineNotSupported" | 
+/**
+ *  A SQL feature was asked of a connection of another engine family (document, search,
+ *  key-value).
+ */
+"sqlOnly" | 
 /**  The connection is not open (never opened, closed, or reconnecting). */
 "notConnected" | 
 /**  The connection needs a password and none was given or stored. */

@@ -10,9 +10,9 @@ mod common;
 use std::sync::Arc;
 
 use yadbe_lib::db::config::ConnectionDefinition;
-use yadbe_lib::db::dialect::Engine;
 use yadbe_lib::db::dotnet::{ConnectionStringFlavor, ConnectionStringNote};
 use yadbe_lib::db::ef::{EfMigrations, HISTORY_TABLE};
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::db::meta::{ObjectKind, ObjectRef};
 use yadbe_lib::db::split::split;
@@ -24,6 +24,7 @@ use yadbe_lib::session::meta_cache::{MetaService, ObservingSink};
 use yadbe_lib::session::statement_log::StatementLog;
 use yadbe_lib::store::Store;
 
+use common::SqlEngine as _;
 use common::{pg_url, unique_database};
 
 struct Harness {
@@ -74,7 +75,7 @@ impl Harness {
 }
 
 /// Runs a fixture script, split like the app splits a script of the engine.
-async fn run_script(conn: &dyn yadbe_lib::db::driver::Connection, engine: Engine, script: &str) {
+async fn run_script(conn: &dyn yadbe_lib::db::driver::SqlConnection, engine: Engine, script: &str) {
     let syntax = engine.dialect().syntax();
     for statement in split(script, &syntax) {
         let sql = &script[statement.range()];

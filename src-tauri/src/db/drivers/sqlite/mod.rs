@@ -13,12 +13,12 @@ use std::time::Duration;
 use rusqlite::types::ValueRef;
 use rusqlite::{InterruptHandle, OpenFlags};
 
-use crate::db::dialect::Engine;
 use crate::db::driver::{
-    BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Connection, Driver,
-    ExecError, ExecSender, ExecSummary, Explained, LinkWatch, StatementRecorder,
-    recorded_bound_sync, recorded_sync,
+    Backend, BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Driver,
+    ExecError, ExecSender, ExecSummary, Explained, Link, LinkWatch, SqlConnection,
+    StatementRecorder, recorded_bound_sync, recorded_sync,
 };
+use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
 use crate::db::params::ParamStatement;
 use crate::db::value::{ColumnMeta, QueryResult, Value, ValueKind};
@@ -67,7 +67,7 @@ impl Driver for SqliteDriver {
     fn connect<'a>(
         &'a self,
         request: ConnectRequest<'a>,
-    ) -> BoxFuture<'a, Result<Box<dyn Connection>, YadbeError>> {
+    ) -> BoxFuture<'a, Result<Backend, YadbeError>> {
         let path = request.target.file_path.clone();
         let read_only = request.target.read_only;
         let recorder = request.recorder;
@@ -133,7 +133,7 @@ impl Driver for SqliteDriver {
                 })
             })
             .await?;
-            Ok(Box::new(opened) as Box<dyn Connection>)
+            Ok(Backend::Sql(Arc::new(opened)))
         })
     }
 }
@@ -227,37 +227,13 @@ fn run(
     })
 }
 
-impl Connection for SqliteConnection {
+impl Link for SqliteConnection {
     fn server_version(&self) -> &str {
         &self.server_version
     }
 
     fn ping(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
         Box::pin(async move { self.query(PING_SQL, 1).await.map(|_| ()) })
-    }
-
-    fn query<'a>(
-        &'a self,
-        sql: &'a str,
-        max_rows: usize,
-    ) -> BoxFuture<'a, Result<QueryResult, YadbeError>> {
-        let conn = Arc::clone(&self.conn);
-        let recorder = Arc::clone(&self.recorder);
-        let path = self.path.clone();
-        let sql = sql.to_owned();
-        Box::pin(async move {
-            blocking(move || {
-                let conn = conn
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                let rows_of =
-                    |r: &QueryResult| r.rows_affected.or_else(|| u64::try_from(r.rows.len()).ok());
-                recorded_sync(&*recorder, &sql, rows_of, || {
-                    run(&conn, &sql, max_rows, &path)
-                })
-            })
-            .await
-        })
     }
 
     fn read_only_mode(&self) -> Option<bool> {
@@ -303,6 +279,32 @@ impl Connection for SqliteConnection {
     fn close(&self) -> BoxFuture<'_, ()> {
         self.interrupt.interrupt();
         Box::pin(async {})
+    }
+}
+
+impl SqlConnection for SqliteConnection {
+    fn query<'a>(
+        &'a self,
+        sql: &'a str,
+        max_rows: usize,
+    ) -> BoxFuture<'a, Result<QueryResult, YadbeError>> {
+        let conn = Arc::clone(&self.conn);
+        let recorder = Arc::clone(&self.recorder);
+        let path = self.path.clone();
+        let sql = sql.to_owned();
+        Box::pin(async move {
+            blocking(move || {
+                let conn = conn
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let rows_of =
+                    |r: &QueryResult| r.rows_affected.or_else(|| u64::try_from(r.rows.len()).ok());
+                recorded_sync(&*recorder, &sql, rows_of, || {
+                    run(&conn, &sql, max_rows, &path)
+                })
+            })
+            .await
+        })
     }
 
     fn execute<'a>(

@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use tokio::sync::Notify;
 
-use crate::db::driver::{BoxFuture, Connection};
+use crate::db::driver::{BoxFuture, SqlConnection};
 use crate::db::errors::YadbeError;
 use crate::db::introspect::Introspector;
 use crate::db::meta::{
@@ -115,7 +115,7 @@ struct MetaCache {
     session: Weak<ConnectionSession>,
     data: Mutex<CacheData>,
     /// Metadata connections to databases the main connection cannot see.
-    extra: Mutex<HashMap<String, Arc<dyn Connection>>>,
+    extra: Mutex<HashMap<String, Arc<dyn SqlConnection>>>,
     /// Serializes opening extra connections, so a database gets one.
     opening: tokio::sync::Mutex<()>,
     /// Data was dropped with the link: announce it once the session is back.
@@ -161,7 +161,7 @@ impl Drop for InFlight<'_> {
     }
 }
 
-fn conn_key(conn: &Arc<dyn Connection>) -> usize {
+fn conn_key(conn: &Arc<dyn SqlConnection>) -> usize {
     Arc::as_ptr(conn).cast::<()>() as usize
 }
 
@@ -248,7 +248,7 @@ impl MetaService {
     async fn run<T>(
         &self,
         request_id: Option<&str>,
-        conn: &Arc<dyn Connection>,
+        conn: &Arc<dyn SqlConnection>,
         work: impl Future<Output = Result<T, YadbeError>>,
     ) -> Result<T, YadbeError> {
         let key = conn_key(conn);
@@ -275,7 +275,7 @@ impl MetaService {
         result
     }
 
-    fn introspector(conn: &dyn Connection) -> Result<&dyn Introspector, YadbeError> {
+    fn introspector(conn: &dyn SqlConnection) -> Result<&dyn Introspector, YadbeError> {
         conn.introspector().ok_or_else(YadbeError::not_implemented)
     }
 
@@ -285,12 +285,12 @@ impl MetaService {
         session: &Arc<ConnectionSession>,
         cache: &MetaCache,
         database: Option<&str>,
-    ) -> Result<Arc<dyn Connection>, YadbeError> {
-        let main = session.connection()?;
+    ) -> Result<Arc<dyn SqlConnection>, YadbeError> {
+        let main = session.sql()?;
         let Some(database) = database else {
             return Ok(main);
         };
-        let caps = session.target().engine.dialect().meta_capabilities();
+        let caps = session.dialect()?.meta_capabilities();
         if !caps.connection_per_database {
             return Ok(main);
         }
@@ -310,7 +310,7 @@ impl MetaService {
         if databases.iter().any(|d| d.current && d.name == database) {
             return Ok(main);
         }
-        let usable = |c: &Arc<dyn Connection>| !c.link().is_lost();
+        let usable = |c: &Arc<dyn SqlConnection>| !c.link().is_lost();
         if let Some(conn) = lock(&cache.extra).get(database).filter(|c| usable(c)) {
             return Ok(Arc::clone(conn));
         }
@@ -319,7 +319,7 @@ impl MetaService {
             return Ok(Arc::clone(conn));
         }
         let epoch = lock(&cache.data).epoch;
-        let conn: Arc<dyn Connection> = session.open_dedicated(Some(database)).await?.into();
+        let conn: Arc<dyn SqlConnection> = session.open_dedicated_sql(Some(database)).await?;
         if lock(&cache.data).epoch == epoch {
             lock(&cache.extra).insert(database.to_owned(), Arc::clone(&conn));
         }
@@ -337,7 +337,7 @@ impl MetaService {
         database: Option<&str>,
         read: impl FnOnce(&mut CacheData) -> Option<T>,
         write: impl FnOnce(&mut CacheData, T),
-        fetch: impl FnOnce(Arc<dyn Connection>) -> Fetch<T>,
+        fetch: impl FnOnce(Arc<dyn SqlConnection>) -> Fetch<T>,
     ) -> Result<T, YadbeError> {
         let epoch = {
             let mut data = lock(&cache.data);
@@ -366,7 +366,7 @@ impl MetaService {
 
     /// Checks that `schema` is given exactly when the engine has schemas.
     fn check_schema(session: &ConnectionSession, schema: Option<&str>) -> Result<(), YadbeError> {
-        let has_schemas = session.target().engine.dialect().capabilities().schemas;
+        let has_schemas = session.dialect()?.capabilities().schemas;
         match (has_schemas, schema) {
             (true, Some(s)) if !s.is_empty() => Ok(()),
             (false, None) => Ok(()),
@@ -494,7 +494,7 @@ impl MetaService {
         Self::check_database(database)?;
         let session = Self::session(manager, connection_id)?;
         Self::check_schema(&session, schema)?;
-        let caps = session.target().engine.dialect().meta_capabilities();
+        let caps = session.dialect()?.meta_capabilities();
         if !caps.object_kinds.contains(&kind) {
             return Ok(Vec::new());
         }
@@ -658,8 +658,7 @@ impl MetaService {
         table: &ObjectRef,
         kind: ScriptKind,
     ) -> Result<String, YadbeError> {
-        let engine = Self::session(manager, connection_id)?.target().engine;
-        let dialect = engine.dialect();
+        let dialect = Self::session(manager, connection_id)?.dialect()?;
         if kind == ScriptKind::QualifiedName {
             return Ok(crate::db::meta::qualified_name(dialect, table));
         }

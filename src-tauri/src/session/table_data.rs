@@ -22,7 +22,7 @@ use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 use tokio::task::JoinHandle;
 
 use crate::db::dialect::Dialect;
-use crate::db::driver::{BoundFailure, BoundStatement, CancelHandle, Connection};
+use crate::db::driver::{BoundFailure, BoundStatement, CancelHandle, SqlConnection};
 use crate::db::edit_dialect::{RowEstimateSource, plain_text};
 use crate::db::errors::ErrorCode;
 use crate::db::errors::YadbeError;
@@ -90,7 +90,7 @@ pub struct TabTarget {
 
 /// A tab's own server connection.
 struct TabConnection {
-    conn: Arc<dyn Connection>,
+    conn: Arc<dyn SqlConnection>,
     /// Its link dropped or its session closed.
     dead: Arc<AtomicBool>,
     watcher: JoinHandle<()>,
@@ -181,7 +181,13 @@ impl TableDataService {
     async fn connection(
         &self,
         tab: &TableTab,
-    ) -> Result<(OwnedMutexGuard<Option<TabConnection>>, Arc<dyn Connection>), YadbeError> {
+    ) -> Result<
+        (
+            OwnedMutexGuard<Option<TabConnection>>,
+            Arc<dyn SqlConnection>,
+        ),
+        YadbeError,
+    > {
         let session = self.manager.session(&tab.connection_id)?;
         let mut guard = Arc::clone(&tab.conn).lock_owned().await;
         if let Some(current) = guard.as_ref()
@@ -195,8 +201,8 @@ impl TableDataService {
         if let Some(stale) = guard.take() {
             stale.close().await;
         }
-        let conn: Arc<dyn Connection> =
-            Arc::from(session.open_dedicated(tab.database.as_deref()).await?);
+        let conn: Arc<dyn SqlConnection> =
+            session.open_dedicated_sql(tab.database.as_deref()).await?;
         let dead = Arc::new(AtomicBool::new(false));
         let watcher = spawn_watcher(&session, Arc::clone(&conn), Arc::clone(&dead));
         *guard = Some(TabConnection {
@@ -219,7 +225,7 @@ impl TableDataService {
     async fn run(
         &self,
         tab: &TableTab,
-        conn: &Arc<dyn Connection>,
+        conn: &Arc<dyn SqlConnection>,
         statement: &BoundStatement,
         max_rows: usize,
     ) -> Result<QueryResult, BoundFailure> {
@@ -265,12 +271,12 @@ impl TableDataService {
         table: &ObjectRef,
     ) -> Result<TableDataInfo, YadbeError> {
         let session = self.manager.session(connection_id)?;
-        session.connection()?;
+        session.sql()?;
         let details = meta
             .table_details(&self.manager, None, connection_id, table)
             .await?;
         let target = session.target();
-        let dialect = target.engine.dialect();
+        let dialect = session.dialect()?;
         let database = (dialect.capabilities().multiple_databases && !table.database.is_empty())
             .then(|| table.database.clone());
         // The same connection and database: the tab keeps its server connection.
@@ -508,7 +514,7 @@ impl TableDataService {
     async fn rows_by_key(
         &self,
         tab: &TableTab,
-        conn: &Arc<dyn Connection>,
+        conn: &Arc<dyn SqlConnection>,
         keys: &[RowKey],
     ) -> Result<RowsByKey, ReadFailure> {
         let shape = &tab.shape;
@@ -572,8 +578,8 @@ impl TableDataService {
     ) -> Result<TableExportRows, YadbeError> {
         let (tab, order) = self.export_plan(tab_id, &filter, &sort)?;
         let session = self.manager.session(&tab.connection_id)?;
-        let conn: Arc<dyn Connection> =
-            Arc::from(session.open_dedicated(tab.database.as_deref()).await?);
+        let conn: Arc<dyn SqlConnection> =
+            session.open_dedicated_sql(tab.database.as_deref()).await?;
         let keyset = table_sql::keyset_pageable(&tab.shape, &order);
         Ok(TableExportRows {
             columns: tab.shape.column_meta(),
@@ -863,7 +869,7 @@ impl TableDataService {
     async fn conflicted(
         &self,
         tab: &TableTab,
-        conn: &Arc<dyn Connection>,
+        conn: &Arc<dyn SqlConnection>,
         planned: &[PlannedEdit],
         conflicts: &[usize],
         started: Instant,
@@ -911,7 +917,7 @@ impl TableDataService {
     async fn read_back_updates(
         &self,
         tab: &TableTab,
-        conn: &Arc<dyn Connection>,
+        conn: &Arc<dyn SqlConnection>,
         planned: &[PlannedEdit],
     ) -> Result<RowsByKey, ReadFailure> {
         let keys: Vec<RowKey> = planned
@@ -1022,7 +1028,7 @@ impl TableDataService {
     }
 
     /// Ends the transaction after a failure; an engine that already ended it is not asked.
-    async fn rollback(&self, tab: &TableTab, conn: &Arc<dyn Connection>) {
+    async fn rollback(&self, tab: &TableTab, conn: &Arc<dyn SqlConnection>) {
         if conn.in_transaction() == Some(false) || conn.link().is_lost() {
             return;
         }
@@ -1032,7 +1038,7 @@ impl TableDataService {
     }
 
     /// Rolls back, then undoes the session settings statements left on (`cleanups`).
-    async fn abort(&self, tab: &TableTab, conn: &Arc<dyn Connection>, cleanups: &[&str]) {
+    async fn abort(&self, tab: &TableTab, conn: &Arc<dyn SqlConnection>, cleanups: &[&str]) {
         self.rollback(tab, conn).await;
         if conn.link().is_lost() {
             return;
@@ -1085,7 +1091,7 @@ fn rolled_back(
 /// snapshot: rows changed meanwhile by others can be missed or read twice.
 pub struct TableExportRows {
     tab: Arc<TableTab>,
-    conn: Arc<dyn Connection>,
+    conn: Arc<dyn SqlConnection>,
     columns: Vec<ColumnMeta>,
     filter: TableFilter,
     order: Vec<SortKey>,
@@ -1166,7 +1172,7 @@ async fn cancel_running(tab: &TableTab) {
 /// Marks a tab connection dead when its link drops or its session closes.
 fn spawn_watcher(
     session: &ConnectionSession,
-    conn: Arc<dyn Connection>,
+    conn: Arc<dyn SqlConnection>,
     dead: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     let mut closed = session.closed();

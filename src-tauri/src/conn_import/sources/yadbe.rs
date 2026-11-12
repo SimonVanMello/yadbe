@@ -170,7 +170,7 @@ mod tests {
     use super::*;
     use crate::conn_import::sources::blank;
     use crate::db::config::{EnvironmentKind, TlsMode};
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
     use crate::tunnel::{SshAuthMethod, SshHop, SshTunnel};
 
     fn saved(id: &str, definition: ConnectionDefinition) -> SavedConnection {

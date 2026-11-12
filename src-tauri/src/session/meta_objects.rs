@@ -80,7 +80,7 @@ impl MetaService {
         target: &DdlTarget,
     ) -> Result<ObjectDdl, YadbeError> {
         let session = Self::session(manager, connection_id)?;
-        let dialect = session.target().engine.dialect();
+        let dialect = session.dialect()?;
         match target {
             DdlTarget::Object { object, kind, id } => {
                 Self::check_database(&object.database)?;
@@ -290,7 +290,7 @@ impl MetaService {
                 &request.id,
             )
             .await?;
-        let dialect = session.target().engine.dialect();
+        let dialect = session.dialect()?;
         let sql = action_statement(dialect, &request.object, &info, &request.action)?;
         Ok((session, info, sql))
     }

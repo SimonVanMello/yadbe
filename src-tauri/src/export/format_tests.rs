@@ -8,7 +8,7 @@ use super::encode::{RowEncoder, encoder};
 use super::model::{
     BinaryEncoding, ExcelOptions, ExportFormat, LineEnding, MarkdownOptions, SqlOptions,
 };
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::db::value::{ColumnMeta, Value, ValueKind};
 
 fn meta(name: &str, kind: ValueKind) -> ColumnMeta {
@@ -24,7 +24,7 @@ fn text(s: &str) -> Value {
 }
 
 fn encode(format: ExportFormat, columns: &[ColumnMeta], rows: &[Vec<Value>]) -> Vec<u8> {
-    let mut encoder: Box<dyn RowEncoder> = encoder(&format);
+    let mut encoder: Box<dyn RowEncoder> = encoder(&format).expect("a known format");
     let mut out = Vec::new();
     encoder.begin(columns, &mut out);
     for row in rows {

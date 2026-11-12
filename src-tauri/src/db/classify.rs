@@ -445,7 +445,7 @@ fn pragma_refusal(tokens: &[Tok]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
 
     fn check(engine: Engine, sql: &str) -> Option<String> {
         read_only_refusal(sql, &engine.dialect().syntax())

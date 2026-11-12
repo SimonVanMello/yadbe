@@ -1,11 +1,14 @@
 //! The traits every engine driver implements. Services only see these; driver crates stay
 //! under `drivers/<engine>/`.
 //!
-//! - **Streaming (M1-3)**: [`Connection::execute`] pushes result-set columns, row batches and
+//! - **Families (M4-1)**: [`Link`] is what every connection has; each family adds its own
+//!   trait on top ([`SqlConnection`] today) and [`Driver::connect`] returns the matching
+//!   [`Backend`] variant.
+//! - **Streaming (M1-3)**: [`SqlConnection::execute`] pushes result-set columns, row batches and
 //!   notices into a bounded channel owned by the `QueryRunner` (backpressure: a full channel
 //!   stops the driver reading the server); `query` stays the small buffered path for
 //!   yadbe's own statements.
-//! - **Cancellation (M1-3)**: [`Connection::cancel_handle`] is detached from the connection
+//! - **Cancellation (M1-3)**: [`Link::cancel_handle`] is detached from the connection
 //!   (Postgres cancel request, `sqlite3_interrupt`), so it can fire while a statement runs.
 //! - **Dedicated connections (M1-3)**: each editor tab calls [`Driver::connect`] again with
 //!   the session's target and password (`ConnectionSession::open_dedicated`).
@@ -21,7 +24,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::watch;
 
 use crate::db::config::ConnectTarget;
-use crate::db::dialect::Engine;
+use crate::db::engine::{Engine, EngineFamily};
 use crate::db::errors::{ConstraintViolation, YadbeError};
 use crate::db::params::ParamStatement;
 use crate::db::plan::RawPlan;
@@ -162,11 +165,50 @@ pub trait Driver: Send + Sync {
     fn connect<'a>(
         &'a self,
         request: ConnectRequest<'a>,
-    ) -> BoxFuture<'a, Result<Box<dyn Connection>, YadbeError>>;
+    ) -> BoxFuture<'a, Result<Backend, YadbeError>>;
 }
 
-/// An open connection. Shared (`&self`): engines that serialize statements do it inside.
-pub trait Connection: Send + Sync {
+/// An open connection, by family: what a driver returns and a session holds. Dispatching on
+/// the family happens here, in the session and in the command layer; a service of one family
+/// takes that family's connection and refuses the others with a typed error (`sqlOnly` for
+/// the SQL services).
+#[derive(Clone)]
+pub enum Backend {
+    Sql(Arc<dyn SqlConnection>),
+}
+
+impl Backend {
+    pub fn family(&self) -> EngineFamily {
+        match self {
+            Backend::Sql(_) => EngineFamily::Sql,
+        }
+    }
+
+    /// What every family has: version, ping, link watch, cancel, close, read-only switch.
+    pub fn as_link(&self) -> &dyn Link {
+        match self {
+            Backend::Sql(conn) => &**conn,
+        }
+    }
+
+    /// The SQL connection, or `sqlOnly` for an engine of another family.
+    pub fn sql(&self) -> Result<&Arc<dyn SqlConnection>, YadbeError> {
+        match self {
+            Backend::Sql(conn) => Ok(conn),
+        }
+    }
+
+    /// [`Self::sql`], by value.
+    pub fn into_sql(self) -> Result<Arc<dyn SqlConnection>, YadbeError> {
+        match self {
+            Backend::Sql(conn) => Ok(conn),
+        }
+    }
+}
+
+/// What every open connection has, whatever its family. Shared (`&self`): engines that
+/// serialize requests do it inside.
+pub trait Link: Send + Sync {
     /// Server product and version, read at connect time (`16.4`, `3.46.0`…).
     fn server_version(&self) -> &str;
 
@@ -179,14 +221,6 @@ pub trait Connection: Send + Sync {
     fn keep_alive(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
         Box::pin(async { Ok(()) })
     }
-
-    /// Runs one statement authored by yadbe and buffers at most `max_rows` rows. Recorded.
-    /// A connection-level failure returns `connectionLost`; the statement is never retried.
-    fn query<'a>(
-        &'a self,
-        sql: &'a str,
-        max_rows: usize,
-    ) -> BoxFuture<'a, Result<QueryResult, YadbeError>>;
 
     /// Whether the engine's own read-only guard is on for the next transactions of this
     /// connection (PostgreSQL `default_transaction_read_only`, the MySQL session access mode,
@@ -211,6 +245,17 @@ pub trait Connection: Send + Sync {
 
     /// Closes the connection politely when the engine supports it.
     fn close(&self) -> BoxFuture<'_, ()>;
+}
+
+/// An open connection of the SQL family: statements in, columns and rows out.
+pub trait SqlConnection: Link {
+    /// Runs one statement authored by yadbe and buffers at most `max_rows` rows. Recorded.
+    /// A connection-level failure returns `connectionLost`; the statement is never retried.
+    fn query<'a>(
+        &'a self,
+        sql: &'a str,
+        max_rows: usize,
+    ) -> BoxFuture<'a, Result<QueryResult, YadbeError>>;
 
     /// Metadata reads on this connection; `None` for a driver without introspection.
     fn introspector(&self) -> Option<&dyn crate::db::introspect::Introspector> {

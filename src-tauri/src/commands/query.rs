@@ -3,7 +3,7 @@
 
 use tauri::State;
 
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
 use crate::db::split::{Utf16Map, split, statement_at as db_statement_at};
 use crate::db::value::Value;
@@ -15,13 +15,18 @@ use crate::session::query_model::{
 use crate::session::result_view::{ResultViewInfo, ResultViewSpec};
 use crate::state::AppState;
 
+/// The SQL dialect of `engine`: these commands read SQL text, other families are refused.
+fn sql_dialect(engine: Engine) -> Result<&'static dyn crate::db::dialect::Dialect, YadbeError> {
+    engine.sql_dialect().ok_or_else(YadbeError::sql_only)
+}
+
 /// The statements of `text`, split the way `engine` reads them (dollar quoting, `GO`
 /// batches, `DELIMITER`…), as ranges without their delimiter. Comment-only parts are
 /// skipped.
 #[tauri::command]
 #[specta::specta]
 pub async fn split_statements(engine: Engine, text: String) -> Result<Vec<TextRange>, YadbeError> {
-    let syntax = engine.dialect().syntax();
+    let syntax = sql_dialect(engine)?.syntax();
     let map = Utf16Map::new(&text);
     Ok(split(&text, &syntax)
         .into_iter()
@@ -42,7 +47,7 @@ pub async fn statement_at(
     text: String,
     offset: u32,
 ) -> Result<Option<TextRange>, YadbeError> {
-    let syntax = engine.dialect().syntax();
+    let syntax = sql_dialect(engine)?.syntax();
     let map = Utf16Map::new(&text);
     let statements = split(&text, &syntax);
     Ok(
@@ -229,7 +234,9 @@ pub async fn query_parameters(
     scope: ExecuteScope,
 ) -> Result<Vec<QueryParameter>, YadbeError> {
     Ok(crate::session::query_runner::query_parameters(
-        engine, &text, scope,
+        sql_dialect(engine)?,
+        &text,
+        scope,
     ))
 }
 

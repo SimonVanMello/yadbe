@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::*;
 use crate::db::config::ConnectionDefinition;
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::secrets::MemoryKeychain;
 use sources::blank;
 

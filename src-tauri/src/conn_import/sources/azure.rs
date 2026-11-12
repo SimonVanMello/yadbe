@@ -9,7 +9,7 @@ use serde_json::Value as Json;
 use super::{Parsed, ParsedConnection, blank, found, parse_bool, split_server};
 use crate::conn_import::model::{ConnectionNote, ConnectionNoteKind, SkipReason, SkippedEntry};
 use crate::db::config::{AuthMethod, TlsMode};
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
 
 fn text<'a>(object: &'a Json, keys: &[&str]) -> Option<&'a str> {

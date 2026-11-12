@@ -15,8 +15,8 @@ use yadbe_lib::db::activity::{
     ActivityNote, ActivitySession, ActivitySnapshot, KillMode, KillRequest, SessionState,
 };
 use yadbe_lib::db::config::ConnectionDefinition;
-use yadbe_lib::db::dialect::Engine;
-use yadbe_lib::db::driver::Connection;
+use yadbe_lib::db::driver::SqlConnection;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::{ErrorCode, YadbeError};
 use yadbe_lib::events::{EventSink, RecordingSink};
 use yadbe_lib::secrets::{MemoryKeychain, Secret, SecretStore};
@@ -25,6 +25,7 @@ use yadbe_lib::session::meta_cache::{MetaService, ObservingSink};
 use yadbe_lib::session::statement_log::StatementLog;
 use yadbe_lib::store::Store;
 
+use common::SqlEngine as _;
 use common::{pg_url, unique_database};
 
 // --- Harness --------------------------------------------------------------------------------
@@ -159,7 +160,7 @@ struct Kit {
     reports_waits: bool,
 }
 
-async fn scalar(conn: &dyn Connection, sql: &str) -> String {
+async fn scalar(conn: &dyn SqlConnection, sql: &str) -> String {
     conn.query(sql, 1)
         .await
         .unwrap_or_else(|e| panic!("{sql}: {e:?}"))
@@ -169,7 +170,7 @@ async fn scalar(conn: &dyn Connection, sql: &str) -> String {
 
 type Running = tokio::task::JoinHandle<Result<(), YadbeError>>;
 
-fn run_in_background(conn: &Arc<dyn Connection>, sql: String) -> Running {
+fn run_in_background(conn: &Arc<dyn SqlConnection>, sql: String) -> Running {
     let conn = Arc::clone(conn);
     tokio::spawn(async move { conn.query(&sql, 0).await.map(|_| ()) })
 }
@@ -181,8 +182,8 @@ async fn finished(running: Running, what: &str) -> Result<(), YadbeError> {
         .expect("task")
 }
 
-async fn raw(def: &ConnectionDefinition, password: Option<&Secret>) -> Arc<dyn Connection> {
-    Arc::from(common::open(def, password).await.expect("connect"))
+async fn raw(def: &ConnectionDefinition, password: Option<&Secret>) -> Arc<dyn SqlConnection> {
+    common::open(def, password).await.expect("connect")
 }
 
 // --- The scenario ---------------------------------------------------------------------------

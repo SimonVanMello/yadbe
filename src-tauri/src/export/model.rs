@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
 use crate::session::table_model::{SortKey, TableFilter};
 

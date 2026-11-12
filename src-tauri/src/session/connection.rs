@@ -10,7 +10,9 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::db::config::ConnectTarget;
-use crate::db::driver::{ConnectRequest, Connection, Driver, StatementRecorder};
+use crate::db::dialect::Dialect;
+use crate::db::driver::{Backend, ConnectRequest, Driver, Link, SqlConnection, StatementRecorder};
+use crate::db::engine::EngineFamily;
 use crate::db::errors::YadbeError;
 use crate::db::value::QueryResult;
 use crate::events::{BackendEvent, ConnectionStateChanged, EventSink};
@@ -55,7 +57,7 @@ pub struct ConnectionSession {
     sink: Arc<dyn EventSink>,
     config: SessionConfig,
     state: Mutex<SessionInfo>,
-    conn: RwLock<Option<Arc<dyn Connection>>>,
+    conn: RwLock<Option<Backend>>,
     shutdown: watch::Sender<bool>,
     monitor: Mutex<Option<JoinHandle<()>>>,
     /// The keep-alive task (F-014), when the connection crosses a network.
@@ -153,14 +155,14 @@ impl ConnectionSession {
         ));
     }
 
-    fn current(&self) -> Option<Arc<dyn Connection>> {
+    fn current(&self) -> Option<Backend> {
         self.conn
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
 
-    fn install(&self, conn: Option<Arc<dyn Connection>>) -> Option<Arc<dyn Connection>> {
+    fn install(&self, conn: Option<Backend>) -> Option<Backend> {
         std::mem::replace(
             &mut *self
                 .conn
@@ -185,7 +187,7 @@ impl ConnectionSession {
     }
 
     /// A driver connection with the session's settings, through the tunnel if any.
-    async fn dial(&self, database: Option<&str>) -> Result<Box<dyn Connection>, YadbeError> {
+    async fn dial(&self, database: Option<&str>) -> Result<Backend, YadbeError> {
         let started = Instant::now();
         let tunnel = self.route().await?;
         let mut target = self.target.clone();
@@ -205,10 +207,10 @@ impl ConnectionSession {
             .map_err(|err| tunnel::explain(err, tunnel.as_deref(), started))
     }
 
-    async fn open_link(&self) -> Result<Arc<dyn Connection>, YadbeError> {
+    async fn open_link(&self) -> Result<Backend, YadbeError> {
         let mut shutdown = self.shutdown.subscribe();
         tokio::select! {
-            result = self.dial(None) => result.map(Arc::from),
+            result = self.dial(None) => result,
             _ = shutdown.wait_for(|closed| *closed) => Err(YadbeError::cancelled()),
         }
     }
@@ -223,10 +225,10 @@ impl ConnectionSession {
     pub(crate) async fn open(self: &Arc<Self>) -> Result<SessionInfo, YadbeError> {
         let conn = self.open_link().await?;
         if self.is_closed() {
-            conn.close().await;
+            conn.as_link().close().await;
             return Err(YadbeError::cancelled());
         }
-        let version = conn.server_version().to_owned();
+        let version = conn.as_link().server_version().to_owned();
         self.install(Some(conn));
         self.set_state(|s| {
             s.state = ConnectionState::Connected;
@@ -255,10 +257,10 @@ impl ConnectionSession {
                 () = tokio::time::sleep(every) => {}
                 _ = shutdown.wait_for(|closed| *closed) => return,
             }
-            let Ok(conn) = self.connection() else {
+            let Ok(conn) = self.backend() else {
                 continue;
             };
-            if let Err(err) = conn.keep_alive().await {
+            if let Err(err) = conn.as_link().keep_alive().await {
                 tracing::debug!(connection = %self.id, error = %err, "keep-alive ping failed");
             }
         }
@@ -270,7 +272,7 @@ impl ConnectionSession {
         let mut shutdown = self.shutdown.subscribe();
         loop {
             let Some(conn) = self.current() else { return };
-            let mut link = conn.link();
+            let mut link = conn.as_link().link();
             drop(conn);
             tokio::select! {
                 () = link.lost() => {}
@@ -314,10 +316,10 @@ impl ConnectionSession {
             match self.open_link().await {
                 Ok(conn) => {
                     if self.is_closed() {
-                        conn.close().await;
+                        conn.as_link().close().await;
                         return false;
                     }
-                    let version = conn.server_version().to_owned();
+                    let version = conn.as_link().server_version().to_owned();
                     self.install(Some(conn));
                     self.set_state(|s| {
                         s.state = ConnectionState::Connected;
@@ -346,21 +348,42 @@ impl ConnectionSession {
     }
 
     /// The open connection, or `notConnected` while connecting, lost or reconnecting.
-    pub fn connection(&self) -> Result<Arc<dyn Connection>, YadbeError> {
+    pub fn backend(&self) -> Result<Backend, YadbeError> {
         match self.current() {
-            Some(conn) if !conn.link().is_lost() => Ok(conn),
+            Some(conn) if !conn.as_link().link().is_lost() => Ok(conn),
             _ => Err(YadbeError::not_connected()),
         }
+    }
+
+    /// The open connection of a SQL engine: `notConnected` as [`Self::backend`], `sqlOnly` for
+    /// an engine of another family.
+    pub fn sql(&self) -> Result<Arc<dyn SqlConnection>, YadbeError> {
+        self.dialect()?;
+        self.backend()?.into_sql()
+    }
+
+    /// The family of the session's engine.
+    pub fn family(&self) -> EngineFamily {
+        self.target.engine.family()
+    }
+
+    /// The SQL dialect of the session's engine, or `sqlOnly` for an engine of another family:
+    /// what every SQL service asks first.
+    pub fn dialect(&self) -> Result<&'static dyn Dialect, YadbeError> {
+        self.target
+            .engine
+            .sql_dialect()
+            .ok_or_else(YadbeError::sql_only)
     }
 
     /// Runs one statement yadbe authors (recorded in the statement log). Fails, never
     /// retries, when the link drops.
     pub async fn query(&self, sql: &str, max_rows: usize) -> Result<QueryResult, YadbeError> {
-        self.connection()?.query(sql, max_rows).await
+        self.sql()?.query(sql, max_rows).await
     }
 
     pub async fn ping(&self) -> Result<(), YadbeError> {
-        self.connection()?.ping().await
+        self.backend()?.as_link().ping().await
     }
 
     /// The settings the session was opened with; read-only is [`Self::read_only`].
@@ -402,14 +425,14 @@ impl ConnectionSession {
         }
         tracing::info!(connection = %self.id, read_only = on, "read-only changed");
         match self.current() {
-            Some(conn) if !conn.link().is_lost() => self.align(&*conn).await,
+            Some(conn) if !conn.as_link().link().is_lost() => self.align(conn.as_link()).await,
             _ => Ok(()),
         }
     }
 
     /// Brings the engine's read-only guard of `conn` (a connection of this session) to the
-    /// session's flag. Only outside a transaction: see [`Connection::set_read_only`].
-    pub async fn align(&self, conn: &dyn Connection) -> Result<(), YadbeError> {
+    /// session's flag. Only outside a transaction: see [`Link::set_read_only`].
+    pub async fn align(&self, conn: &dyn Link) -> Result<(), YadbeError> {
         let wanted = self.read_only();
         match conn.read_only_mode() {
             Some(mode) if mode != wanted => conn.set_read_only(wanted).await,
@@ -429,16 +452,23 @@ impl ConnectionSession {
 
     /// Opens another server connection with the session's settings and password (an editor
     /// tab's own connection), on `database` when given. Aborted when the session closes.
-    pub async fn open_dedicated(
-        &self,
-        database: Option<&str>,
-    ) -> Result<Box<dyn Connection>, YadbeError> {
-        self.connection()?;
+    pub async fn open_dedicated(&self, database: Option<&str>) -> Result<Backend, YadbeError> {
+        self.backend()?;
         let mut shutdown = self.shutdown.subscribe();
         tokio::select! {
             result = self.dial(database) => result,
             _ = shutdown.wait_for(|closed| *closed) => Err(YadbeError::not_connected()),
         }
+    }
+
+    /// [`Self::open_dedicated`] for a SQL service: `sqlOnly` for another family, before
+    /// anything is opened.
+    pub async fn open_dedicated_sql(
+        &self,
+        database: Option<&str>,
+    ) -> Result<Arc<dyn SqlConnection>, YadbeError> {
+        self.dialect()?;
+        self.open_dedicated(database).await?.into_sql()
     }
 
     /// Closes the connection and stops reconnecting. `error`: why, when it was not the
@@ -453,7 +483,7 @@ impl ConnectionSession {
         let monitor = lock(&self.monitor).take();
         let keeper = lock(&self.keeper).take();
         if let Some(conn) = self.install(None) {
-            conn.close().await;
+            conn.as_link().close().await;
         }
         if let Some(monitor) = monitor {
             monitor.abort();

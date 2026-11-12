@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use common::{MysqlDatabase, blank, from_url, mssql_url, mysql_url, pg_definition, pg_url};
 use query_common::{Bench, bench};
-use yadbe_lib::db::dialect::Engine;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::events::{BackendEvent, EventSink};
 use yadbe_lib::export::ExportManager;
 use yadbe_lib::export::model::{

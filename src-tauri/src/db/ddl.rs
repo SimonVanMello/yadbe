@@ -361,7 +361,7 @@ pub fn object_ddl(dialect: &dyn Dialect, object: &ObjectRef, info: &ObjectInfo) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
     use crate::db::meta::{CheckConstraint, Generated, KeyConstraint};
     use crate::db::value::ValueKind;
 

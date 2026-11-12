@@ -269,7 +269,7 @@ pub fn single_table_select(sql: &str, syntax: &SqlSyntax) -> Option<SelectSource
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
 
     fn table(sql: &str, engine: Engine) -> Option<Vec<String>> {
         single_table_select(sql, &engine.dialect().syntax()).map(|s| s.parts)

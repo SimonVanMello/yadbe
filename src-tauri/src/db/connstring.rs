@@ -6,7 +6,7 @@ use serde::Serialize;
 use specta::Type;
 
 use crate::db::config::{ConnectionOption, TlsMode};
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
 use crate::secrets::Secret;
 

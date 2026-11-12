@@ -9,10 +9,11 @@ mod common;
 
 use std::sync::Arc;
 
+use common::SqlEngine as _;
 use common::{blank, mssql_url, pg_definition, pg_url};
 use yadbe_lib::db::config::ConnectionDefinition;
-use yadbe_lib::db::dialect::Engine;
 use yadbe_lib::db::edit_dialect::plain_text;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::{ErrorCode, YadbeError};
 use yadbe_lib::db::meta::ObjectRef;
 use yadbe_lib::db::value::Value;

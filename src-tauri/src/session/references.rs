@@ -24,7 +24,7 @@ use std::time::Instant;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::JoinHandle;
 
-use crate::db::driver::{BoundStatement, CancelHandle, Connection};
+use crate::db::driver::{BoundStatement, CancelHandle, SqlConnection};
 use crate::db::errors::YadbeError;
 use crate::db::meta::{ObjectRef, Qualifier};
 use crate::db::value::{ColumnMeta, QueryResult, Value};
@@ -61,7 +61,7 @@ fn to_u32(value: usize) -> u32 {
 struct LookupConnection {
     connection_id: String,
     database: Option<String>,
-    conn: Arc<dyn Connection>,
+    conn: Arc<dyn SqlConnection>,
     /// Its link dropped or its session closed.
     dead: Arc<AtomicBool>,
     watcher: JoinHandle<()>,
@@ -203,8 +203,9 @@ impl ReferenceService {
                 stale.close().await;
             }
             let session = self.manager.session(&target.connection_id)?;
-            let conn: Arc<dyn Connection> =
-                Arc::from(session.open_dedicated(target.database.as_deref()).await?);
+            let conn: Arc<dyn SqlConnection> = session
+                .open_dedicated_sql(target.database.as_deref())
+                .await?;
             let dead = Arc::new(AtomicBool::new(false));
             let mut closed = session.closed();
             let watched = Arc::clone(&conn);

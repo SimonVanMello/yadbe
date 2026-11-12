@@ -7,7 +7,7 @@ mod query_common;
 
 use common::{MysqlDatabase, blank, from_url, mssql_url, mysql_url, pg_definition, pg_url};
 use query_common::{Bench, Run, bench};
-use yadbe_lib::db::dialect::Engine;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::db::plan::{PlanFormat, PlanWeightBasis};
 use yadbe_lib::session::query_model::{
@@ -518,7 +518,7 @@ async fn mysql_explains_estimated_and_actual_plans() {
     let maria = b
         .manager
         .session(&b.connection_id)
-        .and_then(|s| s.connection())
+        .and_then(|s| s.sql())
         .is_ok_and(|c| c.server_version().starts_with("MariaDB"));
     let select = "SELECT * FROM people WHERE name = 'bob'";
     check_explain(&b, select, "people", PlanFormat::MysqlJson, true).await;

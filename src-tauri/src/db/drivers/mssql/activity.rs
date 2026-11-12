@@ -11,7 +11,7 @@ use crate::db::activity::{
     ActivityFuture, ActivityMonitor, ActivitySnapshot, KillMode, KillOutcome, KillRequest, bool_of,
     bound_id, check_target, locks_from_rows, own_session, parse_session_id, session_from_row,
 };
-use crate::db::driver::{BoundFailure, Connection};
+use crate::db::driver::{BoundFailure, SqlConnection};
 use crate::db::errors::YadbeError;
 
 const PRIVILEGE_SQL: &str = "\
@@ -109,7 +109,7 @@ fn refused(failure: BoundFailure) -> YadbeError {
 impl ActivityMonitor for MssqlConnection {
     fn activity(&self) -> ActivityFuture<'_, ActivitySnapshot> {
         Box::pin(async move {
-            let allowed = Connection::query(self, PRIVILEGE_SQL, 1).await?;
+            let allowed = SqlConnection::query(self, PRIVILEGE_SQL, 1).await?;
             if !allowed.rows.first().is_some_and(|row| bool_of(row.first())) {
                 return Err(YadbeError::insufficient_privilege(
                     "The database user cannot see other sessions.",
@@ -118,8 +118,8 @@ impl ActivityMonitor for MssqlConnection {
                 ));
             }
             let (sessions, locks) = futures_util::future::try_join(
-                Connection::query(self, SESSIONS_SQL, usize::MAX),
-                Connection::query(self, LOCKS_SQL, usize::MAX),
+                SqlConnection::query(self, SESSIONS_SQL, usize::MAX),
+                SqlConnection::query(self, LOCKS_SQL, usize::MAX),
             )
             .await?;
             let (locks, locks_truncated) = locks_from_rows(&locks.rows);

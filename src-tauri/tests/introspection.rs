@@ -11,10 +11,11 @@ mod conformance;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use common::SqlEngine as _;
 use common::{pg_definition, pg_url};
 use conformance::{Ctx, Shop};
 use yadbe_lib::db::config::ConnectionDefinition;
-use yadbe_lib::db::dialect::Engine;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::db::meta::{Identity, MetaNode, ObjectDetail, ObjectKind, ObjectRef, TypeCategory};
 use yadbe_lib::db::value::ValueKind;
@@ -1099,7 +1100,7 @@ async fn mysql_conformance_and_specifics() {
     let db = shop.database.as_str();
     let version = manager
         .session(&id)
-        .and_then(|s| s.connection())
+        .and_then(|s| s.sql())
         .expect("connection")
         .server_version()
         .to_owned();
@@ -1358,7 +1359,7 @@ async fn p02_mysql() {
          catalog {} ms ({} relations)",
         h.manager
             .session(&id)
-            .and_then(|s| s.connection())
+            .and_then(|s| s.sql())
             .map(|c| c.server_version().to_owned())
             .unwrap_or_default(),
         ms(connect),

@@ -7,10 +7,11 @@ use std::time::Duration;
 
 use super::*;
 use crate::db::config::{AuthMethod, sample_definition};
-use crate::db::dialect::Engine;
 use crate::db::driver::{
-    BoxFuture, CancelHandle, ConnectRequest, Connection, Driver, LinkSignal, LinkWatch,
+    Backend, BoxFuture, CancelHandle, ConnectRequest, Driver, Link, LinkSignal, LinkWatch,
+    SqlConnection,
 };
+use crate::db::engine::Engine;
 use crate::db::errors::ErrorCode;
 use crate::db::introspect::{Introspector, MetaFuture};
 use crate::db::meta::{CompletionCatalog, ObjectCount};
@@ -44,25 +45,33 @@ impl CancelHandle for FakeCancel {
     }
 }
 
-impl Connection for FakeConnection {
+impl Link for FakeConnection {
     fn server_version(&self) -> &str {
         "Fake 1.0"
     }
+
     fn ping(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
         Box::pin(async { Ok(()) })
     }
-    fn query<'a>(&'a self, _: &'a str, _: usize) -> BoxFuture<'a, Result<QueryResult, YadbeError>> {
-        Box::pin(async { Err(YadbeError::not_implemented()) })
-    }
+
     fn link(&self) -> LinkWatch {
         self.link.clone()
     }
+
     fn cancel_handle(&self) -> Arc<dyn CancelHandle> {
         Arc::new(FakeCancel(Arc::clone(&self.probe)))
     }
+
     fn close(&self) -> BoxFuture<'_, ()> {
         Box::pin(async {})
     }
+}
+
+impl SqlConnection for FakeConnection {
+    fn query<'a>(&'a self, _: &'a str, _: usize) -> BoxFuture<'a, Result<QueryResult, YadbeError>> {
+        Box::pin(async { Err(YadbeError::not_implemented()) })
+    }
+
     fn introspector(&self) -> Option<&dyn Introspector> {
         Some(self)
     }
@@ -116,17 +125,14 @@ impl Driver for FakeDriver {
     fn engine(&self) -> Engine {
         Engine::Sqlite
     }
-    fn connect<'a>(
-        &'a self,
-        _: ConnectRequest<'a>,
-    ) -> BoxFuture<'a, Result<Box<dyn Connection>, YadbeError>> {
+    fn connect<'a>(&'a self, _: ConnectRequest<'a>) -> BoxFuture<'a, Result<Backend, YadbeError>> {
         Box::pin(async move {
             let (signal, link) = LinkWatch::new();
             self.0.links.lock().expect("lock").push(signal);
-            Ok(Box::new(FakeConnection {
+            Ok(Backend::Sql(Arc::new(FakeConnection {
                 probe: Arc::clone(&self.0),
                 link,
-            }) as Box<dyn Connection>)
+            })))
         })
     }
 }

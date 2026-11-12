@@ -728,7 +728,7 @@ fn missing_values(sql: &str, keyed: &[(String, &Placeholder)], missing: &[String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
 
     fn found(engine: Engine, sql: &str) -> Vec<String> {
         let dialect = engine.dialect();

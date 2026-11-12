@@ -18,7 +18,11 @@ pub fn copy_connection_string(
     include_password: bool,
 ) -> Result<ConnectionStringCopy, YadbeError> {
     let definition = store.connection(connection_id)?.definition;
-    let password = if include_password && !definition.engine.dialect().capabilities().uses_file {
+    let dialect = definition
+        .engine
+        .sql_dialect()
+        .ok_or_else(YadbeError::sql_only)?;
+    let password = if include_password && !definition.engine.capabilities().uses_file {
         Some(
             secrets
                 .get(connection_id, SecretKind::Password)?
@@ -28,7 +32,7 @@ pub fn copy_connection_string(
         None
     };
     Ok(dotnet::build(
-        definition.engine.dialect(),
+        dialect,
         &definition,
         flavor,
         password.as_ref(),

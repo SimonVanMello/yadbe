@@ -19,7 +19,7 @@ use super::parse::{OpenedFile, ParseError, Record, RecordSource};
 use super::plan::{CellIssue, ImportPlan, convert_record, insert_statement};
 use super::rejects::RejectsFile;
 use crate::db::dialect::Dialect;
-use crate::db::driver::{BoundFailure, BoundStatement, Connection};
+use crate::db::driver::{BoundFailure, BoundStatement, SqlConnection};
 use crate::db::errors::{ErrorCode, YadbeError};
 use crate::db::value::Value;
 
@@ -28,7 +28,7 @@ const SAMPLE_REJECTS: usize = 50;
 const SAVEPOINT: &str = "yadbe_import";
 
 pub struct Job {
-    pub conn: Arc<dyn Connection>,
+    pub conn: Arc<dyn SqlConnection>,
     pub dialect: &'static dyn Dialect,
     pub plan: ImportPlan,
     pub opened: OpenedFile,
@@ -139,7 +139,7 @@ fn issue_text(issues: &[CellIssue]) -> String {
 }
 
 struct Run<'a> {
-    conn: Arc<dyn Connection>,
+    conn: Arc<dyn SqlConnection>,
     dialect: &'static dyn Dialect,
     plan: ImportPlan,
     on_error: ImportOnError,
@@ -458,7 +458,7 @@ pub async fn run_import(
     }
 }
 
-async fn rollback(conn: &Arc<dyn Connection>, dialect: &dyn Dialect) {
+async fn rollback(conn: &Arc<dyn SqlConnection>, dialect: &dyn Dialect) {
     if conn.in_transaction() == Some(false) || conn.link().is_lost() {
         return;
     }

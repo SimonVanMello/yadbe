@@ -67,6 +67,7 @@ export function catalogSource(
 }
 
 export const POSTGRES: Capabilities = {
+  family: 'sql',
   usesFile: false,
   defaultPort: 5432,
   supportsTls: true,
@@ -92,9 +93,16 @@ export const POSTGRES: Capabilities = {
   activityMonitor: true,
   activityCancelQuery: true,
   tableQualifier: 'schema',
+  formatter: true,
+  ddl: true,
+  scriptAs: true,
+  dataImport: true,
+  efMigrations: true,
+  dotnetConnectionString: true,
 };
 
 export const SQLITE: Capabilities = {
+  family: 'sql',
   usesFile: true,
   defaultPort: null,
   supportsTls: false,
@@ -120,6 +128,12 @@ export const SQLITE: Capabilities = {
   activityMonitor: false,
   activityCancelQuery: false,
   tableQualifier: 'none',
+  formatter: true,
+  ddl: true,
+  scriptAs: true,
+  dataImport: true,
+  efMigrations: true,
+  dotnetConnectionString: true,
 };
 
 export const MYSQL: Capabilities = {

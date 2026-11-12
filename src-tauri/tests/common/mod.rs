@@ -9,9 +9,10 @@ use yadbe_lib::db::config::{
     AuthMethod, ConnectionDefinition, ConnectionOption, Environment, TlsMode,
 };
 use yadbe_lib::db::connstring;
-use yadbe_lib::db::dialect::Engine;
-use yadbe_lib::db::driver::{ConnectRequest, Connection, Driver, NoRecorder};
+use yadbe_lib::db::dialect::Dialect;
+use yadbe_lib::db::driver::{ConnectRequest, Driver, NoRecorder, SqlConnection};
 use yadbe_lib::db::drivers;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::YadbeError;
 use yadbe_lib::events::{BackendEvent, RecordingSink};
 use yadbe_lib::secrets::{MemoryKeychain, Secret, SecretStore};
@@ -240,7 +241,7 @@ pub fn driver(engine: Engine) -> Arc<dyn Driver> {
 pub async fn open(
     def: &ConnectionDefinition,
     password: Option<&Secret>,
-) -> Result<Box<dyn Connection>, YadbeError> {
+) -> Result<Arc<dyn SqlConnection>, YadbeError> {
     let target = def.target();
     driver(def.engine)
         .connect(ConnectRequest {
@@ -248,7 +249,19 @@ pub async fn open(
             password,
             recorder: Arc::new(NoRecorder),
         })
-        .await
+        .await?
+        .into_sql()
+}
+
+/// The dialect of an engine a test knows to be SQL.
+pub trait SqlEngine {
+    fn dialect(self) -> &'static dyn Dialect;
+}
+
+impl SqlEngine for Engine {
+    fn dialect(self) -> &'static dyn Dialect {
+        self.sql_dialect().expect("an engine of the SQL family")
+    }
 }
 
 pub struct Harness {

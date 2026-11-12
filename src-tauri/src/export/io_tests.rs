@@ -80,7 +80,7 @@ async fn run_to(
         source,
         encoder(&ExportFormat::Csv {
             options: CsvOptions::default(),
-        }),
+        })?,
         target,
         1,
         cancel,

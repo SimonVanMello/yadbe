@@ -83,7 +83,7 @@ impl<'d> SqlBuilder<'d> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
 
     #[test]
     fn binds_values_and_shows_them_as_literals() {

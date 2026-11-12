@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
 use crate::db::tls_identity::TlsIdentity;
 use crate::tunnel::SshTunnel;
@@ -235,7 +235,7 @@ fn default_true() -> bool {
 impl ConnectionDefinition {
     /// Trims the text fields and checks lengths and engine-specific requirements.
     pub fn normalized(mut self) -> Result<Self, YadbeError> {
-        let caps = self.engine.dialect().capabilities();
+        let caps = self.engine.capabilities();
         self.name = self.name.trim().to_owned();
         self.host = self.host.trim().to_owned();
         self.database = self.database.trim().to_owned();
@@ -383,7 +383,7 @@ impl ConnectionDefinition {
     /// Like [`Self::target`], with the app-wide connect timeout (preferences) standing in for
     /// the one this definition does not set.
     pub fn target_with_timeout(&self, default_timeout_secs: u32) -> ConnectTarget {
-        let caps = self.engine.dialect().capabilities();
+        let caps = self.engine.capabilities();
         ConnectTarget {
             engine: self.engine,
             host: self.host.clone(),

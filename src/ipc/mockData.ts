@@ -32,11 +32,23 @@ export function mockObjectActions(
   });
 }
 
+/** What every engine of the SQL family has on top of its own capabilities. */
+const SQL_FAMILY = {
+  family: 'sql',
+  formatter: true,
+  ddl: true,
+  scriptAs: true,
+  dataImport: true,
+  efMigrations: true,
+  dotnetConnectionString: true,
+} as const;
+
 const ENGINES: EngineInfo[] = [
   {
     engine: 'postgres',
     label: 'PostgreSQL',
     capabilities: {
+      ...SQL_FAMILY,
       usesFile: false,
       defaultPort: 5432,
       supportsTls: true,
@@ -71,6 +83,7 @@ const ENGINES: EngineInfo[] = [
     engine: 'mssql',
     label: 'SQL Server',
     capabilities: {
+      ...SQL_FAMILY,
       usesFile: false,
       defaultPort: 1433,
       supportsTls: true,
@@ -105,6 +118,7 @@ const ENGINES: EngineInfo[] = [
     engine: 'mysql',
     label: 'MySQL / MariaDB',
     capabilities: {
+      ...SQL_FAMILY,
       usesFile: false,
       defaultPort: 3306,
       supportsTls: true,
@@ -139,6 +153,7 @@ const ENGINES: EngineInfo[] = [
     engine: 'sqlite',
     label: 'SQLite',
     capabilities: {
+      ...SQL_FAMILY,
       usesFile: true,
       defaultPort: null,
       supportsTls: false,

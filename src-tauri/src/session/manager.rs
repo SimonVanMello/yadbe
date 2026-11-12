@@ -7,9 +7,9 @@ use std::time::Instant;
 use tokio::sync::Notify;
 
 use crate::db::config::{AuthMethod, ConnectionDefinition, DEFAULT_CONNECT_TIMEOUT_SECS, TlsMode};
-use crate::db::dialect::{Engine, EngineInfo};
 use crate::db::driver::{ConnectRequest, Driver};
 use crate::db::drivers;
+use crate::db::engine::{Engine, EngineInfo};
 use crate::db::errors::YadbeError;
 use crate::db::tls_identity::TlsIdentity;
 use crate::events::EventSink;
@@ -107,17 +107,7 @@ impl ConnectionManager {
     pub fn engines(&self) -> Vec<EngineInfo> {
         Engine::ALL
             .into_iter()
-            .map(|engine| {
-                let dialect = engine.dialect();
-                EngineInfo {
-                    engine,
-                    label: dialect.label().to_owned(),
-                    capabilities: dialect.capabilities(),
-                    default_username: dialect.default_username().map(str::to_owned),
-                    available: self.drivers.contains_key(&engine),
-                    object_actions: crate::db::object_ops::support_of(dialect),
-                }
-            })
+            .map(|engine| EngineInfo::of(engine, self.drivers.contains_key(&engine)))
             .collect()
     }
 
@@ -125,7 +115,7 @@ impl ConnectionManager {
         self.drivers
             .get(&engine)
             .cloned()
-            .ok_or_else(|| YadbeError::engine_not_supported(engine.dialect().label()))
+            .ok_or_else(|| YadbeError::engine_not_supported(engine.label()))
     }
 
     /// The app-wide connect timeout (preferences) for definitions that set none.
@@ -167,7 +157,7 @@ impl ConnectionManager {
         connection_id: Option<&str>,
         provided: &TunnelSecrets,
     ) -> Result<Option<Arc<TlsIdentity>>, YadbeError> {
-        let caps = definition.engine.dialect().capabilities();
+        let caps = definition.engine.capabilities();
         let Some(cert) = definition.tls_client_cert_path.clone() else {
             return Ok(None);
         };
@@ -361,9 +351,10 @@ impl ConnectionManager {
                     })
                     .await
                     .map_err(|err| tunnel::explain(err, tunnel.as_deref(), dialed))?;
-                let ping = conn.ping().await;
-                let version = conn.server_version().to_owned();
-                conn.close().await;
+                let link = conn.as_link();
+                let ping = link.ping().await;
+                let version = link.server_version().to_owned();
+                link.close().await;
                 ping.map(|()| version)
             }
             .await;

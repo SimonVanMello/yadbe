@@ -1,96 +1,10 @@
-//! Engine differences expressed as data: identifier quoting, placeholders and capabilities.
-//! Services and the frontend ask the dialect; they never `match` on the engine.
+//! How the engines of the SQL family write SQL: identifier quoting, placeholders, lexical
+//! rules. Services ask the dialect; they never `match` on the engine. Engines of the other
+//! families have no dialect (`Engine::sql_dialect` is `None`).
 
-use serde::{Deserialize, Serialize};
-use specta::Type;
-
-use crate::db::params::{ParamBinding, ParameterStyles};
+use crate::db::engine::{Capabilities, Engine};
+use crate::db::params::ParamBinding;
 use crate::db::split::{BlockRule, Separator, SqlSyntax};
-
-/// Database engines yadbe knows. Every engine has a dialect; drivers arrive one by one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum Engine {
-    Postgres,
-    Mssql,
-    Mysql,
-    Sqlite,
-}
-
-impl Engine {
-    pub const ALL: [Engine; 4] = [
-        Engine::Postgres,
-        Engine::Mssql,
-        Engine::Mysql,
-        Engine::Sqlite,
-    ];
-
-    /// Stable identifier, as stored in the app database.
-    pub fn id(self) -> &'static str {
-        match self {
-            Engine::Postgres => "postgres",
-            Engine::Mssql => "mssql",
-            Engine::Mysql => "mysql",
-            Engine::Sqlite => "sqlite",
-        }
-    }
-
-    pub fn from_id(id: &str) -> Option<Engine> {
-        Engine::ALL.into_iter().find(|engine| engine.id() == id)
-    }
-
-    pub fn dialect(self) -> &'static dyn Dialect {
-        match self {
-            Engine::Postgres => &PostgresDialect,
-            Engine::Mssql => &MssqlDialect,
-            Engine::Mysql => &MysqlDialect,
-            Engine::Sqlite => &SqliteDialect,
-        }
-    }
-}
-
-/// What an engine supports, as data the services and the UI can branch on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct Capabilities {
-    /// The database is a local file (no host, port or user).
-    pub uses_file: bool,
-    /// Default TCP port, for server engines.
-    pub default_port: Option<u16>,
-    /// The engine supports TLS and the connection form shows the TLS settings.
-    pub supports_tls: bool,
-    /// The connection can present a TLS client certificate (F-009).
-    pub client_certificate: bool,
-    /// A server hosts several databases that can be listed and switched.
-    pub multiple_databases: bool,
-    /// Schemas exist between the database and its tables.
-    pub schemas: bool,
-    /// A running statement can be cancelled with a native mechanism.
-    pub native_cancel: bool,
-    /// The session can be put in read-only mode by the engine itself.
-    pub read_only_session: bool,
-    /// The character that opens a quoted identifier (`"`, `[` or a backtick).
-    pub identifier_quote_open: char,
-    /// The character that closes a quoted identifier; inside one it is written twice.
-    pub identifier_quote_close: char,
-    /// The engine reads an unquoted identifier in lower case (PostgreSQL), so a name with
-    /// capitals needs its quotes to be found again.
-    pub folds_unquoted_to_lower: bool,
-    /// Placeholders read as query parameters (F-048).
-    pub parameter_styles: ParameterStyles,
-    /// The engine shows its plan for a statement without running it (F-053).
-    pub explain: bool,
-    /// The engine runs a statement and shows its plan with actual rows and times.
-    pub explain_analyze: bool,
-    /// The engine has sessions to watch: the activity monitor is offered (F-140).
-    pub activity_monitor: bool,
-    /// A running statement can be stopped while its session stays (`pg_cancel_backend`,
-    /// `KILL QUERY`); otherwise only the whole session can be ended.
-    pub activity_cancel_query: bool,
-    /// What names a table besides its own name, in generated SQL and in the UI's labels:
-    /// its schema, its database (MySQL), or nothing (SQLite).
-    pub table_qualifier: crate::db::meta::Qualifier,
-}
 
 pub trait Dialect:
     Send
@@ -103,20 +17,20 @@ pub trait Dialect:
     fn engine(&self) -> Engine;
 
     /// Human-readable engine name (not translated: product names).
-    fn label(&self) -> &'static str;
+    fn label(&self) -> &'static str {
+        self.engine().label()
+    }
 
-    fn capabilities(&self) -> Capabilities;
+    /// The capabilities of the dialect's engine.
+    fn capabilities(&self) -> Capabilities {
+        self.engine().capabilities()
+    }
 
     /// Quotes an identifier so it is taken literally (case, spaces, keywords).
     fn quote_identifier(&self, ident: &str) -> String;
 
     /// The placeholder of the `index`-th bound parameter, 1-based.
     fn placeholder(&self, index: usize) -> String;
-
-    /// User name the connection form suggests.
-    fn default_username(&self) -> Option<&'static str> {
-        None
-    }
 
     /// Lexical rules for splitting scripts and classifying statements.
     fn syntax(&self) -> SqlSyntax;
@@ -155,42 +69,11 @@ impl Dialect for PostgresDialect {
     fn engine(&self) -> Engine {
         Engine::Postgres
     }
-    fn label(&self) -> &'static str {
-        "PostgreSQL"
-    }
-    fn capabilities(&self) -> Capabilities {
-        Capabilities {
-            uses_file: false,
-            default_port: Some(5432),
-            supports_tls: true,
-            client_certificate: true,
-            multiple_databases: true,
-            schemas: true,
-            native_cancel: true,
-            read_only_session: true,
-            identifier_quote_open: '"',
-            identifier_quote_close: '"',
-            folds_unquoted_to_lower: true,
-            parameter_styles: ParameterStyles {
-                colon: true,
-                dollar_number: true,
-                ..ParameterStyles::default()
-            },
-            explain: true,
-            explain_analyze: true,
-            activity_monitor: true,
-            activity_cancel_query: true,
-            table_qualifier: crate::db::meta::Qualifier::Schema,
-        }
-    }
     fn quote_identifier(&self, ident: &str) -> String {
         quote_with(ident, '"', '"')
     }
     fn placeholder(&self, index: usize) -> String {
         format!("${index}")
-    }
-    fn default_username(&self) -> Option<&'static str> {
-        Some("postgres")
     }
     fn param_binding(&self) -> ParamBinding {
         ParamBinding::DollarNumbers
@@ -221,42 +104,11 @@ impl Dialect for MssqlDialect {
     fn engine(&self) -> Engine {
         Engine::Mssql
     }
-    fn label(&self) -> &'static str {
-        "SQL Server"
-    }
-    fn capabilities(&self) -> Capabilities {
-        Capabilities {
-            uses_file: false,
-            default_port: Some(1433),
-            supports_tls: true,
-            client_certificate: false,
-            multiple_databases: true,
-            schemas: true,
-            native_cancel: true,
-            read_only_session: false,
-            identifier_quote_open: '[',
-            identifier_quote_close: ']',
-            folds_unquoted_to_lower: false,
-            parameter_styles: ParameterStyles {
-                at: true,
-                at_declared_are_variables: true,
-                ..ParameterStyles::default()
-            },
-            explain: true,
-            explain_analyze: true,
-            activity_monitor: true,
-            activity_cancel_query: false,
-            table_qualifier: crate::db::meta::Qualifier::Schema,
-        }
-    }
     fn quote_identifier(&self, ident: &str) -> String {
         quote_with(ident, '[', ']')
     }
     fn placeholder(&self, index: usize) -> String {
         format!("@P{index}")
-    }
-    fn default_username(&self) -> Option<&'static str> {
-        Some("sa")
     }
     fn param_binding(&self) -> ParamBinding {
         ParamBinding::AsWritten
@@ -287,42 +139,11 @@ impl Dialect for MysqlDialect {
     fn engine(&self) -> Engine {
         Engine::Mysql
     }
-    fn label(&self) -> &'static str {
-        "MySQL / MariaDB"
-    }
-    fn capabilities(&self) -> Capabilities {
-        Capabilities {
-            uses_file: false,
-            default_port: Some(3306),
-            supports_tls: true,
-            client_certificate: true,
-            multiple_databases: true,
-            schemas: false,
-            native_cancel: true,
-            read_only_session: true,
-            identifier_quote_open: '`',
-            identifier_quote_close: '`',
-            folds_unquoted_to_lower: false,
-            parameter_styles: ParameterStyles {
-                colon: true,
-                question: true,
-                ..ParameterStyles::default()
-            },
-            explain: true,
-            explain_analyze: true,
-            activity_monitor: true,
-            activity_cancel_query: true,
-            table_qualifier: crate::db::meta::Qualifier::Database,
-        }
-    }
     fn quote_identifier(&self, ident: &str) -> String {
         quote_with(ident, '`', '`')
     }
     fn placeholder(&self, _index: usize) -> String {
         "?".to_owned()
-    }
-    fn default_username(&self) -> Option<&'static str> {
-        Some("root")
     }
     fn param_binding(&self) -> ParamBinding {
         ParamBinding::QuestionMarks
@@ -353,37 +174,6 @@ impl Dialect for SqliteDialect {
     fn engine(&self) -> Engine {
         Engine::Sqlite
     }
-    fn label(&self) -> &'static str {
-        "SQLite"
-    }
-    fn capabilities(&self) -> Capabilities {
-        Capabilities {
-            uses_file: true,
-            default_port: None,
-            supports_tls: false,
-            client_certificate: false,
-            multiple_databases: false,
-            schemas: false,
-            native_cancel: true,
-            read_only_session: true,
-            identifier_quote_open: '"',
-            identifier_quote_close: '"',
-            folds_unquoted_to_lower: false,
-            parameter_styles: ParameterStyles {
-                colon: true,
-                at: true,
-                dollar_name: true,
-                question: true,
-                question_number: true,
-                ..ParameterStyles::default()
-            },
-            explain: true,
-            explain_analyze: false,
-            activity_monitor: false,
-            activity_cancel_query: false,
-            table_qualifier: crate::db::meta::Qualifier::None,
-        }
-    }
     fn quote_identifier(&self, ident: &str) -> String {
         quote_with(ident, '"', '"')
     }
@@ -410,21 +200,6 @@ impl Dialect for SqliteDialect {
     }
 }
 
-/// An engine as the connection form sees it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct EngineInfo {
-    pub engine: Engine,
-    pub label: String,
-    pub capabilities: Capabilities,
-    pub default_username: Option<String>,
-    /// A driver for this engine ships in this build; otherwise connecting fails with
-    /// `engineNotSupported`.
-    pub available: bool,
-    /// Drop, truncate and rename per kind of object (F-026): the menus hide the rest.
-    pub object_actions: Vec<crate::db::object_model::ObjectActionSupport>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,62 +219,10 @@ mod tests {
     }
 
     #[test]
-    fn the_table_qualifier_follows_the_namespaces() {
-        use crate::db::meta::Qualifier;
-        for engine in [
-            Engine::Postgres,
-            Engine::Mssql,
-            Engine::Mysql,
-            Engine::Sqlite,
-        ] {
-            let caps = engine.dialect().capabilities();
-            let expected = if caps.schemas {
-                Qualifier::Schema
-            } else if caps.multiple_databases {
-                Qualifier::Database
-            } else {
-                Qualifier::None
-            };
-            assert_eq!(caps.table_qualifier, expected, "{engine:?}");
-        }
-    }
-
-    #[test]
-    fn capabilities_describe_the_quoting_the_dialect_does() {
-        for engine in [
-            Engine::Postgres,
-            Engine::Mssql,
-            Engine::Mysql,
-            Engine::Sqlite,
-        ] {
-            let dialect = engine.dialect();
-            let caps = dialect.capabilities();
-            assert_eq!(
-                dialect.quote_identifier("x"),
-                format!(
-                    "{}x{}",
-                    caps.identifier_quote_open, caps.identifier_quote_close
-                ),
-                "{engine:?}"
-            );
-        }
-    }
-
-    #[test]
     fn placeholders_per_engine() {
         assert_eq!(Engine::Postgres.dialect().placeholder(2), "$2");
         assert_eq!(Engine::Mssql.dialect().placeholder(2), "@P2");
         assert_eq!(Engine::Mysql.dialect().placeholder(2), "?");
         assert_eq!(Engine::Sqlite.dialect().placeholder(2), "?2");
-    }
-
-    #[test]
-    fn ids_round_trip() {
-        for engine in Engine::ALL {
-            assert_eq!(Engine::from_id(engine.id()), Some(engine));
-            assert_eq!(engine.dialect().engine(), engine);
-            let json = serde_json::to_value(engine).expect("serializes");
-            assert_eq!(json, engine.id());
-        }
     }
 }

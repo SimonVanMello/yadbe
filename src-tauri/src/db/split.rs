@@ -525,7 +525,7 @@ impl<'a> Utf16Map<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
 
     fn texts(engine: Engine, text: &str) -> Vec<String> {
         split(text, &engine.dialect().syntax())

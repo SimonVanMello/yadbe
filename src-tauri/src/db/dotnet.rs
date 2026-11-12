@@ -405,7 +405,7 @@ mod tests {
     use super::*;
     use crate::db::config::{AuthMethod, ConnectionOption, Environment};
     use crate::db::connstring;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
     use crate::tunnel::{SshAuthMethod, SshHop, SshTunnel};
 
     fn definition(engine: Engine) -> ConnectionDefinition {

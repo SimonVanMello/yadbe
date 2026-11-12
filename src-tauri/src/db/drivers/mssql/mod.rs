@@ -25,12 +25,12 @@ use tokio::net::{TcpSocket, TcpStream};
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 use crate::db::config::{ConnectTarget, TlsMode};
-use crate::db::dialect::Engine;
 use crate::db::driver::{
-    BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Connection, Driver,
-    ExecError, ExecSender, ExecSummary, Explained, LinkSignal, LinkWatch, StatementRecorder,
-    recorded, recorded_bound,
+    Backend, BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Driver,
+    ExecError, ExecSender, ExecSummary, Explained, Link, LinkSignal, LinkWatch, SqlConnection,
+    StatementRecorder, recorded, recorded_bound,
 };
+use crate::db::engine::Engine;
 use crate::db::errors::{YadbeError, from_mssql_login_error, from_mssql_query_error};
 use crate::db::params::ParamStatement;
 use crate::db::value::{QueryResult, Value};
@@ -54,7 +54,7 @@ impl Driver for MssqlDriver {
     fn connect<'a>(
         &'a self,
         request: ConnectRequest<'a>,
-    ) -> BoxFuture<'a, Result<Box<dyn Connection>, YadbeError>> {
+    ) -> BoxFuture<'a, Result<Backend, YadbeError>> {
         Box::pin(async move {
             let target = request.target;
             let secs = u32::try_from(target.connect_timeout.as_secs()).unwrap_or(u32::MAX);
@@ -175,7 +175,7 @@ async fn tcp(target: &ConnectTarget, host: &str, port: u16) -> Result<TcpStream,
     .with_detail(err.to_string()))
 }
 
-async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, YadbeError> {
+async fn connect(request: ConnectRequest<'_>) -> Result<Backend, YadbeError> {
     let target = request.target;
     if target.username.is_empty() {
         return Err(YadbeError::invalid_argument(
@@ -237,7 +237,7 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
     };
     let (signal, link) = LinkWatch::new();
     let in_transaction = client.in_transaction();
-    Ok(Box::new(MssqlConnection {
+    Ok(Backend::Sql(Arc::new(MssqlConnection {
         client: tokio::sync::Mutex::new(Some(client)),
         server_version: format!("{product} {}", version.0),
         recorder,
@@ -245,7 +245,7 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
         signal,
         attention: Mutex::new(AttentionSignal::new()),
         in_transaction: AtomicBool::new(in_transaction),
-    }))
+    })))
 }
 
 /// Logs in, following one gateway redirection (Azure SQL).
@@ -382,7 +382,7 @@ impl MssqlConnection {
     }
 }
 
-impl Connection for MssqlConnection {
+impl Link for MssqlConnection {
     fn server_version(&self) -> &str {
         &self.server_version
     }
@@ -398,18 +398,6 @@ impl Connection for MssqlConnection {
 
     fn keep_alive(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
         Box::pin(async move { self.run(PING_SQL, 1).await.map(|_| ()) })
-    }
-
-    fn query<'a>(
-        &'a self,
-        sql: &'a str,
-        max_rows: usize,
-    ) -> BoxFuture<'a, Result<QueryResult, YadbeError>> {
-        Box::pin(async move {
-            let rows_of =
-                |r: &QueryResult| r.rows_affected.or_else(|| u64::try_from(r.rows.len()).ok());
-            recorded(&*self.recorder, sql, rows_of, self.run(sql, max_rows)).await
-        })
     }
 
     fn link(&self) -> LinkWatch {
@@ -437,6 +425,20 @@ impl Connection for MssqlConnection {
                 tracing::debug!(error = %err, "closing a SQL Server connection");
             }
             self.signal.lost();
+        })
+    }
+}
+
+impl SqlConnection for MssqlConnection {
+    fn query<'a>(
+        &'a self,
+        sql: &'a str,
+        max_rows: usize,
+    ) -> BoxFuture<'a, Result<QueryResult, YadbeError>> {
+        Box::pin(async move {
+            let rows_of =
+                |r: &QueryResult| r.rows_affected.or_else(|| u64::try_from(r.rows.len()).ok());
+            recorded(&*self.recorder, sql, rows_of, self.run(sql, max_rows)).await
         })
     }
 

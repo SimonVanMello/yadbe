@@ -15,7 +15,7 @@ fn column(name: &str) -> ColumnMeta {
 
 fn encode(format: &ExportFormat, names: &[&str], rows: &[Vec<Value>]) -> Vec<u8> {
     let columns: Vec<_> = names.iter().map(|n| column(n)).collect();
-    let mut encoder: Box<dyn RowEncoder> = encoder(format);
+    let mut encoder: Box<dyn RowEncoder> = encoder(format).expect("a known format");
     let mut out = Vec::new();
     encoder.begin(&columns, &mut out);
     for row in rows {

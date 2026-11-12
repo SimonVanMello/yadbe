@@ -583,7 +583,7 @@ impl EditDialect for SqliteDialect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
 
     fn column(type_name: &str, kind: ValueKind) -> ColumnInfo {
         ColumnInfo {

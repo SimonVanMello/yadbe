@@ -10,10 +10,11 @@ mod query_common;
 
 use std::time::{Duration, Instant};
 
+use common::SqlEngine as _;
 use common::{MysqlDatabase, from_url, mysql_ca, mysql_url};
 use query_common::{Bench, bench};
 use yadbe_lib::db::config::TlsMode;
-use yadbe_lib::db::dialect::Engine;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::db::value::ValueKind;
 use yadbe_lib::session::query_model::{
@@ -34,7 +35,7 @@ async fn mysql(test: &str, read_only: bool) -> Option<(MysqlDatabase, Bench)> {
 fn mariadb(b: &Bench) -> bool {
     b.manager
         .session(&b.connection_id)
-        .and_then(|s| s.connection())
+        .and_then(|s| s.sql())
         .is_ok_and(|c| c.server_version().starts_with("MariaDB"))
 }
 

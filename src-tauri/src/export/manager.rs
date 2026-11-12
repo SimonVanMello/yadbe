@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
-use super::encode::encoder;
+use super::encode::{RowEncoder, encoder};
 use super::model::{
     CsvDelimiter, CsvOptions, ExportFinished, ExportFormat, ExportProgress, ExportRequest,
     ExportSourceSpec, ExportStarted, ExportStatus,
@@ -143,7 +143,8 @@ impl ExportManager {
             ExportSourceSpec::Result { result_id, scope } => {
                 let source = QueryResultSource::open(&self.runner, result_id, scope)?;
                 check_format(&request.format, source.columns())?;
-                Ok(self.spawn(source, request.format, request.path))
+                let encoder = encoder(&request.format)?;
+                Ok(self.spawn(source, encoder, request.path))
             }
             ExportSourceSpec::Table {
                 tab_id,
@@ -152,7 +153,8 @@ impl ExportManager {
             } => {
                 let source = self.tables.export_rows(&tab_id, filter, sort).await?;
                 check_format(&request.format, source.columns())?;
-                Ok(self.spawn(source, request.format, request.path))
+                let encoder = encoder(&request.format)?;
+                Ok(self.spawn(source, encoder, request.path))
             }
         }
     }
@@ -160,7 +162,7 @@ impl ExportManager {
     fn spawn<S: ExportSource + 'static>(
         self: &Arc<Self>,
         mut source: S,
-        format: ExportFormat,
+        encoder: Box<dyn RowEncoder>,
         path: String,
     ) -> ExportStarted {
         let export_id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
@@ -171,7 +173,7 @@ impl ExportManager {
             let progress_sink = Arc::clone(&manager.sink);
             let outcome = run_export(
                 &mut source,
-                encoder(&format),
+                encoder,
                 Path::new(&path),
                 export_id,
                 &cancel,
@@ -265,7 +267,7 @@ impl ExportManager {
             }
             other => other,
         };
-        let mut encoder = encoder(format);
+        let mut encoder = encoder(format)?;
         let mut out = Vec::new();
         encoder.begin(&columns, &mut out);
         for row in &rows {

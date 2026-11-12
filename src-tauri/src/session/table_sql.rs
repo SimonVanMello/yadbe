@@ -410,7 +410,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
     use crate::db::meta::{ColumnInfo, KeyConstraint, ObjectKind, TableDetails};
     use crate::db::value::ValueKind;
 

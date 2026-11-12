@@ -9,9 +9,8 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::db::dialect::{
-    Capabilities, Dialect, MssqlDialect, MysqlDialect, PostgresDialect, SqliteDialect,
-};
+use crate::db::dialect::{Dialect, MssqlDialect, MysqlDialect, PostgresDialect, SqliteDialect};
+use crate::db::engine::Capabilities;
 use crate::db::value::ValueKind;
 
 /// A database object, addressed the same way on every engine.
@@ -626,7 +625,7 @@ pub fn qualified_name(dialect: &dyn Dialect, object: &ObjectRef) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
 
     fn obj(schema: Option<&str>, name: &str) -> ObjectRef {
         ObjectRef {

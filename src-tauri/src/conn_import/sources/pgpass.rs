@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use super::{Parsed, ParsedConnection, blank, found};
 use crate::conn_import::model::{SkipReason, SkippedEntry};
 use crate::db::config::{AuthMethod, TlsMode};
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::secrets::Secret;
 
 /// The five fields of a line, unescaped; `None` for a comment, a blank line or a malformed

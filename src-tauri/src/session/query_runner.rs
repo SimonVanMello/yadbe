@@ -25,7 +25,7 @@ use crate::db::classify::{
 };
 use crate::db::dialect::Dialect;
 use crate::db::driver::{
-    CancelHandle, ColumnOrigin, Connection, ErrorLocation, ExecError, ExecEvent, ExecSummary,
+    CancelHandle, ColumnOrigin, ErrorLocation, ExecError, ExecEvent, ExecSummary, SqlConnection,
 };
 use crate::db::errors::{ErrorCode, YadbeError};
 use crate::db::meta::MetaNode;
@@ -221,6 +221,7 @@ struct Execution {
     connection_id: String,
     database: Option<String>,
     text: String,
+    dialect: &'static dyn Dialect,
     syntax: SqlSyntax,
     statements: Vec<Statement>,
     /// Each statement as it is sent, with its query parameters bound (F-048).
@@ -422,7 +423,7 @@ impl Execution {
 
 /// A tab's own server connection.
 struct TabConnection {
-    conn: Arc<dyn Connection>,
+    conn: Arc<dyn SqlConnection>,
     connection_id: String,
     database: Option<String>,
     /// Closed under the tab: link lost or session closed.
@@ -509,11 +510,10 @@ fn parameter_values(values: &[ParameterValue]) -> Result<ParamValues, YadbeError
 
 /// The parameters of the statements a run of `scope` would send (F-048).
 pub fn query_parameters(
-    engine: crate::db::dialect::Engine,
+    dialect: &dyn Dialect,
     text: &str,
     scope: ExecuteScope,
 ) -> Vec<QueryParameter> {
-    let dialect = engine.dialect();
     let syntax = dialect.syntax();
     let map = Utf16Map::new(text);
     let statements = statements_of(text, scope, &syntax, &map);
@@ -726,9 +726,9 @@ impl QueryRunner {
         request: ExecuteRequest,
     ) -> Result<ExecutionStarted, YadbeError> {
         let session = self.manager.session(&request.connection_id)?;
-        session.connection()?;
+        session.sql()?;
         let target = session.target();
-        let dialect = target.engine.dialect();
+        let dialect = session.dialect()?;
         let database = request.database.filter(|db| {
             dialect.capabilities().multiple_databases && !db.is_empty() && *db != target.database
         });
@@ -778,6 +778,7 @@ impl QueryRunner {
             connection_id: request.connection_id.clone(),
             database,
             text,
+            dialect,
             syntax,
             statements,
             prepared,
@@ -858,7 +859,7 @@ impl QueryRunner {
     /// changed (coarse: the whole database, the whole connection when it is not named).
     fn announce_ddl(&self, exec: &Execution, session: &ConnectionSession) {
         let target = session.target();
-        let multiple = target.engine.dialect().capabilities().multiple_databases;
+        let multiple = target.engine.capabilities().multiple_databases;
         let database = exec
             .database
             .clone()
@@ -883,7 +884,7 @@ impl QueryRunner {
         guard: &mut Option<TabConnection>,
         session: &Arc<ConnectionSession>,
     ) -> ExecutionStatus {
-        let dialect = session.target().engine.dialect();
+        let dialect = exec.dialect;
         // The whole script is checked before it starts, then each statement again: read-only
         // can be turned on while it runs (F-008).
         if session.read_only() {
@@ -1040,7 +1041,7 @@ impl QueryRunner {
         session: &Arc<ConnectionSession>,
         cancel: &Signal,
         connecting: &(dyn Fn() + Sync),
-    ) -> Result<Arc<dyn Connection>, YadbeError> {
+    ) -> Result<Arc<dyn SqlConnection>, YadbeError> {
         if let Some(current) = guard.as_ref()
             && current.is_alive()
             && current.connection_id == *connection_id
@@ -1060,10 +1061,10 @@ impl QueryRunner {
         tab.set_transaction(&*self.sink, |t| t.status = TransactionStatus::Idle);
         connecting();
         let opened = tokio::select! {
-            opened = session.open_dedicated(database.map(String::as_str)) => opened?,
+            opened = session.open_dedicated_sql(database.map(String::as_str)) => opened?,
             () = cancel.wait() => return Err(YadbeError::cancelled()),
         };
-        let conn: Arc<dyn Connection> = Arc::from(opened);
+        let conn: Arc<dyn SqlConnection> = opened;
         let dead = Arc::new(AtomicBool::new(false));
         let watcher = spawn_watcher(
             Arc::downgrade(tab),
@@ -1090,7 +1091,7 @@ impl QueryRunner {
     fn track_transaction(
         &self,
         tab: &Tab,
-        conn: &Arc<dyn Connection>,
+        conn: &Arc<dyn SqlConnection>,
         dialect: &dyn Dialect,
         sql: &str,
         outcome: &Outcome,
@@ -1238,7 +1239,7 @@ impl QueryRunner {
     async fn run_statement(
         &self,
         exec: &Arc<Execution>,
-        conn: &Arc<dyn Connection>,
+        conn: &Arc<dyn SqlConnection>,
         index: usize,
     ) -> Outcome {
         let statement = exec.statements[index];
@@ -1549,9 +1550,9 @@ impl QueryRunner {
     /// write on a read-only connection.
     pub async fn explain(&self, request: ExplainRequest) -> Result<ExplainResult, YadbeError> {
         let session = self.manager.session(&request.connection_id)?;
-        session.connection()?;
+        session.sql()?;
         let target = session.target();
-        let dialect = target.engine.dialect();
+        let dialect = session.dialect()?;
         let capabilities = dialect.capabilities();
         if !capabilities.explain || (request.analyze && !capabilities.explain_analyze) {
             return Err(YadbeError::invalid_argument(
@@ -1967,7 +1968,7 @@ impl QueryRunner {
 fn spawn_watcher(
     tab: Weak<Tab>,
     sink: Arc<dyn EventSink>,
-    conn: Arc<dyn Connection>,
+    conn: Arc<dyn SqlConnection>,
     mut session_closed: tokio::sync::watch::Receiver<bool>,
     dead: Arc<AtomicBool>,
 ) -> JoinHandle<()> {

@@ -187,7 +187,7 @@ impl ResultEditService {
     ) -> Result<(ResultEditInfo, Option<Arc<ResultEdit>>), YadbeError> {
         let session = self.manager.session(&origin.connection_id)?;
         let target = session.target();
-        let dialect = target.engine.dialect();
+        let dialect = session.dialect()?;
         let mut info = ResultEditInfo {
             result_id,
             table: None,

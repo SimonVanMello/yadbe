@@ -11,7 +11,7 @@ use common::{blank, harness, open, pg_ca, pg_definition, pg_url};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use yadbe_lib::db::config::{AuthMethod, TlsMode};
-use yadbe_lib::db::dialect::Engine;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::db::value::{Value, ValueKind};
 use yadbe_lib::secrets::{Secret, SecretKind};

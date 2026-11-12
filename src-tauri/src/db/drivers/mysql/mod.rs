@@ -31,12 +31,12 @@ use mysql_async::{
 
 use self::decode::Decoder;
 use crate::db::config::{ConnectTarget, TlsMode};
-use crate::db::dialect::Engine;
 use crate::db::driver::{
-    BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Connection, Driver,
-    ExecError, ExecSender, ExecSummary, Explained, LinkSignal, LinkWatch, StatementRecorder,
-    recorded, recorded_bound,
+    Backend, BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Driver,
+    ExecError, ExecSender, ExecSummary, Explained, Link, LinkSignal, LinkWatch, SqlConnection,
+    StatementRecorder, recorded, recorded_bound,
 };
+use crate::db::engine::Engine;
 use crate::db::errors::{
     ErrorCode, YadbeError, from_connect_sqlstate, from_mysql_connect_error, from_mysql_query_error,
 };
@@ -68,7 +68,7 @@ impl Driver for MysqlDriver {
     fn connect<'a>(
         &'a self,
         request: ConnectRequest<'a>,
-    ) -> BoxFuture<'a, Result<Box<dyn Connection>, YadbeError>> {
+    ) -> BoxFuture<'a, Result<Backend, YadbeError>> {
         Box::pin(async move {
             let target = request.target;
             // Bounds DNS, TCP, TLS, the login and the session setup together.
@@ -290,7 +290,7 @@ impl Flavor {
     }
 }
 
-async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, YadbeError> {
+async fn connect(request: ConnectRequest<'_>) -> Result<Backend, YadbeError> {
     install_crypto_provider();
     let target = request.target;
     resolve(target).await?;
@@ -334,7 +334,7 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
         running: AtomicBool::new(false),
         killed: AtomicBool::new(false),
     });
-    Ok(Box::new(MysqlConnection {
+    Ok(Backend::Sql(Arc::new(MysqlConnection {
         inner: Arc::new(Inner {
             conn: tokio::sync::Mutex::new(Some(conn)),
             flavor,
@@ -346,7 +346,7 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
         }),
         server_version: format!("{product} {number}"),
         link,
-    }))
+    })))
 }
 
 /// Sends `KILL QUERY` for the statement a connection runs, from a connection of its own.
@@ -629,7 +629,7 @@ impl MysqlConnection {
     }
 }
 
-impl Connection for MysqlConnection {
+impl Link for MysqlConnection {
     fn server_version(&self) -> &str {
         &self.server_version
     }
@@ -645,18 +645,6 @@ impl Connection for MysqlConnection {
 
     fn keep_alive(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
         Box::pin(async move { self.run(PING_SQL, 1).await.map(|_| ()) })
-    }
-
-    fn query<'a>(
-        &'a self,
-        sql: &'a str,
-        max_rows: usize,
-    ) -> BoxFuture<'a, Result<QueryResult, YadbeError>> {
-        Box::pin(async move {
-            let rows_of =
-                |r: &QueryResult| r.rows_affected.or_else(|| u64::try_from(r.rows.len()).ok());
-            recorded(&*self.inner.recorder, sql, rows_of, self.run(sql, max_rows)).await
-        })
     }
 
     fn read_only_mode(&self) -> Option<bool> {
@@ -697,6 +685,20 @@ impl Connection for MysqlConnection {
                 tracing::debug!(error = %err, "closing a MySQL connection");
             }
             inner.signal.lost();
+        })
+    }
+}
+
+impl SqlConnection for MysqlConnection {
+    fn query<'a>(
+        &'a self,
+        sql: &'a str,
+        max_rows: usize,
+    ) -> BoxFuture<'a, Result<QueryResult, YadbeError>> {
+        Box::pin(async move {
+            let rows_of =
+                |r: &QueryResult| r.rows_affected.or_else(|| u64::try_from(r.rows.len()).ok());
+            recorded(&*self.inner.recorder, sql, rows_of, self.run(sql, max_rows)).await
         })
     }
 

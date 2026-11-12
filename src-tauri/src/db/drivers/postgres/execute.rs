@@ -15,8 +15,8 @@ use super::bound::TextParam;
 use super::decode::{Raw, column_meta, decode};
 use super::{PgConnection, classify_query};
 use crate::db::driver::{
-    BoundStatement, ColumnOrigin, Connection, ErrorLocation, ExecError, ExecEvent, ExecSender,
-    ExecSummary, recorded,
+    BoundStatement, ColumnOrigin, ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary,
+    SqlConnection, recorded,
 };
 use crate::db::errors::YadbeError;
 use crate::db::value::Value;

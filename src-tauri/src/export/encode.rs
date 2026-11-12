@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 
 use super::model::{BinaryEncoding, ExportFormat};
+use crate::db::errors::YadbeError;
 use crate::db::value::{ColumnMeta, Value};
 
 /// Turns rows into the bytes of one file format. Pure: no I/O, so it is tested on its own.
@@ -19,16 +20,18 @@ pub trait RowEncoder: Send {
     }
 }
 
-pub fn encoder(format: &ExportFormat) -> Box<dyn RowEncoder> {
-    match format {
+/// The writer of a format; `sqlOnly` when SQL statements are asked for an engine outside the
+/// SQL family.
+pub fn encoder(format: &ExportFormat) -> Result<Box<dyn RowEncoder>, YadbeError> {
+    Ok(match format {
         ExportFormat::Csv { options } => Box::new(super::csv::CsvEncoder::new(options.clone())),
         ExportFormat::Json { options } => Box::new(super::json::JsonEncoder::new(options.clone())),
-        ExportFormat::Sql { options } => Box::new(super::sql::SqlEncoder::new(options.clone())),
+        ExportFormat::Sql { options } => Box::new(super::sql::SqlEncoder::new(options.clone())?),
         ExportFormat::Markdown { options } => {
             Box::new(super::markdown::MarkdownEncoder::new(options.clone()))
         }
         ExportFormat::Excel { options } => Box::new(super::xlsx::XlsxEncoder::new(options.clone())),
-    }
+    })
 }
 
 /// The text of a binary value (held as lowercase hexadecimal) in the chosen encoding.

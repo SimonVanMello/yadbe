@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use super::Store;
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
 use crate::db::meta::ObjectRef;
 

@@ -24,13 +24,13 @@ use tokio_postgres::{CancelToken, Client, SimpleQueryMessage};
 use self::decode::{Raw, column_meta, decode};
 use self::tls::RustlsConnect;
 use crate::db::config::{ConnectTarget, TlsMode};
-use crate::db::dialect::Engine;
 use crate::db::driver::Explained;
 use crate::db::driver::{
-    BoundFailure, BoundStatement, BoxFuture, CancelHandle, ColumnOrigin, ConnectRequest,
-    Connection, Driver, ExecError, ExecSender, ExecSummary, LinkWatch, StatementRecorder, recorded,
-    recorded_bound,
+    Backend, BoundFailure, BoundStatement, BoxFuture, CancelHandle, ColumnOrigin, ConnectRequest,
+    Driver, ExecError, ExecSender, ExecSummary, Link, LinkWatch, SqlConnection, StatementRecorder,
+    recorded, recorded_bound,
 };
+use crate::db::engine::Engine;
 use crate::db::errors::{YadbeError, from_connect_sqlstate, from_query_sqlstate};
 use crate::db::params::ParamStatement;
 use crate::db::plan::RawPlan;
@@ -50,7 +50,7 @@ impl Driver for PostgresDriver {
     fn connect<'a>(
         &'a self,
         request: ConnectRequest<'a>,
-    ) -> BoxFuture<'a, Result<Box<dyn Connection>, YadbeError>> {
+    ) -> BoxFuture<'a, Result<Backend, YadbeError>> {
         Box::pin(async move {
             let target = request.target;
             let secs = u32::try_from(target.connect_timeout.as_secs()).unwrap_or(u32::MAX);
@@ -89,7 +89,7 @@ async fn resolve(target: &ConnectTarget) -> Result<Vec<IpAddr>, YadbeError> {
     Ok(ips)
 }
 
-async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, YadbeError> {
+async fn connect(request: ConnectRequest<'_>) -> Result<Backend, YadbeError> {
     let target = request.target;
     let user = if target.username.is_empty() {
         os_user()
@@ -202,7 +202,7 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
             return Err(err);
         }
     };
-    Ok(Box::new(PgConnection {
+    Ok(Backend::Sql(Arc::new(PgConnection {
         read_only: AtomicBool::new(target.read_only),
         cancel: client.cancel_token(),
         client,
@@ -212,7 +212,7 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
         tls,
         task,
         notices,
-    }))
+    })))
 }
 
 struct PgConnection {
@@ -228,7 +228,7 @@ struct PgConnection {
     read_only: AtomicBool,
 }
 
-impl Connection for PgConnection {
+impl Link for PgConnection {
     fn server_version(&self) -> &str {
         &self.server_version
     }
@@ -253,18 +253,6 @@ impl Connection for PgConnection {
                 .await
                 .map(|_| ())
                 .map_err(|e| classify_query(&e))
-        })
-    }
-
-    fn query<'a>(
-        &'a self,
-        sql: &'a str,
-        max_rows: usize,
-    ) -> BoxFuture<'a, Result<QueryResult, YadbeError>> {
-        Box::pin(async move {
-            let rows_of =
-                |r: &QueryResult| r.rows_affected.or_else(|| u64::try_from(r.rows.len()).ok());
-            recorded(&*self.recorder, sql, rows_of, self.run(sql, max_rows)).await
         })
     }
 
@@ -306,6 +294,20 @@ impl Connection for PgConnection {
     fn close(&self) -> BoxFuture<'_, ()> {
         // Dropping the client sends Terminate; this ends the link for clones still alive.
         Box::pin(async move { self.task.abort() })
+    }
+}
+
+impl SqlConnection for PgConnection {
+    fn query<'a>(
+        &'a self,
+        sql: &'a str,
+        max_rows: usize,
+    ) -> BoxFuture<'a, Result<QueryResult, YadbeError>> {
+        Box::pin(async move {
+            let rows_of =
+                |r: &QueryResult| r.rows_affected.or_else(|| u64::try_from(r.rows.len()).ok());
+            recorded(&*self.recorder, sql, rows_of, self.run(sql, max_rows)).await
+        })
     }
 
     fn execute<'a>(

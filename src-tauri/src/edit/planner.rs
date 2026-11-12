@@ -372,7 +372,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
     use crate::db::errors::ErrorCode;
     use crate::db::meta::{
         ColumnInfo, Generated, Identity, KeyConstraint, ObjectKind, ObjectRef, TableDetails,

@@ -10,8 +10,8 @@ use std::time::Duration;
 use common::blank;
 use query_common::{Bench, bench};
 use yadbe_lib::db::config::ConnectionDefinition;
-use yadbe_lib::db::dialect::Engine;
 use yadbe_lib::db::driver::{ConnectRequest, NoRecorder};
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::db::value::{Value, ValueKind};
 use yadbe_lib::session::query_model::{
@@ -474,7 +474,9 @@ async fn read_only_connections_refuse_writes_before_sending() {
             recorder: Arc::new(NoRecorder),
         })
         .await
-        .expect("connect");
+        .expect("connect")
+        .into_sql()
+        .expect("a SQL connection");
     let error = conn
         .query("DELETE FROM items", 0)
         .await

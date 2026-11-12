@@ -401,7 +401,7 @@ pub fn action_statement(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
     use crate::db::meta::{RelationSummary, RoutineSignature};
 
     fn relation(kind: ObjectKind, name: &str) -> ObjectInfo {

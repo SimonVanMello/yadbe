@@ -104,7 +104,7 @@ pub fn parse_source(kind: ConnectionSourceKind, text: &str) -> Result<Parsed, Ya
 fn port_of(definition: &ConnectionDefinition) -> u16 {
     definition
         .port
-        .or_else(|| definition.engine.dialect().capabilities().default_port)
+        .or_else(|| definition.engine.capabilities().default_port)
         .unwrap_or(0)
 }
 

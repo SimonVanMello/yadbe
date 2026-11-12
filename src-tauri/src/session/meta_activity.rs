@@ -22,7 +22,7 @@ impl MetaService {
     ) -> Result<ActivitySnapshot, YadbeError> {
         let session = Self::session(manager, connection_id)?;
         Self::check_activity(&session)?;
-        let conn = session.connection()?;
+        let conn = session.sql()?;
         self.run(request_id, &conn, async {
             monitor(&*conn)?.activity().await
         })
@@ -46,20 +46,20 @@ impl MetaService {
                 KillMode::TerminateSession => "ending a session",
             }));
         }
-        let capabilities = session.target().engine.dialect().capabilities();
+        let capabilities = session.dialect()?.capabilities();
         if request.mode == KillMode::CancelQuery && !capabilities.activity_cancel_query {
             return Err(YadbeError::not_supported(
                 format!(
                     "{} cannot cancel another session's statement without ending the session.",
-                    session.target().engine.dialect().label()
+                    session.dialect()?.label()
                 ),
                 format!(
                     "{} ne peut pas annuler l'instruction d'une autre session sans terminer la session.",
-                    session.target().engine.dialect().label()
+                    session.dialect()?.label()
                 ),
             ));
         }
-        let conn = session.connection()?;
+        let conn = session.sql()?;
         self.run(None, &conn, async { monitor(&*conn)?.kill(request).await })
             .await
     }
@@ -91,7 +91,7 @@ impl MetaService {
         let conn = self
             .connection_for(&session, &cache, Some(&table.database))
             .await?;
-        let sql = ef::history_statement(session.target().engine.dialect(), table);
+        let sql = ef::history_statement(session.dialect()?, table);
         let result = self
             .run(request_id, &conn, async {
                 // One more than the cap tells whether there was more.
@@ -121,7 +121,7 @@ impl MetaService {
     }
 
     fn check_activity(session: &ConnectionSession) -> Result<(), YadbeError> {
-        let dialect = session.target().engine.dialect();
+        let dialect = session.dialect()?;
         if dialect.capabilities().activity_monitor {
             return Ok(());
         }
@@ -132,7 +132,9 @@ impl MetaService {
     }
 }
 
-fn monitor(conn: &dyn Connection) -> Result<&dyn crate::db::activity::ActivityMonitor, YadbeError> {
+fn monitor(
+    conn: &dyn SqlConnection,
+) -> Result<&dyn crate::db::activity::ActivityMonitor, YadbeError> {
     conn.activity().ok_or_else(YadbeError::not_implemented)
 }
 

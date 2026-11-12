@@ -30,6 +30,9 @@ pub enum ErrorCode {
     QueryFolderNotFound,
     /// The engine is known but its driver is not available yet.
     EngineNotSupported,
+    /// A SQL feature was asked of a connection of another engine family (document, search,
+    /// key-value).
+    SqlOnly,
     /// The connection is not open (never opened, closed, or reconnecting).
     NotConnected,
     /// The connection needs a password and none was given or stored.
@@ -300,6 +303,14 @@ impl YadbeError {
             ErrorCode::EngineNotSupported,
             format!("{label} is not supported yet by this version of yadbe."),
             format!("{label} n'est pas encore pris en charge par cette version de yadbe."),
+        )
+    }
+
+    pub fn sql_only() -> Self {
+        Self::new(
+            ErrorCode::SqlOnly,
+            "This works on SQL connections only.",
+            "Cette fonction n'existe que sur les connexions SQL.",
         )
     }
 
@@ -1022,6 +1033,7 @@ mod tests {
             YadbeError::saved_query_not_found("q"),
             YadbeError::query_folder_not_found("f"),
             YadbeError::engine_not_supported("MySQL"),
+            YadbeError::sql_only(),
             YadbeError::object_not_found("shop.orders"),
             YadbeError::execution_running(),
             YadbeError::transaction_open(),

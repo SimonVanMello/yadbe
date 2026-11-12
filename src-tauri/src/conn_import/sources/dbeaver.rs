@@ -9,7 +9,7 @@ use serde_json::Value as Json;
 use super::{Parsed, ParsedConnection, blank, found};
 use crate::conn_import::model::{ConnectionNote, ConnectionNoteKind, SkipReason, SkippedEntry};
 use crate::db::config::{AuthMethod, EnvironmentKind, TlsMode};
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
 use crate::tunnel::{SshAuthMethod, SshHop, SshTunnel};
 
@@ -150,7 +150,7 @@ pub fn parse(text: &str) -> Result<Parsed, YadbeError> {
         };
         let mut definition = blank(engine, &name);
         let mut notes = Vec::new();
-        if engine == Engine::Sqlite {
+        if engine.capabilities().uses_file {
             let file = string(&configuration, "database")
                 .or_else(|| url.strip_prefix("jdbc:sqlite:").map(str::to_owned))
                 .unwrap_or_default();
@@ -212,7 +212,7 @@ pub fn parse(text: &str) -> Result<Parsed, YadbeError> {
             .and_then(Json::as_bool)
             .unwrap_or(false);
         match ssh_of(&configuration) {
-            Some(Ok(tunnel)) if engine != Engine::Sqlite => definition.ssh = Some(tunnel),
+            Some(Ok(tunnel)) if !engine.capabilities().uses_file => definition.ssh = Some(tunnel),
             Some(_) => notes.push(ConnectionNote {
                 kind: ConnectionNoteKind::SshIncomplete,
                 detail: None,

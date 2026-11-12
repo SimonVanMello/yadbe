@@ -9,10 +9,11 @@ mod query_common;
 
 use std::time::{Duration, Instant};
 
+use common::SqlEngine as _;
 use common::{from_url, mssql_ca, mssql_url};
 use query_common::{Bench, bench};
 use yadbe_lib::db::config::TlsMode;
-use yadbe_lib::db::dialect::Engine;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::db::value::{Value, ValueKind};
 use yadbe_lib::session::query_model::{

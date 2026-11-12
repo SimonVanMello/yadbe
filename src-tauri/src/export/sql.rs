@@ -5,6 +5,7 @@
 use super::encode::RowEncoder;
 use super::model::SqlOptions;
 use crate::db::dialect::Dialect;
+use crate::db::errors::YadbeError;
 use crate::db::value::{ColumnMeta, Value};
 
 pub struct SqlEncoder {
@@ -18,19 +19,22 @@ pub struct SqlEncoder {
 }
 
 impl SqlEncoder {
-    pub fn new(options: SqlOptions) -> Self {
-        let dialect = options.engine.dialect();
+    pub fn new(options: SqlOptions) -> Result<Self, YadbeError> {
+        let dialect = options
+            .engine
+            .sql_dialect()
+            .ok_or_else(YadbeError::sql_only)?;
         let eol = match options.line_ending.bytes() {
             b"\r\n" => "\r\n",
             _ => "\n",
         };
-        Self {
+        Ok(Self {
             options,
             dialect,
             head: String::new(),
             in_statement: 0,
             eol,
-        }
+        })
     }
 
     fn target(&self) -> String {

@@ -2,7 +2,8 @@
 //! the logical "shop" fixture (`fixtures/meta_<engine>.sql`) the same way, through the
 //! metadata cache. Engine differences come from the dialect's capabilities only.
 
-use yadbe_lib::db::dialect::Engine;
+use crate::common::SqlEngine as _;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::db::meta::{
     ForeignKeyAction, MetaNode, ObjectKind, ObjectRef, TableDetails, TriggerEvent, TriggerTiming,

@@ -7,10 +7,11 @@ use std::time::Duration;
 
 use super::*;
 use crate::db::config::{AuthMethod, sample_definition};
-use crate::db::dialect::Engine;
 use crate::db::driver::{
-    BoxFuture, CancelHandle, ConnectRequest, Connection, Driver, LinkSignal, LinkWatch,
+    Backend, BoxFuture, CancelHandle, ConnectRequest, Driver, Link, LinkSignal, LinkWatch,
+    SqlConnection,
 };
+use crate::db::engine::Engine;
 use crate::db::errors::{ErrorCode, YadbeError};
 use crate::db::value::QueryResult;
 use crate::events::{BackendEvent, RecordingSink};
@@ -51,17 +52,34 @@ impl CancelHandle for NoCancel {
     }
 }
 
-impl Connection for FakeConnection {
+impl Link for FakeConnection {
     fn server_version(&self) -> &str {
         "Fake 1.0"
     }
+
     fn ping(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
         Box::pin(async { Ok(()) })
     }
+
     fn keep_alive(&self) -> BoxFuture<'_, Result<(), YadbeError>> {
         self.1.fetch_add(1, Ordering::SeqCst);
         Box::pin(async { Ok(()) })
     }
+
+    fn link(&self) -> LinkWatch {
+        self.0.clone()
+    }
+
+    fn cancel_handle(&self) -> Arc<dyn CancelHandle> {
+        Arc::new(NoCancel)
+    }
+
+    fn close(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+}
+
+impl SqlConnection for FakeConnection {
     fn query<'a>(&'a self, _: &'a str, _: usize) -> BoxFuture<'a, Result<QueryResult, YadbeError>> {
         Box::pin(async {
             Ok(QueryResult {
@@ -71,15 +89,6 @@ impl Connection for FakeConnection {
                 truncated: false,
             })
         })
-    }
-    fn link(&self) -> LinkWatch {
-        self.0.clone()
-    }
-    fn cancel_handle(&self) -> Arc<dyn CancelHandle> {
-        Arc::new(NoCancel)
-    }
-    fn close(&self) -> BoxFuture<'_, ()> {
-        Box::pin(async {})
     }
 }
 
@@ -91,7 +100,7 @@ impl Driver for FakeDriver {
     fn connect<'a>(
         &'a self,
         _request: ConnectRequest<'a>,
-    ) -> BoxFuture<'a, Result<Box<dyn Connection>, YadbeError>> {
+    ) -> BoxFuture<'a, Result<Backend, YadbeError>> {
         Box::pin(async move {
             self.attempts.fetch_add(1, Ordering::SeqCst);
             tokio::time::sleep(self.delay).await;
@@ -100,10 +109,10 @@ impl Driver for FakeDriver {
             }
             let (signal, watch) = LinkWatch::new();
             self.links.lock().expect("lock").push(signal);
-            Ok(
-                Box::new(FakeConnection(watch, Arc::clone(&self.keep_alives)))
-                    as Box<dyn Connection>,
-            )
+            Ok(Backend::Sql(Arc::new(FakeConnection(
+                watch,
+                Arc::clone(&self.keep_alives),
+            ))))
         })
     }
 }

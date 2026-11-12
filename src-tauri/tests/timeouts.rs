@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use common::{MysqlDatabase, blank, from_url, mssql_url, mysql_url, pg_definition, pg_url};
 use query_common::{Bench, bench};
 use yadbe_lib::db::config::ConnectionDefinition;
-use yadbe_lib::db::dialect::Engine;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::session::query_model::{ExecuteScope, ExecutionStatus};
 
@@ -101,7 +101,7 @@ async fn check_keep_alive(b: &Bench) {
     let conn = b
         .manager
         .session(&b.connection_id)
-        .and_then(|session| session.connection())
+        .and_then(|session| session.sql())
         .expect("connection");
     let before = b.log.entries().len();
     conn.keep_alive().await.expect("keep-alive ping");

@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use common::{blank, pg_definition, pg_url};
 use query_common::{Bench, bench};
-use yadbe_lib::db::dialect::Engine;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::events::{BackendEvent, EventSink};
 use yadbe_lib::export::ExportManager;

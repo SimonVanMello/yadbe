@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use yadbe_lib::db::config::ConnectionDefinition;
-use yadbe_lib::db::dialect::Engine;
-use yadbe_lib::db::driver::Connection;
+use yadbe_lib::db::driver::SqlConnection;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::db::meta::{MetaNode, ObjectKind, ObjectRef, qualified_name};
 use yadbe_lib::db::object_model::{
@@ -26,6 +26,7 @@ use yadbe_lib::session::meta_cache::{MetaService, ObservingSink};
 use yadbe_lib::session::statement_log::StatementLog;
 use yadbe_lib::store::Store;
 
+use common::SqlEngine as _;
 use common::{pg_definition, pg_url};
 
 // --- Harness --------------------------------------------------------------------------------
@@ -128,7 +129,7 @@ enum Namespace {
 }
 
 struct Replay {
-    raw: Box<dyn Connection>,
+    raw: Arc<dyn SqlConnection>,
     /// The connection the copy is read through.
     read_id: String,
     namespace: Namespace,
@@ -323,7 +324,7 @@ async fn exists(h: &Harness, id: &str, object: &ObjectRef) -> bool {
     }
 }
 
-async fn count(raw: &dyn Connection, object: &ObjectRef, engine: Engine) -> i64 {
+async fn count(raw: &dyn SqlConnection, object: &ObjectRef, engine: Engine) -> i64 {
     let name = qualified_name(engine.dialect(), object);
     let sql = format!("SELECT COUNT(*) FROM {name}");
     raw.query(&sql, 1)
@@ -347,7 +348,7 @@ fn request(object: &ObjectRef, kind: ObjectKind, action: ObjectAction) -> Object
 async fn check_actions(
     h: &Harness,
     id: &str,
-    raw: &dyn Connection,
+    raw: &dyn SqlConnection,
     shop: &Shop,
     read_only_id: &str,
 ) {

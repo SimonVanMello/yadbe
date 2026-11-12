@@ -125,13 +125,12 @@ impl ImportManager {
         table: &ObjectRef,
     ) -> Result<Resolved, YadbeError> {
         let session = self.manager.session(connection_id)?;
-        session.connection()?;
+        session.sql()?;
         let details = self
             .meta
             .table_details(&self.manager, None, connection_id, table)
             .await?;
-        let target = session.target();
-        let dialect = target.engine.dialect();
+        let dialect = session.dialect()?;
         let database = (dialect.capabilities().multiple_databases && !table.database.is_empty())
             .then(|| table.database.clone());
         Ok(Resolved {
@@ -218,16 +217,18 @@ impl ImportManager {
             None => None,
         };
         let session = self.manager.session(&request.connection_id)?;
-        let conn: Arc<dyn crate::db::driver::Connection> =
-            match session.open_dedicated(resolved.database.as_deref()).await {
-                Ok(conn) => Arc::from(conn),
-                Err(error) => {
-                    if let Some(file) = rejects {
-                        file.discard().await;
-                    }
-                    return Err(error);
+        let conn: Arc<dyn crate::db::driver::SqlConnection> = match session
+            .open_dedicated_sql(resolved.database.as_deref())
+            .await
+        {
+            Ok(conn) => conn,
+            Err(error) => {
+                if let Some(file) = rejects {
+                    file.discard().await;
                 }
-            };
+                return Err(error);
+            }
+        };
         let cancel = CancellationToken::new();
         self.jobs().insert(import_id, cancel.clone());
         let job = Job {

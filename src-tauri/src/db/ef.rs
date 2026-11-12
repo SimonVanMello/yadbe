@@ -113,7 +113,7 @@ pub fn is_history_table(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
 
     #[test]
     fn splits_the_timestamp_from_the_name() {

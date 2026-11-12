@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use yadbe_lib::db::dialect::Engine;
+use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::store::{HistoryOutcome, HistoryQuery, HistoryScope, NewHistoryEntry, Store};
 

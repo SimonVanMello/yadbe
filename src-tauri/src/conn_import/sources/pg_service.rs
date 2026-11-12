@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use super::{Parsed, ParsedConnection, blank, found};
 use crate::conn_import::model::{ConnectionNote, ConnectionNoteKind, SkipReason, SkippedEntry};
 use crate::db::config::{AuthMethod, TlsMode};
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 
 fn sections(text: &str) -> Vec<(String, HashMap<String, String>)> {
     let mut out: Vec<(String, HashMap<String, String>)> = Vec::new();

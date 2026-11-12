@@ -407,7 +407,9 @@ CREATE OR REPLACE FUNCTION m13_write() RETURNS int LANGUAGE sql AS $$ INSERT INT
             recorder: Arc::new(NoRecorder),
         })
         .await
-        .expect("connect");
+        .expect("connect")
+        .into_sql()
+        .expect("a SQL connection");
     let (sender, mut events) = tokio::sync::mpsc::channel(8);
     let failed = conn
         .execute("INSERT INTO m13_ro VALUES (2)", sender)
@@ -460,12 +462,14 @@ async fn p03_first_window_of_a_million_rows() {
                     recorder: Arc::new(NoRecorder),
                 })
                 .await
-                .expect("connect");
+                .expect("connect")
+                .into_sql()
+                .expect("a SQL connection");
             let (sender, mut events) = tokio::sync::mpsc::channel(64);
             let started = Instant::now();
             let task = {
                 let sql = sql.to_owned();
-                let conn: Arc<dyn yadbe_lib::db::driver::Connection> = Arc::from(conn);
+                let conn: Arc<dyn yadbe_lib::db::driver::SqlConnection> = conn;
                 let c = Arc::clone(&conn);
                 tokio::spawn(async move { c.execute(&sql, sender).await })
             };

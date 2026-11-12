@@ -142,7 +142,7 @@ impl Store {
 mod tests {
     use super::*;
     use crate::db::config::sample_definition;
-    use crate::db::dialect::Engine;
+    use crate::db::engine::Engine;
     use crate::db::errors::ErrorCode;
 
     fn pin(

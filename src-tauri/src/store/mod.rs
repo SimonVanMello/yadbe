@@ -19,7 +19,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use crate::db::config::{
     AuthMethod, ConnectionDefinition, ConnectionOption, Environment, EnvironmentKind, TlsMode,
 };
-use crate::db::dialect::Engine;
+use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
 pub use history::*;
 pub use journal::*;

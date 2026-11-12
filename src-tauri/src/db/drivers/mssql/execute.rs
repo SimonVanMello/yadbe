@@ -11,8 +11,8 @@ use tokio::time::Instant;
 use super::MssqlConnection;
 use super::decode::{self, Decoder};
 use crate::db::driver::{
-    BoundStatement, ColumnOrigin, Connection, ErrorLocation, ExecError, ExecEvent, ExecSender,
-    ExecSummary, Explained, recorded,
+    BoundStatement, ColumnOrigin, ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary,
+    Explained, SqlConnection, recorded,
 };
 use crate::db::errors::{YadbeError, from_mssql_query_error};
 use crate::db::params::ParamStatement;
@@ -122,7 +122,7 @@ impl MssqlConnection {
                 Value::Text(declared)
             },
         ];
-        let dialect = crate::db::dialect::Engine::Mssql.dialect();
+        let dialect: &dyn crate::db::dialect::Dialect = &crate::db::dialect::MssqlDialect;
         let display = DESCRIBE_SQL
             .replace("@P1", &dialect.literal(&params[0]))
             .replace("@P2", &dialect.literal(&params[1]));
@@ -330,7 +330,7 @@ impl MssqlConnection {
         } else {
             ("SET SHOWPLAN_XML ON", "SET SHOWPLAN_XML OFF")
         };
-        Connection::query(self, on, 0).await?;
+        SqlConnection::query(self, on, 0).await?;
         let mut failure = None;
         let rows_of = |plans: &Vec<String>| u64::try_from(plans.len()).ok();
         let read = recorded(&*self.recorder, &statement.sql, rows_of, async {
@@ -341,7 +341,7 @@ impl MssqlConnection {
             })
         })
         .await;
-        let reset = Connection::query(self, off, 0).await;
+        let reset = SqlConnection::query(self, off, 0).await;
         let plans = read.map_err(|error| failure.unwrap_or_else(|| error.into()))?;
         reset?;
         Ok(Explained {

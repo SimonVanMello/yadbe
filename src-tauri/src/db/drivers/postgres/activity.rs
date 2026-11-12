@@ -8,7 +8,7 @@ use crate::db::activity::{
     KillRequest, bool_of, bound_id, check_target, locks_from_rows, parse_session_id,
     session_from_row,
 };
-use crate::db::driver::{BoundFailure, Connection};
+use crate::db::driver::{BoundFailure, SqlConnection};
 use crate::db::errors::YadbeError;
 use crate::db::value::QueryResult;
 
@@ -98,9 +98,9 @@ impl ActivityMonitor for PgConnection {
     fn activity(&self) -> ActivityFuture<'_, ActivitySnapshot> {
         Box::pin(async move {
             let (sessions, locks, visible) = futures_util::future::try_join3(
-                Connection::query(self, SESSIONS_SQL, usize::MAX),
-                Connection::query(self, LOCKS_SQL, usize::MAX),
-                Connection::query(self, VISIBILITY_SQL, 1),
+                SqlConnection::query(self, SESSIONS_SQL, usize::MAX),
+                SqlConnection::query(self, LOCKS_SQL, usize::MAX),
+                SqlConnection::query(self, VISIBILITY_SQL, 1),
             )
             .await?;
             let sees_all = visible.rows.first().is_some_and(|row| bool_of(row.first()));
