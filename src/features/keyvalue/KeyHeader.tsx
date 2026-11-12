@@ -5,19 +5,33 @@ import { IconButton } from '../../ui/IconButton';
 import { Icon } from '../../ui/Icon';
 import { formatBytes } from '../export/exportOptions';
 import styles from './KeyTab.module.css';
+import { closeKeyTabIfGone } from './kvEditActions';
+import { copyKey, deleteKeys, editTtl, renameKey } from './kvEditForms';
 import { formatTtl, kindIcon, lengthLabel, typeBadge } from './kvFormat';
 
-/** The header of a key tab: the key, its type, and what the server says of it. */
+/**
+ * The header of a key tab: the key, its type, what the server says of it, and the key-level
+ * actions (time to live, rename, duplicate, delete; M4-6), disabled with the reason on a
+ * read-only connection.
+ */
 export function KeyHeader({
+  tabId,
+  connectionId,
   info,
+  readOnly,
   refreshing,
   onRefresh,
 }: {
+  tabId: string;
+  connectionId: string;
   info: KvKeyInfo;
+  readOnly: boolean;
   refreshing: boolean;
   onRefresh: () => void;
 }) {
   const t = useT();
+  const exists = info.kind !== 'missing';
+  const why = readOnly ? t('keyValue.edit.readOnly') : undefined;
   const locale = useI18nStore((state) => state.locale);
   const length = info.length === null ? null : lengthLabel(info.kind, info.length, t);
   const facts: { label: string; value: string }[] = [
@@ -47,10 +61,54 @@ export function KeyHeader({
         {info.key.base64 !== null && (
           <span className={styles.binary}>{t('keyValue.header.binaryKey')}</span>
         )}
-        <span className={styles.readOnly}>
-          <Icon name="lock" size="sm" />
-          {t('keyValue.header.readOnly')}
-        </span>
+        {readOnly && (
+          <span className={styles.readOnly}>
+            <Icon name="lock" size="sm" />
+            {t('keyValue.header.readOnly')}
+          </span>
+        )}
+        {exists && (
+          <span
+            className={styles.keyActions}
+            role="group"
+            aria-label={t('keyValue.header.actions')}
+          >
+            <IconButton
+              label={why ?? t('keyValue.header.editTtl')}
+              icon="history"
+              disabled={readOnly}
+              onClick={() => {
+                void editTtl(tabId, info);
+              }}
+            />
+            <IconButton
+              label={why ?? t('keyValue.header.rename')}
+              icon="pencil"
+              disabled={readOnly}
+              onClick={() => {
+                void renameKey(connectionId, info.database, info.key, tabId);
+              }}
+            />
+            <IconButton
+              label={why ?? t('keyValue.header.duplicate')}
+              icon="copy"
+              disabled={readOnly}
+              onClick={() => {
+                void copyKey(connectionId, info.database, info.key);
+              }}
+            />
+            <IconButton
+              label={why ?? t('keyValue.header.delete')}
+              icon="trash"
+              disabled={readOnly}
+              onClick={() => {
+                void deleteKeys(connectionId, info.database, [info.key], tabId).then((done) => {
+                  if (done) closeKeyTabIfGone(tabId);
+                });
+              }}
+            />
+          </span>
+        )}
         <IconButton
           label={t('keyValue.header.refresh')}
           icon="retry"

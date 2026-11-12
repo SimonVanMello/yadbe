@@ -62,6 +62,9 @@ pub struct UserContext {
     pub database: u32,
 }
 
+/// Commands of a batch written to its statement-log entry; the rest are counted.
+pub const BATCH_LOG_LINES: usize = 200;
+
 /// The gate of one session.
 pub struct Gate<'a> {
     pub session: &'a ConnectionSession,
@@ -279,6 +282,65 @@ impl Gate<'_> {
             },
         });
         results
+    }
+
+    /// Runs yadbe's own commands in one round trip, all or none: every command is checked
+    /// first and a single refusal sends nothing (an edit's `MULTI` … `EXEC` must never go out
+    /// with a command missing). One statement-log entry, its text cut after
+    /// [`BATCH_LOG_LINES`] commands. `Err` only for a refusal or the statement timeout (the
+    /// connection's state is then unknown); a failing command is its own `Err` in the list.
+    pub async fn run_batch(
+        &self,
+        conn: &dyn KeyValueConnection,
+        cmds: &[KvCommand],
+        confirmed: bool,
+    ) -> Result<Vec<Result<KvReply, YadbeError>>, YadbeError> {
+        if cmds.is_empty() {
+            return Ok(Vec::new());
+        }
+        let started_at = SystemTime::now();
+        let start = Instant::now();
+        let mut checked = None;
+        for cmd in cmds {
+            if let Err(refused) = self.check(conn, cmd, confirmed).await {
+                checked = Some(refused);
+                break;
+            }
+        }
+        let result = match checked {
+            Some(refused) => Err(refused),
+            None => {
+                let args: Vec<Vec<Vec<u8>>> = cmds.iter().map(|c| c.args.clone()).collect();
+                match self.session.statement_timeout() {
+                    Some(limit) => tokio::time::timeout(limit, conn.send_all(&args))
+                        .await
+                        .map_err(|_| YadbeError::statement_timeout(limit.as_secs().max(1))),
+                    None => Ok(conn.send_all(&args).await),
+                }
+            }
+        };
+        let mut text: Vec<String> = cmds
+            .iter()
+            .take(BATCH_LOG_LINES)
+            .map(crate::db::keyvalue::edit::shown_command)
+            .collect();
+        if cmds.len() > BATCH_LOG_LINES {
+            text.push(format!("… {} more", cmds.len() - BATCH_LOG_LINES));
+        }
+        let outcome = match &result {
+            Err(err) => Err(err.clone()),
+            Ok(replies) => match replies.iter().find_map(|r| r.as_ref().err()) {
+                Some(err) => Err(err.clone()),
+                None => Ok(Some(cmds.len() as u64)),
+            },
+        };
+        self.session.recorder().record(RecordedStatement {
+            sql: text.join("\n"),
+            started_at,
+            duration: start.elapsed(),
+            outcome,
+        });
+        result
     }
 
     /// Records many commands yadbe ran as one statement-log entry (`Origin::Batched`).

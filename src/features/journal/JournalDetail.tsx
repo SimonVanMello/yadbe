@@ -7,9 +7,16 @@ import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
 import { useConnection, useTableQualifier } from '../connections/connectionStore';
 import { ConnectionTag } from '../history/ConnectionTag';
+import { openKvRevert } from '../keyvalue/kvEditActions';
 import { revertChangeSet } from '../table-data/tableActions';
 import styles from './JournalDetail.module.css';
-import { blockerMessage, countParts, revertState, tableText } from './journalModel';
+import {
+  blockerMessage,
+  countParts,
+  entryTarget,
+  revertState,
+  statementText,
+} from './journalModel';
 import { useJournalUi } from './journalStore';
 import { useJournalDetail } from './useJournal';
 
@@ -30,7 +37,7 @@ export function JournalDetail({ entry }: { entry: JournalEntry }) {
     <aside className={styles.detail} aria-label={t('journal.detail')}>
       <div className={styles.identity}>
         <ConnectionTag connection={connection} name={entry.connectionName} />
-        <code className={styles.table}>{tableText(entry.table, qualifier)}</code>
+        <code className={styles.table}>{entryTarget(entry, qualifier)}</code>
       </div>
       <p className={styles.facts}>
         {t('journal.entryId', { id: entry.id })} ·{' '}
@@ -85,7 +92,8 @@ export function JournalDetail({ entry }: { entry: JournalEntry }) {
             disabled={connection === undefined}
             title={connection === undefined ? t('journal.connectionDeleted') : undefined}
             onClick={() => {
-              void revertChangeSet(entry.connectionId, entry.table, entry.id);
+              if (entry.family === 'keyValue') void openKvRevert(entry.connectionId, entry.id);
+              else void revertChangeSet(entry.connectionId, entry.table, entry.id);
             }}
           >
             <Icon name="undo" />
@@ -102,13 +110,13 @@ export function JournalDetail({ entry }: { entry: JournalEntry }) {
         <>
           <h3 className={styles.heading}>{t('journal.statements')}</h3>
           <pre className={styles.sql} data-testid="journal-statements">
-            {detail.data.statements.map((s) => `${s.sql};`).join('\n')}
+            {detail.data.statements.map((s) => statementText(entry, s.sql)).join('\n')}
           </pre>
           {detail.data.inverseStatements.length > 0 && (
             <>
               <h3 className={styles.heading}>{t('journal.inverse')}</h3>
               <pre className={styles.sql} data-testid="journal-inverse">
-                {detail.data.inverseStatements.map((sql) => `${sql};`).join('\n')}
+                {detail.data.inverseStatements.map((sql) => statementText(entry, sql)).join('\n')}
               </pre>
             </>
           )}

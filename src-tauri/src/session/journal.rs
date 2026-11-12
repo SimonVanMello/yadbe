@@ -4,10 +4,13 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::db::engine::EngineFamily;
 use crate::db::errors::YadbeError;
 use crate::db::meta::ObjectRef;
 use crate::events::{BackendEvent, ChangeJournalChanged, EventSink};
-use crate::store::{JournalRetention, NewJournalEntry, RevertBlocker, Store, StoredInverse};
+use crate::store::{
+    JournalEntry, JournalRetention, NewJournalEntry, RevertBlocker, Store, StoredInverse,
+};
 
 pub struct ChangeJournal {
     store: Arc<Store>,
@@ -148,14 +151,34 @@ impl ChangeJournal {
     }
 
     /// The inverse of entry `id` for a revert on `table` of `connection_id`: refused
-    /// (`invalidArgument`) when the entry is gone, belongs to another table, was already
-    /// reverted or cannot be reverted faithfully.
+    /// (`invalidArgument`) when the entry is gone, belongs to another table or family, was
+    /// already reverted or cannot be reverted faithfully.
     pub fn revert_input(
         &self,
         id: u32,
         connection_id: &str,
         table: &ObjectRef,
     ) -> Result<String, YadbeError> {
+        let (entry, inverse) = self.revertible(id, connection_id, EngineFamily::Sql)?;
+        if !same_table(&entry.table, table) {
+            return Err(YadbeError::invalid_argument(
+                "This change set was applied to another table.",
+                "Cet ensemble de modifications a été appliqué à une autre table.",
+            ));
+        }
+        Ok(inverse)
+    }
+
+    /// Entry `id` and its inverse (JSON, written by the `family`'s service), when it can be
+    /// reverted on `connection_id`: refused (`invalidArgument`) when the entry is gone,
+    /// belongs to another connection or family, was already reverted or cannot be reverted
+    /// faithfully. Every family's revert goes through it.
+    pub fn revertible(
+        &self,
+        id: u32,
+        connection_id: &str,
+        family: EngineFamily,
+    ) -> Result<(JournalEntry, String), YadbeError> {
         let StoredInverse { entry, inverse } =
             self.store.journal_inverse(id)?.ok_or_else(|| {
                 YadbeError::invalid_argument(
@@ -163,10 +186,10 @@ impl ChangeJournal {
                     "Cet ensemble de modifications n'est plus dans le journal.",
                 )
             })?;
-        if entry.connection_id != connection_id || !same_table(&entry.table, table) {
+        if entry.connection_id != connection_id || entry.family != family {
             return Err(YadbeError::invalid_argument(
-                "This change set was applied to another table.",
-                "Cet ensemble de modifications a été appliqué à une autre table.",
+                "This change set was applied to another connection.",
+                "Cet ensemble de modifications a été appliqué à une autre connexion.",
             ));
         }
         if let Some(by) = entry.reverted_by {
@@ -182,11 +205,12 @@ impl ChangeJournal {
                 format!("Cet ensemble de modifications ne peut pas être annulé fidèlement : {fr}."),
             ));
         }
-        inverse.ok_or_else(|| {
+        let inverse = inverse.ok_or_else(|| {
             YadbeError::invalid_argument(
                 "This change set cannot be reverted.",
                 "Cet ensemble de modifications ne peut pas être annulé.",
             )
-        })
+        })?;
+        Ok((entry, inverse))
     }
 }

@@ -1,12 +1,16 @@
 //! `KeyValueService`: what the key-value commands (`kv_*`) do on a Redis / Valkey session —
 //! the explorer (databases, key scans and their tree levels, key summaries), the key tabs
 //! (key header, string windows, JSON documents, collections paged into the result store) and
-//! the console. Every command goes through the session's [`gate::Gate`].
+//! the console, and the edits ([`edit`]: checked `WATCH` / `MULTI` / `EXEC` applies, the
+//! journal and reverts, namespace deletion). Every command goes through the session's
+//! [`gate::Gate`].
 //!
 //! Connections: one per database index and session (`SELECT` is per connection), the
-//! session's own connection for its database, and one per console tab.
+//! session's own connection for its database, one per console tab, and one per database for
+//! edits (`WATCH` is per connection).
 
 pub mod console;
+pub mod edit;
 pub mod gate;
 pub mod model;
 pub mod scan;
@@ -23,6 +27,7 @@ use crate::db::errors::YadbeError;
 use crate::db::keyvalue::{KvBytes, KvCommand, KvReply, key_value_only};
 use crate::events::{BackendEvent, EventSink};
 use crate::session::history_hook::{HistoryRecorder, NoHistory};
+use crate::session::journal::ChangeJournal;
 use crate::session::result_store::ResultStore;
 use crate::session::{ConnectionManager, ConnectionSession};
 
@@ -55,6 +60,8 @@ pub struct Pool {
     specs: SpecCache,
     by_db: tokio::sync::Mutex<ByDatabase>,
     scans: Mutex<HashMap<u32, Arc<KeyScan>>>,
+    /// The editing connection of each database, held by one apply at a time.
+    edit_conns: tokio::sync::Mutex<HashMap<u32, Arc<dyn KeyValueConnection>>>,
     sink: Arc<dyn EventSink>,
 }
 
@@ -133,6 +140,16 @@ impl Pool {
                 conn.close().await;
             }
         }
+        let editing: Vec<_> = self
+            .edit_conns
+            .lock()
+            .await
+            .drain()
+            .map(|(_, c)| c)
+            .collect();
+        for conn in editing {
+            conn.close().await;
+        }
     }
 }
 
@@ -186,6 +203,7 @@ pub struct KeyValueService {
     collections: Mutex<HashMap<u32, Arc<tokio::sync::Mutex<viewer::Collection>>>>,
     consoles: Mutex<HashMap<String, Arc<console::Console>>>,
     next_scan: AtomicU32,
+    journal: Option<Arc<ChangeJournal>>,
 }
 
 impl KeyValueService {
@@ -204,6 +222,7 @@ impl KeyValueService {
             collections: Mutex::new(HashMap::new()),
             consoles: Mutex::new(HashMap::new()),
             next_scan: AtomicU32::new(1),
+            journal: None,
         }
     }
 
@@ -227,6 +246,7 @@ impl KeyValueService {
             specs: SpecCache::default(),
             by_db: tokio::sync::Mutex::new(HashMap::new()),
             scans: Mutex::new(HashMap::new()),
+            edit_conns: tokio::sync::Mutex::new(HashMap::new()),
             sink: Arc::clone(&self.sink),
         });
         if let Some(old) = pools.insert(connection_id.to_owned(), Arc::clone(&pool)) {

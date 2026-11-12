@@ -691,6 +691,25 @@ export const commands = {
 	kvConsoleStop: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("kv_console_stop", { tabId })),
 	/**  Frees a console tab's results and closes its connection. */
 	kvConsoleClose: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("kv_console_close", { tabId })),
+	/**
+	 *  The commands Apply would run for a change set, in order (`WATCH`, the checks, `MULTI`, the
+	 *  commands, `EXEC`), and the dangers to confirm with their measured effect.
+	 */
+	kvPreviewChanges: (connectionId: string, changes: KvChangeSet) => typedError<KvPreview, YadbeError>(__TAURI_INVOKE("kv_preview_changes", { connectionId, changes })),
+	/**
+	 *  Applies a change set in one transaction, checked against what the user saw (`WATCH`):
+	 *  `conflicted` when the server holds something else (nothing applied), `needsConfirmation`
+	 *  for dangerous changes not `confirmed`. Journaled. Refused on a read-only connection.
+	 */
+	kvApplyChanges: (connectionId: string, changes: KvChangeSet, confirmed: boolean) => typedError<KvApplyOutcome, YadbeError>(__TAURI_INVOKE("kv_apply_changes", { connectionId, changes, confirmed })),
+	/**  What reverting a key-value journal entry would run. */
+	kvPreviewRevert: (connectionId: string, entryId: number) => typedError<KvPreview, YadbeError>(__TAURI_INVOKE("kv_preview_revert", { connectionId, entryId })),
+	/**  Reverts a key-value journal entry: its inverse, applied with the same checks. */
+	kvApplyRevert: (connectionId: string, entryId: number) => typedError<KvApplyOutcome, YadbeError>(__TAURI_INVOKE("kv_apply_revert", { connectionId, entryId })),
+	/**  The keys under `prefix` (a full `SCAN … MATCH prefix*`), before deleting the namespace. */
+	kvNamespaceCount: (connectionId: string, database: number, prefix: KvBytes) => typedError<KvNamespaceCount, YadbeError>(__TAURI_INVOKE("kv_namespace_count", { connectionId, database, prefix })),
+	/**  Deletes every key under `prefix`, by atomic batches of 500 (`UNLINK`), journaled. */
+	kvDeleteNamespace: (connectionId: string, database: number, prefix: KvBytes) => typedError<KvNamespaceDeleted, YadbeError>(__TAURI_INVOKE("kv_delete_namespace", { connectionId, database, prefix })),
 };
 
 /** Events */
@@ -2507,6 +2526,13 @@ export type JournalEntry = {
 	/**  The connection's name when the change set was applied. */
 	connectionName: string,
 	engine: Engine,
+	/**  The engine's family: which service reverts the entry. */
+	family: EngineFamily,
+	targetKind: JournalTargetKind,
+	/**
+	 *  The table; for a key-value entry, the database index (`database`) and the key, keys
+	 *  or pattern (`name`).
+	 */
 	table: ObjectRef,
 	/**  Unix time in milliseconds. */
 	appliedAt: number | null,
@@ -2557,6 +2583,19 @@ export type JournalTable = {
 	table: ObjectRef,
 	entries: number,
 };
+
+/**  What an entry changed: what its `table` names. */
+export type JournalTargetKind = 
+/**  A table (SQL family): database, schema, name. */
+"table" | 
+/**  One key (key-value family): the database index and the key. */
+"key" | 
+/**  Several keys: the database index and the keys' names, joined. */
+"keys" | 
+/**  Every key under a prefix: the database index and the pattern. */
+"namespace" | 
+/**  A collection (document family): database and name. */
+"collection";
 
 export type JsonLayout = 
 /**  One JSON array of objects, one object per line. */
@@ -2639,6 +2678,21 @@ export type KnownHost = {
 	addedAt: number,
 };
 
+/**  What an apply did. */
+export type KvApplyOutcome = 
+/**  Everything ran in one transaction. */
+{ status: "applied"; database: number; 
+/**  The journal entry; `null` when the journal could not be written. */
+journalId: number | null; 
+/**  The entry can be reverted (its snapshots fit the bound). */
+revertible: boolean; 
+/**  Keys created and deleted (renames are both), for the explorer. */
+added: KvBytes[]; removed: KvBytes[] } | 
+/**  Nothing ran: the server no longer holds what the user saw. */
+{ status: "conflicted"; conflicts: KvConflict[] } | 
+/**  Nothing ran: confirm these effects, then apply again with `confirmed`. */
+{ status: "needsConfirmation"; dangers: KvEditDanger[] };
+
 /**  A byte string as the frontend sees it. */
 export type KvBytes = {
 	/**
@@ -2648,6 +2702,12 @@ export type KvBytes = {
 	text: string,
 	/**  The exact bytes, when they are not UTF-8; `null`: `text` is the bytes. */
 	base64: string | null,
+};
+
+/**  Changes to apply together on one database. */
+export type KvChangeSet = {
+	database: number,
+	edits: KvEdit[],
 };
 
 /**  The rows of a collection read so far, kept in the result store (rule 8). */
@@ -2661,6 +2721,37 @@ export type KvCollection = {
 	/**  The collection's length when it was opened (`HLEN`…). */
 	total: number | null,
 };
+
+/**  An edit that cannot be applied as the user saw it. */
+export type KvConflict = {
+	/**  Index of the edit in its change set. */
+	edit: number,
+	key: KvBytes,
+	kind: KvConflictKind,
+	/**  What the edit expected, as `redis-cli` shows it (`null`: nothing, the thing was absent). */
+	expected: string | null,
+	/**
+	 *  What the server holds now, exact (bytes; a score, an expiry in Unix milliseconds or a
+	 *  JSON value as text); `null`: nothing.
+	 */
+	current: KvBytes | null,
+	actualType: string | null,
+	/**  "Keep mine" can apply the edit over what is there now. */
+	rebasable: boolean,
+};
+
+/**  What made a check fail. */
+export type KvConflictKind = 
+/**  The value changed (`current` holds it now). */
+"changed" | 
+/**  The key, field, member, element or entry is gone. */
+"missing" | 
+/**  What the edit adds is there already (a field, a member, a key). */
+"exists" | 
+/**  The key now holds another type (`actualType`). */
+"typeChanged" | 
+/**  `EXEC` was aborted: a watched key changed between the checks and the transaction. */
+"aborted";
 
 /**  One command of a console run. */
 export type KvConsoleEntry = {
@@ -2735,6 +2826,77 @@ export type KvDatabase = {
 	current: boolean,
 };
 
+/**
+ *  One change. `original` fields hold what the user saw; the apply compares them on the
+ *  server before anything runs.
+ */
+export type KvEdit = 
+/**  Replaces a string value (`SET … KEEPTTL`); `original` `null`: the key is created. */
+{ op: "stringSet"; key: KvBytes; original: KvBytes | null; value: KvBytes } | 
+/**  Sets a hash field; `original` `null`: the field is added. */
+{ op: "hashSet"; key: KvBytes; field: KvBytes; original: KvBytes | null; value: KvBytes } | { op: "hashDelete"; key: KvBytes; field: KvBytes; original: KvBytes } | 
+/**  Moves a field's value to a new field name (`to` must not exist). */
+{ op: "hashRename"; key: KvBytes; field: KvBytes; to: KvBytes; value: KvBytes } | { op: "listSet"; key: KvBytes; index: number; original: KvBytes; value: KvBytes } | 
+/**  `LPUSH` (`head`) or `RPUSH` of `values`, in that order. */
+{ op: "listPush"; key: KvBytes; head: boolean; values: KvBytes[] } | 
+/**  Pops `values`, which must be the first (`head`) or last elements, in list order. */
+{ op: "listPop"; key: KvBytes; head: boolean; values: KvBytes[] } | 
+/**  Removes the element at `index` (see the module comment). */
+{ op: "listRemove"; key: KvBytes; index: number; original: KvBytes } | { op: "setAdd"; key: KvBytes; member: KvBytes } | { op: "setRemove"; key: KvBytes; member: KvBytes } | 
+/**  Adds a member or changes its score; `original` `null`: the member is added. */
+{ op: "zsetSet"; key: KvBytes; member: KvBytes; original: string | null; score: string } | { op: "zsetRemove"; key: KvBytes; member: KvBytes; original: string } | 
+/**  Appends an entry with a server-made id (`XADD key *`). */
+{ op: "streamAdd"; key: KvBytes; fields: KvField[] } | 
+/**  Deletes an entry (`fields`: what the user saw of it). */
+{ op: "streamDelete"; key: KvBytes; id: string; fields: KvField[] } | 
+/**
+ *  Replaces a RedisJSON document (`path` `$`) or the value at an existing path;
+ *  `original` `null`: the document is created (path `$` only).
+ */
+{ op: "jsonSet"; key: KvBytes; path: string; original: string | null; value: string } | 
+/**
+ *  Changes the time to live; `original`: the expiry the user saw (`PEXPIRETIME`, Unix
+ *  milliseconds), `null` for none.
+ */
+{ op: "expire"; key: KvBytes; original: number | null; ttl: KvTtl } | 
+/**  Renames a key; `overwrite`: `to` may exist and is replaced (confirmed as dangerous). */
+{ op: "rename"; key: KvBytes; to: KvBytes; overwrite: boolean } | 
+/**  Copies a key to a new name (`COPY`; `to` must not exist). */
+{ op: "copy"; key: KvBytes; to: KvBytes } | 
+/**  Creates a key that must not exist. */
+{ op: "create"; key: KvBytes; value: KvNewValue; ttlMs: number | null } | 
+/**
+ *  Deletes a key (`UNLINK`); `guard`: the key must still be exactly this snapshot (a
+ *  revert). Without a guard, a key already gone is not a conflict.
+ */
+{ op: "delete"; key: KvBytes; guard: KvSnapshot | null } | 
+/**
+ *  Brings a key back from a snapshot; `replace`: the key exists and must be exactly this
+ *  snapshot, else it must not exist.
+ */
+{ op: "restore"; key: KvBytes; snapshot: KvSnapshot; replace: KvSnapshot | null };
+
+export type KvEditDanger = {
+	kind: KvEditDangerKind,
+	/**  Measured on the server (`Deletes 12 keys; 11 exist now`). */
+	effect: LocalizedText,
+};
+
+/**  A change set that needs a confirmation of its concrete effect. */
+export type KvEditDangerKind = 
+/**  Deletes this many keys at once. */
+{ kind: "deleteKeys"; count: number } | 
+/**  A rename replaces an existing key. */
+{ kind: "overwrite"; key: KvBytes; to: KvBytes } | 
+/**  Changes the time to live of this many keys at once. */
+{ kind: "expireMany"; count: number };
+
+/**  A hash field or a stream entry field with its value. */
+export type KvField = {
+	field: KvBytes,
+	value: KvBytes,
+};
+
 /**  The header of a key tab. */
 export type KvKeyInfo = {
 	key: KvBytes,
@@ -2742,6 +2904,11 @@ export type KvKeyInfo = {
 	kind: KvKeyKind,
 	typeName: string,
 	ttlMs: number | null,
+	/**
+	 *  When the key expires (`PEXPIRETIME`, Unix milliseconds); `null`: never. What a time to
+	 *  live edit compares on the server.
+	 */
+	expireAtMs: number | null,
 	/**  `OBJECT ENCODING` (`listpack`, `hashtable`, `embstr`…). */
 	encoding: string | null,
 	memory: number | null,
@@ -2792,6 +2959,62 @@ keys: number } | { type: "key";
 /**  What is left of the key after the parent's prefix. */
 name: KvBytes; key: KvBytes };
 
+/**  What a preview line is. */
+export type KvLineRole = 
+/**  `WATCH`, `MULTI`, `EXEC`. */
+"control" | 
+/**  A read compared with what the user saw. */
+"check" | 
+/**  A read kept for the journal (snapshot, expiry). */
+"snapshot" | 
+/**  A command that changes data. */
+"command";
+
+/**  What deleting a namespace would delete. */
+export type KvNamespaceCount = {
+	/**  The `SCAN` pattern, as `redis-cli` shows it. */
+	pattern: string,
+	/**  Keys under the prefix now (a full `SCAN`). */
+	keys: number | null,
+	/**  The first keys found. */
+	sample: KvBytes[],
+	/**  Snapshot bytes the journal keeps to restore deleted keys. */
+	snapshotBound: number | null,
+};
+
+/**  What a namespace deletion did. */
+export type KvNamespaceDeleted = {
+	deleted: number | null,
+	batches: number,
+	journalId: number | null,
+	/**  Every deleted key fit the snapshot bound: the entry can be reverted. */
+	revertible: boolean,
+};
+
+/**  The first content of a key created by the user. */
+export type KvNewValue = { type: "string"; value: KvBytes } | { type: "hash"; fields: KvField[] } | { type: "list"; values: KvBytes[] } | { type: "set"; members: KvBytes[] } | { type: "zset"; members: KvScored[] } | { type: "stream"; fields: KvField[] } | 
+/**  A RedisJSON document, as JSON text. */
+{ type: "json"; value: string };
+
+/**  What Apply would run. */
+export type KvPreview = {
+	/**  Every command in order, as `redis-cli` takes it (long values cut, snapshots named). */
+	lines: KvPreviewLine[],
+	/**  Commands that change data (between `MULTI` and `EXEC`). */
+	commands: number,
+	/**
+	 *  Transactions it runs in: 1, or batches of [`MAX_WATCHED_KEYS`] keys for a change set
+	 *  on more keys (each batch atomic, the whole not).
+	 */
+	batches: number,
+	dangers: KvEditDanger[],
+};
+
+export type KvPreviewLine = {
+	text: string,
+	role: KvLineRole,
+};
+
 /**  How the console shows a reply: a value, a grid (rows in the result store), or a tree. */
 export type KvReplyView = { kind: "nil" } | { kind: "scalar"; value: KvBytes; scalar: KvScalarKind } | 
 /**  An empty array, set or map. */
@@ -2840,6 +3063,23 @@ export type KvScanStatus = {
 	version: number,
 };
 
+/**
+ *  A sorted set member with its score. Scores travel as text (`1.5`, `-inf`): a JSON number
+ *  cannot hold an infinite score.
+ */
+export type KvScored = {
+	member: KvBytes,
+	score: string,
+};
+
+/**  A whole key as `DUMP` serializes it, with its absolute expiry: what `RESTORE` brings back. */
+export type KvSnapshot = {
+	/**  The `DUMP` payload, base64. */
+	dump: string,
+	/**  Unix time in milliseconds when the key expires (`PEXPIRETIME`); `null`: never. */
+	expireAt: number | null,
+};
+
 /**  A window of a string value. */
 export type KvStringChunk = {
 	/**  Length of the whole value in bytes. */
@@ -2848,6 +3088,15 @@ export type KvStringChunk = {
 	/**  The bytes of `[offset, offset + length)`, base64. */
 	base64: string,
 };
+
+/**  A new time to live. */
+export type KvTtl = 
+/**  No expiry (`PERSIST`). */
+{ kind: "persist" } | 
+/**  Expires `ms` milliseconds after the apply (`PEXPIRE`). */
+{ kind: "in"; ms: number | null } | 
+/**  Expires at this Unix time in milliseconds (`PEXPIREAT`). */
+{ kind: "at"; ms: number | null };
 
 /**  What the command line asked for. */
 export type LaunchRequest = 

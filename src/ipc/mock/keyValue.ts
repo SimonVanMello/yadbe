@@ -1,5 +1,6 @@
 import type {
   ColumnMeta,
+  Engine,
   KvBytes,
   KvCollection,
   KvConsoleEntry,
@@ -20,6 +21,8 @@ import type { YadbeClient } from '../client';
 import type { EventEmitter } from '../emitter';
 import { mockErrors } from '../mockErrors';
 import type { Cell } from '../mockQuery';
+import type { MockJournal } from './journal';
+import { createMockKvEdit, MOCK_EPOCH_MS, type MockKvStore } from './keyValueEdit';
 import {
   SYNTHETIC_DB,
   SYNTHETIC_KEYS,
@@ -57,6 +60,12 @@ export type KeyValueCommands = Pick<
   | 'kvConsoleRun'
   | 'kvConsoleStop'
   | 'kvConsoleClose'
+  | 'kvPreviewChanges'
+  | 'kvApplyChanges'
+  | 'kvPreviewRevert'
+  | 'kvApplyRevert'
+  | 'kvNamespaceCount'
+  | 'kvDeleteNamespace'
 >;
 
 export interface KeyValueDeps {
@@ -75,6 +84,10 @@ export interface KeyValueDeps {
   storeRows(columns: readonly ColumnMeta[], rows: readonly (readonly Cell[])[]): number;
   freeResults(ids: readonly number[]): void;
   latency(): number;
+  /** The change journal edits are recorded in. */
+  journal: MockJournal;
+  connectionName(connectionId: string): string;
+  engine(connectionId: string): Engine;
 }
 
 function ok<T>(data: T): Result<T> {
@@ -1008,6 +1021,56 @@ export function createMockKeyValue(deps: KeyValueDeps) {
     return consoles.get(tabId)?.stop ?? false;
   }
 
+  // --- Edits (M4-6) ---------------------------------------------------------------------------
+
+  /** Keys an edit created and deleted: the open scan of their database follows. */
+  function moved(connectionId: string, db: number, added: string[], removed: string[]): void {
+    const scan = scans.get(scanKey(connectionId, db));
+    if (!scan) return;
+    const gone = new Set(removed);
+    const regex = scan.status.pattern === null ? null : globToRegExp(scan.status.pattern);
+    const fresh = added.filter((name) => (regex ? regex.test(name) : true));
+    const keep = (name: string) => !gone.has(name);
+    const before = scan.loaded.length;
+    scan.loaded = [...scan.loaded.filter(keep), ...fresh.filter((n) => !scan.loaded.includes(n))];
+    scan.order = [...scan.order.filter(keep), ...fresh.filter((n) => !scan.order.includes(n))];
+    if (scan.loaded.length !== before || fresh.length > 0 || gone.size > 0) {
+      scan.status.loaded = scan.loaded.length;
+      scan.status.version += 1;
+      emit(connectionId, scan);
+    }
+  }
+
+  const kvStore: MockKvStore = {
+    session: (connectionId) => sessionOf(connectionId),
+    get: (connectionId, db, name) => {
+      const own = keyspace(connectionId, db).get(name);
+      if (own) return own;
+      const found = lookup(connectionId, db, name);
+      if (!found) return null;
+      // A generated key becomes the mock's own once it is edited.
+      const copy = structuredClone(found);
+      keyspace(connectionId, db).set(name, copy);
+      return copy;
+    },
+    put: (connectionId, db, key) => {
+      keyspace(connectionId, db).set(key.name, key);
+    },
+    remove: (connectionId, db, name) => {
+      keyspace(connectionId, db).delete(name);
+    },
+    names: (connectionId, db) => names(connectionId, db),
+    moved,
+    log: (connectionId, sql, error = null) => {
+      log(connectionId, sql, error);
+    },
+  };
+  const edits = createMockKvEdit(kvStore, {
+    journal: deps.journal,
+    connectionName: (connectionId) => deps.connectionName(connectionId),
+    engine: (connectionId) => deps.engine(connectionId),
+  });
+
   const commands: KeyValueCommands = {
     kvListDatabases: (connectionId) => {
       const session = sessionOf(connectionId);
@@ -1110,7 +1173,7 @@ export function createMockKeyValue(deps: KeyValueDeps) {
       const key = lookup(connectionId, database, nameOf(bytes));
       log(
         connectionId,
-        `TYPE ${bytes.text}\nPTTL ${bytes.text}\nOBJECT ENCODING ${bytes.text}\nMEMORY USAGE ${bytes.text}`,
+        `TYPE ${bytes.text}\nPTTL ${bytes.text}\nOBJECT ENCODING ${bytes.text}\nMEMORY USAGE ${bytes.text}\nPEXPIRETIME ${bytes.text}`,
       );
       const typeName = key ? key.value.type : 'none';
       const info: KvKeyInfo = {
@@ -1119,6 +1182,7 @@ export function createMockKeyValue(deps: KeyValueDeps) {
         kind: kindOf(typeName),
         typeName,
         ttlMs: ttlOf(key),
+        expireAtMs: key?.ttlMs == null ? null : MOCK_EPOCH_MS + key.ttlMs,
         encoding: key ? encodingOf(key) : null,
         memory: key ? memoryOf(key) : null,
         length: key ? lengthOf(key) : null,
@@ -1331,6 +1395,8 @@ export function createMockKeyValue(deps: KeyValueDeps) {
       consoles.delete(tabId);
       return ok(null);
     },
+
+    ...edits.commands,
   };
 
   return {
@@ -1350,6 +1416,7 @@ export function createMockKeyValue(deps: KeyValueDeps) {
       collections.clear();
       consoles.clear();
       keyspaces = new Map();
+      edits.reset();
     },
   };
 }

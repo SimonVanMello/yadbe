@@ -214,6 +214,12 @@ const MIGRATIONS: &[&str] = &[
     // v11: settings of key-value connections (Redis, Valkey) as JSON (`KeyValueSettings`);
     // NULL for the other families and for connections saved before.
     "ALTER TABLE connections ADD COLUMN key_value TEXT;",
+    // v12: the change journal holds the change sets of every engine family (M4-6). `family`
+    // says how `inverse` is written (SQL change set, key-value change set…) and which service
+    // reverts it; `target_kind` what `table_name` names (a table, a key, several keys, a key
+    // namespace, a collection). Entries written before are SQL changes to a table.
+    "ALTER TABLE change_journal ADD COLUMN family TEXT NOT NULL DEFAULT 'sql';
+    ALTER TABLE change_journal ADD COLUMN target_kind TEXT NOT NULL DEFAULT 'table';",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {

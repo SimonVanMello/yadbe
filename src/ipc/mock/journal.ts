@@ -1,6 +1,9 @@
 import type {
   ChangeSet,
   Engine,
+  EngineFamily,
+  JournalTargetKind,
+  KvChangeSet,
   JournalDetail,
   JournalEntry,
   JournalPage,
@@ -41,6 +44,21 @@ export interface MockJournalRecord {
   inverseStatements: string[];
   blocker: RevertBlocker | null;
   reverts: number | null;
+  /** What `table` names; a table when absent. */
+  targetKind?: JournalTargetKind;
+  /** The inverse of a key-value change set (`inverse` is SQL only). */
+  kvInverse?: KvChangeSet | null;
+}
+
+function familyOf(engine: Engine): EngineFamily {
+  switch (engine) {
+    case 'redis':
+      return 'keyValue';
+    case 'mongodb':
+      return 'document';
+    default:
+      return 'sql';
+  }
 }
 
 interface Stored extends MockJournalRecord {
@@ -67,6 +85,8 @@ function entryOf(stored: Stored): JournalEntry {
     connectionId: stored.connectionId,
     connectionName: stored.connectionName,
     engine: stored.engine,
+    family: familyOf(stored.engine),
+    targetKind: stored.targetKind ?? 'table',
     table: structuredClone(stored.table),
     appliedAt: stored.appliedAt,
     durationMs: stored.durationMs,
@@ -193,6 +213,35 @@ export function createMockJournal(deps: { events: EventEmitter }) {
         );
       }
       return structuredClone(stored.inverse);
+    },
+    /** The inverse of a key-value entry for a revert on `connectionId`, or why it cannot be. */
+    kvInverseFor(id: number, connectionId: string): KvChangeSet | YadbeError {
+      const stored = entries.find((e) => e.id === id);
+      if (!stored) {
+        return mockErrors.invalidArgument(
+          'This change set is no longer in the journal.',
+          "Cet ensemble de modifications n'est plus dans le journal.",
+        );
+      }
+      if (stored.connectionId !== connectionId || familyOf(stored.engine) !== 'keyValue') {
+        return mockErrors.invalidArgument(
+          'This change set was applied to another connection.',
+          'Cet ensemble de modifications a été appliqué à une autre connexion.',
+        );
+      }
+      if (stored.revertedBy !== null) {
+        return mockErrors.invalidArgument(
+          `This change set was already reverted (#${String(stored.revertedBy)}).`,
+          `Cet ensemble de modifications a déjà été annulé (n° ${String(stored.revertedBy)}).`,
+        );
+      }
+      if (stored.blocker || !stored.kvInverse) {
+        return mockErrors.invalidArgument(
+          'This change set cannot be reverted faithfully.',
+          'Cet ensemble de modifications ne peut pas être annulé fidèlement.',
+        );
+      }
+      return structuredClone(stored.kvInverse);
     },
     setMaxEntries(max: number): void {
       maxEntries = max;
