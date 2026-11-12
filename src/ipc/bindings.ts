@@ -91,7 +91,9 @@ export const commands = {
 	 */
 	parseConnectionString: (input: Secret, engineHint: "postgres" | "mssql" | "mysql" | "sqlite" | "mongodb" | 
 /**  Redis and Valkey (same protocol, same code). */
-"redis" | null) => typedError<ParsedConnectionString, YadbeError>(__TAURI_INVOKE("parse_connection_string", { input, engineHint })),
+"redis" | 
+/**  Elasticsearch and OpenSearch, over their HTTP API (the same code where the APIs agree). */
+"elasticsearch" | null) => typedError<ParsedConnectionString, YadbeError>(__TAURI_INVOKE("parse_connection_string", { input, engineHint })),
 	/**  Drops a password held from a parsed connection string (dialog cancelled). */
 	discardPendingSecret: (id: string) => typedError<null, YadbeError>(__TAURI_INVOKE("discard_pending_secret", { id })),
 	getPreferences: () => typedError<Preferences, YadbeError>(__TAURI_INVOKE("get_preferences")),
@@ -710,6 +712,47 @@ export const commands = {
 	kvNamespaceCount: (connectionId: string, database: number, prefix: KvBytes) => typedError<KvNamespaceCount, YadbeError>(__TAURI_INVOKE("kv_namespace_count", { connectionId, database, prefix })),
 	/**  Deletes every key under `prefix`, by atomic batches of 500 (`UNLINK`), journaled. */
 	kvDeleteNamespace: (connectionId: string, database: number, prefix: KvBytes) => typedError<KvNamespaceDeleted, YadbeError>(__TAURI_INVOKE("kv_delete_namespace", { connectionId, database, prefix })),
+	/**  The indices of the cluster (`_cat/indices`), hidden and system ones included (flagged). */
+	searchListIndices: (connectionId: string) => typedError<SearchIndexInfo[], YadbeError>(__TAURI_INVOKE("search_list_indices", { connectionId })),
+	/**  The data streams of the cluster; empty where the server has none. */
+	searchListDataStreams: (connectionId: string) => typedError<SearchDataStream[], YadbeError>(__TAURI_INVOKE("search_list_data_streams", { connectionId })),
+	/**  The aliases of the cluster, with the indices behind each. */
+	searchListAliases: (connectionId: string) => typedError<SearchAlias[], YadbeError>(__TAURI_INVOKE("search_list_aliases", { connectionId })),
+	/**  The composable index templates of the cluster. */
+	searchListTemplates: (connectionId: string) => typedError<SearchTemplate[], YadbeError>(__TAURI_INVOKE("search_list_templates", { connectionId })),
+	/**
+	 *  The mapping fields (flattened paths with their types) and a settings summary of an index,
+	 *  or of every index a pattern, alias or data stream resolves to.
+	 */
+	searchIndexDetails: (connectionId: string, target: string) => typedError<SearchIndexDetails, YadbeError>(__TAURI_INVOKE("search_index_details", { connectionId, target })),
+	/**  Opens an index (data stream, alias) in the index tab `tabId`. */
+	searchOpenIndex: (tabId: string, connectionId: string, target: string) => typedError<IndexTabInfo, YadbeError>(__TAURI_INVOKE("search_open_index", { tabId, connectionId, target })),
+	/**
+	 *  Page `page` (0-based) of a query on the tab's index: on a point in time with
+	 *  `search_after` where the server has both, otherwise by `from` / `size` up to the result
+	 *  window. Page 0 starts over (a fresh point in time and count).
+	 */
+	searchFetchPage: (tabId: string, connectionId: string, target: string, query: IndexQuery, page: number) => typedError<IndexPage, YadbeError>(__TAURI_INVOKE("search_fetch_page", { tabId, connectionId, target, query, page })),
+	/**  The exact number of documents of a query (`_count`); cancellable with `search_cancel`. */
+	searchCount: (tabId: string, connectionId: string, target: string, query: IndexQuery) => typedError<number | null, YadbeError>(__TAURI_INVOKE("search_count", { tabId, connectionId, target, query })),
+	/**
+	 *  Runs console requests: the ones on `lines` (the cursor's line or the selection), else all.
+	 *  Without `confirmed`, nothing is sent when one is dangerous: the answer lists them with
+	 *  their effect.
+	 */
+	searchConsoleRun: (tabId: string, connectionId: string, text: string, lines: {
+	from: number,
+	to: number,
+} | null, confirmed: boolean) => typedError<SearchConsoleOutcome, YadbeError>(__TAURI_INVOKE("search_console_run", { tabId, connectionId, text, lines, confirmed })),
+	/**
+	 *  Stops what the tab runs: its request is dropped and its task cancelled on the server; a
+	 *  console run sends nothing more.
+	 */
+	searchCancel: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("search_cancel", { tabId })),
+	/**  Frees what a closed tab holds (results, point in time); unknown tabs are ignored. */
+	searchCloseTab: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("search_close_tab", { tabId })),
+	/**  Whole documents (hits, or a console answer) `offset .. offset + limit`, as JSON text. */
+	searchFetchDocuments: (documentsId: number, offset: number, limit: number) => typedError<string[], YadbeError>(__TAURI_INVOKE("search_fetch_documents", { documentsId, offset, limit })),
 };
 
 /** Events */
@@ -1237,6 +1280,11 @@ export type ConnectionDefinition = {
 	mongo?: MongoSettings | null,
 	/**  What only key-value connections have (Redis, Valkey); `null` for the other families. */
 	keyValue?: KeyValueSettings | null,
+	/**
+	 *  What only search connections have (Elasticsearch, OpenSearch): the kind of
+	 *  authentication and the URL's path; `null` for the other families.
+	 */
+	search?: SearchSettings | null,
 };
 
 /**  A folder of connections; groups can nest. */
@@ -1389,6 +1437,55 @@ export type ConnectionUpdate = {
 	 *  open session at once.
 	 */
 	reconnectNeeded: boolean,
+};
+
+/**  What a response holds, ready to show. */
+export type ConsoleBody = 
+/**  No body (`HEAD`, an empty answer). */
+{ kind: "empty" } | 
+/**  Text (`_cat` without `format=json`, an error page). */
+{ kind: "text"; text: string; truncated: boolean } | 
+/**
+ *  JSON: the raw text, the whole response as one document (`search_fetch_documents`),
+ *  its hits as a result when it has `hits.hits`, its table when it is an ES|QL / SQL
+ *  answer.
+ */
+{ kind: "json"; raw: string; 
+/**  `raw` is the start of a longer text. */
+truncated: boolean; documentId: number; hits: DocumentResult | null; total: SearchTotal | null; table: ResultSummary | null };
+
+/**  A console text that cannot be read as requests. */
+export type ConsoleFailure = {
+	error: YadbeError,
+	/**  0-based line at fault. */
+	line: number,
+};
+
+/**  Where a response's error points in the editor (1-based). */
+export type ConsolePosition = {
+	line: number,
+	column: number,
+};
+
+/**  The answer to one request of a console run. */
+export type ConsoleResponse = {
+	/**  0-based line of the request line in the editor. */
+	line: number,
+	method: HttpMethod,
+	path: string,
+	/**  `null` when nothing was answered (refused, cancelled, link down). */
+	status: number | null,
+	durationMs: number | null,
+	tookMs: number | null,
+	shards: ShardsInfo | null,
+	timedOut: boolean,
+	/**
+	 *  Why it failed: refused by the gate, cancelled, timed out, or what the server said
+	 *  for a status of 400 and more.
+	 */
+	error: YadbeError | null,
+	errorPosition: ConsolePosition | null,
+	body: ConsoleBody,
 };
 
 /**  Kinds of constraints a change can break. */
@@ -1620,7 +1717,9 @@ export type EfMigrations = {
 /**  Database engines yadbe knows; drivers arrive one by one. */
 export type Engine = "postgres" | "mssql" | "mysql" | "sqlite" | "mongodb" | 
 /**  Redis and Valkey (same protocol, same code). */
-"redis";
+"redis" | 
+/**  Elasticsearch and OpenSearch, over their HTTP API (the same code where the APIs agree). */
+"elasticsearch";
 
 /**
  *  What kind of database an engine is: it decides the connection's backend (the `Backend`
@@ -1716,6 +1815,11 @@ export type ErrorCode =
  *  another engine family.
  */
 "keyValueOnly" | 
+/**
+ *  A search feature (indices, the request console) was asked of a connection of another
+ *  engine family.
+ */
+"searchOnly" | 
 /**  The connection is not open (never opened, closed, or reconnecting). */
 "notConnected" | 
 /**  The connection needs a password and none was given or stored. */
@@ -2179,6 +2283,8 @@ export type HistoryScope = {
 	to: number | null,
 };
 
+export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "HEAD" | "PATCH";
+
 /**  How an identity / auto-increment column gets its value. */
 export type Identity = 
 /**
@@ -2478,6 +2584,8 @@ export type IncomingForeignKeys = {
 	keys: IncomingForeignKey[],
 };
 
+export type IndexHealth = "green" | "yellow" | "red" | "unknown";
+
 export type IndexInfo = {
 	name: string,
 	/**  Key columns in order; an expression key is given as its text. */
@@ -2491,6 +2599,68 @@ export type IndexInfo = {
 	predicate: string | null,
 	/**  The `CREATE INDEX` statement, when the engine keeps or rebuilds it. */
 	definition: string | null,
+};
+
+/**  One page of an index tab. */
+export type IndexPage = {
+	/**
+	 *  Hits as a grid (`_index`, `_id`, `_score`, the `_source` fields flattened) and as
+	 *  whole hits.
+	 */
+	documents: DocumentResult,
+	/**  0-based. */
+	page: number,
+	hasMore: boolean,
+	/**  From the first page of the query (`track_total_hits` up to 10 000). */
+	total: SearchTotal | null,
+	paging: IndexPaging,
+	/**  With `from` / `size`: the last document a page can reach (the result window). */
+	window: number | null,
+	/**  The search as it was sent, console style. */
+	request: string,
+	tookMs: number | null,
+	durationMs: number | null,
+};
+
+/**  How the pages of an index tab follow each other. */
+export type IndexPaging = 
+/**  `search_after` on a point in time: consistent pages, no depth limit. */
+"pointInTime" | 
+/**  `from` / `size`: pages stop at the index's result window (10 000 by default). */
+"fromSize";
+
+/**  What an index tab asks for. Empty texts mean none (all documents, whole `_source`). */
+export type IndexQuery = {
+	mode: IndexQueryMode,
+	text: string,
+	/**
+	 *  `_source` filtering: field patterns separated by commas, `-` before one to leave it
+	 *  out (`customer.*, -customer.secret`).
+	 */
+	source: string,
+	sort: IndexSort[],
+	/**  Documents per page, 1 to 1000. */
+	pageSize: number,
+};
+
+/**  How the query box of an index tab reads its text. */
+export type IndexQueryMode = 
+/**  A Query DSL object (`{"match": {"title": "x"}}`, or `{"query": {…}}`). */
+"dsl" | 
+/**  A Lucene query string (`status:paid AND total:>100`), sent as `query_string`. */
+"queryString";
+
+export type IndexSort = {
+	field: string,
+	descending: boolean,
+};
+
+/**  An index (data stream, alias, pattern) as its tab opens it. */
+export type IndexTabInfo = {
+	target: string,
+	details: SearchIndexDetails,
+	server: SearchServer,
+	paging: IndexPaging,
 };
 
 /**
@@ -3115,6 +3285,12 @@ argument: string | null };
 
 export type LineEnding = "lf" | "crlf";
 
+/**  Lines of the console text (0-based, inclusive): the cursor's line, or the selection's. */
+export type LineRange = {
+	from: number,
+	to: number,
+};
+
 export type Locale = "en" | "fr";
 
 /**  A message in every supported UI language. */
@@ -3464,6 +3640,11 @@ export type ParsedConnectionString = {
 	 *  host list).
 	 */
 	mongo: MongoSettings | null,
+	/**
+	 *  The search fields of an `http://` / `https://` URL (Elasticsearch, OpenSearch): the
+	 *  URL's path and basic authentication when it names a user.
+	 */
+	search: SearchSettings | null,
 };
 
 export type PauseReason = "rowLimit" | "memoryLimit";
@@ -3480,6 +3661,16 @@ export type PinnedObject = {
 	/**  The object's id in its list (see [`DdlTarget::Object`]); equal to `name` for a schema. */
 	id: string,
 };
+
+/**  How a point in time is opened and closed. */
+export type PitApi = 
+/**  `POST /<target>/_pit` → `{"id"}`; `DELETE /_pit` with `{"id"}`. */
+"pit" | 
+/**
+ *  `POST /<target>/_search/point_in_time` → `{"pit_id"}`; `DELETE /_search/point_in_time`
+ *  with `{"pit_id": [...]}`.
+ */
+"searchPointInTime";
 
 /**  A labelled property of a node, as the engine names it (never translated). */
 export type PlanFact = {
@@ -4119,6 +4310,173 @@ truncated: boolean } |
 /**  Any other value, as mongosh prints it. */
 { kind: "text"; text: string; truncated: boolean };
 
+export type SearchAlias = {
+	name: string,
+	indices: string[],
+	/**  The index writes go to, when one is marked. */
+	writeIndex: string | null,
+	/**  At least one of its indices sees it through a filter. */
+	filtered: boolean,
+	system: boolean,
+};
+
+/**  How requests authenticate. */
+export type SearchAuth = 
+/**  No `Authorization` header (security off, or a proxy in front). */
+"none" | 
+/**  User name and password (`Authorization: Basic`). */
+"basic" | 
+/**  An API key, as the server encodes it (`Authorization: ApiKey <encoded>`). */
+"apiKey" | 
+/**  A bearer token (`Authorization: Bearer <token>`: service tokens, OAuth / OIDC). */
+"bearer";
+
+/**  What `search_console_run` did. */
+export type SearchConsoleOutcome = 
+/**  Nothing ran: these requests are dangerous; run again with `confirmed` to run them. */
+{ kind: "needsConfirmation"; dangers: SearchDanger[] } | 
+/**
+ *  The requests ran in order. A request that could not be sent stops the run: the ones
+ *  after it are `skipped`. A text that is not requests fails with `failure`.
+ */
+{ kind: "ran"; responses: ConsoleResponse[]; skipped: number; failure: ConsoleFailure | null };
+
+/**  A dangerous request of a console run, and what it would do, as the server counts it. */
+export type SearchDanger = {
+	/**  0-based line of its request line. */
+	line: number,
+	request: string,
+	kind: SearchDangerKind,
+	effect: LocalizedText,
+};
+
+/**  The dangerous requests: they delete or rewrite much at once. */
+export type SearchDangerKind = 
+/**  `DELETE /<index>`, wildcards and lists included. */
+"deleteIndex" | 
+/**  `DELETE /_data_stream/<name>`: the stream and every backing index. */
+"deleteDataStream" | 
+/**  `POST /<target>/_delete_by_query`. */
+"deleteByQuery" | 
+/**  `POST /<target>/_update_by_query`. */
+"updateByQuery" | 
+/**
+ *  `POST /_reindex` into an index that exists (its documents with the same ids are
+ *  overwritten); into a new index it is not dangerous.
+ */
+"reindex" | 
+/**  `POST /<index>/_close`: the index cannot be searched or written until reopened. */
+"closeIndex";
+
+export type SearchDataStream = {
+	name: string,
+	health: IndexHealth,
+	/**  Backing indices, oldest first. */
+	indices: string[],
+	template: string | null,
+	timestampField: string | null,
+	system: boolean,
+};
+
+/**  What the server can do that yadbe uses. */
+export type SearchFeatures = {
+	/**
+	 *  Point in time for consistent pages with `search_after`; `null`: pages use
+	 *  `from` / `size` (and stop at the result window).
+	 */
+	pointInTime: PitApi | null,
+	/**
+	 *  A search on a point in time sorts by `_shard_doc` last by itself (a unique tiebreaker
+	 *  for `search_after`) and `_shard_doc` can be asked for.
+	 */
+	shardDocSort: boolean,
+	/**  Data streams (`GET /_data_stream`). */
+	dataStreams: boolean,
+	/**  Composable index templates (`GET /_index_template`). */
+	indexTemplates: boolean,
+	/**  ES|QL (`POST /_query`). */
+	esql: boolean,
+};
+
+/**  A field of a mapping, by its full path. */
+export type SearchField = {
+	/**  `customer.name`, `title.keyword` (a multi-field). */
+	path: string,
+	/**  The mapping type (`keyword`, `long`, `date`, `object`, `nested`…). */
+	typeName: string,
+	/**  A search can sort on it (doc values: keywords, numbers, dates, booleans, IPs…). */
+	sortable: boolean,
+	/**  A sub-field of another (`title.keyword`), not in `_source` by itself. */
+	multiField: boolean,
+};
+
+/**
+ *  An index (or a data stream, an alias: the union of their indices) as its explorer node
+ *  and its tab show it.
+ */
+export type SearchIndexDetails = {
+	fields: SearchField[],
+	settings: SearchSetting[],
+	/**  `index.max_result_window` (10 000 unless set): the deepest `from` + `size`. */
+	maxResultWindow: number,
+};
+
+export type SearchIndexInfo = {
+	name: string,
+	health: IndexHealth,
+	/**  `open` or `close`. */
+	open: boolean,
+	/**  Documents of the primary shards (`null` for a closed index). */
+	docs: number | null,
+	/**  Store size of all shards, in bytes. */
+	sizeBytes: number | null,
+	primaries: number | null,
+	replicas: number | null,
+	/**  A dot index (`.kibana`, `.ds-…` backing indices, `.security`): hidden or system. */
+	system: boolean,
+};
+
+export type SearchProduct = "elasticsearch" | "opensearch";
+
+/**  The server a search connection talks to. */
+export type SearchServer = {
+	product: SearchProduct,
+	/**  `8.15.1`, `2.17.0`. */
+	version: string,
+	clusterName: string | null,
+	features: SearchFeatures,
+};
+
+/**  The settings shown under an index, as the server wrote them. */
+export type SearchSetting = {
+	key: string,
+	value: string,
+};
+
+/**  What only search connections have. `null` on the other families. */
+export type SearchSettings = {
+	auth?: SearchAuth,
+	/**  The path the API is served under behind a proxy (`/elasticsearch`); `null`: the root. */
+	pathPrefix?: string | null,
+};
+
+export type SearchTemplate = {
+	name: string,
+	patterns: string[],
+	priority: number | null,
+	/**  It creates data streams. */
+	dataStream: boolean,
+	/**  Managed by the server or a product (`.`-prefixed or `_meta.managed`). */
+	system: boolean,
+};
+
+/**  How many documents match: exact, or a lower bound (`track_total_hits` stops counting). */
+export type SearchTotal = {
+	value: number | null,
+	/**  `false`: at least `value`. */
+	exact: boolean,
+};
+
 /**
  *  A password, token or passphrase. Deserializable (the frontend sends it once) but never
  *  serializable, redacted in `Debug` / `Display`, and zeroized when dropped.
@@ -4218,6 +4576,14 @@ export type SessionState =
 "idleInTransaction" | 
 /**  Anything else (background work, unknown). */
 "other";
+
+/**  The `_shards` of a response. */
+export type ShardsInfo = {
+	total: number | null,
+	successful: number | null,
+	skipped: number | null,
+	failed: number | null,
+};
 
 /**  Why an entry of a file is not offered. */
 export type SkipReason = 

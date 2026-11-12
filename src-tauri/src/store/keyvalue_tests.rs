@@ -99,7 +99,10 @@ fn sql_journal_entries_written_before_v12_stay_readable_and_revertible() {
         .expect("insert");
     }
     let store = Store::open(&path).expect("reopen");
-    assert_eq!(store.schema_version().expect("version"), 12);
+    assert_eq!(
+        store.schema_version().expect("version"),
+        migrations::latest_version()
+    );
     let page = store
         .search_journal(&JournalQuery::default())
         .expect("search");

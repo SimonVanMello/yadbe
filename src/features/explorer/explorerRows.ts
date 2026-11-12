@@ -17,6 +17,7 @@ import type {
 } from '../../ipc';
 import { fuzzyMatch } from '../connections/fuzzy';
 import { documentNameOf, type DocumentBody } from './documentRows';
+import { searchNameOf, type SearchBody } from './searchRows';
 import { PINNED_NODE, ROOT_NODE } from './explorerStore';
 
 /** What a node's data is: not asked, on its way, failed, or there. */
@@ -81,7 +82,8 @@ export type ExplorerBody =
       /** What the retry button refreshes. */
       refresh: MetaNode;
     }
-  | DocumentBody;
+  | DocumentBody
+  | SearchBody;
 
 export const DETAIL_GROUPS: readonly DetailGroup[] = [
   'columns',
@@ -478,6 +480,15 @@ function nameOf(body: ExplorerBody): string | null {
     case 'docField':
     case 'docIndex':
       return documentNameOf(body);
+    case 'searchGroup':
+    case 'searchIndex':
+    case 'searchDataStream':
+    case 'searchAlias':
+    case 'searchTemplate':
+    case 'searchDetails':
+    case 'searchField':
+    case 'searchSetting':
+      return searchNameOf(body);
     default:
       return null;
   }

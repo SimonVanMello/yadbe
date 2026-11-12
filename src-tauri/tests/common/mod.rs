@@ -200,6 +200,7 @@ pub fn blank(engine: Engine, name: &str) -> ConnectionDefinition {
         ssh: None,
         mongo: None,
         key_value: None,
+        search: None,
     }
 }
 
@@ -218,6 +219,7 @@ pub fn from_url(url: &str) -> (ConnectionDefinition, Option<Secret>) {
     def.ca_cert_path = f.ca_cert_path;
     def.options = f.options;
     def.mongo = f.mongo.map(|m| *m);
+    def.search = f.search.map(|s| *s);
     def.auth = if parsed.password.is_some() {
         AuthMethod::Password
     } else {

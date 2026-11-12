@@ -57,6 +57,7 @@ pub fn blank(engine: Engine, name: &str) -> ConnectionDefinition {
         ssh: None,
         mongo: None,
         key_value: None,
+        search: None,
     }
 }
 

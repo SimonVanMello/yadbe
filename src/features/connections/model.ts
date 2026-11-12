@@ -22,6 +22,14 @@ import {
   type SshDraftErrors,
 } from './sshModel';
 import { emptyMongoDraft, mongoDraftFrom, toMongoSettings, type MongoDraft } from './mongoModel';
+import {
+  emptySearchDraft,
+  parseSearchUrl,
+  searchDefinition,
+  searchDraftFrom,
+  searchUrlOf,
+  type SearchDraft,
+} from './searchModel';
 
 export type { ConnectionGroup, Engine, EngineInfo, EnvironmentKind, TlsMode };
 
@@ -177,7 +185,10 @@ export interface ConnectionDraft {
   mongo: MongoDraft;
   /** Key-value connections: what separates the levels of the key tree; empty: the preference. */
   keyDelimiter: string;
-  // Not editable in this form yet: carried so that saving does not lose them.
+  /** The search fields (Elasticsearch, OpenSearch): URL and authentication. */
+  search: SearchDraft;
+  // Not editable in the SQL forms yet (the search form edits it): carried so that saving does
+  // not lose it.
   caCertPath: string | null;
   options: ConnectionOption[];
 }
@@ -222,6 +233,7 @@ export function emptyDraft(info: EngineInfo): ConnectionDraft {
     rememberTlsKeyPassphrase: true,
     mongo: emptyMongoDraft(),
     keyDelimiter: '',
+    search: emptySearchDraft(),
     caCertPath: null,
     options: [],
   };
@@ -262,6 +274,7 @@ export function draftFromSaved(saved: SavedConnection): ConnectionDraft {
     rememberTlsKeyPassphrase: true,
     mongo: mongoDraftFrom(definition.mongo),
     keyDelimiter: definition.keyValue?.keyDelimiter ?? '',
+    search: searchDraftFrom(definition),
     caCertPath: definition.caCertPath,
     options: definition.options,
   };
@@ -367,6 +380,13 @@ export function toDefinition(draft: ConnectionDraft, info: EngineInfo): Connecti
     ...(capabilities.family === 'keyValue'
       ? { keyValue: { keyDelimiter: draft.keyDelimiter === '' ? null : draft.keyDelimiter } }
       : {}),
+    // The URL stands for host, port, TLS and path; the user only counts for basic auth.
+    ...(capabilities.family === 'search'
+      ? {
+          ...searchDefinition(draft.search),
+          username: draft.search.auth === 'basic' ? draft.username.trim() : '',
+        }
+      : {}),
   };
 }
 
@@ -457,6 +477,18 @@ export function applyParsed(
     caCertPath: parsed.caCertPath ?? base.caCertPath,
     options: parsed.options.length > 0 ? parsed.options : base.options,
     mongo: parsed.mongo ? mongoDraftFrom(parsed.mongo) : base.mongo,
+    search: parsed.search
+      ? {
+          url: searchUrlOf({
+            host,
+            port: parsed.port,
+            tlsMode: parsed.tlsMode ?? 'disable',
+            search: parsed.search,
+          }),
+          auth: parsed.search.auth ?? 'basic',
+          skipVerify: parsed.tlsMode === 'require',
+        }
+      : base.search,
     // A password in the string is held by the backend; a password typed before is replaced.
     password: parsed.passwordId === null ? base.password : '',
     pendingPasswordId: parsed.passwordId ?? base.pendingPasswordId,
@@ -474,7 +506,10 @@ export function looksLikeConnectionString(text: string): boolean {
 
 /** Field-level problems that make the form unsendable. Keys are the field names. */
 export type DraftErrors = Partial<
-  Record<'host' | 'port' | 'filePath' | 'environmentLabel' | 'database', 'required' | 'invalid'>
+  Record<
+    'host' | 'port' | 'filePath' | 'environmentLabel' | 'database' | 'url',
+    'required' | 'invalid'
+  >
 > & { ssh?: SshDraftErrors };
 
 export function validateDraft(draft: ConnectionDraft, info: EngineInfo | undefined): DraftErrors {
@@ -491,6 +526,12 @@ export function validateDraft(draft: ConnectionDraft, info: EngineInfo | undefin
   // A key-value database is a numbered index.
   if (info?.capabilities.family === 'keyValue' && !/^\d*$/.test(draft.database.trim())) {
     errors.database = 'invalid';
+  }
+  // A search connection is one URL: it stands for the host and the port.
+  if (info?.capabilities.family === 'search') {
+    delete errors.host;
+    delete errors.port;
+    if (parseSearchUrl(draft.search.url) === null) errors.url = 'invalid';
   }
   if (draft.environment === 'custom' && !draft.environmentLabel.trim()) {
     errors.environmentLabel = 'required';

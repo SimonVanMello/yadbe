@@ -24,6 +24,8 @@ pub enum Engine {
     Mongodb,
     /// Redis and Valkey (same protocol, same code).
     Redis,
+    /// Elasticsearch and OpenSearch, over their HTTP API (the same code where the APIs agree).
+    Elasticsearch,
 }
 
 /// What kind of database an engine is: it decides the connection's backend (the `Backend`
@@ -346,14 +348,50 @@ static REDIS: EngineProfile = EngineProfile {
     dialect: None,
 };
 
+static ELASTICSEARCH: EngineProfile = EngineProfile {
+    id: "elasticsearch",
+    label: "Elasticsearch / OpenSearch",
+    default_username: None,
+    capabilities: Capabilities {
+        family: EngineFamily::Search,
+        uses_file: false,
+        default_port: Some(9200),
+        supports_tls: true,
+        client_certificate: true,
+        // Indices, not databases: one namespace per cluster.
+        multiple_databases: false,
+        schemas: false,
+        // The task API (`_tasks/<id>/_cancel`), found by the `X-Opaque-Id` yadbe sets.
+        native_cancel: true,
+        read_only_session: false,
+        identifier_quote_open: '"',
+        identifier_quote_close: '"',
+        folds_unquoted_to_lower: false,
+        parameter_styles: NO_PARAMETERS,
+        explain: false,
+        explain_analyze: false,
+        activity_monitor: false,
+        activity_cancel_query: false,
+        table_qualifier: Qualifier::None,
+        formatter: false,
+        ddl: false,
+        script_as: false,
+        data_import: false,
+        ef_migrations: false,
+        dotnet_connection_string: false,
+    },
+    dialect: None,
+};
+
 impl Engine {
-    pub const ALL: [Engine; 6] = [
+    pub const ALL: [Engine; 7] = [
         Engine::Postgres,
         Engine::Mssql,
         Engine::Mysql,
         Engine::Sqlite,
         Engine::Mongodb,
         Engine::Redis,
+        Engine::Elasticsearch,
     ];
 
     /// The one place that maps an engine to what it is.
@@ -365,6 +403,7 @@ impl Engine {
             Engine::Sqlite => &SQLITE,
             Engine::Mongodb => &MONGODB,
             Engine::Redis => &REDIS,
+            Engine::Elasticsearch => &ELASTICSEARCH,
         }
     }
 

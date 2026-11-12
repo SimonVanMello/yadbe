@@ -896,3 +896,31 @@ async fn mysql_through_the_tunnel() {
     let again = b.run("sleep", "SELECT 2").await;
     assert_eq!(again.status, ExecutionStatus::Succeeded, "{again:?}");
 }
+
+#[tokio::test]
+async fn elasticsearch_through_the_tunnel() {
+    let test = "elasticsearch_through_the_tunnel";
+    let Some(ssh) = ssh(test) else { return };
+    let url = match std::env::var("YADBE_TEST_ES_URL") {
+        Ok(url) if !url.trim().is_empty() => url,
+        _ => {
+            skip(test, "YADBE_TEST_ES_URL is not set");
+            return;
+        }
+    };
+    let (mut def, password) = common::from_url(&url);
+    def.ca_cert_path = std::env::var("YADBE_TEST_ES_CA").ok();
+    let env = env(&ssh);
+    env.trust_all(&ssh);
+    def.ssh = Some(tunnel(ssh.hop(ssh.port, SshAuthMethod::Agent, None)));
+    // HTTPS through the tunnel: the certificate is checked against the URL's host name, not
+    // the tunnel's 127.0.0.1 end.
+    let version = env
+        .test(&def, password.as_ref(), TunnelSecrets::new())
+        .await
+        .expect("Elasticsearch through the tunnel");
+    assert!(
+        version.starts_with("Elasticsearch") || version.starts_with("OpenSearch"),
+        "{version}"
+    );
+}

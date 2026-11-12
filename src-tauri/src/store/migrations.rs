@@ -220,6 +220,10 @@ const MIGRATIONS: &[&str] = &[
     // namespace, a collection). Entries written before are SQL changes to a table.
     "ALTER TABLE change_journal ADD COLUMN family TEXT NOT NULL DEFAULT 'sql';
     ALTER TABLE change_journal ADD COLUMN target_kind TEXT NOT NULL DEFAULT 'table';",
+    // v13: settings of search connections (Elasticsearch, OpenSearch) as JSON
+    // (`SearchSettings`: authentication kind, URL path); NULL for the other families and for
+    // connections saved before.
+    "ALTER TABLE connections ADD COLUMN search_settings TEXT;",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {

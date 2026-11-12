@@ -15,6 +15,11 @@
 #   export YADBE_TEST_REDIS_TLS_URL=rediss://yadbe:yadbe-test-pw@localhost:56380/0
 #   export YADBE_TEST_REDIS_CA=../dev/certs/ca.crt
 #   export YADBE_TEST_VALKEY_URL=redis://yadbe:yadbe-test-pw@localhost:56381/0
+# The search engines (about 1 GB of RAM each) start on demand:
+#   docker compose -f dev/compose.yml up -d elasticsearch opensearch
+#   export YADBE_TEST_ES_URL=https://elastic:yadbe-test-pw@localhost:59200
+#   export YADBE_TEST_ES_CA=../dev/certs/ca.crt
+#   export YADBE_TEST_OPENSEARCH_URL=http://localhost:59201
 #   cargo test
 # Ports are offset from the defaults so a local server keeps its own. Throwaway
 # credentials: never reuse them.
@@ -193,3 +198,66 @@ services:
       test: ['CMD', 'valkey-cli', '-a', 'yadbe-test-pw', '--no-auth-warning', 'ping']
       interval: 2s
       retries: 30
+
+  # Elasticsearch single node, security on: HTTPS with the dev CA's certificate, the
+  # `elastic` superuser with a throwaway password, heap capped at 512 MB. About 1 GB of RAM:
+  # started on demand (`up -d elasticsearch`, the `search` profile). The disk watermarks are
+  # off so that a full test disk does not turn the indices read-only.
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.1.0
+    profiles: [search]
+    user: root
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      ELASTIC_PASSWORD: yadbe-test-pw
+      xpack.security.enabled: 'true'
+      xpack.security.http.ssl.enabled: 'true'
+      xpack.security.http.ssl.key: certs/server.key
+      xpack.security.http.ssl.certificate: certs/server.crt
+      xpack.security.http.ssl.certificate_authorities: certs/ca.crt
+      xpack.security.transport.ssl.enabled: 'false'
+      xpack.ml.enabled: 'false'
+      ingest.geoip.downloader.enabled: 'false'
+      cluster.routing.allocation.disk.threshold_enabled: 'false'
+    ports:
+      - '59200:9200'
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/server.crt:/certs/server.crt:ro
+      - ./certs/server.key:/certs/server.key.src:ro
+    # Elasticsearch refuses to run as root and reads only its config folder: copy the
+    # certificates there with its owner, then start it as that user.
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        mkdir -p /usr/share/elasticsearch/config/certs &&
+        install -o 1000 -g 0 -m 600 /certs/server.key.src /usr/share/elasticsearch/config/certs/server.key &&
+        install -o 1000 -g 0 -m 644 /certs/server.crt /certs/ca.crt /usr/share/elasticsearch/config/certs/ &&
+        exec chroot --userspec=1000:0 / env -C /usr/share/elasticsearch HOME=/usr/share/elasticsearch
+        /usr/local/bin/docker-entrypoint.sh eswrapper
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS --cacert /certs/ca.crt -u elastic:yadbe-test-pw https://localhost:9200/_cluster/health
+      interval: 5s
+      retries: 60
+
+  # OpenSearch single node, security plugin off (plain HTTP): the search suite runs where
+  # its API equals Elasticsearch's. Same memory cap, same profile.
+  opensearch:
+    image: public.ecr.aws/opensearchproject/opensearch:2.19.1
+    profiles: [search]
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+      DISABLE_SECURITY_PLUGIN: 'true'
+      DISABLE_INSTALL_DEMO_CONFIG: 'true'
+      cluster.routing.allocation.disk.threshold_enabled: 'false'
+    ports:
+      - '59201:9200'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:9200/_cluster/health']
+      interval: 5s
+      retries: 60

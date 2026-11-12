@@ -49,6 +49,7 @@ import { createMockResultEdit, parseTableSelect, tableSelect } from './mock/resu
 import { createMockJournal } from './mock/journal';
 import { createMockDocument } from './mock/document';
 import { createMockKeyValue } from './mock/keyValue';
+import { createMockSearch } from './mock/search';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
 const MOCK_APP_INFO: AppInfo = { appVersion: '0.1.0', os: 'linux', arch: 'x86_64' };
@@ -276,13 +277,25 @@ function createMockBackend() {
     const certificate = engine?.capabilities.clientCertificate
       ? (def.tlsClientCertPath ?? '').trim() || null
       : null;
-    return {
+    const normalizedDef: ConnectionDefinition = {
       ...clone(def),
       name,
       host: def.host.trim(),
       tlsClientCertPath: certificate,
       tlsClientKeyPath: certificate === null ? null : (def.tlsClientKeyPath ?? '').trim() || null,
     };
+    // Like `ConnectionDefinition::normalized` for the search family.
+    if (engine?.capabilities.family === 'search') {
+      const search = {
+        auth: def.search?.auth ?? 'basic',
+        pathPrefix: def.search?.pathPrefix ?? null,
+      };
+      normalizedDef.search = search;
+      normalizedDef.auth = search.auth === 'none' ? 'none' : 'password';
+      normalizedDef.database = '';
+      if (normalizedDef.tlsMode === 'prefer') normalizedDef.tlsMode = 'disable';
+    }
+    return normalizedDef;
   }
 
   function isError(value: unknown): value is YadbeError {
@@ -353,7 +366,12 @@ function createMockBackend() {
     const wait = failure?.code === 'connectionTimeout' ? latency * 3 : latency;
     if (!(await sleep(wait, signal))) return mockErrors.cancelled();
     if (failure) return failure;
-    const versionSql = def.engine === 'sqlite' ? 'SELECT sqlite_version()' : 'SHOW server_version';
+    const versionSql =
+      def.engine === 'sqlite'
+        ? 'SELECT sqlite_version()'
+        : def.engine === 'elasticsearch'
+          ? 'GET /'
+          : 'SHOW server_version';
     logStatement(connectionId, def.name, versionSql);
     return MOCK_SERVER_VERSIONS[def.engine];
   }
@@ -742,6 +760,35 @@ function createMockBackend() {
     engine: (connectionId) => findConnection(connectionId)?.definition.engine ?? 'redis',
   });
 
+  const search = createMockSearch({
+    session: (connectionId) => {
+      const conn = findConnection(connectionId);
+      if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
+      return { readOnly: conn.definition.readOnly };
+    },
+    latency: () => meta.latency(),
+    logStatement: (connectionId, sql, error = null) => {
+      logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
+    },
+    recordHistory: (entry) => {
+      history.record(entry);
+    },
+    storeRows: (columns, rows) => query.storeRows(columns, rows),
+    freeResults: (ids) => {
+      query.freeResults(ids);
+    },
+    readTexts: (resultId, offset, limit) => {
+      const source = query.resultSource(resultId);
+      if (!source) return null;
+      const texts: string[] = [];
+      for (let row = offset; row < Math.min(source.loaded, offset + limit); row++) {
+        const value = source.value(row, 0);
+        texts.push('value' in value && typeof value.value === 'string' ? value.value : '{}');
+      }
+      return texts;
+    },
+  });
+
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
 
@@ -1060,6 +1107,7 @@ function createMockBackend() {
     ...connectionImport.commands,
     ...document.commands,
     ...keyValue.commands,
+    ...search.commands,
   };
 
   function reset(): void {
@@ -1090,6 +1138,7 @@ function createMockBackend() {
     journal.reset();
     references.reset();
     document.reset();
+    search.reset();
     files.reset();
     exporter.reset();
     importer.reset();

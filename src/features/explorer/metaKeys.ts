@@ -19,7 +19,14 @@ export type MetaRequest =
   // The key-value family's explorer (`keyvalue/kvExplorerRows.ts`).
   | { type: 'kvDatabases' }
   | { type: 'kvScan'; database: number; pattern: string | null }
-  | { type: 'kvLevel'; database: number; prefix: KvBytes; delimiter: string; limit: number };
+  | { type: 'kvLevel'; database: number; prefix: KvBytes; delimiter: string; limit: number }
+  // The search family's explorer (`explorer/searchRows.ts`); an index's details sit where a
+  // `table` refresh of that name drops them.
+  | { type: 'searchIndices' }
+  | { type: 'searchDataStreams' }
+  | { type: 'searchAliases' }
+  | { type: 'searchTemplates' }
+  | { type: 'searchDetails'; target: string };
 
 type Key = readonly (string | number | null)[];
 
@@ -96,6 +103,19 @@ export function requestKey(connectionId: string, request: MetaRequest): Key {
         request.delimiter,
         request.limit,
       );
+    case 'searchIndices':
+    case 'searchDataStreams':
+    case 'searchAliases':
+    case 'searchTemplates':
+      return ['meta', connectionId, 'search', request.type];
+    case 'searchDetails':
+      return [
+        ...metaKeys.schema(connectionId, '', null),
+        'table',
+        'index',
+        request.target,
+        'details',
+      ];
   }
 }
 

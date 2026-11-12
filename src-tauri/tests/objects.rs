@@ -703,7 +703,9 @@ async fn check_texts(
             assert!(facts.data_bytes.is_some(), "{facts:?}");
         }
         Engine::Sqlite => assert!(facts.owner.is_none()),
-        Engine::Mongodb | Engine::Redis => unreachable!("SQL engines only"),
+        Engine::Mongodb | Engine::Redis | Engine::Elasticsearch => {
+            unreachable!("SQL engines only")
+        }
     }
     let view_facts = h
         .meta

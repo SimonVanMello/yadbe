@@ -74,6 +74,7 @@ describe('the sidebar rows', () => {
       'connection:wordpress',
       'connection:cache',
       'connection:catalog · mongo',
+      'connection:search · logs',
       'connection:app.sqlite',
       'connection:auth failure demo',
     ]);

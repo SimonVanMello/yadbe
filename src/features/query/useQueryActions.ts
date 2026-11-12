@@ -3,6 +3,11 @@ import { useEffect } from 'react';
 import { registerActions } from '../../app/actions';
 import { activeScriptTabId, cancelScript, runScript } from '../document/scriptActions';
 import { isConsoleTab, runConsole, stopConsole } from '../keyvalue/kvConsoleActions';
+import {
+  isSearchConsoleTab,
+  runSearchConsole,
+  stopSearchConsole,
+} from '../search/searchConsoleActions';
 import { activeEditId } from '../table-data/tableActions';
 import { getTableSession } from '../table-data/tableSessionStore';
 import { explainQuery } from './explainActions';
@@ -23,11 +28,14 @@ export function useQueryActions(): void {
     // `false` outside a query tab: a table tab's action bound to the same key runs instead. The
     // query tab of a key-value connection is a console: it has run, run line and stop only; the
     // one of a document connection is a mongosh editor: run (the selection or all) and cancel.
+    // The one of a search connection is a request console: run (the selection or the request
+    // under the cursor) and stop.
     const onActive =
       (
         act: (tabId: string) => void,
         console?: (tabId: string) => void,
         script?: (tabId: string) => void,
+        search?: (tabId: string) => void,
       ) =>
       () => {
         const scriptTab = activeScriptTabId();
@@ -43,9 +51,17 @@ export function useQueryActions(): void {
           console(tabId);
           return true;
         }
+        if (isSearchConsoleTab(tabId)) {
+          if (!search) return false;
+          search(tabId);
+          return true;
+        }
         act(tabId);
         return true;
       };
+    const runSearch = (tabId: string) => {
+      void runSearchConsole(tabId);
+    };
     return registerActions({
       'query.run': onActive(
         (tabId) => {
@@ -57,6 +73,7 @@ export function useQueryActions(): void {
         (tabId) => {
           void runScript(tabId);
         },
+        runSearch,
       ),
       'query.runStatement': onActive(
         (tabId) => {
@@ -68,8 +85,9 @@ export function useQueryActions(): void {
         (tabId) => {
           void runScript(tabId);
         },
+        runSearch,
       ),
-      'query.cancel': onActive(cancelQuery, stopConsole, cancelScript),
+      'query.cancel': onActive(cancelQuery, stopConsole, cancelScript, stopSearchConsole),
       'query.open': onActive((tabId) => {
         void openScript(tabId);
       }),

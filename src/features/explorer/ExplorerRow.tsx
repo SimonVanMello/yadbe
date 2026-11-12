@@ -15,6 +15,8 @@ import { explorerRowLabel, GROUP_ICONS, groupLabel, kindLabel, KIND_ICONS } from
 import type { CollectionKind } from '../../ipc';
 import { fieldShare } from './documentRows';
 import { DocumentContextMenu } from './DocumentContextMenu';
+import { SearchContextMenu } from './SearchContextMenu';
+import type { SearchGroupKind } from './searchRows';
 import type { ExplorerRow as Row } from './explorerRows';
 import { ExplorerContextMenu } from './ExplorerContextMenu';
 
@@ -348,8 +350,165 @@ function contentOf(row: Row, t: Translate, locale: Locale): Content {
         tooltip: <Lines lines={[index.name, index.keys, ...flags]} />,
       };
     }
+    case 'searchGroup':
+      return {
+        icon: SEARCH_GROUP_ICONS[row.group],
+        name: t(`search.explorer.${row.group}`),
+        meta:
+          row.count === null ? undefined : (
+            <span className={styles.count}>{formatNumber(locale, row.count)}</span>
+          ),
+      };
+    case 'searchIndex': {
+      const { index } = row;
+      const docs =
+        index.docs === null
+          ? null
+          : t('search.explorer.docs', { count: formatNumber(locale, index.docs) });
+      const size = index.sizeBytes === null ? null : formatBytes(locale, index.sizeBytes);
+      return {
+        icon: 'table',
+        iconTone: !index.open
+          ? styles.mutedTone
+          : index.health === 'red'
+            ? styles.errorTone
+            : index.health === 'yellow'
+              ? styles.keyTone
+              : undefined,
+        name: name(index.name),
+        meta: [docs, size, !index.open && t('search.explorer.closed')].filter(Boolean).join(' · '),
+        tooltip: (
+          <Lines
+            lines={[
+              index.name,
+              t(`search.health.${index.health}`),
+              docs,
+              size,
+              index.primaries === null
+                ? null
+                : t('search.explorer.shards', {
+                    primaries: index.primaries,
+                    replicas: index.replicas ?? 0,
+                  }),
+              !index.open && t('search.explorer.closed'),
+            ]}
+          />
+        ),
+      };
+    }
+    case 'searchDataStream': {
+      const { stream } = row;
+      return {
+        icon: 'timeline',
+        name: name(stream.name),
+        meta: t('search.explorer.backing', { count: stream.indices.length }),
+        tooltip: (
+          <Lines
+            lines={[
+              stream.name,
+              t(`search.health.${stream.health}`),
+              stream.template && t('search.explorer.template', { name: stream.template }),
+              stream.timestampField &&
+                t('search.explorer.timestamp', { field: stream.timestampField }),
+              ...stream.indices,
+            ]}
+          />
+        ),
+      };
+    }
+    case 'searchAlias': {
+      const { alias } = row;
+      return {
+        icon: 'link',
+        iconTone: styles.linkTone,
+        name: name(alias.name),
+        meta: `→ ${alias.indices.join(', ')}`,
+        badges: alias.filtered ? ['filter'] : undefined,
+        tooltip: (
+          <Lines
+            lines={[
+              alias.name,
+              ...alias.indices,
+              alias.writeIndex && t('search.explorer.writeIndex', { name: alias.writeIndex }),
+              alias.filtered && t('search.explorer.filtered'),
+            ]}
+          />
+        ),
+      };
+    }
+    case 'searchTemplate': {
+      const { template } = row;
+      return {
+        icon: 'layers',
+        name: name(template.name),
+        meta: template.patterns.join(', '),
+        tooltip: (
+          <Lines
+            lines={[
+              template.name,
+              template.patterns.join(', '),
+              template.priority !== null &&
+                t('search.explorer.priority', { priority: template.priority }),
+              template.dataStream && t('search.explorer.createsStreams'),
+            ]}
+          />
+        ),
+      };
+    }
+    case 'searchDetails':
+      return {
+        icon: row.detail === 'fields' ? 'columns' : 'settings',
+        name: t(`search.explorer.${row.detail}`),
+        meta:
+          row.count > 0 ? (
+            <span className={styles.count}>{formatNumber(locale, row.count)}</span>
+          ) : undefined,
+      };
+    case 'searchField': {
+      const { field } = row;
+      return {
+        icon: 'columns',
+        iconTone: field.multiField ? styles.mutedTone : undefined,
+        name: name(field.path),
+        meta: field.typeName,
+        badges: field.sortable ? ['arrowDown'] : undefined,
+        tooltip: (
+          <Lines
+            lines={[
+              field.path,
+              field.typeName,
+              field.sortable && t('search.explorer.sortable'),
+              field.multiField && t('search.explorer.multiField'),
+            ]}
+          />
+        ),
+      };
+    }
+    case 'searchSetting':
+      return {
+        icon: null,
+        name: name(row.setting.key.replace(/^index\./, '')),
+        meta: row.setting.value,
+        tooltip: <Lines lines={[row.setting.key, row.setting.value]} />,
+      };
   }
 }
+
+/** Rows that open a tab: a click only selects them, a double click opens. */
+const OPENS_ON_DOUBLE_CLICK: ReadonlySet<Row['type']> = new Set([
+  'object',
+  'docCollection',
+  'searchIndex',
+  'searchDataStream',
+  'searchAlias',
+]);
+
+const SEARCH_GROUP_ICONS: Record<SearchGroupKind, IconName> = {
+  indices: 'table',
+  dataStreams: 'timeline',
+  aliases: 'link',
+  templates: 'layers',
+};
 
 const COLLECTION_ICONS: Record<CollectionKind, IconName> = {
   collection: 'table',
@@ -446,6 +605,10 @@ export const ExplorerRow = memo(function ExplorerRow({
   const refreshable =
     row.type === 'docDatabase' ||
     row.type === 'docCollection' ||
+    row.type === 'searchGroup' ||
+    row.type === 'searchIndex' ||
+    row.type === 'searchDataStream' ||
+    row.type === 'searchAlias' ||
     row.type === 'database' ||
     row.type === 'schema' ||
     row.type === 'kind' ||
@@ -467,7 +630,7 @@ export const ExplorerRow = memo(function ExplorerRow({
       onClick={() => {
         onSelect(index);
         // Containers open with a click; objects and connections only select (double click opens).
-        if (row.expandable && row.type !== 'object' && row.type !== 'docCollection') {
+        if (row.expandable && !OPENS_ON_DOUBLE_CLICK.has(row.type)) {
           onToggle(row);
         }
       }}
@@ -531,6 +694,9 @@ export const ExplorerRow = memo(function ExplorerRow({
   );
   if (row.type.startsWith('doc')) {
     return <DocumentContextMenu row={row}>{body}</DocumentContextMenu>;
+  }
+  if (row.type.startsWith('search')) {
+    return <SearchContextMenu row={row}>{body}</SearchContextMenu>;
   }
   return <ExplorerContextMenu row={row}>{body}</ExplorerContextMenu>;
 });

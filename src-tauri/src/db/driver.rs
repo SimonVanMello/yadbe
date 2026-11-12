@@ -177,6 +177,7 @@ pub enum Backend {
     Sql(Arc<dyn SqlConnection>),
     Document(Arc<dyn DocumentConnection>),
     KeyValue(Arc<dyn KeyValueConnection>),
+    Search(Arc<dyn SearchConnection>),
 }
 
 impl Backend {
@@ -186,6 +187,7 @@ impl Backend {
             Backend::Sql(conn) => &**conn,
             Backend::Document(conn) => &**conn,
             Backend::KeyValue(conn) => &**conn,
+            Backend::Search(conn) => &**conn,
         }
     }
 
@@ -193,7 +195,9 @@ impl Backend {
     pub fn into_sql(self) -> Result<Arc<dyn SqlConnection>, YadbeError> {
         match self {
             Backend::Sql(conn) => Ok(conn),
-            Backend::Document(_) | Backend::KeyValue(_) => Err(YadbeError::sql_only()),
+            Backend::Document(_) | Backend::KeyValue(_) | Backend::Search(_) => {
+                Err(YadbeError::sql_only())
+            }
         }
     }
 
@@ -201,7 +205,9 @@ impl Backend {
     pub fn into_document(self) -> Result<Arc<dyn DocumentConnection>, YadbeError> {
         match self {
             Backend::Document(conn) => Ok(conn),
-            Backend::Sql(_) | Backend::KeyValue(_) => Err(YadbeError::document_only()),
+            Backend::Sql(_) | Backend::KeyValue(_) | Backend::Search(_) => {
+                Err(YadbeError::document_only())
+            }
         }
     }
 
@@ -209,7 +215,19 @@ impl Backend {
     pub fn into_key_value(self) -> Result<Arc<dyn KeyValueConnection>, YadbeError> {
         match self {
             Backend::KeyValue(conn) => Ok(conn),
-            Backend::Sql(_) | Backend::Document(_) => Err(crate::db::keyvalue::key_value_only()),
+            Backend::Sql(_) | Backend::Document(_) | Backend::Search(_) => {
+                Err(crate::db::keyvalue::key_value_only())
+            }
+        }
+    }
+
+    /// The search connection, or `searchOnly` for an engine of another family.
+    pub fn into_search(self) -> Result<Arc<dyn SearchConnection>, YadbeError> {
+        match self {
+            Backend::Search(conn) => Ok(conn),
+            Backend::Sql(_) | Backend::Document(_) | Backend::KeyValue(_) => {
+                Err(YadbeError::search_only())
+            }
         }
     }
 }
@@ -390,6 +408,25 @@ pub trait KeyValueConnection: Link {
         &'a self,
         commands: &'a [Vec<Vec<u8>>],
     ) -> BoxFuture<'a, Vec<Result<crate::db::keyvalue::KvReply, YadbeError>>>;
+}
+
+/// An open connection of the search family (Elasticsearch, OpenSearch): HTTP requests in,
+/// responses out, a 4xx / 5xx answer being a response like any other. Never call it from a
+/// service: every request goes through the request gate (`session::search::gate`), which
+/// enforces read-only, confirms dangerous requests, applies the statement timeout (and cancels
+/// the server task past it) and records what runs.
+pub trait SearchConnection: Link {
+    /// The server, as `GET /` described it at connect time.
+    fn server(&self) -> &crate::db::search::server::SearchServer;
+
+    /// Sends one request exactly as given. `opaque_id` goes in `X-Opaque-Id`, which is how
+    /// the gate finds the request's task on the server to cancel it. A transport failure is
+    /// `connectionLost` (the link then reads as lost); dropping the future drops the request.
+    fn send<'a>(
+        &'a self,
+        request: &'a crate::db::search::request::SearchRequest,
+        opaque_id: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<crate::db::search::request::SearchResponse, YadbeError>>;
 }
 
 /// A plan as the engine gave it, and what was sent to get it.

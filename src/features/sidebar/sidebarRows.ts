@@ -12,6 +12,7 @@ import {
   type MetaSource,
 } from '../explorer/explorerRows';
 import { buildDocumentNodes, type DocumentSource } from '../explorer/documentRows';
+import { buildSearchNodes, type SearchSource } from '../explorer/searchRows';
 import { kvExplorerRows, type KvRow, type KvSidebarInput } from '../keyvalue/kvExplorerRows';
 
 export type SidebarTreeRow =
@@ -53,6 +54,8 @@ export interface SidebarInput {
   sourceFor: (connectionId: string) => MetaSource;
   /** Where the tree of a document connection reads its data (absent: no document tree). */
   documentSourceFor?: (connectionId: string) => DocumentSource;
+  /** Where the tree of a search connection reads its data (absent: no search tree). */
+  searchSourceFor?: (connectionId: string) => SearchSource;
   /**
    * The loaded tree of a connection pruned to `filter`, from a cache: the whole tree does not
    * depend on the query, only on the data and the expanded nodes, so a keystroke only prunes it
@@ -113,9 +116,32 @@ function explorerRows(
         filter,
       });
     }
+    case 'search':
+      return searchExplorerRows(input, connection, state, filter, { expanded, open, level });
     default:
       return [];
   }
+}
+
+/** The explorer of a search connection: indices, data streams, aliases, templates. */
+function searchExplorerRows(
+  input: SidebarInput,
+  connection: ConnectionSummary,
+  state: ConnectionState,
+  filter: string,
+  { expanded, open, level }: { expanded: ReadonlySet<string>; open: boolean; level: number },
+): ExplorerRow[] {
+  const source = input.searchSourceFor?.(connection.id);
+  if (!source) return [];
+  const options = { connectionId: connection.id, level };
+  const context = { source, expanded, showSystem: input.showSystem };
+  const fetching = state === 'connected' && open;
+  if (filter === '') {
+    const nodes = buildSearchNodes({ ...context, exhaustive: false }, fetching);
+    return flattenNodes(nodes, { ...options, expanded, open: false });
+  }
+  const nodes = pruneNodes(buildSearchNodes({ ...context, exhaustive: true }, fetching), filter);
+  return flattenNodes(nodes, { ...options, expanded, open: true });
 }
 
 /** The explorer of a document connection: databases, collections, sampled fields, indexes. */

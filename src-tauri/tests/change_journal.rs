@@ -303,7 +303,9 @@ fn values(engine: Engine, round: u8) -> Vec<(&'static str, Value)> {
         Engine::Sqlite => {
             values.push(("doc", Value::Json(format!(r#"{{"a": {round}}}"#))));
         }
-        Engine::Mongodb | Engine::Redis => unreachable!("SQL engines only"),
+        Engine::Mongodb | Engine::Redis | Engine::Elasticsearch => {
+            unreachable!("SQL engines only")
+        }
     }
     values
 }
@@ -394,7 +396,9 @@ async fn no_false_conflict(a: &Tab<'_>, engine: Engine) {
                 &["`small_ratio`"],
             ),
             Engine::Sqlite => (&[r#""doc" = '{"a""#], &[]),
-            Engine::Mongodb | Engine::Redis => unreachable!("SQL engines only"),
+            Engine::Mongodb | Engine::Redis | Engine::Elasticsearch => {
+                unreachable!("SQL engines only")
+            }
         };
         for check in through {
             assert!(checks.contains(check), "{check} in {checks}");

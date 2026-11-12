@@ -71,6 +71,17 @@ export function fetchMeta(connectionId: string, request: MetaRequest, signal: Ab
           request.limit,
         ),
       );
+    // Search reads: an abandoned one is dropped with its HTTP request when it ends.
+    case 'searchIndices':
+      return unwrap(commands.searchListIndices(connectionId));
+    case 'searchDataStreams':
+      return unwrap(commands.searchListDataStreams(connectionId));
+    case 'searchAliases':
+      return unwrap(commands.searchListAliases(connectionId));
+    case 'searchTemplates':
+      return unwrap(commands.searchListTemplates(connectionId));
+    case 'searchDetails':
+      return unwrap(commands.searchIndexDetails(connectionId, request.target));
   }
 }
 

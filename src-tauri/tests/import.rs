@@ -729,7 +729,9 @@ CREATE TABLE imp_ident (id int AUTO_INCREMENT PRIMARY KEY, label varchar(50) NOT
 CREATE TABLE imp_big (id integer PRIMARY KEY, a text, b integer, c decimal(12,2));
 CREATE TABLE imp_ident (id integer PRIMARY KEY AUTOINCREMENT, label text NOT NULL, created timestamp DEFAULT CURRENT_TIMESTAMP)"
         }
-        Engine::Mongodb | Engine::Redis => unreachable!("SQL engines only"),
+        Engine::Mongodb | Engine::Redis | Engine::Elasticsearch => {
+            unreachable!("SQL engines only")
+        }
     }
 }
 

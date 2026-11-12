@@ -13,7 +13,12 @@ import { pruneNodes, type ExplorerNode } from '../explorer/explorerRows';
 import { usePinStore } from '../objects/pinStore';
 import { useExplorerStore } from '../explorer/explorerStore';
 import { requestKey, type MetaRequest } from '../explorer/metaKeys';
-import { createCacheSource, documentSourceOf, metaQuery } from '../explorer/metaSource';
+import {
+  createCacheSource,
+  documentSourceOf,
+  metaQuery,
+  searchSourceOf,
+} from '../explorer/metaSource';
 import { createKvSource } from '../keyvalue/kvSource';
 import { LEVEL_PAGE, patternOf, useKvTreeStore } from '../keyvalue/kvTreeStore';
 import { usePreference } from '../preferences/preferenceStore';
@@ -132,6 +137,12 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
             sink({ connectionId: id, request });
           }),
         ),
+      searchSourceFor: (connectionId) =>
+        searchSourceOf(
+          createCacheSource(queryClient, connectionId, (id, request) => {
+            sink({ connectionId: id, request });
+          }),
+        ),
       filteredTree: (connectionId, filter, build) => {
         const tree = trees.filtered(connectionId, filter, () => {
           const own: Recorded[] = [];
@@ -194,7 +205,9 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
     for (const row of rows) {
       const current =
         ((row.type === 'database' || row.type === 'kvDatabase') && row.database.current) ||
-        (row.type === 'docDatabase' && row.current);
+        (row.type === 'docDatabase' && row.current) ||
+        // A search connection opens on its indices.
+        (row.type === 'searchGroup' && row.group === 'indices');
       if (!current) continue;
       seeds.push({ connectionId: row.connectionId, node: row.nodeKey });
     }
