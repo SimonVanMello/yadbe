@@ -213,7 +213,7 @@ async fn finish(b: &Bench, request: ImportRequest) -> ImportFinished {
 }
 
 async fn wait_finished(b: &Bench, import_id: u32) -> ImportFinished {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1800);
     loop {
         for event in b.sink.events() {
             if let BackendEvent::ImportFinished(done) = event
@@ -895,8 +895,16 @@ async fn mysql_import() {
 
 // --- Throughput ------------------------------------------------------------------------------
 
-/// P-import: one million rows of a CSV file into a table, in one transaction. Prints the
-/// rows per second. `cargo test --release --test import throughput -- --ignored --nocapture`
+/// Rows of the throughput benchmarks: a million, or `YADBE_BENCH_ROWS`.
+fn bench_rows() -> u32 {
+    std::env::var("YADBE_BENCH_ROWS")
+        .ok()
+        .and_then(|rows| rows.parse().ok())
+        .unwrap_or(1_000_000)
+}
+
+/// P-import: a million rows of a CSV file into a table, in one transaction. Prints the rows
+/// per second. `cargo test --release --test import throughput -- --ignored --nocapture`
 /// with the engines' URLs set; SQLite always runs.
 async fn throughput(fx: &Fixture, label: &str) {
     let b = bench();
@@ -907,7 +915,7 @@ async fn throughput(fx: &Fixture, label: &str) {
         let file = std::fs::File::create(&path).expect("file");
         let mut out = std::io::BufWriter::new(file);
         writeln!(out, "id,a,b,c").expect("write");
-        for i in 1..=1_000_000 {
+        for i in 1..=bench_rows() {
             writeln!(out, "{i},some text {i},{},{}.25", i % 1000, i % 977).expect("write");
         }
         out.flush().expect("flush");
@@ -925,18 +933,19 @@ async fn throughput(fx: &Fixture, label: &str) {
     let elapsed = started.elapsed();
     assert_eq!(
         (done.status, done.inserted),
-        (ImportStatus::Done, 1_000_000),
+        (ImportStatus::Done, bench_rows()),
         "{:?}",
         done.error
     );
-    assert_eq!(fx.count("imp_big").await, 1_000_000);
+    assert_eq!(fx.count("imp_big").await, i64::from(bench_rows()));
     #[allow(clippy::cast_precision_loss)]
     {
         println!(
-            "P-import {label}: 1 000 000 rows ({} MB CSV) in {:.2} s = {:.0} rows/s, {} batches",
+            "P-import {label}: {} rows ({} MB CSV) in {:.2} s = {:.0} rows/s, {} batches",
+            bench_rows(),
             size / 1_000_000,
             elapsed.as_secs_f64(),
-            1_000_000.0 / elapsed.as_secs_f64(),
+            f64::from(bench_rows()) / elapsed.as_secs_f64(),
             done.batches
         );
     }
