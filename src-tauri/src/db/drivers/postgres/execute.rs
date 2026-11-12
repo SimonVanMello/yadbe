@@ -14,7 +14,10 @@ use tokio_postgres::types::ToSql;
 use super::bound::TextParam;
 use super::decode::{Raw, column_meta, decode};
 use super::{PgConnection, classify_query};
-use crate::db::driver::{ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary};
+use crate::db::driver::{
+    BoundStatement, ColumnOrigin, Connection, ErrorLocation, ExecError, ExecEvent, ExecSender,
+    ExecSummary, recorded,
+};
 use crate::db::errors::YadbeError;
 use crate::db::value::Value;
 use crate::session::query_model::ServerMessage;
@@ -212,6 +215,93 @@ impl PgConnection {
                 None
             },
         })
+    }
+}
+
+/// The relations and attribute numbers of result columns, by name (F-087).
+const COLUMN_ORIGINS_SQL: &str =
+    "SELECT a.attrelid::int8, a.attnum::int4, n.nspname::text, c.relname::text, a.attname::text
+FROM pg_catalog.pg_attribute a
+JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE a.attrelid = ANY (CAST($1 AS oid[])) AND a.attnum > 0 AND NOT a.attisdropped";
+
+impl PgConnection {
+    /// Where the columns of `sql` come from: the statement is prepared (parsed, never run)
+    /// and its row description says which relation and attribute each column reads; their
+    /// names are read from the catalog. Both are recorded in the statement log.
+    pub(super) async fn column_origins(
+        &self,
+        sql: &str,
+    ) -> Result<Vec<Option<ColumnOrigin>>, YadbeError> {
+        let label = format!("-- prepared, not run, to read where its columns come from\n{sql}");
+        let statement = recorded(&*self.recorder, &label, |_| None, async {
+            self.client
+                .prepare(sql)
+                .await
+                .map_err(|e| exec_error(&e).error)
+        })
+        .await?;
+        let wanted: Vec<(u32, i16)> = statement
+            .columns()
+            .iter()
+            .map(|c| (c.table_oid().unwrap_or(0), c.column_id().unwrap_or(0)))
+            .collect();
+        let mut relations: Vec<u32> = wanted.iter().map(|(t, _)| *t).filter(|t| *t != 0).collect();
+        relations.sort_unstable();
+        relations.dedup();
+        if relations.is_empty() {
+            return Ok(vec![None; wanted.len()]);
+        }
+        let list = relations
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let lookup = BoundStatement {
+            sql: COLUMN_ORIGINS_SQL.to_owned(),
+            display: COLUMN_ORIGINS_SQL.replace("$1", &format!("'{{{list}}}'")),
+            params: vec![Value::Text(format!("{{{list}}}"))],
+            returns_rows: true,
+        };
+        let found = self
+            .query_bound(&lookup, usize::MAX)
+            .await
+            .map_err(|f| f.error)?;
+        let text = |v: &Value| match v {
+            Value::Int(s) | Value::Text(s) => Some(s.clone()),
+            _ => None,
+        };
+        let names: Vec<(u32, i16, String, String, String)> = found
+            .rows
+            .iter()
+            .filter_map(|row| {
+                let [relation, attnum, schema, table, column] = row.as_slice() else {
+                    return None;
+                };
+                Some((
+                    text(relation)?.parse().ok()?,
+                    text(attnum)?.parse().ok()?,
+                    text(schema)?,
+                    text(table)?,
+                    text(column)?,
+                ))
+            })
+            .collect();
+        Ok(wanted
+            .iter()
+            .map(|&(relation, attnum)| {
+                names
+                    .iter()
+                    .find(|(r, a, ..)| *r == relation && *a == attnum && relation != 0)
+                    .map(|(_, _, schema, table, column)| ColumnOrigin {
+                        database: None,
+                        schema: Some(schema.clone()),
+                        table: table.clone(),
+                        column: column.clone(),
+                    })
+            })
+            .collect())
     }
 }
 

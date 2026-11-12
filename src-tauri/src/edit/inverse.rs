@@ -135,7 +135,11 @@ fn reinsert(
                     column: column.name.clone(),
                 });
             }
-            Some(ColumnReadOnlyReason::UnsupportedType | ColumnReadOnlyReason::Table) => {
+            Some(
+                ColumnReadOnlyReason::UnsupportedType
+                | ColumnReadOnlyReason::Table
+                | ColumnReadOnlyReason::Computed,
+            ) => {
                 // Left out, the column takes its default: only right for a NULL without one.
                 if value.value == Value::Null && column.default.is_none() {
                     continue;

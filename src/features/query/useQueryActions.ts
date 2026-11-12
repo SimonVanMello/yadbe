@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 
 import { registerActions } from '../../app/actions';
+import { activeEditId } from '../table-data/tableActions';
+import { getTableSession } from '../table-data/tableSessionStore';
 import { explainQuery } from './explainActions';
 import { formatTab, goToDefinition } from './formatActions';
 import {
@@ -34,9 +36,14 @@ export function useQueryActions(): void {
       'query.open': onActive((tabId) => {
         void openScript(tabId);
       }),
-      'query.save': onActive((tabId) => {
-        void saveScript(tabId);
-      }),
+      'query.save': () => {
+        // `Mod+S` in a result grid with pending edits applies them (F-087): `table.apply`.
+        const editing = activeEditId();
+        if (editing !== null && getTableSession(editing).pendingCount > 0) return false;
+        return onActive((tabId) => {
+          void saveScript(tabId);
+        })();
+      },
       'query.saveAs': onActive((tabId) => {
         void saveScript(tabId, true);
       }),

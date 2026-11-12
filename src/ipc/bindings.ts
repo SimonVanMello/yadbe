@@ -415,6 +415,36 @@ export const commands = {
 	 */
 	applyTableChanges: (tabId: string, changes: ChangeSet) => typedError<ApplyOutcome, YadbeError>(__TAURI_INVOKE("apply_table_changes", { tabId, changes })),
 	/**
+	 *  Whether result `resultId` can be edited, and how: the table its rows come from (as the
+	 *  engine reported it), the table column of each result column and the row identity, or why
+	 *  not. Reads the cached metadata; runs nothing on the query tab's connection.
+	 */
+	describeResultEdit: (resultId: number) => typedError<ResultEditInfo, YadbeError>(__TAURI_INVOKE("describe_result_edit", { resultId })),
+	/**
+	 *  The statements Apply would run for `changes` on the result's table (table column names,
+	 *  keys in `rowIdentity` order), as readable SQL. Runs nothing.
+	 */
+	previewResultChanges: (resultId: number, changes: ChangeSet) => typedError<EditPreview, YadbeError>(__TAURI_INVOKE("preview_result_changes", { resultId, changes })),
+	/**
+	 *  Applies `changes` to the result's table in one transaction, like `apply_table_changes`.
+	 *  Conflicting rows (`conflicted`) come back in the result's columns, the ones the query
+	 *  computed being `NULL`. Inserts are refused (`invalidArgument`).
+	 */
+	applyResultChanges: (resultId: number, changes: ChangeSet) => typedError<ApplyOutcome, YadbeError>(__TAURI_INVOKE("apply_result_changes", { resultId, changes })),
+	/**
+	 *  Reads rows of the result's table again by their identity, in the result's columns: a
+	 *  column the query computed keeps the value it has in row `row` of the result (it is not
+	 *  computed again). `positions` follow `rows` (`null`: the row no longer exists).
+	 */
+	refreshResultRows: (resultId: number, rows: ResultRowRef[]) => typedError<RefreshedRows, YadbeError>(__TAURI_INVOKE("refresh_result_rows", { resultId, rows })),
+	/**
+	 *  Stops what an edit of the result runs (an apply waiting for a lock), with the engine's
+	 *  native cancel.
+	 */
+	cancelResultEdit: (resultId: number) => typedError<null, YadbeError>(__TAURI_INVOKE("cancel_result_edit", { resultId })),
+	/**  Forgets the result's edits: the rows read again for it and its server connection. */
+	closeResultEdit: (resultId: number) => typedError<null, YadbeError>(__TAURI_INVOKE("close_result_edit", { resultId })),
+	/**
 	 *  The foreign keys of every table of `table`'s database that reference it, self-references
 	 *  and other schemas included (cached metadata). `supported: false` on an engine whose
 	 *  driver cannot list them yet.
@@ -760,7 +790,13 @@ export type ColumnReadOnlyReason =
  *  A type yadbe shows as text but cannot write back exactly (SQL Server `sql_variant`,
  *  CLR types such as `geography` or `hierarchyid`).
  */
-"unsupportedType";
+"unsupportedType" | 
+/**
+ *  A column of a query result that is not a table column as the table holds it: an
+ *  expression, a column shown a second time, a value the query reads in another form
+ *  (F-087).
+ */
+"computed";
 
 export type ColumnRef = {
 	table: ObjectRef,
@@ -2527,10 +2563,86 @@ export type RelationSummary = {
 	foreign: boolean,
 };
 
+/**  A column of a result set, as an edit sees it. */
+export type ResultEditColumn = {
+	/**
+	 *  The table column whose values this result column shows, exactly as a table read
+	 *  would; `null`: computed by the query (an expression, a repeat of a column already
+	 *  shown, a value the engine reads differently in a query), never written and left out of
+	 *  the row checks.
+	 */
+	source: string | null,
+	/**
+	 *  The column as a table tab describes it (type, nullability, editor, why it cannot be
+	 *  written). A computed column is read-only with reason `computed`; its `name` is the
+	 *  result's.
+	 */
+	column: TableColumn,
+};
+
+/**  Whether a result set can be edited, and how (F-087). */
+export type ResultEditInfo = {
+	resultId: number,
+	/**  The table the rows come from, when the engine said. */
+	table: ObjectRef | null,
+	/**  Empty: the result can be edited (updates and deletes; no inserts). */
+	readOnlyReasons: ResultReadOnlyReason[],
+	/**  One per result column, in result order. */
+	columns: ResultEditColumn[],
+	/**  The table columns identifying a row (`RowKey`s list their values in this order). */
+	rowIdentity: string[],
+	/**
+	 *  For each row identity column, the result column holding it (the first one showing
+	 *  it). Empty when the result cannot be edited.
+	 */
+	identityColumns: number[],
+};
+
 /**  When fetching pauses for one result (SPEC §2.2: memory-capped result store). */
 export type ResultLimits = {
 	maxRows: number,
 	maxBytes: number,
+};
+
+/**  Why a result set cannot be edited. Several can apply. */
+export type ResultReadOnlyReason = 
+/**
+ *  The statement is not a plain `SELECT … FROM <one table>`: a join, a union, a subquery,
+ *  a function or a CTE in `FROM`, several statements in one batch, no `FROM` at all…
+ */
+"notSingleTable" | 
+/**
+ *  The engine did not say where the columns come from (or could not describe the
+ *  statement), or none of them comes from a table.
+ */
+"originUnknown" | 
+/**
+ *  The columns come from another object than the one the statement names (a view, a
+ *  synonym), or from several tables.
+ */
+"otherSource" | 
+/**  The rows come from a view or a materialized view. */
+"view" | 
+/**  The table is not in the connection's metadata (a temporary table…). */
+"tableUnknown" | 
+/**  The table has neither a primary key nor a unique key on non-null columns. */
+"noRowIdentity" | 
+/**  The result does not hold every column of the table's row identity. */
+"keyNotSelected" | 
+/**  The connection is read-only. */
+"readOnlyConnection" | 
+/**
+ *  The query tab's transaction is open: edits run in a transaction of their own, on
+ *  another server connection, so the tab's must end first (commit or roll back). Not in
+ *  `readOnlyReasons` (it changes with the tab): Apply refuses it.
+ */
+"openTransaction";
+
+/**  A row of a result set to read again, with its identity as last known. */
+export type ResultRowRef = {
+	/**  Its row in the result (columns the query computed keep the value read there). */
+	row: number,
+	key: Value[],
 };
 
 export type ResultStatus = 

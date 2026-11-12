@@ -217,6 +217,40 @@ export class TableRowSource implements RowSource {
 
   /** A new page: the previous one, its patches and the pending changes are gone. */
   setPage(page: TablePage | null): void {
+    this.attach(page);
+  }
+
+  /** The rows of a query result (F-087): read by windows like a page, growing as they stream. */
+  setResult(resultId: number, rowCount: number): void {
+    this.attach({ resultId, rowCount, window: null });
+  }
+
+  /**
+   * More rows of the result arrived (streaming, load more): they follow the existing ones; pending
+   * changes and applied patches stay.
+   */
+  extend(rowCount: number): void {
+    const page = this.page;
+    if (!page || rowCount <= page.rowCount) return;
+    const before = page.rowCount;
+    const shown = this.mappedCount;
+    page.rowCount = rowCount;
+    page.cache.setRowCount(rowCount);
+    if (this.mapping) {
+      const mapping = Array.from(this.mapping);
+      for (let row = before; row < rowCount; row++) mapping.push(row);
+      this.mapping = Int32Array.from(mapping);
+    }
+    // The window that held the last row grows; the later ones are new.
+    const first = Math.floor(shown / WINDOW_ROWS);
+    for (const window of [...this.composed.keys()])
+      if (window >= first) this.composed.delete(window);
+    this.notify();
+  }
+
+  private attach(
+    page: { resultId: number; rowCount: number; window: ResultWindow | null } | null,
+  ): void {
     this.stopCache?.();
     this.page?.cache.dispose();
     this.page = null;
@@ -229,7 +263,7 @@ export class TableRowSource implements RowSource {
         maxWindows: 120,
       });
       cache.setRowCount(page.rowCount);
-      if (page.window.rowCount > 0) cache.put(page.window);
+      if (page.window && page.window.rowCount > 0) cache.put(page.window);
       this.page = { resultId, rowCount: page.rowCount, cache };
       this.stopCache = cache.subscribe(() => {
         this.notify();
@@ -289,6 +323,13 @@ export class TableRowSource implements RowSource {
     this.labels = labels;
     this.composed.clear();
     this.notify();
+  }
+
+  /** The row of the underlying page or result a grid row shows, `null` for a row added after. */
+  baseRow(row: number): number | null {
+    if (row >= this.mappedCount) return null;
+    const base = this.mapping ? (this.mapping[row] ?? -1) : row;
+    return base >= 0 ? base : null;
   }
 
   /** The grid row of a change target. */

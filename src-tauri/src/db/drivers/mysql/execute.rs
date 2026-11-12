@@ -12,7 +12,7 @@ use tokio::time::Instant;
 use super::decode::{self, Decoder};
 use super::{Inner, decode_row};
 use crate::db::driver::{
-    ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary, Explained, recorded,
+    ColumnOrigin, ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary, Explained, recorded,
 };
 use crate::db::errors::YadbeError;
 use crate::db::params::ParamStatement;
@@ -86,6 +86,23 @@ struct Outcome {
     warnings: bool,
 }
 
+/// Where a result column comes from (`org_table` / `org_name` of its definition, F-087); an
+/// expression has none.
+fn origin(column: &mysql_async::Column) -> Option<ColumnOrigin> {
+    let table = column.org_table_str();
+    let name = column.org_name_str();
+    if table.is_empty() || name.is_empty() {
+        return None;
+    }
+    let schema = column.schema_str();
+    Some(ColumnOrigin {
+        database: (!schema.is_empty()).then(|| schema.into_owned()),
+        schema: None,
+        table: table.into_owned(),
+        column: name.into_owned(),
+    })
+}
+
 async fn stream<P: Protocol>(
     result: &mut mysql_async::QueryResult<'_, '_, P>,
     events: &ExecSender,
@@ -106,6 +123,11 @@ async fn stream<P: Protocol>(
         let (metas, decoders): (Vec<ColumnMeta>, Vec<Decoder>) =
             columns.iter().map(decode::column).unzip();
         send(events, ExecEvent::Columns(metas)).await?;
+        send(
+            events,
+            ExecEvent::Origins(columns.iter().map(origin).collect()),
+        )
+        .await?;
         let mut batch: Vec<Vec<Value>> = Vec::with_capacity(BATCH_ROWS);
         let mut deadline: Option<Instant> = None;
         loop {

@@ -464,6 +464,14 @@ impl Connection for MssqlConnection {
         Box::pin(self.explain(statement, analyze))
     }
 
+    fn describe_origins<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+    ) -> BoxFuture<'a, Result<Option<Vec<Option<crate::db::driver::ColumnOrigin>>>, YadbeError>>
+    {
+        Box::pin(async move { self.column_origins(statement).await.map(Some) })
+    }
+
     fn in_transaction(&self) -> Option<bool> {
         Some(self.in_transaction.load(Ordering::SeqCst))
     }

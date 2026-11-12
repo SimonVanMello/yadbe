@@ -25,13 +25,14 @@ use crate::db::classify::{
 };
 use crate::db::dialect::Dialect;
 use crate::db::driver::{
-    CancelHandle, Connection, ErrorLocation, ExecError, ExecEvent, ExecSummary,
+    CancelHandle, ColumnOrigin, Connection, ErrorLocation, ExecError, ExecEvent, ExecSummary,
 };
 use crate::db::errors::{ErrorCode, YadbeError};
 use crate::db::meta::MetaNode;
 use crate::db::params::{ParamStatement, ParamValues, bind_all, parameter_value, parameters_of};
+use crate::db::result_source::{SelectSource, single_table_select};
 use crate::db::split::{SqlSyntax, Statement, Utf16Map, split, statement_at};
-use crate::db::value::Value;
+use crate::db::value::{ColumnMeta, Value};
 use crate::events::{
     BackendEvent, EventSink, MetaRefreshReason, MetaRefreshed, QueryFinished, QueryProgress,
     TransactionStateChanged,
@@ -122,6 +123,32 @@ struct ResultEntry {
     tap: Option<mpsc::Sender<TapMsg>>,
     /// Rows past the limits went to an export only: the store lacks them.
     truncated: bool,
+    /// Where the rows come from, for an edit of the result (F-087).
+    edit: EditSource,
+}
+
+/// Where a result's rows come from (F-087): kept only for the first result set of a statement
+/// that is a plain `SELECT` of one table.
+#[derive(Debug, Clone, Default)]
+struct EditSource {
+    select: Option<SelectSource>,
+    /// As the engine said, one per column (`None`: computed); `None`: it did not say.
+    origins: Option<Vec<Option<ColumnOrigin>>>,
+}
+
+/// Where the rows of a result come from, and where it was run (F-087).
+#[derive(Debug, Clone)]
+pub struct ResultOrigin {
+    pub tab_id: String,
+    pub connection_id: String,
+    /// The database the statement ran on, when not the connection's.
+    pub database: Option<String>,
+    pub columns: Vec<ColumnMeta>,
+    pub status: ResultStatus,
+    /// The table the statement names, when it is a plain `SELECT … FROM <one table>`.
+    pub select: Option<SelectSource>,
+    /// Where each column comes from, as the engine said (`None`: it did not).
+    pub origins: Option<Vec<Option<ColumnOrigin>>>,
 }
 
 /// What a paused result waited for.
@@ -1138,6 +1165,23 @@ impl QueryRunner {
             .get(index)
             .cloned()
             .unwrap_or_else(|| ParamStatement::plain(&exec.text[statement.range()]));
+        // A plain `SELECT` of one table: the engines that cannot tell where its columns come
+        // from with the rows are asked first (F-087). It never runs the statement.
+        let select = single_table_select(&prepared.sql, &exec.syntax);
+        let mut origins = None;
+        if select.is_some() {
+            match conn.describe_origins(&prepared).await {
+                Ok(described) => origins = described,
+                Err(err) => tracing::debug!(error = %err, "describing a result's origins"),
+            }
+            if exec.cancel.is_raised() {
+                return Outcome::Failed(YadbeError::cancelled());
+            }
+        }
+        let mut edit_source = select.map(|select| EditSource {
+            select: Some(select),
+            origins,
+        });
         let task: JoinHandle<Result<ExecSummary, ExecError>> =
             tokio::spawn(async move { driver_conn.execute_params(&prepared, sender).await });
 
@@ -1249,6 +1293,8 @@ impl QueryRunner {
                             limit_bytes: u64::from(limits.max_bytes),
                             tap: None,
                             truncated: false,
+                            // Only the statement's first result set is the `SELECT`'s.
+                            edit: edit_source.take().unwrap_or_default(),
                         });
                         let position = state.results.len() - 1;
                         state.dirty.insert(position);
@@ -1265,6 +1311,16 @@ impl QueryRunner {
                 }
                 Some(ExecEvent::Notice(notice)) => {
                     exec.message(Some(index), MessageBody::Notice(notice));
+                }
+                Some(ExecEvent::Origins(reported)) => {
+                    if let Some(position) = result {
+                        exec.update(|state| {
+                            let edit = &mut state.results[position].edit;
+                            if edit.select.is_some() && edit.origins.is_none() {
+                                edit.origins = Some(reported);
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -1586,6 +1642,30 @@ impl QueryRunner {
             tail: Some(receiver),
             truncated: false,
         })
+    }
+
+    /// Where the rows of result `result_id` come from (F-087); `resultNotFound` once its
+    /// execution was replaced or its tab closed.
+    pub fn result_origin(&self, result_id: u32) -> Result<ResultOrigin, YadbeError> {
+        let tabs: Vec<Arc<Tab>> = lock(&self.tabs).values().cloned().collect();
+        for tab in tabs {
+            let Some(exec) = tab.execution() else {
+                continue;
+            };
+            let state = lock(&exec.state);
+            if let Some(entry) = state.results.iter().find(|r| r.stored.id() == result_id) {
+                return Ok(ResultOrigin {
+                    tab_id: tab.id.clone(),
+                    connection_id: exec.connection_id.clone(),
+                    database: exec.database.clone(),
+                    columns: entry.stored.columns().to_vec(),
+                    status: entry.status,
+                    select: entry.edit.select.clone(),
+                    origins: entry.edit.origins.clone(),
+                });
+            }
+        }
+        Err(YadbeError::result_not_found(result_id))
     }
 
     pub fn window(

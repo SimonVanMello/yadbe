@@ -2,39 +2,23 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
-import type { TableDataInfo, Value } from '../../ipc';
-import { matchShortcut } from '../../ui/shortcuts';
+import type { TableDataInfo } from '../../ipc';
 import {
   DataGrid,
   type ColumnLayout,
   type DataGridApi,
   type GridCellOverlay,
   type GridCellRef,
-  type GridEditing,
 } from '../grid/DataGrid';
 import { formatCount } from '../grid/formatCount';
 import { isNumericKind } from '../grid/cellJson';
-import { modKey } from '../grid/modifiers';
 import { blockText } from '../grid/rowSource';
-import { CellEditor } from './CellEditor';
 import { FkCellButton } from './FkCellButton';
-import { FkCellEditor } from './FkCellEditor';
 import { foreignKeysOf } from './fkModel';
 import { goToReference, useFkStore } from './fkNavigation';
 import { ReferencePeek } from './ReferencePeek';
-import type { EditMove } from './cellEditorTypes';
 import { isFiltered } from './filterModel';
-import {
-  cellBlock,
-  explain,
-  pasteText,
-  registerEditorFlush,
-  registerGrid,
-  sortBy,
-  tableTabOf,
-  writeCells,
-  type CellWrite,
-} from './tableActions';
+import { registerGrid, sortBy, tableTabOf } from './tableActions';
 import { openTableExport } from './tableExport';
 import { TableMenu } from './TableMenu';
 import { tableLabel } from './tableNames';
@@ -42,11 +26,7 @@ import type { TableRowSource } from './tableRowSource';
 import { useTableSelectionStore, useTableSessionStore } from './tableSessionStore';
 import { getTableTabState, useTableTabStore } from './tableTabStore';
 import styles from './TableView.module.css';
-
-interface EditingCell extends GridCellRef {
-  initial: Value;
-  typed: string | null;
-}
+import { useCellEditing } from './useCellEditing';
 
 interface TableGridProps {
   tabId: string;
@@ -65,9 +45,6 @@ export const TableGrid = memo(function TableGrid({ tabId, info, source, label }:
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
   const apiRef = useRef<DataGridApi | null>(null);
-  const [editing, setEditing] = useState<EditingCell | null>(null);
-  const pasteAsRows = useRef(false);
-  const lastWrite = useRef<Promise<void>>(Promise.resolve());
   const pageVersion = useTableSessionStore((state) => state.sessions[tabId]?.pageVersion ?? 0);
   const editVersion = useTableSessionStore((state) => state.sessions[tabId]?.editVersion ?? 0);
   const rowCount = useTableSessionStore((state) => state.sessions[tabId]?.page?.rowCount ?? 0);
@@ -113,166 +90,30 @@ export const TableGrid = memo(function TableGrid({ tabId, info, source, label }:
     [tabId],
   );
 
-  const startEdit = useCallback(
-    async (cell: GridCellRef, typed: string | null) => {
-      const block = cellBlock(tabId, cell.row, cell.dataCol);
-      if (block) {
-        explain(block);
-        return;
-      }
-      const initial = await source.fullValue(cell.row, cell.dataCol);
-      setEditing({ ...cell, initial, typed });
+  const goTo = useCallback(
+    (cell: GridCellRef) => {
+      void goToReference(tabId, cell);
     },
-    [tabId, source],
+    [tabId],
   );
-
-  const close = useCallback(
-    (cell: GridCellRef, move: EditMove) => {
-      setEditing(null);
-      const api = apiRef.current;
-      if (!api) return;
-      const order = api.order();
-      const col = order.indexOf(cell.dataCol);
-      let next = cell;
-      if (move === 'down' && cell.row + 1 < source.rowCount) next = { ...cell, row: cell.row + 1 };
-      else if (move === 'right' && col + 1 < order.length)
-        next = { ...cell, dataCol: order[col + 1] ?? cell.dataCol };
-      else if (move === 'left' && col > 0)
-        next = { ...cell, dataCol: order[col - 1] ?? cell.dataCol };
-      api.focusCell(next);
-      api.focus();
-    },
-    [source],
+  const foreignKeys = useMemo(
+    () => ({ of: fkOf, connectionId: tableTabOf(tabId)?.connectionId, goTo }),
+    [fkOf, tabId, goTo],
   );
-
-  useEffect(() => {
-    registerEditorFlush(tabId, async () => {
-      // Leaving the editor commits a valid value (its blur handler).
-      const active = document.activeElement;
-      if (active instanceof HTMLElement && active.closest('[data-grid-editor]')) active.blur();
-      await lastWrite.current;
-    });
-    return () => {
-      registerEditorFlush(tabId, null);
-    };
-  }, [tabId]);
+  const { editing: editingProps, editingCell: editing } = useCellEditing({
+    tabId,
+    columns: info.columns,
+    source,
+    apiRef,
+    editable,
+    foreignKeys,
+  });
 
   useEffect(
     () => () => {
       registerGrid(tabId, null);
     },
     [tabId],
-  );
-
-  const editor = useMemo(() => {
-    const column = editing ? info.columns[editing.dataCol] : undefined;
-    if (!editing || !column) return null;
-    const foreignKey = fkOf(editing.dataCol);
-    const connectionId = tableTabOf(tabId)?.connectionId;
-    if (foreignKey && connectionId) {
-      return {
-        row: editing.row,
-        dataCol: editing.dataCol,
-        node: (
-          <FkCellEditor
-            key={`${String(editing.row)}:${String(editing.dataCol)}`}
-            column={column}
-            initial={editing.initial}
-            typed={editing.typed}
-            label={t('tableData.editor.label', { column: column.name, row: editing.row + 1 })}
-            tabId={tabId}
-            connectionId={connectionId}
-            foreignKey={foreignKey}
-            onCommit={(value, move) => {
-              lastWrite.current = writeCells(tabId, [
-                { row: editing.row, dataCol: editing.dataCol, value },
-              ]);
-              close(editing, move);
-            }}
-            onChoose={(values, move) => {
-              // A composite key fills its columns together; one that cannot be written says why.
-              const writes: CellWrite[] = [];
-              for (const { column: name, value } of values) {
-                const dataCol = info.columns.findIndex((c) => c.name === name);
-                const block = dataCol < 0 ? null : cellBlock(tabId, editing.row, dataCol);
-                if (block) explain(block);
-                else if (dataCol >= 0) writes.push({ row: editing.row, dataCol, value });
-              }
-              lastWrite.current = writeCells(tabId, writes);
-              close(editing, move);
-            }}
-            onCancel={() => {
-              close(editing, 'none');
-            }}
-          />
-        ),
-      };
-    }
-    return {
-      row: editing.row,
-      dataCol: editing.dataCol,
-      node: (
-        <CellEditor
-          key={`${String(editing.row)}:${String(editing.dataCol)}`}
-          column={column}
-          initial={editing.initial}
-          typed={editing.typed}
-          label={t('tableData.editor.label', { column: column.name, row: editing.row + 1 })}
-          onCommit={(value, move) => {
-            lastWrite.current = writeCells(tabId, [
-              { row: editing.row, dataCol: editing.dataCol, value },
-            ]);
-            close(editing, move);
-          }}
-          onCancel={() => {
-            close(editing, 'none');
-          }}
-        />
-      ),
-    };
-  }, [editing, info.columns, t, tabId, close, fkOf]);
-
-  const editingProps: GridEditing = useMemo(
-    () => ({
-      onKeyDown: (event, focus) => {
-        // `Mod+Shift+V`: the paste that follows makes new rows.
-        if (matchShortcut(event, 'Mod+Shift+V')) {
-          pasteAsRows.current = true;
-          return false;
-        }
-        if (!focus || event.altKey || event.ctrlKey || event.metaKey) return false;
-        if (event.key === 'Enter' || event.key === 'F2') {
-          event.preventDefault();
-          void startEdit(focus, null);
-          return true;
-        }
-        if (event.key.length === 1 && event.key !== ' ') {
-          event.preventDefault();
-          void startEdit(focus, event.key);
-          return true;
-        }
-        return false;
-      },
-      onCellPointerDown: (cell, event) => {
-        // Mod+click on a foreign key cell jumps to the referenced row (as "go to definition").
-        if (!modKey(event) || event.shiftKey || event.altKey || !fkOf(cell.dataCol)) return false;
-        void goToReference(tabId, cell);
-        return true;
-      },
-      onCellDoubleClick: (cell) => {
-        // A read-only table opens the cell viewer instead.
-        if (!editable) return false;
-        void startEdit(cell, null);
-        return true;
-      },
-      onPaste: (text) => {
-        const asRows = pasteAsRows.current;
-        pasteAsRows.current = false;
-        void pasteText(tabId, text, asRows);
-      },
-      editor,
-    }),
-    [startEdit, editable, tabId, editor, fkOf],
   );
 
   const rowsVersion = pageVersion + editVersion;

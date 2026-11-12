@@ -25,8 +25,9 @@ use crate::db::config::{ConnectTarget, TlsMode};
 use crate::db::dialect::Engine;
 use crate::db::driver::Explained;
 use crate::db::driver::{
-    BoundFailure, BoundStatement, BoxFuture, CancelHandle, ConnectRequest, Connection, Driver,
-    ExecError, ExecSender, ExecSummary, LinkWatch, StatementRecorder, recorded, recorded_bound,
+    BoundFailure, BoundStatement, BoxFuture, CancelHandle, ColumnOrigin, ConnectRequest,
+    Connection, Driver, ExecError, ExecSender, ExecSummary, LinkWatch, StatementRecorder, recorded,
+    recorded_bound,
 };
 use crate::db::errors::{YadbeError, from_connect_sqlstate, from_query_sqlstate};
 use crate::db::params::ParamStatement;
@@ -286,6 +287,13 @@ impl Connection for PgConnection {
             self.execute_streaming(&statement.sql, &params, events)
                 .await
         })
+    }
+
+    fn describe_origins<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+    ) -> BoxFuture<'a, Result<Option<Vec<Option<ColumnOrigin>>>, YadbeError>> {
+        Box::pin(async move { self.column_origins(&statement.sql).await.map(Some) })
     }
 
     fn explain<'a>(

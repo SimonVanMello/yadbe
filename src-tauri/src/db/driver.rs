@@ -241,6 +241,19 @@ pub trait Connection: Send + Sync {
         Box::pin(async { Err(ExecError::from(YadbeError::not_implemented())) })
     }
 
+    /// Where the columns of `statement`'s first result set come from, asked of the engine
+    /// without running the statement (F-087): PostgreSQL prepares it and reads its column
+    /// origins, SQL Server describes it (`sp_describe_first_result_set`). What yadbe sends
+    /// is recorded in the statement log. `Ok(None)`: the engine reports origins with the
+    /// result itself ([`ExecEvent::Origins`]), or not at all.
+    fn describe_origins<'a>(
+        &'a self,
+        statement: &'a ParamStatement,
+    ) -> BoxFuture<'a, Result<Option<Vec<Option<ColumnOrigin>>>, YadbeError>> {
+        let _ = statement;
+        Box::pin(async { Ok(None) })
+    }
+
     /// The plan of one user statement in the engine's native form (F-053); with `analyze`,
     /// the statement runs and the plan carries actual figures. What yadbe sends is recorded
     /// in the statement log.
@@ -271,6 +284,21 @@ pub enum ExecEvent {
     Rows(Vec<Vec<Value>>),
     /// A notice, warning or info message from the server.
     Notice(ServerMessage),
+    /// Where the columns of the result set just announced come from, one per column
+    /// (`None`: computed), for engines that report it with the result (MySQL, SQLite).
+    Origins(Vec<Option<ColumnOrigin>>),
+}
+
+/// The table column a result column's values come from, as the engine reported it (F-087).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColumnOrigin {
+    /// The database (SQL Server, MySQL; `main`, `temp` or an attached database on SQLite);
+    /// `None`: the connection's.
+    pub database: Option<String>,
+    /// `None` on engines without schemas.
+    pub schema: Option<String>,
+    pub table: String,
+    pub column: String,
 }
 
 pub type ExecSender = tokio::sync::mpsc::Sender<ExecEvent>;

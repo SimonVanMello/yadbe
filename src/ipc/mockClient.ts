@@ -40,6 +40,7 @@ import { cellValue, createMockQuery } from './mockQuery';
 import { createMockReferences } from './mock/references';
 import { createMockSsh, tunnelStatus } from './mock/ssh';
 import { createMockTableData } from './mock/tableData';
+import { createMockResultEdit, parseTableSelect, tableSelect } from './mock/resultEdit';
 import { createMockJournal } from './mock/journal';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
@@ -361,6 +362,18 @@ function createMockBackend() {
     logStatement: (connectionId, connectionName, sql) => {
       logStatement(connectionId, connectionName, sql);
     },
+    tableSelect: (connectionId, database, sql) => {
+      const parsed = parseTableSelect(sql);
+      const definition = findConnection(connectionId)?.definition;
+      if (!parsed || !definition) return null;
+      const table = {
+        database: database ?? definition.database,
+        schema: parsed.schema,
+        name: parsed.table,
+      };
+      const found = tableData.rowsFor(connectionId, table);
+      return found ? tableSelect(parsed, connectionId, table, found.details, found.rows) : null;
+    },
   });
 
   const files = createMockFiles();
@@ -403,6 +416,23 @@ function createMockBackend() {
     freeResults: (ids) => {
       query.freeResults(ids);
     },
+  });
+
+  const resultEdit = createMockResultEdit({
+    origin: (resultId) => query.resultOrigin(resultId),
+    tabTransaction: (tabId) => query.tabTransaction(tabId),
+    session: (connectionId) => {
+      const conn = findConnection(connectionId);
+      if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
+      return { engine: conn.definition.engine, readOnly: conn.definition.readOnly };
+    },
+    relation: (connectionId, table) => meta.relation(connectionId, table),
+    tables: tableData.commands,
+    storeRows: (columns, rows) => query.storeRows(columns, rows),
+    freeResults: (ids) => {
+      query.freeResults(ids);
+    },
+    window: (resultId, offset, limit) => query.window(resultId, offset, limit),
   });
 
   const references = createMockReferences({
@@ -842,6 +872,7 @@ function createMockBackend() {
     ...history.commands,
     ...savedQueries.commands,
     ...tableData.commands,
+    ...resultEdit.commands,
     ...references.commands,
     ...journal.commands,
     closeTableData: (tabId) => {
@@ -877,6 +908,7 @@ function createMockBackend() {
     history.reset();
     savedQueries.reset();
     tableData.reset();
+    resultEdit.reset();
     journal.reset();
     references.reset();
     files.reset();

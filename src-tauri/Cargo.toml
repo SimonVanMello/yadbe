@@ -56,7 +56,8 @@ tokio-util = { version = "0.7", features = ["compat"] }
 # above (no OpenSSL, no aws-lc-rs), pure-Rust zlib, none of mysql_common's optional value
 # conversions (chrono, time, bigdecimal…): yadbe decodes the wire values itself.
 mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust", "rustls-tls", "ring", "tls12"] }
-rusqlite = { version = "0.41", features = ["bundled", "column_decltype"] }
+# `column_metadata`: where result columns come from, for editable results (F-087).
+rusqlite = { version = "0.41", features = ["bundled", "column_decltype", "column_metadata"] }
 keyring = "4.2"
 zeroize = "1"
 # Already in the lockfile through Tauri.

@@ -10,7 +10,8 @@ use rusqlite::types::Value as SqlValue;
 
 use super::{SqliteConnection, blocking, kind_of, to_value};
 use crate::db::driver::{
-    ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary, Explained, recorded_sync,
+    ColumnOrigin, ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary, Explained,
+    recorded_sync,
 };
 use crate::db::errors::YadbeError;
 use crate::db::params::{BoundParam, ParamStatement};
@@ -101,6 +102,22 @@ fn bind(stmt: &mut rusqlite::Statement<'_>, params: &[BoundParam]) -> rusqlite::
     Ok(())
 }
 
+/// Where each result column comes from (`sqlite3_column_table_name` and its siblings, F-087):
+/// SQLite follows views and subqueries to the base table.
+fn origins(stmt: &rusqlite::Statement<'_>, width: usize) -> Vec<Option<ColumnOrigin>> {
+    (0..width)
+        .map(|col| {
+            let (database, table, column, ..) = stmt.column_metadata(col).ok().flatten()?;
+            Some(ColumnOrigin {
+                database: Some(database.to_str().ok()?.to_owned()),
+                schema: None,
+                table: table.to_str().ok()?.to_owned(),
+                column: column.to_str().ok()?.to_owned(),
+            })
+        })
+        .collect()
+}
+
 fn run(
     conn: &rusqlite::Connection,
     sql: &str,
@@ -127,6 +144,7 @@ fn run(
     let writes = !stmt.readonly();
     if width > 0 {
         send(events, ExecEvent::Columns(columns))?;
+        send(events, ExecEvent::Origins(origins(&stmt, width)))?;
     }
     let mut rows = stmt.raw_query();
     let mut batch: Vec<Vec<Value>> = Vec::with_capacity(BATCH_ROWS);

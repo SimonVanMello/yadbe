@@ -4,7 +4,7 @@ import { formatNumber, useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import { Kbd } from '../../ui/Kbd';
 import { Spinner } from '../../ui/Spinner';
-import { ResultGrid } from '../grid/ResultGrid';
+import { ResultView } from '../result-edit/ResultView';
 import { shortcutOf } from '../../app/actions';
 import {
   effectiveSelection,
@@ -140,7 +140,9 @@ export function ResultsArea({ tabId }: { tabId: string }) {
         ) : selection.kind === 'messages' || !selectedResult ? (
           <MessagesPanel tabId={tabId} execution={execution} />
         ) : (
-          <ResultGrid
+          <ResultView
+            tabId={tabId}
+            connectionId={execution.connectionId}
             resultId={selectedResult.resultId}
             summary={selectedResult}
             label={t('query.results.result', {
