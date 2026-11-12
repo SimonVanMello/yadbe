@@ -25,6 +25,15 @@
   color: var(--fg-muted);
 }
 
+.figures {
+  display: inline-flex;
+  gap: var(--space-3);
+  min-width: 0;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .cursor {
   flex: none;
   font-variant-numeric: tabular-nums;

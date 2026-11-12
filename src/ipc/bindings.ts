@@ -166,6 +166,11 @@ export const commands = {
 	fetchResultWindow: (resultId: number, offset: number, limit: number) => typedError<ResultWindow, YadbeError>(__TAURI_INVOKE("fetch_result_window", { resultId, offset, limit })),
 	/**  One whole cell (windows cut long values), for the cell viewer (F-064). */
 	fetchResultCell: (resultId: number, row: number, column: number) => typedError<Value, YadbeError>(__TAURI_INVOKE("fetch_result_cell", { resultId, row, column })),
+	/**
+	 *  Count, sum, average, minimum and maximum of a selection of cells (F-065), computed where
+	 *  the rows are: exact for integers and decimals, whatever the size of the selection.
+	 */
+	aggregateResultSelection: (resultId: number, ranges: AggregateRange[]) => typedError<SelectionAggregate, YadbeError>(__TAURI_INVOKE("aggregate_result_selection", { resultId, ranges })),
 	/**  The tab's transaction state, connection and running or last execution. */
 	getQueryTab: (tabId: string) => typedError<QueryTabInfo, YadbeError>(__TAURI_INVOKE("get_query_tab", { tabId })),
 	/**
@@ -526,6 +531,16 @@ export const events = {
 };
 
 /* Types */
+/**
+ *  A block of a selection of cells: rows `rowStart .. rowEnd` (exclusive, in the order the grid
+ *  shows them) of these columns (indices in the result's data order).
+ */
+export type AggregateRange = {
+	rowStart: number,
+	rowEnd: number,
+	columns: number[],
+};
+
 export type AppInfo = {
 	/**  yadbe version, from `Cargo.toml`. */
 	appVersion: string,
@@ -2774,6 +2789,26 @@ export type SecretLocation =
 "keychain" | 
 /**  Memory only: forgotten when yadbe quits. */
 "session";
+
+/**  What a selection of cells adds up to (F-065). A cell in two ranges counts once. */
+export type SelectionAggregate = {
+	/**  Cells selected, `NULL`s included (saturates at 4 billion). */
+	cells: number,
+	/**  Cells that are not `NULL`. */
+	nonNull: number,
+	/**  Cells holding a number (integers, decimals, floats). */
+	numeric: number,
+	/**
+	 *  `sum`, `avg`, `min` and `max` are only given when every non-`NULL` cell is a number
+	 *  (at least one). Plain decimals, exact unless `exact` is false.
+	 */
+	sum: string | null,
+	avg: string | null,
+	min: string | null,
+	max: string | null,
+	/**  False when a floating-point cell took part: the figures are then floating point. */
+	exact: boolean,
+};
 
 export type SequenceSummary = {
 	dataType: string,

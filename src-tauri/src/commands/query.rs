@@ -8,8 +8,9 @@ use crate::db::errors::YadbeError;
 use crate::db::split::{Utf16Map, split, statement_at as db_statement_at};
 use crate::db::value::Value;
 use crate::session::query_model::{
-    ExecuteRequest, ExecuteScope, ExecutionStarted, ExplainRequest, ExplainResult, QueryParameter,
-    QueryTabInfo, ResultWindow, ResumeMode, TextRange, TransactionMode, TransactionState,
+    AggregateRange, ExecuteRequest, ExecuteScope, ExecutionStarted, ExplainRequest, ExplainResult,
+    QueryParameter, QueryTabInfo, ResultWindow, ResumeMode, SelectionAggregate, TextRange,
+    TransactionMode, TransactionState,
 };
 use crate::state::AppState;
 
@@ -107,6 +108,19 @@ pub async fn fetch_result_cell(
     column: u32,
 ) -> Result<Value, YadbeError> {
     state.queries.cell(result_id, row, column)
+}
+
+/// Count, sum, average, minimum and maximum of a selection of cells (F-065), computed where
+/// the rows are: exact for integers and decimals, whatever the size of the selection.
+#[tauri::command]
+#[specta::specta]
+pub async fn aggregate_result_selection(
+    state: State<'_, AppState>,
+    result_id: u32,
+    ranges: Vec<AggregateRange>,
+) -> Result<SelectionAggregate, YadbeError> {
+    let queries = std::sync::Arc::clone(&state.queries);
+    super::blocking(move || queries.aggregate(result_id, &ranges)).await
 }
 
 /// The tab's transaction state, connection and running or last execution.

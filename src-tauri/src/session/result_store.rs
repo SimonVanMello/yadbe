@@ -9,7 +9,10 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::db::errors::YadbeError;
 use crate::db::value::{ColumnMeta, Value, ValueKind};
-use crate::session::query_model::{CELL_PREVIEW_CHARS, ResultWindow, WindowColumn};
+use crate::session::query_model::{
+    AggregateRange, CELL_PREVIEW_CHARS, ResultWindow, SelectionAggregate, WindowColumn,
+};
+use crate::session::result_agg::Accumulator;
 
 const CHUNK_ROWS: usize = 500;
 /// Byte code of a SQL `NULL` cell; the kinds are `1 + index in KINDS`.
@@ -298,6 +301,43 @@ impl StoredResult {
             .collect()
     }
 
+    /// Count, sum, average, minimum and maximum of the selected cells (F-065). Ranges are in
+    /// the order the grid shows the rows; a cell covered twice counts once.
+    pub fn aggregate(&self, ranges: &[AggregateRange]) -> SelectionAggregate {
+        let data = self.read();
+        let mut per_column: Vec<Vec<(usize, usize)>> = vec![Vec::new(); self.columns.len()];
+        for range in ranges {
+            let start = range.row_start as usize;
+            let end = (range.row_end as usize).min(data.rows);
+            if start >= end {
+                continue;
+            }
+            for &column in &range.columns {
+                if let Some(spans) = per_column.get_mut(column as usize) {
+                    spans.push((start, end));
+                }
+            }
+        }
+        let mut accumulator = Accumulator::default();
+        for (column, mut spans) in per_column.into_iter().enumerate() {
+            spans.sort_unstable();
+            let mut merged: Vec<(usize, usize)> = Vec::with_capacity(spans.len());
+            for (start, end) in spans {
+                match merged.last_mut() {
+                    Some(last) if start <= last.1 => last.1 = last.1.max(end),
+                    _ => merged.push((start, end)),
+                }
+            }
+            for (start, end) in merged {
+                for row in start..end {
+                    let (code, text) = data.chunks[row / CHUNK_ROWS][column].cell(row % CHUNK_ROWS);
+                    accumulator.cell(kind_of(code), text);
+                }
+            }
+        }
+        accumulator.finish()
+    }
+
     /// One whole cell, `None` outside the result.
     pub fn cell(&self, row: usize, column: usize) -> Option<Value> {
         let data = self.read();
@@ -452,6 +492,62 @@ mod tests {
         let past = result.window(5000, 500);
         assert_eq!((past.offset, past.row_count), (1234, 0));
         assert_eq!(result.cell(1234, 0), None);
+    }
+
+    #[test]
+    fn aggregates_a_selection_across_chunks_counting_overlaps_once() {
+        let store = ResultStore::default();
+        let result = store.create(vec![
+            meta("n", ValueKind::Int),
+            meta("d", ValueKind::Decimal),
+            meta("t", ValueKind::Text),
+        ]);
+        let rows: Vec<Vec<Value>> = (0..1200_i64)
+            .map(|i| {
+                vec![
+                    Value::int(i64::MAX - i),
+                    if i % 10 == 0 {
+                        Value::Null
+                    } else {
+                        Value::Decimal(format!("{i}.25"))
+                    },
+                    Value::Text("x".into()),
+                ]
+            })
+            .collect();
+        result.append(rows);
+        let range = |row_start, row_end, columns: &[u32]| AggregateRange {
+            row_start,
+            row_end,
+            columns: columns.to_vec(),
+        };
+
+        // Rows 400..700 (two chunks) of both numeric columns, and 600..800 of the first again.
+        let aggregate = result.aggregate(&[range(400, 700, &[0, 1]), range(600, 800, &[0])]);
+        assert_eq!(aggregate.cells, 300 * 2 + 100);
+        // The decimal column has a NULL every tenth row: 30 of its 300 cells.
+        assert_eq!(aggregate.non_null, 700 - 30);
+        assert_eq!(aggregate.numeric, aggregate.non_null);
+        assert!(aggregate.exact);
+        // Σ(i64::MAX - i) over 400..800 minus nothing else, plus the decimals of 400..700
+        // that are not multiples of ten: 270 rows of `i.25`.
+        let ints: i128 = (400..800).map(|i| i128::from(i64::MAX) - i).sum();
+        let decimals: i128 = (400..700).filter(|i| i % 10 != 0).sum();
+        // 270 × 0.25 = 67.5: the fraction is exactly .5 in the sum.
+        assert_eq!(
+            aggregate.sum.as_deref(),
+            Some(format!("{}.5", ints + decimals + 67).as_str())
+        );
+        assert_eq!(aggregate.max.as_deref(), Some("9223372036854775407"));
+        assert_eq!(aggregate.min.as_deref(), Some("401.25"));
+
+        // A text column has cells but no figures.
+        let text = result.aggregate(&[range(0, 1200, &[2])]);
+        assert_eq!((text.cells, text.non_null, text.numeric), (1200, 1200, 0));
+        assert_eq!(text.sum, None);
+        // Past the end and unknown columns select nothing.
+        let none = result.aggregate(&[range(5000, 6000, &[0]), range(0, 10, &[9])]);
+        assert_eq!(none.cells, 0);
     }
 
     #[test]

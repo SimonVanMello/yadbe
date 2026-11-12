@@ -26,6 +26,7 @@ import type {
 import type { YadbeCommands } from './client';
 import type { EventEmitter } from './emitter';
 import type { MockHistoryRecord } from './mock/history';
+import { aggregateSelection } from './mock/resultAggregate';
 import { mockErrors } from './mockErrors';
 import { mockSplit, mockStatementAt } from './mockSplit';
 import {
@@ -66,6 +67,7 @@ type QueryCommandName =
   | 'resumeResult'
   | 'fetchResultWindow'
   | 'fetchResultCell'
+  | 'aggregateResultSelection'
   | 'getQueryTab'
   | 'setTransactionMode'
   | 'commitTransaction'
@@ -1161,6 +1163,16 @@ export function createMockQuery(host: MockQueryHost) {
         );
       }
       return ok(cellValue(target.cell(row)));
+    },
+
+    aggregateResultSelection: (resultId, ranges) => {
+      const result = results.get(resultId);
+      if (!result) return fail(mockErrors.resultNotFound(resultId));
+      return ok(
+        aggregateSelection(ranges, result.rowCount, result.columns.length, (row, column) => {
+          return result.columns[column]?.cell(row) ?? null;
+        }),
+      );
     },
 
     getQueryTab: (tabId) => ok(info(tabs.get(tabId) ?? tabOf(tabId))),

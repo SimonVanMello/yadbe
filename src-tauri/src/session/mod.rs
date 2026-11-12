@@ -2,6 +2,7 @@
 //! metadata cache arrive with M1.
 
 mod connection;
+mod decimal;
 pub mod history_hook;
 pub mod history_writer;
 pub mod journal;
@@ -14,6 +15,7 @@ pub mod query_runner;
 pub mod reference_model;
 pub mod reference_sql;
 pub mod references;
+pub mod result_agg;
 pub mod result_store;
 pub mod result_tap;
 pub mod statement_log;

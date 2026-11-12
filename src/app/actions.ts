@@ -46,6 +46,8 @@ export const DEFAULT_BINDINGS = {
   'query.saveToLibrary': 'Mod+Shift+L',
   // Results (F-066): the export dialog of the result on screen.
   'result.export': 'Mod+Shift+E',
+  // The grid's side panel on the focused row (F-068): one line per column.
+  'result.rowDetail': 'Mod+Shift+D',
   // Table tabs (F-080 to F-085). `Mod+S` is Save in a query tab and Apply in a table tab: a
   // handler returns `false` where it does not apply, and the next action bound to the key runs.
   'table.apply': 'Mod+S',
@@ -152,6 +154,7 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'view.history': 'action.view.history',
   'view.library': 'action.view.library',
   'result.export': 'action.result.export',
+  'result.rowDetail': 'action.result.rowDetail',
   'query.run': 'action.query.run',
   'query.runStatement': 'action.query.runStatement',
   'query.cancel': 'action.query.cancel',

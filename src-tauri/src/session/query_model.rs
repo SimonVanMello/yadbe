@@ -410,3 +410,33 @@ pub struct ExplainResult {
     pub sent: String,
     pub duration_ms: f64,
 }
+
+/// A block of a selection of cells: rows `rowStart .. rowEnd` (exclusive, in the order the grid
+/// shows them) of these columns (indices in the result's data order).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateRange {
+    pub row_start: u32,
+    pub row_end: u32,
+    pub columns: Vec<u32>,
+}
+
+/// What a selection of cells adds up to (F-065). A cell in two ranges counts once.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectionAggregate {
+    /// Cells selected, `NULL`s included (saturates at 4 billion).
+    pub cells: u32,
+    /// Cells that are not `NULL`.
+    pub non_null: u32,
+    /// Cells holding a number (integers, decimals, floats).
+    pub numeric: u32,
+    /// `sum`, `avg`, `min` and `max` are only given when every non-`NULL` cell is a number
+    /// (at least one). Plain decimals, exact unless `exact` is false.
+    pub sum: Option<String>,
+    pub avg: Option<String>,
+    pub min: Option<String>,
+    pub max: Option<String>,
+    /// False when a floating-point cell took part: the figures are then floating point.
+    pub exact: bool,
+}

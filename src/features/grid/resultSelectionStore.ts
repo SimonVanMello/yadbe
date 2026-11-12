@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import type { SelectionAggregate } from '../../ipc';
+
 /** Size of a grid selection: the block a copy would produce. */
 export interface SelectionSize {
   rows: number;
@@ -10,7 +12,10 @@ interface ResultSelectionState {
   /** The result grid whose selection was last reported, and that selection. */
   resultId: number | null;
   size: SelectionSize | null;
+  /** What the selection adds up to (F-065); `null` while it is computed or without selection. */
+  aggregate: SelectionAggregate | null;
   report: (resultId: number, size: SelectionSize | null) => void;
+  reportAggregate: (resultId: number, aggregate: SelectionAggregate | null) => void;
   /** A grid unmounted: forget its selection if it is the one shown. */
   clear: (resultId: number) => void;
 }
@@ -19,6 +24,7 @@ interface ResultSelectionState {
 export const useResultSelectionStore = create<ResultSelectionState>()((set, get) => ({
   resultId: null,
   size: null,
+  aggregate: null,
   report: (resultId, size) => {
     const current = get();
     if (
@@ -28,9 +34,12 @@ export const useResultSelectionStore = create<ResultSelectionState>()((set, get)
     ) {
       return;
     }
-    set({ resultId, size });
+    set({ resultId, size, aggregate: current.resultId === resultId ? current.aggregate : null });
+  },
+  reportAggregate: (resultId, aggregate) => {
+    if (get().resultId === resultId) set({ aggregate });
   },
   clear: (resultId) => {
-    if (get().resultId === resultId) set({ resultId: null, size: null });
+    if (get().resultId === resultId) set({ resultId: null, size: null, aggregate: null });
   },
 }));

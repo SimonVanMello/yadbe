@@ -72,6 +72,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::query::resume_result,
             commands::query::fetch_result_window,
             commands::query::fetch_result_cell,
+            commands::query::aggregate_result_selection,
             commands::query::get_query_tab,
             commands::query::set_transaction_mode,
             commands::query::commit_transaction,

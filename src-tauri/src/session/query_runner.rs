@@ -40,11 +40,11 @@ use crate::session::ConnectionManager;
 use crate::session::connection::ConnectionSession;
 use crate::session::history_hook::{HistoryEntry, HistoryRecorder};
 use crate::session::query_model::{
-    ExecuteRequest, ExecuteScope, ExecutionDelta, ExecutionSnapshot, ExecutionStarted,
-    ExecutionStatus, ExplainRequest, ExplainResult, MAX_WINDOW_ROWS, MessageBody, ParameterValue,
-    PauseReason, QueryMessage, QueryParameter, QueryTabInfo, ResultLimits, ResultStatus,
-    ResultSummary, ResultWindow, ResumeMode, StatementCompleted, StatementError, TextPosition,
-    TextRange, TransactionMode, TransactionState, TransactionStatus,
+    AggregateRange, ExecuteRequest, ExecuteScope, ExecutionDelta, ExecutionSnapshot,
+    ExecutionStarted, ExecutionStatus, ExplainRequest, ExplainResult, MAX_WINDOW_ROWS, MessageBody,
+    ParameterValue, PauseReason, QueryMessage, QueryParameter, QueryTabInfo, ResultLimits,
+    ResultStatus, ResultSummary, ResultWindow, ResumeMode, SelectionAggregate, StatementCompleted,
+    StatementError, TextPosition, TextRange, TransactionMode, TransactionState, TransactionStatus,
 };
 use crate::session::result_store::{ResultStore, StoredResult};
 use crate::session::result_tap::{ResultStream, TAP_CAPACITY, TapEnd, TapMsg};
@@ -1602,6 +1602,16 @@ impl QueryRunner {
         }
         let stored = self.store.get(result_id)?;
         Ok(stored.window(offset as usize, limit as usize))
+    }
+
+    /// What a selection of cells adds up to (F-065): scanned in the backend, exactly, so a
+    /// whole column of a large result never crosses the IPC.
+    pub fn aggregate(
+        &self,
+        result_id: u32,
+        ranges: &[AggregateRange],
+    ) -> Result<SelectionAggregate, YadbeError> {
+        Ok(self.store.get(result_id)?.aggregate(ranges))
     }
 
     pub fn cell(&self, result_id: u32, row: u32, column: u32) -> Result<Value, YadbeError> {

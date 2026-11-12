@@ -13,6 +13,7 @@ import type { ResultGridProps } from './ResultGrid';
 import type { ExportGridRange } from '../export/exportOptions';
 import { createResultRowSource } from './resultRowSource';
 import { useResultSelectionStore, type SelectionSize } from './resultSelectionStore';
+import { useSelectionAggregate } from './useSelectionAggregate';
 import styles from './ResultGrid.module.css';
 
 /** `ResultGrid` for one result id (remounted when the id changes). */
@@ -43,6 +44,8 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
     },
     [resultId],
   );
+
+  const onSelectionBlocks = useSelectionAggregate(resultId);
 
   const onSelectionRange = useCallback(
     (range: ExportGridRange | null) => {
@@ -141,6 +144,7 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
       emptyText={status === 'streaming' ? undefined : t('grid.noRows')}
       onSelectionSize={onSelectionSize}
       onSelectionRange={onSelectionRange}
+      onSelectionBlocks={onSelectionBlocks}
       onExport={openExport}
     />
   );
