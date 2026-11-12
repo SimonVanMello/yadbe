@@ -26,7 +26,8 @@ use zeroize::Zeroizing;
 use crate::db::config::{AuthMethod, ConnectTarget, TlsMode};
 use crate::db::document::json::Json;
 use crate::db::document::ops::{
-    DocEvent, DocOp, DocReply, DocSender, DocTopology, ExecOptions, FindOptions,
+    AggregateOptions, BulkOperation, DocEvent, DocOp, DocReply, DocSender, DocTopology,
+    ExecOptions, FindAndModify, FindAndModifyAction, FindOptions,
 };
 use crate::db::document::settings::{
     MongoAuthMechanism, MongoSettings, percent_encode, seed_hosts,
@@ -345,13 +346,173 @@ enum Plan {
     Count { database: String, command: Document },
     /// `estimatedDocumentCount`: the `count` command's `n`.
     Estimated { database: String, command: Document },
+    /// `bulkWrite`: write commands run one after the other, their counts summed.
+    Bulk {
+        database: String,
+        commands: Vec<BulkCommand>,
+        ordered: bool,
+    },
 }
 
+/// One write command of a `bulkWrite`, and the positions of its operations in the bulk.
+struct BulkCommand {
+    kind: BulkKind,
+    command: Document,
+    positions: Vec<usize>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BulkKind {
+    Insert,
+    Update,
+    Delete,
+}
+
+/// The statement timeout as `maxTimeMS`, unless the user asked for less.
 fn max_time(command: &mut Document, options: &ExecOptions) {
     if let Some(limit) = options.max_time {
         let ms = i64::try_from(limit.as_millis()).unwrap_or(i64::MAX).max(1);
-        command.insert("maxTimeMS", ms);
+        let own = match command.get("maxTimeMS") {
+            Some(Bson::Int64(n)) => Some(*n),
+            Some(Bson::Int32(n)) => Some(i64::from(*n)),
+            _ => None,
+        };
+        command.insert("maxTimeMS", own.map_or(ms, |own| own.min(ms)));
     }
+}
+
+fn user_max_time(command: &mut Document, ms: Option<u64>) {
+    if let Some(ms) = ms {
+        command.insert("maxTimeMS", i64::try_from(ms).unwrap_or(i64::MAX));
+    }
+}
+
+fn update_statement(
+    filter: &Json,
+    update: &Json,
+    many: bool,
+    upsert: bool,
+    array_filters: Option<&Vec<Json>>,
+) -> Result<Document, YadbeError> {
+    let mut statement = doc! {
+        "q": json_to_document(filter)?,
+        "u": json_to_bson(update)?,
+        "multi": many,
+        "upsert": upsert,
+    };
+    if let Some(filters) = array_filters {
+        let filters: Vec<Bson> = filters
+            .iter()
+            .map(|f| json_to_document(f).map(Bson::Document))
+            .collect::<Result<_, _>>()?;
+        statement.insert("arrayFilters", filters);
+    }
+    Ok(statement)
+}
+
+/// The commands of a `bulkWrite`: consecutive operations of one kind share a command (as the
+/// drivers batch them); an unordered bulk still keeps them in order.
+fn bulk_commands(
+    collection: &str,
+    operations: &[BulkOperation],
+    ordered: bool,
+) -> Result<Vec<BulkCommand>, YadbeError> {
+    let mut commands: Vec<BulkCommand> = Vec::new();
+    let mut statements: Vec<Bson> = Vec::new();
+    for (position, operation) in operations.iter().enumerate() {
+        let (kind, statement) = match operation {
+            BulkOperation::InsertOne { document } => (
+                BulkKind::Insert,
+                Bson::Document(json_to_document(document)?),
+            ),
+            BulkOperation::Update {
+                filter,
+                update,
+                many,
+                upsert,
+                array_filters,
+            } => (
+                BulkKind::Update,
+                Bson::Document(update_statement(
+                    filter,
+                    update,
+                    *many,
+                    *upsert,
+                    array_filters.as_ref(),
+                )?),
+            ),
+            BulkOperation::ReplaceOne {
+                filter,
+                replacement,
+                upsert,
+            } => (
+                BulkKind::Update,
+                Bson::Document(doc! {
+                    "q": json_to_document(filter)?,
+                    "u": json_to_document(replacement)?,
+                    "multi": false,
+                    "upsert": *upsert,
+                }),
+            ),
+            BulkOperation::Delete { filter, many } => (
+                BulkKind::Delete,
+                Bson::Document(doc! {
+                    "q": json_to_document(filter)?,
+                    "limit": if *many { 0 } else { 1 },
+                }),
+            ),
+        };
+        let same = commands.last().is_some_and(|last| last.kind == kind);
+        if !same {
+            if let Some(last) = commands.last_mut() {
+                finish_bulk_command(last, std::mem::take(&mut statements));
+            }
+            let name = match kind {
+                BulkKind::Insert => "insert",
+                BulkKind::Update => "update",
+                BulkKind::Delete => "delete",
+            };
+            commands.push(BulkCommand {
+                kind,
+                command: doc! { name: collection, "ordered": ordered },
+                positions: Vec::new(),
+            });
+        }
+        statements.push(statement);
+        if let Some(last) = commands.last_mut() {
+            last.positions.push(position);
+        }
+    }
+    if let Some(last) = commands.last_mut() {
+        finish_bulk_command(last, statements);
+    }
+    Ok(commands)
+}
+
+fn finish_bulk_command(command: &mut BulkCommand, statements: Vec<Bson>) {
+    let key = match command.kind {
+        BulkKind::Insert => "documents",
+        BulkKind::Update => "updates",
+        BulkKind::Delete => "deletes",
+    };
+    command.command.insert(key, statements);
+}
+
+fn aggregate_options(command: &mut Document, options: &AggregateOptions) -> Result<(), YadbeError> {
+    if let Some(hint) = &options.hint {
+        command.insert("hint", json_to_bson(hint)?);
+    }
+    if let Some(collation) = &options.collation {
+        command.insert("collation", json_to_document(collation)?);
+    }
+    if let Some(comment) = &options.comment {
+        command.insert("comment", json_to_bson(comment)?);
+    }
+    if let Some(variables) = &options.variables {
+        command.insert("let", json_to_document(variables)?);
+    }
+    user_max_time(command, options.max_time_ms);
+    Ok(())
 }
 
 fn plan(op: &DocOp, options: &ExecOptions) -> Result<Plan, YadbeError> {
@@ -373,6 +534,9 @@ fn plan(op: &DocOp, options: &ExecOptions) -> Result<Plan, YadbeError> {
                 hint,
                 collation,
                 batch_size,
+                max_time_ms,
+                comment,
+                allow_disk_use,
             } = find;
             let mut command = doc! { "find": &ns.collection, "filter": doc(filter)? };
             if let Some(projection) = projection {
@@ -399,6 +563,13 @@ fn plan(op: &DocOp, options: &ExecOptions) -> Result<Plan, YadbeError> {
             if let Some(size) = batch_size {
                 command.insert("batchSize", i64::from(*size));
             }
+            if let Some(comment) = comment {
+                command.insert("comment", json_to_bson(comment)?);
+            }
+            if let Some(allow) = allow_disk_use {
+                command.insert("allowDiskUse", *allow);
+            }
+            user_max_time(&mut command, *max_time_ms);
             max_time(&mut command, options);
             Plan::Cursor {
                 database: ns.database.clone(),
@@ -411,6 +582,7 @@ fn plan(op: &DocOp, options: &ExecOptions) -> Result<Plan, YadbeError> {
             pipeline,
             allow_disk_use,
             batch_size,
+            options: user,
         } => {
             let target = collection
                 .as_ref()
@@ -424,6 +596,7 @@ fn plan(op: &DocOp, options: &ExecOptions) -> Result<Plan, YadbeError> {
             if let Some(allow) = allow_disk_use {
                 command.insert("allowDiskUse", *allow);
             }
+            aggregate_options(&mut command, user)?;
             max_time(&mut command, options);
             Plan::Cursor {
                 database: database.clone(),
@@ -483,15 +656,8 @@ fn plan(op: &DocOp, options: &ExecOptions) -> Result<Plan, YadbeError> {
             upsert,
             array_filters,
         } => {
-            let mut statement = doc! {
-                "q": doc(filter)?,
-                "u": json_to_bson(update)?,
-                "multi": *many,
-                "upsert": *upsert,
-            };
-            if let Some(filters) = array_filters {
-                statement.insert("arrayFilters", docs(filters)?);
-            }
+            let statement =
+                update_statement(filter, update, *many, *upsert, array_filters.as_ref())?;
             Plan::Command {
                 database: ns.database.clone(),
                 command: doc! { "update": &ns.collection, "updates": [statement] },
@@ -590,6 +756,71 @@ fn plan(op: &DocOp, options: &ExecOptions) -> Result<Plan, YadbeError> {
             },
             write: true,
         },
+        DocOp::FindAndModify(modify) => {
+            let FindAndModify {
+                ns,
+                filter,
+                action,
+                sort,
+                projection,
+                upsert,
+                return_new,
+                array_filters,
+            } = &**modify;
+            let mut command = doc! { "findAndModify": &ns.collection, "query": doc(filter)? };
+            if let Some(sort) = sort {
+                command.insert("sort", doc(sort)?);
+            }
+            if let Some(projection) = projection {
+                command.insert("fields", doc(projection)?);
+            }
+            match action {
+                FindAndModifyAction::Update(update) => {
+                    command.insert("update", json_to_bson(update)?);
+                }
+                FindAndModifyAction::Replace(replacement) => {
+                    command.insert("update", doc(replacement)?);
+                }
+                FindAndModifyAction::Remove => {
+                    command.insert("remove", true);
+                }
+            }
+            if !matches!(action, FindAndModifyAction::Remove) {
+                command.insert("new", *return_new);
+                command.insert("upsert", *upsert);
+            }
+            if let Some(filters) = array_filters {
+                command.insert("arrayFilters", docs(filters)?);
+            }
+            max_time(&mut command, options);
+            Plan::Command {
+                database: ns.database.clone(),
+                command,
+                write: true,
+            }
+        }
+        DocOp::BulkWrite {
+            ns,
+            operations,
+            ordered,
+        } => Plan::Bulk {
+            database: ns.database.clone(),
+            commands: bulk_commands(&ns.collection, operations, *ordered)?,
+            ordered: *ordered,
+        },
+        DocOp::Explain {
+            database,
+            command,
+            verbosity,
+        } => {
+            let mut command = doc! { "explain": doc(command)?, "verbosity": verbosity };
+            max_time(&mut command, options);
+            Plan::Command {
+                database: database.clone(),
+                command,
+                write: false,
+            }
+        }
         DocOp::RunCommand { database, command } => {
             let command = doc(command)?;
             let name = command
@@ -739,6 +970,98 @@ impl MongoConnection {
                 let n = count_of(&reply, "n");
                 Ok(DocReply::Document(document_to_json(doc! { "count": n })))
             }
+            Plan::Bulk {
+                database,
+                commands,
+                ordered,
+            } => {
+                let db = self.client.database(&database);
+                let mut totals = BulkTotals::default();
+                for BulkCommand {
+                    kind,
+                    command,
+                    positions,
+                } in commands
+                {
+                    let reply = db.run_command(command).session(&mut *session).await?;
+                    totals.add(kind, &reply, &positions);
+                    if let Some(error) = write_errors(&reply)
+                        && (ordered || totals.first_error.is_none())
+                    {
+                        totals.first_error = Some(error);
+                        if ordered {
+                            break;
+                        }
+                    }
+                }
+                if let Some(error) = totals.first_error.take() {
+                    // What was written before the failure is in the detail: the bulk is not
+                    // atomic and the user must know how far it went.
+                    let detail = format!(
+                        "bulkWrite stopped after {} inserted, {} matched, {} modified, {} deleted, {} upserted: {}",
+                        totals.inserted,
+                        totals.matched,
+                        totals.modified,
+                        totals.deleted,
+                        totals.upserted.len(),
+                        error.detail.clone().unwrap_or_default(),
+                    );
+                    return Err(mongodb::error::Error::custom(error.with_detail(detail)));
+                }
+                Ok(DocReply::Document(document_to_json(totals.reply())))
+            }
+        }
+    }
+}
+
+/// The counts of a `bulkWrite`, summed over its commands.
+#[derive(Default)]
+struct BulkTotals {
+    inserted: i64,
+    matched: i64,
+    modified: i64,
+    deleted: i64,
+    /// Position in the bulk → the upserted `_id`.
+    upserted: Vec<(usize, Bson)>,
+    first_error: Option<YadbeError>,
+}
+
+impl BulkTotals {
+    fn add(&mut self, kind: BulkKind, reply: &Document, positions: &[usize]) {
+        let n = count_of(reply, "n");
+        match kind {
+            BulkKind::Insert => self.inserted += n,
+            BulkKind::Delete => self.deleted += n,
+            BulkKind::Update => {
+                let upserted = reply.get_array("upserted").map_or(&[][..], Vec::as_slice);
+                self.matched += n - i64::try_from(upserted.len()).unwrap_or(0);
+                self.modified += count_of(reply, "nModified");
+                for entry in upserted {
+                    if let Bson::Document(entry) = entry
+                        && let Some(id) = entry.get("_id")
+                    {
+                        let index = usize::try_from(count_of(entry, "index")).unwrap_or(0);
+                        if let Some(position) = positions.get(index) {
+                            self.upserted.push((*position, id.clone()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn reply(&self) -> Document {
+        let mut ids = Document::new();
+        for (position, id) in &self.upserted {
+            ids.insert(position.to_string(), id.clone());
+        }
+        doc! {
+            "insertedCount": self.inserted,
+            "matchedCount": self.matched,
+            "modifiedCount": self.modified,
+            "deletedCount": self.deleted,
+            "upsertedCount": i64::try_from(self.upserted.len()).unwrap_or(0),
+            "upsertedIds": ids,
         }
     }
 }

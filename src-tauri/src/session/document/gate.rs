@@ -33,8 +33,12 @@ const TIMEOUT_GRACE: Duration = Duration::from_secs(2);
 pub enum Origin {
     /// yadbe built it (explorer, collection pages, counts): statement log.
     Yadbe,
-    /// The user wrote it (console, script): the caller records it in the history.
+    /// The user wrote it (console): the caller records it in the history.
     User,
+    /// A call a mongosh script makes: in the statement log, each one (a script is many
+    /// operations the history does not show one by one); the caller records the script
+    /// itself in the history.
+    Script,
 }
 
 /// One operation for the gate.
@@ -148,7 +152,7 @@ pub async fn run(
         },
         None => work.await,
     };
-    if request.origin == Origin::Yadbe {
+    if matches!(request.origin, Origin::Yadbe | Origin::Script) {
         record(ctx, request.op, started_at, start, &result);
     }
     result.map(GateOutcome::Done)
@@ -437,6 +441,7 @@ mod tests {
                 pipeline: vec![Json::parse(r#"{"$out":"copy"}"#).expect("json")],
                 allow_disk_use: None,
                 batch_size: None,
+                options: Default::default(),
             },
             DocOp::RunCommand {
                 database: "shop".into(),

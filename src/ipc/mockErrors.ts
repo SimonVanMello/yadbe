@@ -169,6 +169,26 @@ export const mockErrors = {
       "Cette chaîne de connexion n'est ni une URL, ni une chaîne ADO.NET, ni une URL JDBC.",
     ),
   cancelled: () => error('cancelled', 'Cancelled.', 'Annulé.'),
+  scriptError: (exception: string) =>
+    error(
+      'scriptError',
+      'The script threw an exception.',
+      'Le script a levé une exception.',
+      null,
+      exception,
+    ),
+  mongoshUnsupported: (method: string) =>
+    error(
+      'notSupported',
+      `${method} is not available in yadbe. Use db.runCommand() or db.adminCommand() instead.`,
+      `${method} n'est pas disponible dans yadbe. Utilisez db.runCommand() ou db.adminCommand() à la place.`,
+    ),
+  dangerDeclined: (command: string) =>
+    error(
+      'cancelled',
+      `${command} was not run: it was not confirmed. The script stopped there.`,
+      `${command} n'a pas été exécuté : il n'a pas été confirmé. Le script s'est arrêté là.`,
+    ),
   statementTimeout: (secs: number) =>
     error(
       'statementTimeout',

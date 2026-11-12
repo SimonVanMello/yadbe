@@ -4,11 +4,11 @@ import { IconButton } from '../../ui/IconButton';
 import { ConnectionChip } from '../connections/ConnectionChip';
 import { useConnectionState } from '../connections/connectionStore';
 import type { ConnectionSummary } from '../connections/model';
-import { cancelConsole, runConsole } from './consoleActions';
-import { useConsoleTab } from './consoleStore';
+import { cancelScript, runScript } from './scriptActions';
+import { useScriptTab } from './scriptStore';
 import styles from './DocumentControls.module.css';
 
-/** The toolbar of a document console tab: run, cancel, the chip. */
+/** The toolbar of a document query tab (mongosh): run, cancel, the chip. */
 export function ConsoleControls({
   tabId,
   connection,
@@ -19,7 +19,7 @@ export function ConsoleControls({
   const t = useT();
   const shortcutOf = useShortcutOf();
   const state = useConnectionState(connection.id);
-  const { running } = useConsoleTab(tabId);
+  const { running } = useScriptTab(tabId);
   return (
     <>
       <span className={styles.group} role="group" aria-label={t('mongo.console.toolbar')}>
@@ -29,7 +29,7 @@ export function ConsoleControls({
           shortcut={shortcutOf('query.run')}
           disabled={state !== 'connected' || running}
           onClick={() => {
-            void runConsole(tabId);
+            void runScript(tabId);
           }}
         />
         <IconButton
@@ -37,7 +37,7 @@ export function ConsoleControls({
           label={t('mongo.cancel')}
           disabled={!running}
           onClick={() => {
-            cancelConsole(tabId);
+            cancelScript(tabId);
           }}
         />
       </span>

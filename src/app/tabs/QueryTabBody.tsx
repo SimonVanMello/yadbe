@@ -4,7 +4,7 @@ import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
 import { useConnection, useConnectionList } from '../../features/connections/connectionStore';
 import { QueryView } from '../../features/query/QueryView';
-import { LazyDocumentConsole } from '../lazyViews';
+import { LazyScriptConsole } from '../lazyViews';
 import styles from './QueryTabBody.module.css';
 import { LazyKvConsole } from '../lazyViews';
 import { useTabsStore, type ShellTab } from './tabsStore';
@@ -48,7 +48,7 @@ export function QueryTabBody({ tab }: { tab: ShellTab }) {
     case 'sql':
       return <QueryView tab={tab} connection={connection} />;
     case 'document':
-      return <LazyDocumentConsole tab={tab} connection={connection} />;
+      return <LazyScriptConsole tab={tab} connection={connection} />;
     case 'keyValue':
       return <LazyKvConsole tab={tab} connection={connection} />;
     default:

@@ -10,6 +10,7 @@ import { failedCount, isFailed, useStatementLog } from '../statement-log/stateme
 import { CursorPosition } from './CursorPosition';
 import { TableStatus } from '../table-data/TableStatus';
 import { RunStatus } from './RunStatus';
+import { ScriptRunStatus } from '../document/ScriptRunStatus';
 import styles from './StatusBar.module.css';
 
 /** Bottom bar (SPEC §4): state of the active tab's connection, the statement log toggle. */
@@ -29,6 +30,7 @@ export function StatusBar() {
     <footer className={styles.statusbar}>
       <div className={styles.left}>
         <RunStatus />
+        <ScriptRunStatus />
         <TableStatus />
         {connection ? (
           <>

@@ -82,6 +82,7 @@ export const LazyGridDemo = lazyComponent(
 export const LazyCollectionTabBody = lazyComponent(() =>
   import('../features/document/CollectionTabBody').then((m) => m.CollectionTabBody),
 );
-export const LazyDocumentConsole = lazyComponent(() =>
-  import('../features/document/DocumentConsole').then((m) => m.DocumentConsole),
+// The mongosh editor (M4-3): CodeMirror's JavaScript mode comes with it.
+export const LazyScriptConsole = lazyComponent(() =>
+  import('../features/document/ScriptConsole').then((m) => m.ScriptConsole),
 );

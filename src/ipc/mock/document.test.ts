@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { cellOf, gridOf, mockDatabases } from './documentData';
 import { createMockDocument } from './document';
 
-function backend(readOnly = false) {
+function backend(readOnly = false, onConfirm: (requestId: number) => void = () => undefined) {
   const stored = new Map<number, string[][]>();
   let next = 1;
   const history: string[] = [];
@@ -12,6 +12,9 @@ function backend(readOnly = false) {
     latency: () => 0,
     logStatement: () => undefined,
     recordHistory: (entry) => history.push(`${entry.outcome}:${entry.sql}`),
+    confirm: (request) => {
+      onConfirm(request.requestId);
+    },
     storeRows: (_columns, rows) => {
       const id = next++;
       stored.set(
@@ -61,24 +64,54 @@ describe('the mock MongoDB server', () => {
     expect(JSON.parse(docs.data[0] ?? '{}')).toMatchObject({ status: 'paid' });
   });
 
-  it('refuses writes on a read-only connection and confirms dangerous commands', async () => {
-    const readOnly = backend(true);
-    const refused = await readOnly.commands.mongoRunCommand(
+  it('runs a few mongosh statements, refuses writes when read-only, confirms deletes', async () => {
+    const { commands } = backend();
+    const request = (text: string) => ({ database: 'catalog', text, range: null });
+    const found = await commands.mongoRunScript(
       't',
       'c',
-      'catalog',
-      '{"insert":"orders","documents":[{}]}',
-      false,
+      request("print('hi')\ndb.orders.find({ status: 'paid' }).limit(3)"),
     );
-    expect(refused.status === 'error' && refused.error.code).toBe('readOnlyViolation');
-    expect(readOnly.history).toEqual(['refused:{"insert":"orders","documents":[{}]}']);
+    if (found.status !== 'ok') throw new Error('script');
+    expect(found.data.messages.map((m) => m.text)).toEqual(['hi']);
+    expect(found.data.result).toMatchObject({ kind: 'documents', cursor: true });
 
-    const { commands } = backend();
-    const command = '{"delete":"orders","deletes":[{"q":{},"limit":0}]}';
-    const first = await commands.mongoRunCommand('t', 'c', 'catalog', command, false);
-    if (first.status !== 'ok' || first.data.status !== 'confirm') throw new Error('confirm');
-    expect(first.data.danger).toMatchObject({ kind: 'deleteAll', documents: 1300 });
-    const done = await commands.mongoRunCommand('t', 'c', 'catalog', command, true);
-    expect(done.status === 'ok' && done.data.status).toBe('done');
+    const readOnly = backend(true);
+    const refused = await readOnly.commands.mongoRunScript(
+      't',
+      'c',
+      request('db.orders.countDocuments()\n  db.orders.insertOne({ a: 1 })'),
+    );
+    if (refused.status !== 'ok') throw new Error('script');
+    expect(refused.data.failure?.error.code).toBe('readOnlyViolation');
+    expect(refused.data.failure?.position).toEqual({ line: 2, column: 13, offset: 39 });
+    expect(readOnly.history).toEqual([
+      'refused:db.orders.countDocuments()\n  db.orders.insertOne({ a: 1 })',
+    ]);
+
+    const asked: number[] = [];
+    const confirming = backend(false, (requestId) => {
+      asked.push(requestId);
+      void confirming.commands.mongoScriptConfirm('t', requestId, true);
+    });
+    const deleted = await confirming.commands.mongoRunScript(
+      't',
+      'c',
+      request('db.orders.deleteMany({})\ndb.orders.countDocuments()'),
+    );
+    if (deleted.status !== 'ok') throw new Error('script');
+    expect(asked).toHaveLength(1);
+    expect(deleted.data.result).toEqual({ kind: 'text', text: '0', truncated: false });
+
+    const declining = backend(false, (requestId) => {
+      void declining.commands.mongoScriptConfirm('t', requestId, false);
+    });
+    const declined = await declining.commands.mongoRunScript(
+      't',
+      'c',
+      request('db.orders.deleteMany({})'),
+    );
+    if (declined.status !== 'ok') throw new Error('script');
+    expect(declined.data.failure?.error.code).toBe('cancelled');
   });
 });

@@ -1,5 +1,6 @@
 //! Document connections (MongoDB, M4-2): the explorer (databases, collections, indexes,
-//! sampled fields), the collection tab (pages, counts) and the console (one JSON command).
+//! sampled fields), the collection tab (pages, counts) and the query tab (mongosh scripts,
+//! M4-3).
 //! Every operation goes through the command gate (`session::document::gate`): read-only,
 //! danger confirmation, statement log, timeout. A SQL connection answers `documentOnly`.
 //!
@@ -12,7 +13,7 @@ use crate::db::document::meta::{DocCollection, DocDatabase, DocIndex, FieldSampl
 use crate::db::document::ops::Namespace;
 use crate::db::errors::YadbeError;
 use crate::session::document::model::{
-    CollectionInfo, CollectionPage, CollectionQuery, CommandOutcome,
+    CollectionInfo, CollectionPage, CollectionQuery, ScriptOutcome, ScriptRequest,
 };
 use crate::state::AppState;
 
@@ -137,33 +138,50 @@ pub async fn mongo_count_documents(
         .await
 }
 
-/// Runs one JSON command (`runCommand`) typed in a document console tab, as written. A
-/// dangerous one answers `confirm` with its effect and runs only when sent again with
-/// `confirmed`. Recorded in the history.
+/// Runs a mongosh script (or the selected part of it) in the query tab `tabId`, as written,
+/// in an embedded JavaScript engine whose `db` API goes through the command gate. Returns
+/// when it ends: its result (documents in the result store, or text), its printed messages,
+/// and its failure with the position in the editor text. A dangerous operation pauses the
+/// script and emits `mongo-script-confirm`; answer with `mongo_script_confirm`. Fails with
+/// `executionRunning` while the tab runs something else.
 #[tauri::command]
 #[specta::specta]
-pub async fn mongo_run_command(
+pub async fn mongo_run_script(
     state: State<'_, AppState>,
     tab_id: String,
     connection_id: String,
-    database: String,
-    command: String,
-    confirmed: bool,
-) -> Result<CommandOutcome, YadbeError> {
+    request: ScriptRequest,
+) -> Result<ScriptOutcome, YadbeError> {
     state
         .documents
-        .run_command(&tab_id, &connection_id, &database, &command, confirmed)
+        .run_script(&tab_id, &connection_id, request)
         .await
 }
 
-/// Stops what the tab runs (`killOp`); the call it made fails with `cancelled`.
+/// The user's answer to a script's `mongo-script-confirm`: run the dangerous operation, or
+/// stop the script there. `false` when the script no longer waits for it.
+#[tauri::command]
+#[specta::specta]
+pub async fn mongo_script_confirm(
+    state: State<'_, AppState>,
+    tab_id: String,
+    request_id: u32,
+    accepted: bool,
+) -> Result<bool, YadbeError> {
+    Ok(state
+        .documents
+        .script_confirm(&tab_id, request_id, accepted))
+}
+
+/// Stops what the tab runs (`killOp`, and a script's engine); the call it made fails with
+/// `cancelled` (a script's outcome says so).
 #[tauri::command]
 #[specta::specta]
 pub async fn mongo_cancel(state: State<'_, AppState>, tab_id: String) -> Result<(), YadbeError> {
     state.documents.cancel(&tab_id).await
 }
 
-/// Forgets a collection or console tab: stops what it runs and frees its results.
+/// Forgets a collection or query tab: stops what it runs and frees its results.
 #[tauri::command]
 #[specta::specta]
 pub async fn mongo_close_tab(state: State<'_, AppState>, tab_id: String) -> Result<(), YadbeError> {

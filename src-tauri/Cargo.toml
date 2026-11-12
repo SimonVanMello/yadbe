@@ -90,6 +90,11 @@ bson = { version = "3.1", features = ["serde_json-1"] }
 redis = { version = "1.8", default-features = false, features = ["tokio-comp"] }
 # Key and value bytes that are not UTF-8 cross the IPC as base64 (key-value family).
 base64 = "0.22"
+# mongosh scripts (M4-3): QuickJS (quickjs-ng, C compiled by `cc`, MIT) through its Rust
+# bindings. A complete modern JavaScript with a memory limit, a stack limit and an interrupt
+# hook, in about 1 MB; no std/os modules, no module loader (default features only). boa
+# (pure Rust) was the fallback: larger, slower, no stack limit of its own.
+rquickjs = "0.14"
 
 [dev-dependencies]
 tempfile = "3"

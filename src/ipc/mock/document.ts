@@ -2,14 +2,19 @@ import type {
   CollectionPage,
   CollectionQuery,
   ColumnMeta,
-  CommandOutcome,
   DangerKind,
   DangerReport,
   DocDatabase,
   DocumentResult,
   FieldSample,
   FieldTypeCount,
+  MongoScriptConfirm,
   SampledField,
+  ScriptFailure,
+  ScriptMessage,
+  ScriptOutcome,
+  ScriptRequest,
+  ScriptResult,
   YadbeError,
 } from '../bindings';
 import type { YadbeClient } from '../client';
@@ -24,11 +29,13 @@ import {
   type EjsonDocument,
   type MockCollection,
 } from './documentData';
+import { parseMockScript } from './mongoshScript';
 
 /**
  * The document family's commands (`mongo_*`) on the mock MongoDB server: explorer, collection
- * pages, counts, the JSON console and its gate (read-only allow-list, dangerous commands),
- * mirroring `session::document`. A filter is an equality on fields (dotted paths included); a
+ * pages, counts, and a handful of mongosh statements for the query tab (`mongoshScript.ts`)
+ * with the gate's checks (read-only, dangerous operations confirmed mid-script), mirroring
+ * `session::document`. A filter is an equality on fields (dotted paths included); a
  * `$where` that sleeps runs for 5 s, so that a cancel can be tried.
  */
 
@@ -38,29 +45,6 @@ type Result<T> = Promise<{ status: 'ok'; data: T } | { status: 'error'; error: Y
 const ok = <T>(data: T): Result<T> => Promise.resolve({ status: 'ok', data });
 const fail = <T>(error: YadbeError): Result<T> => Promise.resolve({ status: 'error', error });
 
-/** The mirror of `classify::READ_COMMANDS`. */
-const READ_COMMANDS = new Set([
-  'aggregate',
-  'buildinfo',
-  'collstats',
-  'connectionstatus',
-  'count',
-  'currentop',
-  'datasize',
-  'dbstats',
-  'distinct',
-  'explain',
-  'find',
-  'getmore',
-  'hello',
-  'hostinfo',
-  'ismaster',
-  'listcollections',
-  'listdatabases',
-  'listindexes',
-  'ping',
-  'serverstatus',
-]);
 const SLOW_MS = 5000;
 const CONSOLE_MAX = 5000;
 
@@ -69,6 +53,8 @@ export interface MockDocumentHost {
   latency(): number;
   logStatement(connectionId: string, sql: string, error?: YadbeError | null): void;
   recordHistory(entry: MockHistoryRecord): void;
+  /** Emits `mongo-script-confirm`. */
+  confirm(request: MongoScriptConfirm): void;
   storeRows(columns: readonly ColumnMeta[], rows: readonly (readonly Cell[])[]): number;
   freeResults(ids: readonly number[]): void;
   /** Texts of the one column of a stored result, `null` when it is gone. */
@@ -78,6 +64,19 @@ export interface MockDocumentHost {
 interface Tab {
   results: number[];
   abort: AbortController | null;
+  /** A script runs in the tab. */
+  scripting: boolean;
+  /** The confirmation the running script waits for. */
+  confirm: { requestId: number; resolve: (accepted: boolean) => void } | null;
+}
+
+/** A fresh ObjectId's hex. */
+function mockObjectId(): string {
+  let hex = Math.floor(Date.now() / 1000)
+    .toString(16)
+    .padStart(8, '0');
+  while (hex.length < 24) hex += Math.floor(Math.random() * 16).toString(16);
+  return hex;
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<boolean> {
@@ -185,11 +184,12 @@ function displayFind(
 export function createMockDocument(host: MockDocumentHost) {
   let data = mockDatabases();
   const tabs = new Map<string, Tab>();
+  let nextConfirm = 1;
 
   function tabOf(id: string): Tab {
     let tab = tabs.get(id);
     if (!tab) {
-      tab = { results: [], abort: null };
+      tab = { results: [], abort: null, scripting: false, confirm: null };
       tabs.set(id, tab);
     }
     return tab;
@@ -260,46 +260,6 @@ export function createMockDocument(host: MockDocumentHost) {
       if (key in document) out[key] = document[key] ?? null;
     }
     return out;
-  }
-
-  function danger(
-    name: string,
-    command: { [key: string]: Ejson },
-    database: string,
-  ): DangerReport | null {
-    const target = typeof command[name] === 'string' ? command[name] : null;
-    const count = (collection: string | null) =>
-      collection === null ? null : (data.get(database)?.get(collection)?.documents.length ?? 0);
-    const report = (kind: DangerKind, verb: string): DangerReport => ({
-      kind,
-      command: verb,
-      database,
-      collection: target,
-      documents: kind === 'dropDatabase' ? null : count(target),
-      collections: kind === 'dropDatabase' ? (data.get(database)?.size ?? 0) : null,
-    });
-    const statements = (key: string) =>
-      Array.isArray(command[key]) ? (command[key] as { [key: string]: Ejson }[]) : [];
-    const all = (q: Ejson | undefined) =>
-      q === undefined || (q !== null && typeof q === 'object' && Object.keys(q).length === 0);
-    switch (name.toLowerCase()) {
-      case 'drop':
-        return report('dropCollection', 'drop');
-      case 'dropdatabase':
-        return report('dropDatabase', 'dropDatabase');
-      case 'delete':
-        return statements('deletes').some((d) => all(d.q) && Number(plain(d.limit)) === 0)
-          ? report('deleteAll', 'deleteMany')
-          : null;
-      case 'update':
-        return statements('updates').some((u) => all(u.q) && u.multi === true)
-          ? report('updateAll', 'updateMany')
-          : null;
-      case 'dropindexes':
-        return command.index === '*' ? report('dropAllIndexes', 'dropIndexes') : null;
-      default:
-        return null;
-    }
   }
 
   function fieldSample(documents: readonly EjsonDocument[]): FieldSample {
@@ -383,7 +343,8 @@ export function createMockDocument(host: MockDocumentHost) {
     | 'mongoOpenCollection'
     | 'mongoFetchPage'
     | 'mongoCountDocuments'
-    | 'mongoRunCommand'
+    | 'mongoRunScript'
+    | 'mongoScriptConfirm'
     | 'mongoCancel'
     | 'mongoCloseTab'
     | 'mongoFetchDocuments'
@@ -521,155 +482,299 @@ export function createMockDocument(host: MockDocumentHost) {
       );
       return ok(found.documents.filter((d) => matches(d, filter)).length);
     },
-    async mongoRunCommand(tabId, connectionId, database, text, confirmed) {
+    async mongoRunScript(tabId, connectionId, request: ScriptRequest) {
       const session = host.session(connectionId);
       if (!session) return fail(mockErrors.notConnected());
-      const parsed = parseObject(text, 'command');
-      if (isError(parsed)) return fail(parsed);
-      const name = parsed ? Object.keys(parsed)[0] : undefined;
-      if (!parsed || name === undefined) {
-        return fail(
-          mockErrors.invalidArgument(
-            'A command is a JSON object whose first key names it: { "find": "orders" }.',
-            'Une commande est un objet JSON dont la première clé la nomme : { "find": "orders" }.',
-          ),
-        );
-      }
-      const startedAt = Date.now();
-      const record = (rows: number | null, error: YadbeError | null) => {
-        host.recordHistory({
-          tabId,
-          connectionId,
-          database,
-          sql: text,
-          startedAt,
-          durationMs: Date.now() - startedAt,
-          rows,
-          outcome:
-            error === null
-              ? 'ok'
-              : error.code === 'readOnlyViolation'
-                ? 'refused'
-                : error.code === 'cancelled'
-                  ? 'cancelled'
-                  : 'error',
-          error,
-        });
-      };
-      const lower = name.toLowerCase();
-      const pipeline = Array.isArray(parsed.pipeline) ? parsed.pipeline : [];
-      const writesStage = pipeline.some(
-        (stage) =>
-          stage !== null &&
-          typeof stage === 'object' &&
-          !Array.isArray(stage) &&
-          ('$out' in stage || '$merge' in stage),
-      );
-      const reads = READ_COMMANDS.has(lower) && !(lower === 'aggregate' && writesStage);
-      if (session.readOnly && !reads) {
-        const error = mockErrors.readOnlyViolation(name);
-        record(null, error);
-        return fail(error);
-      }
-      const report = danger(name, parsed, database);
-      if (report && !confirmed) return ok<CommandOutcome>({ status: 'confirm', danger: report });
       const tab = tabOf(tabId);
+      if (tab.scripting) return fail(mockErrors.executionRunning());
+      tab.scripting = true;
+      const { text, range } = request;
+      const statements = parseMockScript(text, range?.from ?? 0, range?.to ?? text.length);
+      const code = range ? text.slice(range.from, range.to) : text;
+      const startedAt = Date.now();
       const started = performance.now();
-      if (!(await work(tab, text.includes('sleep')))) {
-        const error = mockErrors.cancelled();
-        record(null, error);
-        return fail(error);
-      }
-      const target = typeof parsed[name] === 'string' ? parsed[name] : '';
-      const coll = data.get(database)?.get(target);
-      let documents: EjsonDocument[];
-      let cursor = false;
-      let truncated = false;
-      switch (lower) {
-        case 'find':
-        case 'aggregate': {
-          if (!coll) {
-            documents = [];
-          } else {
-            const filter = parsed.filter;
-            const isFilter =
-              filter !== null && typeof filter === 'object' && !Array.isArray(filter);
-            const matched = coll.documents.filter((d) => matches(d, isFilter ? filter : null));
-            const limit = Number(plain(parsed.limit)) || matched.length;
-            documents = matched.slice(0, Math.min(limit, CONSOLE_MAX));
-            truncated = matched.length > CONSOLE_MAX && limit > CONSOLE_MAX;
+      const abort = new AbortController();
+      const cancelled = () => abort.signal.aborted;
+      tab.abort?.abort();
+      tab.abort = abort;
+      let database = request.database;
+      const messages: ScriptMessage[] = [];
+      const say = (kind: ScriptMessage['kind'], message: string) => {
+        messages.push({ kind, text: message, atMs: Math.round(performance.now() - started) });
+      };
+      // Assigned in the closures below: typed wide so that the checks after them hold.
+      let result = null as ScriptResult | null;
+      let failure = null as ScriptFailure | null;
+      let rows = null as number | null;
+      const documentsResult = (docs: EjsonDocument[], cursor: boolean, single: boolean) => {
+        rows = docs.length;
+        result = {
+          kind: 'documents',
+          documents: store(tab, docs),
+          cursor,
+          single,
+          truncated: false,
+        };
+      };
+      const textResult = (value: string) => {
+        result = { kind: 'text', text: value, truncated: false };
+      };
+      const confirm = (danger: DangerReport): Promise<boolean> =>
+        new Promise((resolve) => {
+          const requestId = nextConfirm++;
+          tab.confirm = { requestId, resolve };
+          host.confirm({ tabId, requestId, danger });
+        });
+      for (const { statement, position } of statements) {
+        const stop = (error: YadbeError) => {
+          failure = { error, position };
+        };
+        if (cancelled()) {
+          stop(mockErrors.cancelled());
+          break;
+        }
+        const s = statement;
+        if (s.kind === 'use') {
+          database = s.database;
+          say('shell', `switched to db ${database}`);
+          textResult(`switched to db ${database}`);
+        } else if (s.kind === 'show') {
+          const names =
+            s.what === 'dbs' || s.what === 'databases'
+              ? [...data.keys()].sort()
+              : s.what === 'collections' || s.what === 'tables'
+                ? [...(data.get(database)?.keys() ?? [])].sort()
+                : null;
+          if (names === null) {
+            stop(mockErrors.mongoshUnsupported(`show ${s.what}`));
+            break;
           }
-          cursor = true;
+          say('shell', names.join('\n'));
+          textResult(names.join('\n'));
+        } else if (s.kind === 'print') {
+          say('print', s.text);
+        } else if (s.kind === 'sleep') {
+          if (!(await sleep(s.ms, abort.signal))) {
+            stop(mockErrors.cancelled());
+            break;
+          }
+        } else if (s.kind === 'throw') {
+          stop(mockErrors.scriptError(`Error: ${s.message}`));
           break;
-        }
-        case 'count':
-          documents = [
-            {
-              n: { $numberInt: String(coll?.documents.length ?? 0) },
-              ok: { $numberDouble: '1.0' },
-            },
-          ];
-          break;
-        case 'listcollections':
-          documents = [...(data.get(database)?.values() ?? [])].map((c) => ({
-            name: c.info.name,
-            type: c.info.kind,
-            options: {},
-            info: { readOnly: false },
-          }));
-          cursor = true;
-          break;
-        case 'insert': {
-          const docs = Array.isArray(parsed.documents) ? (parsed.documents as EjsonDocument[]) : [];
-          coll?.documents.push(...docs);
-          documents = [{ n: { $numberInt: String(docs.length) }, ok: { $numberDouble: '1.0' } }];
-          break;
-        }
-        case 'delete': {
-          const n = coll?.documents.length ?? 0;
-          if (report && coll) coll.documents = [];
-          documents = [{ n: { $numberInt: String(report ? n : 0) }, ok: { $numberDouble: '1.0' } }];
-          break;
-        }
-        case 'drop':
-          data.get(database)?.delete(target);
-          documents = [
-            {
-              ns: `${database}.${target}`,
-              nIndexesWas: { $numberInt: '1' },
-              ok: { $numberDouble: '1.0' },
-            },
-          ];
-          break;
-        case 'dropdatabase':
-          data.delete(database);
-          documents = [{ ok: { $numberDouble: '1.0' } }];
-          break;
-        case 'ping':
-        case 'hello':
-        case 'buildinfo':
-        case 'dbstats':
-          documents = [{ ok: { $numberDouble: '1.0' }, version: '7.0.14', db: database }];
-          break;
-        default: {
-          const error = mockErrors.queryFailed(
-            `no such command: '${name}' (CommandNotFound, code 59)`,
+        } else if (s.kind === 'value') {
+          textResult(s.text);
+        } else if (s.kind === 'runCommand') {
+          host.logStatement(
+            connectionId,
+            `use ${database}; db.runCommand(${JSON.stringify(s.command)})`,
           );
-          record(null, error);
-          return fail(error);
+          documentsResult([{ ok: { $numberDouble: '1.0' } }], false, true);
+        } else if (s.kind === 'unsupported') {
+          stop(mockErrors.mongoshUnsupported(s.method));
+          break;
+        } else if (s.kind === 'unknown') {
+          stop(mockErrors.scriptError(`ReferenceError: the mock backend does not run “${s.text}”`));
+          break;
+        } else if (s.kind === 'find' || s.kind === 'count') {
+          const slow = JSON.stringify(s.filter ?? {}).includes('sleep');
+          if (!(await sleep(slow ? SLOW_MS : host.latency(), abort.signal))) {
+            stop(mockErrors.cancelled());
+            break;
+          }
+          const coll = data.get(database)?.get(s.collection);
+          const matched = (coll?.documents ?? []).filter((d) => matches(d, s.filter));
+          if (s.kind === 'count') {
+            host.logStatement(
+              connectionId,
+              `use ${database}; db.getCollection(${JSON.stringify(s.collection)}).countDocuments(${JSON.stringify(s.filter ?? {})})`,
+            );
+            textResult(String(matched.length));
+          } else {
+            host.logStatement(
+              connectionId,
+              displayFind(
+                database,
+                s.collection,
+                JSON.stringify(s.filter ?? {}),
+                '',
+                0,
+                s.limit ?? 0,
+              ),
+            );
+            if (s.one) {
+              const first = matched[0];
+              if (first) documentsResult([first], false, true);
+              else textResult('null');
+            } else {
+              documentsResult(matched.slice(0, s.limit ?? CONSOLE_MAX), true, false);
+            }
+          }
+        } else {
+          // s.kind === 'write'
+          if (session.readOnly) {
+            const error = mockErrors.readOnlyViolation(s.method);
+            host.logStatement(connectionId, `use ${database}; ${s.method}`, error);
+            stop(error);
+            break;
+          }
+          const coll = s.collection === null ? null : data.get(database)?.get(s.collection);
+          const everything = s.filter === null || Object.keys(s.filter).length === 0;
+          const kind: DangerKind | null =
+            s.method === 'dropDatabase'
+              ? 'dropDatabase'
+              : s.method === 'drop'
+                ? 'dropCollection'
+                : s.method === 'deleteMany' && everything
+                  ? 'deleteAll'
+                  : s.method === 'updateMany' && everything
+                    ? 'updateAll'
+                    : null;
+          if (kind) {
+            const danger: DangerReport = {
+              kind,
+              command: s.method,
+              database,
+              collection: s.collection,
+              documents: kind === 'dropDatabase' ? null : (coll?.documents.length ?? 0),
+              collections: kind === 'dropDatabase' ? (data.get(database)?.size ?? 0) : null,
+            };
+            const answer = await Promise.race([
+              confirm(danger),
+              new Promise<boolean>((resolve) => {
+                abort.signal.addEventListener('abort', () => {
+                  resolve(false);
+                });
+              }),
+            ]);
+            tab.confirm = null;
+            if (cancelled()) {
+              stop(mockErrors.cancelled());
+              break;
+            }
+            if (!answer) {
+              stop(mockErrors.dangerDeclined(s.method));
+              break;
+            }
+          }
+          if (!(await sleep(host.latency(), abort.signal))) {
+            stop(mockErrors.cancelled());
+            break;
+          }
+          host.logStatement(
+            connectionId,
+            `use ${database}; db.getCollection(${JSON.stringify(s.collection ?? '')}).${s.method}(…)`,
+          );
+          let reply: EjsonDocument;
+          if (s.method === 'dropDatabase') {
+            data.delete(database);
+            reply = { ok: { $numberInt: '1' } };
+          } else if (s.method === 'drop') {
+            if (s.collection !== null) data.get(database)?.delete(s.collection);
+            textResult('true');
+            continue;
+          } else if (s.method.startsWith('insert')) {
+            const docs = (Array.isArray(s.body) ? s.body : [s.body]).filter(
+              (d): d is EjsonDocument => d !== null && typeof d === 'object' && !Array.isArray(d),
+            );
+            const ready = docs.map((d) =>
+              '_id' in d ? d : { _id: { $oid: mockObjectId() }, ...d },
+            );
+            coll?.documents.push(...ready);
+            reply =
+              s.method === 'insertOne'
+                ? { acknowledged: true, insertedId: ready[0]?._id ?? null }
+                : {
+                    acknowledged: true,
+                    insertedIds: Object.fromEntries(
+                      ready.map((d, i) => [String(i), d._id ?? null]),
+                    ),
+                  };
+          } else if (s.method.startsWith('delete')) {
+            const before = coll?.documents.length ?? 0;
+            if (coll) {
+              let removed = 0;
+              coll.documents = coll.documents.filter((d) => {
+                if (!matches(d, s.filter) || (s.method === 'deleteOne' && removed > 0)) return true;
+                removed += 1;
+                return false;
+              });
+            }
+            reply = {
+              acknowledged: true,
+              deletedCount: { $numberInt: String(before - (coll?.documents.length ?? 0)) },
+            };
+          } else {
+            const set =
+              s.body !== null && typeof s.body === 'object' && !Array.isArray(s.body)
+                ? s.body.$set
+                : null;
+            let matched = 0;
+            for (const d of coll?.documents ?? []) {
+              if (!matches(d, s.filter) || (s.method === 'updateOne' && matched > 0)) continue;
+              matched += 1;
+              if (
+                set !== null &&
+                set !== undefined &&
+                typeof set === 'object' &&
+                !Array.isArray(set)
+              )
+                Object.assign(d, set);
+            }
+            const n = { $numberInt: String(matched) };
+            reply = {
+              acknowledged: true,
+              insertedId: null,
+              matchedCount: n,
+              modifiedCount: n,
+              upsertedCount: { $numberInt: '0' },
+            };
+          }
+          documentsResult([reply], false, true);
         }
       }
-      record(cursor ? documents.length : null, null);
-      return ok<CommandOutcome>({
-        status: 'done',
-        documents: store(tab, documents),
-        cursor,
-        truncated,
-        durationMs: Math.round(performance.now() - started),
+      if (tab.abort === abort) tab.abort = null;
+      tab.scripting = false;
+      const failed: ScriptFailure | null = failure;
+      host.recordHistory({
+        tabId,
+        connectionId,
+        database: request.database,
+        sql: code,
+        startedAt,
+        durationMs: Date.now() - startedAt,
+        rows: failed === null ? rows : null,
+        outcome:
+          failed === null
+            ? 'ok'
+            : failed.error.code === 'readOnlyViolation'
+              ? 'refused'
+              : failed.error.code === 'cancelled'
+                ? 'cancelled'
+                : 'error',
+        error: failed?.error ?? null,
       });
+      const outcome: ScriptOutcome = {
+        result: failed === null ? result : null,
+        messages,
+        messagesTruncated: false,
+        failure: failed,
+        database,
+        durationMs: Math.round(performance.now() - started),
+      };
+      return ok(outcome);
+    },
+    mongoScriptConfirm(tabId, requestId, accepted) {
+      const tab = tabs.get(tabId);
+      const pending = tab?.confirm;
+      if (!tab || !pending || pending.requestId !== requestId) return ok(false);
+      tab.confirm = null;
+      pending.resolve(accepted);
+      return ok(true);
     },
     mongoCancel(tabId) {
-      tabs.get(tabId)?.abort?.abort();
+      const tab = tabs.get(tabId);
+      tab?.abort?.abort();
+      tab?.confirm?.resolve(false);
       return ok(null);
     },
     mongoCloseTab(tabId) {

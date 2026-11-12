@@ -1,6 +1,8 @@
 //! Shared helpers of the integration tests.
 #![allow(dead_code)]
 
+pub mod mongo;
+
 use std::io::Write as _;
 use std::sync::Arc;
 use std::time::Duration;

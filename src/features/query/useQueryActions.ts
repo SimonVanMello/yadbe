@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 
 import { registerActions } from '../../app/actions';
+import { activeScriptTabId, cancelScript, runScript } from '../document/scriptActions';
 import { isConsoleTab, runConsole, stopConsole } from '../keyvalue/kvConsoleActions';
 import { activeEditId } from '../table-data/tableActions';
 import { getTableSession } from '../table-data/tableSessionStore';
@@ -20,18 +21,31 @@ import {
 export function useQueryActions(): void {
   useEffect(() => {
     // `false` outside a query tab: a table tab's action bound to the same key runs instead. The
-    // query tab of a key-value connection is a console: it has run, run line and stop only.
-    const onActive = (act: (tabId: string) => void, console?: (tabId: string) => void) => () => {
-      const tabId = activeQueryTabId();
-      if (tabId === null) return false;
-      if (isConsoleTab(tabId)) {
-        if (!console) return false;
-        console(tabId);
+    // query tab of a key-value connection is a console: it has run, run line and stop only; the
+    // one of a document connection is a mongosh editor: run (the selection or all) and cancel.
+    const onActive =
+      (
+        act: (tabId: string) => void,
+        console?: (tabId: string) => void,
+        script?: (tabId: string) => void,
+      ) =>
+      () => {
+        const scriptTab = activeScriptTabId();
+        if (scriptTab !== null) {
+          if (!script) return false;
+          script(scriptTab);
+          return true;
+        }
+        const tabId = activeQueryTabId();
+        if (tabId === null) return false;
+        if (isConsoleTab(tabId)) {
+          if (!console) return false;
+          console(tabId);
+          return true;
+        }
+        act(tabId);
         return true;
-      }
-      act(tabId);
-      return true;
-    };
+      };
     return registerActions({
       'query.run': onActive(
         (tabId) => {
@@ -39,6 +53,9 @@ export function useQueryActions(): void {
         },
         (tabId) => {
           void runConsole(tabId, 'auto');
+        },
+        (tabId) => {
+          void runScript(tabId);
         },
       ),
       'query.runStatement': onActive(
@@ -48,8 +65,11 @@ export function useQueryActions(): void {
         (tabId) => {
           void runConsole(tabId, 'line');
         },
+        (tabId) => {
+          void runScript(tabId);
+        },
       ),
-      'query.cancel': onActive(cancelQuery, stopConsole),
+      'query.cancel': onActive(cancelQuery, stopConsole, cancelScript),
       'query.open': onActive((tabId) => {
         void openScript(tabId);
       }),

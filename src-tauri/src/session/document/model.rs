@@ -5,8 +5,9 @@ use specta::Type;
 
 use crate::db::document::meta::CollectionKind;
 use crate::db::document::ops::DocTopology;
+use crate::db::errors::YadbeError;
 use crate::session::document::gate::DangerReport;
-use crate::session::query_model::ResultSummary;
+use crate::session::query_model::{ResultSummary, TextPosition, TextRange};
 
 /// Documents shown two ways: `result`, the grid (top-level fields as columns, the union over
 /// the documents, a field a document lacks as `missing`), read with `fetch_result_window`;
@@ -77,4 +78,94 @@ pub enum CommandOutcome {
     },
     /// Nothing ran: the command is dangerous; send it again with `confirmed` to run it.
     Confirm { danger: DangerReport },
+}
+
+/// A mongosh script to run in a document query tab (M4-3).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptRequest {
+    /// The database `db` starts on (`use` changes it during the run).
+    pub database: String,
+    /// The whole editor text: positions of errors refer to it.
+    pub text: String,
+    /// The part that runs (the selection), in UTF-16 code units of `text`; `null`: all of it.
+    pub range: Option<TextRange>,
+}
+
+/// What a script's last expression gave.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ScriptResult {
+    /// Documents: a cursor drained by the backend, an array of documents or one document.
+    #[serde(rename_all = "camelCase")]
+    Documents {
+        documents: DocumentResult,
+        /// From a cursor (otherwise the value itself).
+        cursor: bool,
+        /// One document (a reply, a write result), not a list.
+        single: bool,
+        /// The cursor had more documents than a result keeps.
+        truncated: bool,
+    },
+    /// Any other value, as mongosh prints it.
+    #[serde(rename_all = "camelCase")]
+    Text { text: String, truncated: bool },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ScriptMessageKind {
+    /// `print`, `printjson`, `console.log`.
+    Print,
+    /// `console.warn`.
+    Warn,
+    /// `console.error`.
+    Error,
+    /// What a shell command answered (`use`, `show`).
+    Shell,
+}
+
+/// A line of the messages pane.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptMessage {
+    pub kind: ScriptMessageKind,
+    pub text: String,
+    /// Milliseconds since the run started.
+    pub at_ms: f64,
+}
+
+/// Why a script stopped, and where.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptFailure {
+    /// `scriptError` (a JavaScript exception), `readOnlyViolation`, `queryFailed`,
+    /// `cancelled`, `statementTimeout`, `notSupported`…
+    pub error: YadbeError,
+    /// Where in the editor text it failed.
+    pub position: Option<TextPosition>,
+}
+
+/// How a script run ended. A failed script keeps the messages printed before it failed.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptOutcome {
+    pub result: Option<ScriptResult>,
+    pub messages: Vec<ScriptMessage>,
+    /// Messages past the pane's limit were dropped.
+    pub messages_truncated: bool,
+    pub failure: Option<ScriptFailure>,
+    /// The database `db` is on at the end (after `use`).
+    pub database: String,
+    pub duration_ms: f64,
+}
+
+/// A script reached a dangerous operation and waits for the user's word
+/// (`mongo_script_confirm`), with its effect as the server counts it. Nothing was sent.
+#[derive(Debug, Clone, Serialize, Type, tauri_specta::Event)]
+#[serde(rename_all = "camelCase")]
+pub struct MongoScriptConfirm {
+    pub tab_id: String,
+    pub request_id: u32,
+    pub danger: DangerReport,
 }

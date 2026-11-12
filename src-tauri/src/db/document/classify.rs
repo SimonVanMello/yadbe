@@ -9,7 +9,7 @@ use serde::Serialize;
 use specta::Type;
 
 use crate::db::document::json::Json;
-use crate::db::document::ops::{DocOp, Namespace};
+use crate::db::document::ops::{BulkOperation, DocOp, FindAndModifyAction, Namespace};
 
 /// Commands that only read, lower case. `aggregate` is here too, but checked for
 /// `$out` / `$merge`.
@@ -211,6 +211,31 @@ pub fn classify(op: &DocOp) -> Classified {
                 None
             },
         ),
+        DocOp::FindAndModify(modify) => write(
+            match modify.action {
+                FindAndModifyAction::Update(_) => "findOneAndUpdate",
+                FindAndModifyAction::Replace(_) => "findOneAndReplace",
+                FindAndModifyAction::Remove => "findOneAndDelete",
+            },
+            None,
+        ),
+        DocOp::BulkWrite { ns, operations, .. } => {
+            let all = operations.iter().find_map(|operation| match operation {
+                BulkOperation::Delete { filter, many: true } if filter.is_empty_object() => {
+                    Some(DangerKind::DeleteAll)
+                }
+                BulkOperation::Update {
+                    filter, many: true, ..
+                } if filter.is_empty_object() => Some(DangerKind::UpdateAll),
+                _ => None,
+            });
+            write(
+                "bulkWrite",
+                all.and_then(|kind| danger(kind, &ns.database, Some(&ns.collection))),
+            )
+        }
+        // The server plans the command and runs nothing that writes, whatever it explains.
+        DocOp::Explain { .. } => read("explain"),
         DocOp::RunCommand { database, command } => classify_command(database, command),
     }
 }
@@ -344,6 +369,67 @@ mod tests {
         ] {
             assert_eq!(run(text).access, Access::Write, "{text}");
         }
+    }
+
+    #[test]
+    fn typed_script_operations() {
+        let ns = Namespace::new("shop", "orders");
+        let modify = classify(&DocOp::FindAndModify(Box::new(
+            crate::db::document::ops::FindAndModify {
+                ns: ns.clone(),
+                filter: Json::empty(),
+                action: FindAndModifyAction::Remove,
+                sort: None,
+                projection: None,
+                upsert: false,
+                return_new: false,
+                array_filters: None,
+            },
+        )));
+        assert_eq!(
+            (modify.name.as_str(), modify.access, modify.danger),
+            ("findOneAndDelete", Access::Write, None),
+            "one document, even with an empty filter"
+        );
+        let bulk = |operations: Vec<BulkOperation>| {
+            classify(&DocOp::BulkWrite {
+                ns: ns.clone(),
+                operations,
+                ordered: true,
+            })
+        };
+        let insert = BulkOperation::InsertOne {
+            document: Json::empty(),
+        };
+        let plain = bulk(vec![insert.clone()]);
+        assert_eq!((plain.access, plain.danger), (Access::Write, None));
+        let wipe = bulk(vec![
+            insert.clone(),
+            BulkOperation::Delete {
+                filter: Json::empty(),
+                many: true,
+            },
+        ]);
+        assert_eq!(wipe.danger.map(|d| d.kind), Some(DangerKind::DeleteAll));
+        let all = bulk(vec![BulkOperation::Update {
+            filter: Json::empty(),
+            update: json(r#"{"$set":{"a":1}}"#),
+            many: true,
+            upsert: false,
+            array_filters: None,
+        }]);
+        assert_eq!(all.danger.map(|d| d.kind), Some(DangerKind::UpdateAll));
+        let one = bulk(vec![BulkOperation::Delete {
+            filter: Json::empty(),
+            many: false,
+        }]);
+        assert_eq!(one.danger, None);
+        let explain = classify(&DocOp::Explain {
+            database: "shop".into(),
+            command: json(r#"{"delete":"orders","deletes":[{"q":{},"limit":0}]}"#),
+            verbosity: "queryPlanner".into(),
+        });
+        assert_eq!((explain.access, explain.danger), (Access::Read, None));
     }
 
     #[test]

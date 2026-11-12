@@ -619,14 +619,25 @@ export const commands = {
 	/**  Counts exactly the documents matching `filter` (`countDocuments`); cancellable. */
 	mongoCountDocuments: (tabId: string, connectionId: string, database: string, collection: string, filter: string) => typedError<number | null, YadbeError>(__TAURI_INVOKE("mongo_count_documents", { tabId, connectionId, database, collection, filter })),
 	/**
-	 *  Runs one JSON command (`runCommand`) typed in a document console tab, as written. A
-	 *  dangerous one answers `confirm` with its effect and runs only when sent again with
-	 *  `confirmed`. Recorded in the history.
+	 *  Runs a mongosh script (or the selected part of it) in the query tab `tabId`, as written,
+	 *  in an embedded JavaScript engine whose `db` API goes through the command gate. Returns
+	 *  when it ends: its result (documents in the result store, or text), its printed messages,
+	 *  and its failure with the position in the editor text. A dangerous operation pauses the
+	 *  script and emits `mongo-script-confirm`; answer with `mongo_script_confirm`. Fails with
+	 *  `executionRunning` while the tab runs something else.
 	 */
-	mongoRunCommand: (tabId: string, connectionId: string, database: string, command: string, confirmed: boolean) => typedError<CommandOutcome, YadbeError>(__TAURI_INVOKE("mongo_run_command", { tabId, connectionId, database, command, confirmed })),
-	/**  Stops what the tab runs (`killOp`); the call it made fails with `cancelled`. */
+	mongoRunScript: (tabId: string, connectionId: string, request: ScriptRequest) => typedError<ScriptOutcome, YadbeError>(__TAURI_INVOKE("mongo_run_script", { tabId, connectionId, request })),
+	/**
+	 *  The user's answer to a script's `mongo-script-confirm`: run the dangerous operation, or
+	 *  stop the script there. `false` when the script no longer waits for it.
+	 */
+	mongoScriptConfirm: (tabId: string, requestId: number, accepted: boolean) => typedError<boolean, YadbeError>(__TAURI_INVOKE("mongo_script_confirm", { tabId, requestId, accepted })),
+	/**
+	 *  Stops what the tab runs (`killOp`, and a script's engine); the call it made fails with
+	 *  `cancelled` (a script's outcome says so).
+	 */
 	mongoCancel: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("mongo_cancel", { tabId })),
-	/**  Forgets a collection or console tab: stops what it runs and frees its results. */
+	/**  Forgets a collection or query tab: stops what it runs and frees its results. */
 	mongoCloseTab: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("mongo_close_tab", { tabId })),
 	/**
 	 *  Whole documents `offset .. offset + limit` (at most 500) of a document result, as
@@ -694,6 +705,7 @@ export const events = {
 	importProgress: makeEvent<ImportProgress>("import-progress"),
 	kvScanProgress: makeEvent<KvScanProgress>("kv-scan-progress"),
 	metaRefreshed: makeEvent<MetaRefreshed>("meta-refreshed"),
+	mongoScriptConfirm: makeEvent<MongoScriptConfirm>("mongo-script-confirm"),
 	queryFinished: makeEvent<QueryFinished>("query-finished"),
 	queryProgress: makeEvent<QueryProgress>("query-progress"),
 	savedQueriesChanged: makeEvent<SavedQueriesChanged>("saved-queries-changed"),
@@ -1107,17 +1119,6 @@ export type ColumnValue = {
 	column: string,
 	value: Value,
 };
-
-/**  How a console command ended. */
-export type CommandOutcome = 
-/**  It ran: a cursor's documents, or the reply document. */
-{ status: "done"; documents: DocumentResult; 
-/**  The reply was a cursor (otherwise one reply document). */
-cursor: boolean; 
-/**  The cursor had more documents than the console keeps. */
-truncated: boolean; durationMs: number | null } | 
-/**  Nothing ran: the command is dangerous; send it again with `confirmed` to run it. */
-{ status: "confirm"; danger: DangerReport };
 
 /**
  *  Everything the autocomplete (M2-5) and the palette (M2-6) need for one database, in one
@@ -1830,7 +1831,12 @@ export type ErrorCode =
  */
 "insufficientPrivilege" | 
 /**  The session to act on ended, or was replaced by another one, since the list was read. */
-"sessionChanged";
+"sessionChanged" | 
+/**
+ *  A mongosh script threw: a JavaScript exception (syntax, reference, type, a thrown
+ *  value), or the script ran out of memory or stack. `detail` holds the exception.
+ */
+"scriptError";
 
 /**  An Excel workbook (`.xlsx`), streamed: one worksheet, a frozen bold header row. */
 export type ExcelOptions = {
@@ -2956,6 +2962,16 @@ export type MongoAuthMechanism =
 "x509";
 
 /**
+ *  A script reached a dangerous operation and waits for the user's word
+ *  (`mongo_script_confirm`), with its effect as the server counts it. Nothing was sent.
+ */
+export type MongoScriptConfirm = {
+	tabId: string,
+	requestId: number,
+	danger: DangerReport,
+};
+
+/**
  *  The fields only MongoDB connections have. `host` of the definition holds the seed list
  *  (`a:27017,b,c:27019`) or the SRV name; `port` is the port of hosts written without one.
  */
@@ -3780,6 +3796,17 @@ export type SchemaInfo = {
 	comment: string | null,
 };
 
+/**  Why a script stopped, and where. */
+export type ScriptFailure = {
+	/**
+	 *  `scriptError` (a JavaScript exception), `readOnlyViolation`, `queryFailed`,
+	 *  `cancelled`, `statementTimeout`, `notSupported`…
+	 */
+	error: YadbeError,
+	/**  Where in the editor text it failed. */
+	position: TextPosition | null,
+};
+
 export type ScriptKind = 
 /**  `SELECT` of every column, limited to the first 1000 rows. */
 "select" | "insert" | 
@@ -3789,6 +3816,59 @@ export type ScriptKind =
 "delete" | 
 /**  The qualified, quoted name alone. */
 "qualifiedName";
+
+/**  A line of the messages pane. */
+export type ScriptMessage = {
+	kind: ScriptMessageKind,
+	text: string,
+	/**  Milliseconds since the run started. */
+	atMs: number | null,
+};
+
+export type ScriptMessageKind = 
+/**  `print`, `printjson`, `console.log`. */
+"print" | 
+/**  `console.warn`. */
+"warn" | 
+/**  `console.error`. */
+"error" | 
+/**  What a shell command answered (`use`, `show`). */
+"shell";
+
+/**  How a script run ended. A failed script keeps the messages printed before it failed. */
+export type ScriptOutcome = {
+	result: ScriptResult | null,
+	messages: ScriptMessage[],
+	/**  Messages past the pane's limit were dropped. */
+	messagesTruncated: boolean,
+	failure: ScriptFailure | null,
+	/**  The database `db` is on at the end (after `use`). */
+	database: string,
+	durationMs: number | null,
+};
+
+/**  A mongosh script to run in a document query tab (M4-3). */
+export type ScriptRequest = {
+	/**  The database `db` starts on (`use` changes it during the run). */
+	database: string,
+	/**  The whole editor text: positions of errors refer to it. */
+	text: string,
+	/**  The part that runs (the selection), in UTF-16 code units of `text`; `null`: all of it. */
+	range: TextRange | null,
+};
+
+/**  What a script's last expression gave. */
+export type ScriptResult = 
+/**  Documents: a cursor drained by the backend, an array of documents or one document. */
+{ kind: "documents"; documents: DocumentResult; 
+/**  From a cursor (otherwise the value itself). */
+cursor: boolean; 
+/**  One document (a reply, a write result), not a list. */
+single: boolean; 
+/**  The cursor had more documents than a result keeps. */
+truncated: boolean } | 
+/**  Any other value, as mongosh prints it. */
+{ kind: "text"; text: string; truncated: boolean };
 
 /**
  *  A password, token or passphrase. Deserializable (the frontend sends it once) but never

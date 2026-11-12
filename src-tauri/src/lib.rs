@@ -169,7 +169,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::document::mongo_open_collection,
             commands::document::mongo_fetch_page,
             commands::document::mongo_count_documents,
-            commands::document::mongo_run_command,
+            commands::document::mongo_run_script,
+            commands::document::mongo_script_confirm,
             commands::document::mongo_cancel,
             commands::document::mongo_close_tab,
             commands::document::mongo_fetch_documents,
@@ -207,6 +208,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             import::model::ImportProgress,
             import::model::ImportFinished,
             session::keyvalue::model::KvScanProgress,
+            session::document::model::MongoScriptConfirm,
         ])
 }
 

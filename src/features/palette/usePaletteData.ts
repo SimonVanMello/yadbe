@@ -35,6 +35,7 @@ import {
 import { usePaletteStore } from './paletteStore';
 import { useHistoryHits } from './useHistoryHits';
 import { useSavedHits } from './useSavedHits';
+import { useScriptTab } from '../document/scriptStore';
 
 /** Longest text the history is searched with in the mixed list: shorter ones match everything. */
 const HISTORY_MIN_CHARS = 3;
@@ -100,7 +101,9 @@ export function usePaletteData(raw: string) {
   const closedTabs = useTabsStore((store) => store.closedTabs.length);
   const activeTab = useTabsStore(selectActiveTab);
   const tabStates = useQueryTabStore((store) => store.tabs);
-  const running = useTabRunning(activeTab.id);
+  const sqlRunning = useTabRunning(activeTab.id);
+  const scriptRunning = useScriptTab(activeTab.id).running;
+  const running = sqlRunning || scriptRunning;
   const transaction = useTabTransaction(activeTab.id);
   const activeState = useConnectionState(activeTab.connectionId);
   const activeConnection = useConnection(activeTab.connectionId);

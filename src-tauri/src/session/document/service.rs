@@ -1,6 +1,7 @@
 //! `DocumentService`: what the document family's commands do on an open session. The
 //! explorer (databases, collections, indexes, sampled fields), the collection tab (pages,
-//! counts) and the console (one JSON command). Every operation goes through the gate.
+//! counts) and the query tab (mongosh scripts, `script/`). Every operation goes through the
+//! gate.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -17,20 +18,21 @@ use crate::db::document::meta::{
 use crate::db::document::ops::{DocEvent, DocOp, DocReply, FindOptions, Namespace};
 use crate::db::driver::DocumentConnection;
 use crate::db::errors::YadbeError;
+use crate::events::{BackendEvent, EventSink, NullSink};
 use crate::session::ConnectionManager;
 use crate::session::ConnectionSession;
 use crate::session::document::gate::{
     self, GateContext, GateOutcome, GateRequest, Origin, reply_number,
 };
 use crate::session::document::model::{
-    CollectionInfo, CollectionPage, CollectionQuery, CommandOutcome, DocumentResult,
+    CollectionInfo, CollectionPage, CollectionQuery, DocumentResult, MongoScriptConfirm,
+    ScriptOutcome, ScriptRequest,
 };
 use crate::session::document::results::{documents_window, store_documents};
+use crate::session::document::script::{self, ScriptControl, ScriptRun};
 use crate::session::history_hook::{HistoryEntry, HistoryRecorder};
 use crate::session::result_store::ResultStore;
 
-/// A console keeps at most this many documents of a cursor.
-pub const CONSOLE_MAX_DOCUMENTS: u64 = 5_000;
 pub const MAX_PAGE_SIZE: u32 = 1_000;
 /// Read from a single window at most.
 const MAX_DOCUMENTS_WINDOW: u32 = 500;
@@ -41,11 +43,15 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// The operation a tab is running, for a cancel.
-struct Running {
-    token: String,
-    conn: Arc<dyn DocumentConnection>,
-    stop: Arc<Notify>,
+/// What a tab is running, for a cancel: one operation, or a script.
+#[derive(Clone)]
+enum Running {
+    Op {
+        token: String,
+        conn: Arc<dyn DocumentConnection>,
+        stop: Arc<Notify>,
+    },
+    Script(Arc<ScriptControl>),
 }
 
 /// How a collection tab pages: by `_id` (ascending or descending), or by skipping.
@@ -76,6 +82,7 @@ pub struct DocumentService {
     manager: Arc<ConnectionManager>,
     store: Arc<ResultStore>,
     history: Arc<dyn HistoryRecorder>,
+    events: Arc<dyn EventSink>,
     tabs: Mutex<HashMap<String, Arc<DocTab>>>,
 }
 
@@ -146,8 +153,16 @@ impl DocumentService {
             manager,
             store,
             history,
+            events: Arc::new(NullSink),
             tabs: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Where a script's confirmation requests go (`mongo-script-confirm`).
+    #[must_use]
+    pub fn with_events(mut self, events: Arc<dyn EventSink>) -> Self {
+        self.events = events;
+        self
     }
 
     fn session(&self, connection_id: &str) -> Result<Arc<ConnectionSession>, YadbeError> {
@@ -290,6 +305,7 @@ impl DocumentService {
             )])],
             allow_disk_use: None,
             batch_size: None,
+            options: Default::default(),
         };
         let (_, docs) = self.own(connection_id, op).await?;
         Ok(sample_fields(&docs))
@@ -344,7 +360,7 @@ impl DocumentService {
             if running.is_some() {
                 return Err(YadbeError::execution_running());
             }
-            *running = Some(Running {
+            *running = Some(Running::Op {
                 token: token.clone(),
                 conn: Arc::clone(&conn),
                 stop: Arc::clone(&stop),
@@ -373,7 +389,7 @@ impl DocumentService {
             () = stop.notified() => Err(YadbeError::cancelled()),
         };
         let mut running = lock(&tab.running);
-        if running.as_ref().is_some_and(|r| r.token == token) {
+        if matches!(running.as_ref(), Some(Running::Op { token: t, .. }) if *t == token) {
             *running = None;
         }
         result
@@ -625,81 +641,82 @@ impl DocumentService {
         }
     }
 
-    /// Runs one command typed in the console (`runCommand`), as written. Recorded in the
-    /// history, unless it is dangerous and waits for a confirmation.
-    pub async fn run_command(
+    /// Runs a mongosh script in a query tab, as written (M4-3); one at a time per tab. A
+    /// script failure (an exception, a refused write, a cancel) is in the outcome, with the
+    /// messages printed before it; the script is recorded in the history once.
+    pub async fn run_script(
         &self,
         tab_id: &str,
         connection_id: &str,
-        database: &str,
-        text: &str,
-        confirmed: bool,
-    ) -> Result<CommandOutcome, YadbeError> {
+        request: ScriptRequest,
+    ) -> Result<ScriptOutcome, YadbeError> {
         let started_at = std::time::SystemTime::now();
         let started = Instant::now();
-        let record = |rows: Option<u64>, outcome: Result<(), YadbeError>| {
-            self.history.record(HistoryEntry {
-                tab_id: tab_id.to_owned(),
-                connection_id: connection_id.to_owned(),
-                database: Some(database.to_owned()),
-                sql: text.to_owned(),
-                started_at,
-                duration: started.elapsed(),
-                rows,
-                outcome,
-            });
-        };
-        let command = match Json::parse(text) {
-            Ok(json) if json.as_object().is_some_and(|e| !e.is_empty()) => json,
-            Ok(_) => {
-                return Err(YadbeError::invalid_argument(
-                    "A command is a JSON object whose first key names it: { \"find\": \"orders\" }.",
-                    "Une commande est un objet JSON dont la première clé la nomme : { \"find\": \"orders\" }.",
-                ));
-            }
-            Err(err) => return Err(err),
-        };
         let session = self.session(connection_id)?;
+        let conn = Self::connection(&session)?;
         let tab = self.tab(tab_id, connection_id);
-        let op = DocOp::RunCommand {
-            database: database.to_owned(),
-            command,
+        let control = Arc::new(ScriptControl::new(
+            Arc::clone(&conn),
+            session.statement_timeout(),
+        ));
+        {
+            let mut running = lock(&tab.running);
+            if running.is_some() {
+                return Err(YadbeError::execution_running());
+            }
+            *running = Some(Running::Script(Arc::clone(&control)));
+        }
+        let events = Arc::clone(&self.events);
+        let confirm_tab = tab_id.to_owned();
+        let run = ScriptRun {
+            session,
+            conn,
+            control: Arc::clone(&control),
+            confirm: Arc::new(move |request_id, danger| {
+                events.emit(BackendEvent::MongoScriptConfirm(MongoScriptConfirm {
+                    tab_id: confirm_tab.clone(),
+                    request_id,
+                    danger,
+                }));
+            }),
+            store: Arc::clone(&self.store),
         };
-        let result = self
-            .run_in_tab(
-                &tab,
-                &session,
-                &op,
-                Origin::User,
-                confirmed,
-                Some(CONSOLE_MAX_DOCUMENTS),
-            )
-            .await;
-        let duration_ms = (started.elapsed().as_secs_f64() * 1000.0).round();
-        match result {
-            Ok((GateOutcome::Confirm(danger), _)) => Ok(CommandOutcome::Confirm { danger }),
-            Ok((GateOutcome::Done(reply), docs)) => {
-                let (documents, cursor, truncated) = match reply {
-                    DocReply::Cursor { more, .. } => (docs, true, more),
-                    DocReply::Document(reply) => (vec![reply], false, false),
-                };
-                record(
-                    u64::try_from(documents.len()).ok().filter(|_| cursor),
-                    Ok(()),
-                );
-                let documents = store_documents(&self.store, &documents);
-                self.replace_results(&tab, &documents);
-                Ok(CommandOutcome::Done {
-                    documents,
-                    cursor,
-                    truncated,
-                    duration_ms,
-                })
+        let finished = script::execute(run, &request).await;
+        {
+            let mut running = lock(&tab.running);
+            if matches!(running.as_ref(), Some(Running::Script(c)) if Arc::ptr_eq(c, &control)) {
+                *running = None;
             }
-            Err(err) => {
-                record(None, Err(err.clone()));
-                Err(err)
-            }
+        }
+        let finished = finished?;
+        let old = std::mem::replace(&mut *lock(&tab.results), finished.result_ids.clone());
+        self.store.remove(old);
+        let outcome = finished.outcome;
+        self.history.record(HistoryEntry {
+            tab_id: tab_id.to_owned(),
+            connection_id: connection_id.to_owned(),
+            database: Some(request.database.clone()),
+            sql: finished.code,
+            started_at,
+            duration: started.elapsed(),
+            rows: finished.rows,
+            outcome: match &outcome.failure {
+                Some(failure) => Err(failure.error.clone()),
+                None => Ok(()),
+            },
+        });
+        Ok(outcome)
+    }
+
+    /// The user's answer to a script's confirmation request; `false` when the script no longer
+    /// waits for it (cancelled, timed out, finished).
+    pub fn script_confirm(&self, tab_id: &str, request_id: u32, accepted: bool) -> bool {
+        let Ok(tab) = self.known_tab(tab_id) else {
+            return false;
+        };
+        match lock(&tab.running).as_ref() {
+            Some(Running::Script(control)) => control.answer(request_id, accepted),
+            _ => false,
         }
     }
 
@@ -708,10 +725,21 @@ impl DocumentService {
         let Ok(tab) = self.known_tab(tab_id) else {
             return Ok(());
         };
-        let running = lock(&tab.running).take();
-        if let Some(running) = running {
-            running.stop.notify_one();
-            running.conn.kill(&running.token).await?;
+        let running = {
+            let mut running = lock(&tab.running);
+            match running.as_ref() {
+                // A script stays: its own end clears it from the tab.
+                Some(Running::Script(_)) => running.clone(),
+                _ => running.take(),
+            }
+        };
+        match running {
+            Some(Running::Op { token, conn, stop }) => {
+                stop.notify_one();
+                conn.kill(&token).await?;
+            }
+            Some(Running::Script(control)) => control.cancel().await,
+            None => {}
         }
         Ok(())
     }

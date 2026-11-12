@@ -152,6 +152,9 @@ pub enum ErrorCode {
     InsufficientPrivilege,
     /// The session to act on ended, or was replaced by another one, since the list was read.
     SessionChanged,
+    /// A mongosh script threw: a JavaScript exception (syntax, reference, type, a thrown
+    /// value), or the script ran out of memory or stack. `detail` holds the exception.
+    ScriptError,
 }
 
 /// A message in every supported UI language.
@@ -566,6 +569,82 @@ impl YadbeError {
     }
 
     pub fn not_supported(en: impl Into<String>, fr: impl Into<String>) -> Self {
+        Self::new(ErrorCode::NotSupported, en, fr)
+    }
+
+    /// A script reached a dangerous operation and the user did not confirm it.
+    pub fn danger_declined(command: &str) -> Self {
+        Self::new(
+            ErrorCode::Cancelled,
+            format!("{command} was not run: it was not confirmed. The script stopped there."),
+            format!(
+                "{command} n'a pas été exécuté : il n'a pas été confirmé. Le script s'est arrêté là."
+            ),
+        )
+    }
+
+    /// A JavaScript exception of a mongosh script; `exception`: its name and message.
+    pub fn script_error(exception: impl AsRef<str>) -> Self {
+        Self::new(
+            ErrorCode::ScriptError,
+            "The script threw an exception.",
+            "Le script a levé une exception.",
+        )
+        .with_detail(exception)
+    }
+
+    /// A mongosh method or shell command yadbe does not implement. `instead`: code to use
+    /// instead, or one of the `#…` reasons below.
+    pub fn mongosh_unsupported(method: &str, instead: &str) -> Self {
+        let reason = match instead {
+            "#files" => Some((
+                "yadbe scripts cannot read files: paste the code into the editor.",
+                "les scripts de yadbe ne lisent pas de fichiers : collez le code dans l'éditeur.",
+            )),
+            "#modules" => Some((
+                "yadbe scripts have no modules: the mongosh helpers are built in.",
+                "les scripts de yadbe n'ont pas de modules : les fonctions de mongosh sont intégrées.",
+            )),
+            "#connection" => Some((
+                "a script uses the connection of its tab.",
+                "un script utilise la connexion de son onglet.",
+            )),
+            "#cancel" => Some((
+                "stop a script with the Cancel button.",
+                "arrêtez un script avec le bouton Annuler.",
+            )),
+            "#grid" => Some((
+                "the result grid shows every batch of a cursor.",
+                "la grille de résultats affiche tous les lots d'un curseur.",
+            )),
+            "#sessions" => Some((
+                "sessions and transactions are not available in scripts.",
+                "les sessions et transactions ne sont pas disponibles dans les scripts.",
+            )),
+            _ => None,
+        };
+        if let Some((en, fr)) = reason {
+            return Self::new(
+                ErrorCode::NotSupported,
+                format!("{method} is not available in yadbe: {en}"),
+                format!("{method} n'est pas disponible dans yadbe : {fr}"),
+            );
+        }
+        let (en, fr) = if instead.is_empty() {
+            (
+                format!(
+                    "{method} is not available in yadbe. Use db.runCommand() or db.adminCommand() instead."
+                ),
+                format!(
+                    "{method} n'est pas disponible dans yadbe. Utilisez db.runCommand() ou db.adminCommand() à la place."
+                ),
+            )
+        } else {
+            (
+                format!("{method} is not available in yadbe. Use {instead} instead."),
+                format!("{method} n'est pas disponible dans yadbe. Utilisez {instead} à la place."),
+            )
+        };
         Self::new(ErrorCode::NotSupported, en, fr)
     }
 

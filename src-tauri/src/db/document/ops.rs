@@ -34,6 +34,72 @@ pub struct FindOptions {
     pub collation: Option<Json>,
     /// Documents per round trip; `None`: the driver's default.
     pub batch_size: Option<u32>,
+    /// The user's own `maxTimeMS` (a script's `cursor.maxTimeMS()`); the statement timeout,
+    /// when shorter, wins.
+    pub max_time_ms: Option<u64>,
+    pub comment: Option<Json>,
+    pub allow_disk_use: Option<bool>,
+}
+
+/// The options of an aggregation beyond its pipeline.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct AggregateOptions {
+    pub hint: Option<Json>,
+    pub collation: Option<Json>,
+    /// The user's own `maxTimeMS`; the statement timeout, when shorter, wins.
+    pub max_time_ms: Option<u64>,
+    pub comment: Option<Json>,
+    /// `let`: variables of the pipeline.
+    pub variables: Option<Json>,
+}
+
+/// What `findAndModify` does to the document it finds.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FindAndModifyAction {
+    /// `findOneAndUpdate`: an update document or a pipeline.
+    Update(Json),
+    /// `findOneAndReplace`.
+    Replace(Json),
+    /// `findOneAndDelete`.
+    Remove,
+}
+
+/// `findOneAndUpdate` / `findOneAndReplace` / `findOneAndDelete` (`findAndModify`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FindAndModify {
+    pub ns: Namespace,
+    pub filter: Json,
+    pub action: FindAndModifyAction,
+    pub sort: Option<Json>,
+    pub projection: Option<Json>,
+    pub upsert: bool,
+    /// Return the document as it is after the change (`returnDocument: "after"`).
+    pub return_new: bool,
+    pub array_filters: Option<Vec<Json>>,
+}
+
+/// One write of a `bulkWrite`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BulkOperation {
+    InsertOne {
+        document: Json,
+    },
+    Update {
+        filter: Json,
+        update: Json,
+        many: bool,
+        upsert: bool,
+        array_filters: Option<Vec<Json>>,
+    },
+    ReplaceOne {
+        filter: Json,
+        replacement: Json,
+        upsert: bool,
+    },
+    Delete {
+        filter: Json,
+        many: bool,
+    },
 }
 
 /// One operation sent to a document server. Every variant names what it touches so the
@@ -53,6 +119,8 @@ pub enum DocOp {
         pipeline: Vec<Json>,
         allow_disk_use: Option<bool>,
         batch_size: Option<u32>,
+        /// The user's options (a script's `aggregate(pipeline, options)`).
+        options: AggregateOptions,
     },
     /// `countDocuments` (exact, runs the filter).
     Count {
@@ -131,6 +199,22 @@ pub enum DocOp {
         to: Namespace,
         drop_target: bool,
     },
+    /// `findOneAndUpdate` / `Replace` / `Delete`.
+    FindAndModify(Box<FindAndModify>),
+    /// `bulkWrite`: the writes run in order as insert / update / delete commands; `ordered`
+    /// stops at the first failure.
+    BulkWrite {
+        ns: Namespace,
+        operations: Vec<BulkOperation>,
+        ordered: bool,
+    },
+    /// `explain` of a command (`find`, `aggregate`, `count`, `distinct`, a write…): the server
+    /// plans it and runs nothing that writes.
+    Explain {
+        database: String,
+        command: Json,
+        verbosity: String,
+    },
     /// Any command, sent as written: `db.runCommand` / `db.adminCommand`, the console.
     RunCommand {
         database: String,
@@ -153,9 +237,12 @@ impl DocOp {
             | DocOp::ListIndexes { ns }
             | DocOp::CreateIndexes { ns, .. }
             | DocOp::DropIndexes { ns, .. }
-            | DocOp::DropCollection { ns } => &ns.database,
+            | DocOp::DropCollection { ns }
+            | DocOp::BulkWrite { ns, .. } => &ns.database,
+            DocOp::FindAndModify(modify) => &modify.ns.database,
             DocOp::RenameCollection { from, .. } => &from.database,
             DocOp::Aggregate { database, .. }
+            | DocOp::Explain { database, .. }
             | DocOp::ListCollections { database, .. }
             | DocOp::CreateCollection { database, .. }
             | DocOp::DropDatabase { database }
@@ -178,11 +265,13 @@ impl DocOp {
             | DocOp::ListIndexes { ns }
             | DocOp::CreateIndexes { ns, .. }
             | DocOp::DropIndexes { ns, .. }
-            | DocOp::DropCollection { ns } => Some(&ns.collection),
+            | DocOp::DropCollection { ns }
+            | DocOp::BulkWrite { ns, .. } => Some(&ns.collection),
+            DocOp::FindAndModify(modify) => Some(&modify.ns.collection),
             DocOp::RenameCollection { from, .. } => Some(&from.collection),
             DocOp::Aggregate { collection, .. } => collection.as_deref(),
             DocOp::CreateCollection { name, .. } => Some(name),
-            DocOp::RunCommand { command, .. } => command
+            DocOp::RunCommand { command, .. } | DocOp::Explain { command, .. } => command
                 .as_object()
                 .and_then(|entries| entries.first())
                 .and_then(|(_, target)| target.as_str()),
@@ -309,9 +398,92 @@ impl DocOp {
                 coll(from),
                 quoted(&format!("{}.{}", to.database, to.collection))
             ),
+            DocOp::FindAndModify(modify) => {
+                let FindAndModify {
+                    ns, filter, action, ..
+                } = &**modify;
+                match action {
+                    FindAndModifyAction::Update(update) => {
+                        format!("{}.findOneAndUpdate({})", coll(ns), args(&[filter, update]))
+                    }
+                    FindAndModifyAction::Replace(replacement) => format!(
+                        "{}.findOneAndReplace({})",
+                        coll(ns),
+                        args(&[filter, replacement])
+                    ),
+                    FindAndModifyAction::Remove => {
+                        format!("{}.findOneAndDelete({})", coll(ns), filter.to_text())
+                    }
+                }
+            }
+            DocOp::BulkWrite { ns, operations, .. } => format!(
+                "{}.bulkWrite({})",
+                coll(ns),
+                Json::Array(operations.iter().map(BulkOperation::to_json).collect()).to_text()
+            ),
+            DocOp::Explain {
+                command, verbosity, ..
+            } => format!(
+                "db.runCommand({})",
+                Json::object([
+                    ("explain", command.clone()),
+                    ("verbosity", Json::string(verbosity.clone())),
+                ])
+                .to_text()
+            ),
             DocOp::RunCommand { command, .. } => format!("db.runCommand({})", command.to_text()),
         };
         format!("use {}; {text}", self.database())
+    }
+}
+
+impl BulkOperation {
+    /// The operation as `bulkWrite` takes it (`{ "insertOne": { "document": … } }`).
+    pub fn to_json(&self) -> Json {
+        let filters = |filters: &Option<Vec<Json>>| {
+            filters
+                .as_ref()
+                .map(|f| ("arrayFilters".to_owned(), Json::Array(f.clone())))
+        };
+        match self {
+            BulkOperation::InsertOne { document } => {
+                Json::object([("insertOne", Json::object([("document", document.clone())]))])
+            }
+            BulkOperation::Update {
+                filter,
+                update,
+                many,
+                upsert,
+                array_filters,
+            } => {
+                let mut body = vec![
+                    ("filter".to_owned(), filter.clone()),
+                    ("update".to_owned(), update.clone()),
+                    ("upsert".to_owned(), Json::Bool(*upsert)),
+                ];
+                body.extend(filters(array_filters));
+                Json::object([(
+                    if *many { "updateMany" } else { "updateOne" },
+                    Json::Object(body),
+                )])
+            }
+            BulkOperation::ReplaceOne {
+                filter,
+                replacement,
+                upsert,
+            } => Json::object([(
+                "replaceOne",
+                Json::object([
+                    ("filter", filter.clone()),
+                    ("replacement", replacement.clone()),
+                    ("upsert", Json::Bool(*upsert)),
+                ]),
+            )]),
+            BulkOperation::Delete { filter, many } => Json::object([(
+                if *many { "deleteMany" } else { "deleteOne" },
+                Json::object([("filter", filter.clone())]),
+            )]),
+        }
     }
 }
 

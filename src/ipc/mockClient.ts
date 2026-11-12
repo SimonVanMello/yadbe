@@ -682,6 +682,9 @@ function createMockBackend() {
     recordHistory: (entry) => {
       history.record(entry);
     },
+    confirm: (request) => {
+      events.emit('mongoScriptConfirm', request);
+    },
     storeRows: (columns, rows) => query.storeRows(columns, rows),
     freeResults: (ids) => {
       query.freeResults(ids);

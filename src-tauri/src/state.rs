@@ -103,11 +103,14 @@ impl AppState {
             Arc::clone(&tables),
             Arc::clone(&sink),
         ));
-        let documents = Arc::new(DocumentService::new(
-            Arc::clone(&connections),
-            queries.shared_store(),
-            history.clone(),
-        ));
+        let documents = Arc::new(
+            DocumentService::new(
+                Arc::clone(&connections),
+                queries.shared_store(),
+                history.clone(),
+            )
+            .with_events(Arc::clone(&sink)),
+        );
         let imports = Arc::new(ImportManager::new(
             Arc::clone(&connections),
             Arc::clone(&meta),
