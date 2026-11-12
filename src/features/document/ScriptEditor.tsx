@@ -19,6 +19,8 @@ import { matchesAction, runAction, type ActionId } from '../../app/actions';
 import { useT } from '../../i18n/useT';
 import type { TextRange } from '../../ipc';
 import { styleNonce } from '../../ui/cspNonce';
+import { consoleCompletionExtension } from '../completion/consoleCompletion';
+import { mongoshProvider } from '../completion/consoleProviders';
 import { sqlEditorTheme } from '../query/editorTheme';
 import { errorRange } from '../query/errorMarks';
 import { getQueryTabState, useQueryTabStore } from '../query/queryTabStore';
@@ -103,6 +105,7 @@ export function ScriptEditor({ tabId }: { tabId: string }) {
           search({ top: true }),
           keymap.of([...defaultKeymap, ...searchKeymap, ...historyKeymap, indentWithTab]),
           javascript(),
+          consoleCompletionExtension(mongoshProvider(tabId)),
           errorField,
           sqlEditorTheme,
           EditorView.contentAttributes.of({ 'aria-label': labelRef.current }),

@@ -15,6 +15,8 @@ import { useEffect, useRef } from 'react';
 import { matchesAction, runAction, type ActionId } from '../../app/actions';
 import { useT } from '../../i18n/useT';
 import { styleNonce } from '../../ui/cspNonce';
+import { consoleCompletionExtension } from '../completion/consoleCompletion';
+import { redisProvider } from '../completion/consoleProviders';
 import { sqlEditorTheme } from '../query/editorTheme';
 import { getQueryTabState, useQueryTabStore } from '../query/queryTabStore';
 import styles from './KvConsole.module.css';
@@ -106,6 +108,7 @@ export function ConsoleEditor({ tabId }: { tabId: string }) {
           search({ top: true }),
           keymap.of([...defaultKeymap, ...searchKeymap, ...historyKeymap]),
           redisCli,
+          consoleCompletionExtension(redisProvider(tabId)),
           sqlEditorTheme,
           EditorView.contentAttributes.of({ 'aria-label': labelRef.current }),
           EditorView.updateListener.of((update) => {

@@ -28,9 +28,8 @@ function metaQuery(connectionId: string, request: MetaRequest, enabled: boolean)
   };
 }
 
-function dataOf<T>(result: UseQueryResult | undefined): T | undefined {
-  return result?.data as T | undefined;
-}
+/** The data of an explorer query: the caller knows which list its request returns. */
+const dataOf = (result: UseQueryResult | undefined) => result?.data;
 
 /**
  * The collections, indices, data streams and aliases of the connected document and search
@@ -62,7 +61,7 @@ export function useFamilyObjects(enabled: boolean): { items: ObjectItem[]; loadi
   });
   // The databases to read: the connection's own, else the first user one, and the tabs'.
   const targets = documents.flatMap((connection, index) => {
-    const list = dataOf<DocDatabase[]>(databaseResults[index]);
+    const list = dataOf(databaseResults[index]) as DocDatabase[] | undefined;
     const names = new Set<string>();
     if (connection.database !== '') names.add(connection.database);
     else {
@@ -89,29 +88,30 @@ export function useFamilyObjects(enabled: boolean): { items: ObjectItem[]; loadi
   });
 
   // Rebuilt only when a result changes: `dataUpdatedAt` is the content of the lists.
+  const targetsKey = targets.map((t) => `${t.connection.id}\u001f${t.database}`).join();
   const stamp = [...databaseResults, ...collectionResults, ...searchResults]
     .map((result) => result.dataUpdatedAt)
     .join();
   const items = useMemo(() => {
     const all: ObjectItem[] = [];
     targets.forEach(({ connection, database }, index) => {
-      const list = dataOf<DocCollection[]>(collectionResults[index]) ?? NONE;
+      const list = (dataOf(collectionResults[index]) as DocCollection[] | undefined) ?? NONE;
       all.push(...collectionItems(connection.id, connection.name, database, list));
     });
     searches.forEach((connection, index) => {
       const at = index * 3;
       all.push(
         ...searchItems(connection.id, connection.name, {
-          indices: dataOf<SearchIndexInfo[]>(searchResults[at]) ?? NONE,
-          dataStreams: dataOf<SearchDataStream[]>(searchResults[at + 1]) ?? NONE,
-          aliases: dataOf<SearchAlias[]>(searchResults[at + 2]) ?? NONE,
+          indices: (dataOf(searchResults[at]) as SearchIndexInfo[] | undefined) ?? NONE,
+          dataStreams: (dataOf(searchResults[at + 1]) as SearchDataStream[] | undefined) ?? NONE,
+          aliases: (dataOf(searchResults[at + 2]) as SearchAlias[] | undefined) ?? NONE,
         }),
       );
     });
     return all;
     // `stamp` is the content of the results; `targets` and `searches` follow `connected` and tabs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stamp, targets.map((t) => `${t.connection.id}\u001f${t.database}`).join(), searches.length]);
+  }, [stamp, targetsKey, searches.length]);
 
   const loading =
     enabled &&

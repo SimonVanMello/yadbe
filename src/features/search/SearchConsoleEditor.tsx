@@ -18,6 +18,8 @@ import { matchesAction, runAction, type ActionId } from '../../app/actions';
 import { useT } from '../../i18n/useT';
 import type { TextRange } from '../../ipc';
 import { styleNonce } from '../../ui/cspNonce';
+import { consoleCompletionExtension } from '../completion/consoleCompletion';
+import { searchProvider } from '../completion/consoleProviders';
 import { errorRange } from '../query/errorMarks';
 import { sqlEditorTheme } from '../query/editorTheme';
 import { getQueryTabState, useQueryTabStore } from '../query/queryTabStore';
@@ -151,6 +153,7 @@ export function SearchConsoleEditor({ tabId }: { tabId: string }) {
           search({ top: true }),
           keymap.of([...defaultKeymap, ...searchKeymap, ...historyKeymap, indentWithTab]),
           consoleSyntax,
+          consoleCompletionExtension(searchProvider(tabId)),
           errorField,
           sqlEditorTheme,
           EditorView.contentAttributes.of({ 'aria-label': labelRef.current }),
