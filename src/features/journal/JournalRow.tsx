@@ -4,6 +4,7 @@ import type { Locale } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import type { JournalEntry } from '../../ipc';
 import { Icon } from '../../ui/Icon';
+import { useTableQualifier } from '../connections/connectionStore';
 import type { ConnectionSummary } from '../connections/model';
 import { ConnectionTag } from '../history/ConnectionTag';
 import { formatWhen } from '../history/HistoryRow';
@@ -37,6 +38,7 @@ export function JournalRow({
   onSelect,
 }: JournalRowProps) {
   const t = useT();
+  const qualifier = useTableQualifier(entry.engine);
   const state = revertState(entry);
   return (
     <div
@@ -53,7 +55,7 @@ export function JournalRow({
       <Icon name={entry.reverts === null ? 'table' : 'undo'} className={styles.icon} />
       <div className={styles.body}>
         <div className={styles.title}>
-          <code className={styles.table}>{tableText(entry.table)}</code>
+          <code className={styles.table}>{tableText(entry.table, qualifier)}</code>
           <span className={styles.counts}>
             {countParts(entry)
               .map((part) => t(part.key, { count: part.count }))

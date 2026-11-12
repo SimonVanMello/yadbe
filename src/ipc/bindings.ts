@@ -797,6 +797,11 @@ export type Capabilities = {
 	 *  `KILL QUERY`); otherwise only the whole session can be ended.
 	 */
 	activityCancelQuery: boolean,
+	/**
+	 *  What names a table besides its own name, in generated SQL and in the UI's labels:
+	 *  its schema, its database (MySQL), or nothing (SQLite).
+	 */
+	tableQualifier: Qualifier,
 };
 
 /**  A foreign key between two relations of the catalog (join suggestions). */
@@ -2769,6 +2774,18 @@ export type Preferences = {
 	/**  Change journal bound: oldest change set kept, in days. */
 	journalMaxAgeDays: number,
 };
+
+/**
+ *  How object names are qualified in generated SQL, and how the UI names a table
+ *  (`tableQualifier` capability).
+ */
+export type Qualifier = 
+/**  `schema.name` */
+"schema" | 
+/**  `database.name` (MySQL: databases are the namespaces) */
+"database" | 
+/**  `name` (one namespace per file) */
+"none";
 
 /**
  *  An execution ended (`delta.status`: succeeded, failed or cancelled). Always the last

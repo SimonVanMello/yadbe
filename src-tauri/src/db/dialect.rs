@@ -87,6 +87,9 @@ pub struct Capabilities {
     /// A running statement can be stopped while its session stays (`pg_cancel_backend`,
     /// `KILL QUERY`); otherwise only the whole session can be ended.
     pub activity_cancel_query: bool,
+    /// What names a table besides its own name, in generated SQL and in the UI's labels:
+    /// its schema, its database (MySQL), or nothing (SQLite).
+    pub table_qualifier: crate::db::meta::Qualifier,
 }
 
 pub trait Dialect:
@@ -177,6 +180,7 @@ impl Dialect for PostgresDialect {
             explain_analyze: true,
             activity_monitor: true,
             activity_cancel_query: true,
+            table_qualifier: crate::db::meta::Qualifier::Schema,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -242,6 +246,7 @@ impl Dialect for MssqlDialect {
             explain_analyze: true,
             activity_monitor: true,
             activity_cancel_query: false,
+            table_qualifier: crate::db::meta::Qualifier::Schema,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -307,6 +312,7 @@ impl Dialect for MysqlDialect {
             explain_analyze: true,
             activity_monitor: true,
             activity_cancel_query: true,
+            table_qualifier: crate::db::meta::Qualifier::Database,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -375,6 +381,7 @@ impl Dialect for SqliteDialect {
             explain_analyze: false,
             activity_monitor: false,
             activity_cancel_query: false,
+            table_qualifier: crate::db::meta::Qualifier::None,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -434,6 +441,27 @@ mod tests {
             Engine::Sqlite.dialect().quote_identifier("Order"),
             "\"Order\""
         );
+    }
+
+    #[test]
+    fn the_table_qualifier_follows_the_namespaces() {
+        use crate::db::meta::Qualifier;
+        for engine in [
+            Engine::Postgres,
+            Engine::Mssql,
+            Engine::Mysql,
+            Engine::Sqlite,
+        ] {
+            let caps = engine.dialect().capabilities();
+            let expected = if caps.schemas {
+                Qualifier::Schema
+            } else if caps.multiple_databases {
+                Qualifier::Database
+            } else {
+                Qualifier::None
+            };
+            assert_eq!(caps.table_qualifier, expected, "{engine:?}");
+        }
     }
 
     #[test]

@@ -46,8 +46,12 @@ describe('journal model', () => {
   });
 
   it('names tables and tells them apart', () => {
-    expect(tableText(entry.table)).toBe('public.orders');
-    expect(tableText({ database: 'main', schema: null, name: 't' })).toBe('t');
+    expect(tableText(entry.table, 'schema')).toBe('public.orders');
+    expect(tableText({ database: 'main', schema: null, name: 't' }, 'none')).toBe('t');
+    // MySQL: the database names the table, as a schema does elsewhere.
+    expect(tableText({ database: 'shop_re', schema: null, name: 'items' }, 'database')).toBe(
+      'shop_re.items',
+    );
     expect(tableKey(entry.table)).not.toBe(tableKey({ ...entry.table, schema: 'sales' }));
   });
 

@@ -1,4 +1,5 @@
 import { useT } from '../../i18n/useT';
+import { useConnection, useTableQualifier } from '../connections/connectionStore';
 import type { ResultReadOnlyReason } from '../../ipc';
 import { Icon } from '../../ui/Icon';
 import { useTabTransaction } from '../query/executionStore';
@@ -20,6 +21,7 @@ export function ResultEditStatus({
 }) {
   const t = useT();
   const transaction = useTabTransaction(entry?.tabId ?? '');
+  const qualifier = useTableQualifier(useConnection(entry?.connectionId ?? null)?.engine ?? null);
   if (!entry || entry.status === 'loading') return null;
   if (entry.status === 'failed') {
     return (
@@ -53,7 +55,7 @@ export function ResultEditStatus({
       </span>
     );
   }
-  const table = editTableLabel(entry);
+  const table = editTableLabel(entry, qualifier);
   return (
     <span
       className={styles.editable}

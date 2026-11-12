@@ -6,6 +6,7 @@ import {
   ipc,
   YadbeIpcError,
   type ColumnMeta,
+  type Qualifier,
   type ResultEditInfo,
   type YadbeError,
 } from '../../ipc';
@@ -197,8 +198,8 @@ export function confirmRunOver(tabId: string): Promise<boolean> {
 }
 
 /** A short label of the table an editable result writes to. */
-export function editTableLabel(entry: ResultEditEntry | undefined): string {
-  return entry?.info ? tableName(entry.info) : '';
+export function editTableLabel(entry: ResultEditEntry | undefined, qualifier: Qualifier): string {
+  return entry?.info ? tableName(entry.info, qualifier) : '';
 }
 
 let started = false;

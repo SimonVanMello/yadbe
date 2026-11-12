@@ -91,6 +91,7 @@ export const POSTGRES: Capabilities = {
   explainAnalyze: true,
   activityMonitor: true,
   activityCancelQuery: true,
+  tableQualifier: 'schema',
 };
 
 export const SQLITE: Capabilities = {
@@ -118,9 +119,11 @@ export const SQLITE: Capabilities = {
   explainAnalyze: false,
   activityMonitor: false,
   activityCancelQuery: false,
+  tableQualifier: 'none',
 };
 
 export const MYSQL: Capabilities = {
   ...POSTGRES,
   schemas: false,
+  tableQualifier: 'database',
 };

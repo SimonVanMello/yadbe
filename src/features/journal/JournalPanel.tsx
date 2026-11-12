@@ -15,7 +15,7 @@ import { Spinner } from '../../ui/Spinner';
 import { TextInput } from '../../ui/TextInput';
 import { useDebouncedValue } from '../../ui/useDebouncedValue';
 import { useNow } from '../../ui/useNow';
-import { useConnections } from '../connections/connectionStore';
+import { qualifierOf, useConnections, useEngines } from '../connections/connectionStore';
 import { JournalDetail } from './JournalDetail';
 import styles from './JournalPanel.module.css';
 import { isJournalFiltered, tableKey, tableText } from './journalModel';
@@ -44,6 +44,7 @@ export function JournalPanel() {
   const { query, entries } = useJournalList(queryFilters);
   const tables = useJournalTables(filters.connectionId);
   const connections = useConnections();
+  const { engines } = useEngines();
   const byId = useMemo(
     () => new Map(connections.map((connection) => [connection.id, connection])),
     [connections],
@@ -111,7 +112,13 @@ export function JournalPanel() {
         (item, index, all) =>
           all.findIndex((other) => tableKey(other.table) === tableKey(item.table)) === index,
       )
-      .map((item) => ({ value: tableKey(item.table), label: tableText(item.table) })),
+      .map((item) => ({
+        value: tableKey(item.table),
+        label: tableText(
+          item.table,
+          qualifierOf(engines, byId.get(item.connectionId)?.engine ?? null),
+        ),
+      })),
   ];
 
   const clear = async () => {

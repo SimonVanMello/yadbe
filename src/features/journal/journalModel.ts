@@ -1,5 +1,6 @@
 import type { MessageKey, MessageParams } from '../../i18n/i18n';
-import type { JournalEntry, JournalQuery, ObjectRef, RevertBlocker } from '../../ipc';
+import type { JournalEntry, JournalQuery, ObjectRef, Qualifier, RevertBlocker } from '../../ipc';
+import { tableLabel } from '../table-data/tableNames';
 
 /** What the Journal view filters on (F-090). */
 export interface JournalFilters {
@@ -27,9 +28,9 @@ export function toJournalQuery(filters: JournalFilters): JournalQuery {
   };
 }
 
-/** `schema.table`, or the table alone. */
-export function tableText(table: ObjectRef): string {
-  return table.schema ? `${table.schema}.${table.name}` : table.name;
+/** `schema.table` (`database.table` on MySQL), or the table alone. */
+export function tableText(table: ObjectRef, qualifier: Qualifier): string {
+  return tableLabel(table, qualifier);
 }
 
 /** A stable key of a table, for a select. */

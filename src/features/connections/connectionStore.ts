@@ -8,6 +8,7 @@ import {
   type SavedConnection,
   type SessionInfo,
   type YadbeError,
+  type Qualifier,
 } from '../../ipc';
 import { connectionsApi } from './connectionsApi';
 import {
@@ -78,6 +79,15 @@ export function useEngines() {
 
 export function useEngineInfo(engine: Engine | null): EngineInfo | undefined {
   return useEngines().engines.find((info) => info.engine === engine);
+}
+
+/** How an engine names a table besides its name (`tableQualifier`); `schema` until known. */
+export function qualifierOf(engines: readonly EngineInfo[], engine: Engine | null): Qualifier {
+  return engines.find((info) => info.engine === engine)?.capabilities.tableQualifier ?? 'schema';
+}
+
+export function useTableQualifier(engine: Engine | null): Qualifier {
+  return qualifierOf(useEngines().engines, engine);
 }
 
 /** Whether the OS keychain can hold passwords (F-005). Assumed available until known. */

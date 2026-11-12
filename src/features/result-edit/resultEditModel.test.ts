@@ -59,7 +59,9 @@ describe('result edit model', () => {
     expect(info?.foreignKeys).toEqual([]);
     expect(toTableInfo({ ...editable, readOnlyReasons: ['keyNotSelected'] })).toBeNull();
     expect(toTableInfo({ ...editable, table: null })).toBeNull();
-    expect(tableName(editable)).toBe('shop.customers');
+    expect(tableName(editable, 'schema')).toBe('shop.customers');
+    const mysql = { ...editable, table: { database: 'm3re', schema: null, name: 'items' } };
+    expect(tableName(mysql, 'database')).toBe('m3re.items');
   });
 
   it("keeps the result's column names and types on the grid", () => {

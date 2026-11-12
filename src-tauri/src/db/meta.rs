@@ -504,8 +504,10 @@ pub struct MetaCapabilities {
     pub partial_indexes: bool,
 }
 
-/// How object names are qualified in generated SQL.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How object names are qualified in generated SQL, and how the UI names a table
+/// (`tableQualifier` capability).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub enum Qualifier {
     /// `schema.name`
     Schema,
@@ -517,13 +519,7 @@ pub enum Qualifier {
 
 impl Qualifier {
     pub fn of(capabilities: &Capabilities) -> Qualifier {
-        if capabilities.schemas {
-            Qualifier::Schema
-        } else if capabilities.multiple_databases {
-            Qualifier::Database
-        } else {
-            Qualifier::None
-        }
+        capabilities.table_qualifier
     }
 }
 

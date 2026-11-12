@@ -5,7 +5,7 @@ import type { JournalEntry } from '../../ipc';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
-import { useConnection } from '../connections/connectionStore';
+import { useConnection, useTableQualifier } from '../connections/connectionStore';
 import { ConnectionTag } from '../history/ConnectionTag';
 import { revertChangeSet } from '../table-data/tableActions';
 import styles from './JournalDetail.module.css';
@@ -21,6 +21,7 @@ export function JournalDetail({ entry }: { entry: JournalEntry }) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
   const connection = useConnection(entry.connectionId);
+  const qualifier = useTableQualifier(entry.engine);
   const detail = useJournalDetail(entry.id);
   const state = revertState(entry);
   const blocker = state.kind === 'blocked' ? blockerMessage(state.blocker) : null;
@@ -29,7 +30,7 @@ export function JournalDetail({ entry }: { entry: JournalEntry }) {
     <aside className={styles.detail} aria-label={t('journal.detail')}>
       <div className={styles.identity}>
         <ConnectionTag connection={connection} name={entry.connectionName} />
-        <code className={styles.table}>{tableText(entry.table)}</code>
+        <code className={styles.table}>{tableText(entry.table, qualifier)}</code>
       </div>
       <p className={styles.facts}>
         {t('journal.entryId', { id: entry.id })} ·{' '}

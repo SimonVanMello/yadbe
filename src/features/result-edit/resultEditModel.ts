@@ -1,11 +1,13 @@
 import type {
   ColumnMeta,
+  Qualifier,
   ResultEditInfo,
   ResultReadOnlyReason,
   TableDataInfo,
   TransactionState,
 } from '../../ipc';
 import type { GridColumn } from '../grid/rowSource';
+import { tableLabel } from '../table-data/tableNames';
 
 /**
  * Editable query results (F-087), the pure part: how a result's edit description becomes the
@@ -76,9 +78,7 @@ export function readOnlyReasons(
   return reasons;
 }
 
-/** A short name of a table: `schema.name`, or the name alone. */
-export function tableName(info: ResultEditInfo): string {
-  const table = info.table;
-  if (!table) return '';
-  return table.schema ? `${table.schema}.${table.name}` : table.name;
+/** A short name of a table: `schema.name` (`database.name` on MySQL), or the name alone. */
+export function tableName(info: ResultEditInfo, qualifier: Qualifier): string {
+  return info.table ? tableLabel(info.table, qualifier) : '';
 }
