@@ -267,6 +267,11 @@
   font-size: var(--text-xs);
 }
 
+.nullValue {
+  color: var(--cell-null);
+  font-style: var(--grid-null-font-style);
+}
+
 .summary {
   display: flex;
   flex-wrap: wrap;

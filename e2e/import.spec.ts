@@ -143,6 +143,22 @@ for (const { name, colorScheme } of THEMES) {
       await expect(page.getByText('Changed elsewhere: refresh to see it.')).toBeVisible();
     });
 
+    test('an empty field read as NULL in a NOT NULL column shows as a NULL', async ({ page }) => {
+      await openOrders(page, /^local postgres,/);
+      await page.getByRole('button', { name: 'Import data into the table…' }).click();
+      await chooseFile(
+        page,
+        'nulls.csv',
+        'customer_id,status,subtotal,shipping,total,note\n,paid,1.00,0,1.00,no customer\n',
+      );
+      await wizard(page).getByRole('button', { name: 'Next' }).click();
+      const check = wizard(page).getByTestId('map-customer_id');
+      await expect(check).toContainText('line 2: NULL (');
+      await expect(check).not.toContainText('“NULL”');
+      await expect(check.getByText('NULL', { exact: true })).toBeVisible();
+      await capture(page, name, 'columns-null');
+    });
+
     test('stopping at the first bad row rolls the import back and says where', async ({ page }) => {
       await openOrders(page, /^local postgres,/);
       await page.getByRole('button', { name: 'Import data into the table…' }).click();

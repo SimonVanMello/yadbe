@@ -1733,6 +1733,8 @@
   "import.check.invalid": "{count} valeurs ne se convertiront pas",
   "import.check.invalid.one": "Une valeur ne se convertira pas",
   "import.check.sample": "ligne {line} : « {value} » ({reason})",
+  "import.check.sampleLine": "ligne {line} :",
+  "import.check.sampleReason": "({reason})",
   "import.analysis.sampled": "Vérifié sur les {count} premières lignes ; la simulation lit tout le fichier.",
   "import.analysis.all": "Vérifié sur les {count} lignes.",
   "import.analysis.all.one": "Vérifié sur l’unique ligne.",

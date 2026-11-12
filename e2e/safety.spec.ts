@@ -112,6 +112,38 @@ for (const { name, colorScheme } of THEMES) {
       await page.getByRole('button', { name: 'Rollback' }).click();
     });
 
+    test('read-only applies to an open connection at once; other settings offer a reconnect', async ({
+      page,
+    }) => {
+      await openQueryTab(page, 'local postgres');
+      await sidebarItem(page, 'local postgres').click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Edit…' }).click();
+      const form = page.getByRole('dialog', { name: 'Edit connection' });
+      await form.getByRole('switch', { name: /^Read-only/ }).click();
+      await form.getByRole('button', { name: 'Save' }).click();
+      await expect(form).toBeHidden();
+      // Nothing waits for a reconnection: a plain confirmation, and writes are refused now.
+      const toasts = page.getByRole('region', { name: /Notifications/ });
+      await expect(toasts).toContainText('local postgres saved');
+      await expect(toasts.getByRole('button', { name: 'Reconnect' })).toHaveCount(0);
+      await setScript(page, "update orders set status = 'x' where id = 1;");
+      await page.keyboard.press('ControlOrMeta+Enter');
+      await expect(page.getByTestId('run-status')).toContainText('Failed');
+
+      await sidebarItem(page, 'local postgres').click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Edit…' }).click();
+      await form.getByLabel('Port').fill('5433');
+      await form.getByRole('button', { name: 'Save' }).click();
+      await expect(form).toBeHidden();
+      const reconnect = toasts.getByRole('button', { name: 'Reconnect' });
+      await expect(reconnect).toBeVisible();
+      await expect(toasts).toContainText('keeps its previous settings until it reconnects');
+      await capture(page, name, 'saved-reconnect');
+      await reconnect.click();
+      await expect(reconnect).toBeHidden();
+      await expect(sidebarItem(page, 'local postgres')).toHaveAccessibleName(/Connected/);
+    });
+
     test('a failed history entry has no row count', async ({ page }) => {
       await openQueryTab(page, 'local postgres');
       await setScript(page, 'select * from nowhere;');

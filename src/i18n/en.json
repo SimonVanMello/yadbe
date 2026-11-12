@@ -1733,6 +1733,8 @@
   "import.check.invalid": "{count} values will not convert",
   "import.check.invalid.one": "One value will not convert",
   "import.check.sample": "line {line}: “{value}” ({reason})",
+  "import.check.sampleLine": "line {line}:",
+  "import.check.sampleReason": "({reason})",
   "import.analysis.sampled": "Checked on the first {count} rows; the dry run reads the whole file.",
   "import.analysis.all": "Checked on all {count} rows.",
   "import.analysis.all.one": "Checked on the only row.",

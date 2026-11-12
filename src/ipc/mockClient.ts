@@ -1157,17 +1157,31 @@ export const mockClient: YadbeClient = {
 
 /** Whether `after` changes a setting an open session only picks up when it connects again. */
 function needsReconnect(before: ConnectionDefinition, after: ConnectionDefinition): boolean {
+  // Key order differs between a seed and a definition built by the form: compare sorted.
+  const canonical = (value: unknown): unknown =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(
+          Object.entries(value)
+            .filter(([, v]) => v !== undefined)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([k, v]) => [k, canonical(v)]),
+        )
+      : Array.isArray(value)
+        ? value.map(canonical)
+        : value;
   const sessionPart = (d: ConnectionDefinition) =>
-    JSON.stringify({
-      ...d,
-      name: '',
-      groupId: null,
-      environment: null,
-      favorite: false,
-      readOnly: false,
-      rememberPassword: false,
-      historyEnabled: false,
-      statementTimeoutSecs: null,
-    });
+    JSON.stringify(
+      canonical({
+        ...d,
+        name: '',
+        groupId: null,
+        environment: null,
+        favorite: false,
+        readOnly: false,
+        rememberPassword: false,
+        historyEnabled: false,
+        statementTimeoutSecs: null,
+      }),
+    );
   return sessionPart(before) !== sessionPart(after);
 }

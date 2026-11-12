@@ -87,9 +87,13 @@ for (const { name, colorScheme } of THEMES) {
       await openQueryTab(page, 'local postgres');
       await setScript(page, SCRIPT);
       await placeCursor(page, 7);
-      await expect(page.locator('.cm-statement-highlight').first()).toBeVisible();
-      await expect(page.locator('.cm-statement-highlight')).toContainText('select count(*)');
-      await expect(page.locator('.cm-statement-highlight')).not.toContainText('update orders');
+      // One mark per line: until the cursor's move is painted, the four lines of the first
+      // statement can still be marked. Waiting for the single line of the second one keeps
+      // the text checks on one element.
+      const highlight = page.locator('.cm-statement-highlight');
+      await expect(highlight).toHaveCount(1);
+      await expect(highlight).toContainText('select count(*)');
+      await expect(highlight).not.toContainText('update orders');
       await capture(page, name, 'editor-statement-highlight');
     });
 

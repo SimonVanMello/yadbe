@@ -48,11 +48,20 @@ function CheckCell({ check, plan }: { check: ImportColumnCheck | undefined; plan
       <ul className={styles.samples}>
         {check.samples.slice(0, 3).map((sample) => (
           <li key={`${String(sample.line)}:${sample.value}`}>
-            {t('import.check.sample', {
-              line: sample.line,
-              value: sample.value === '' ? t('import.preview.null') : sample.value,
-              reason: t(messageOfIssue(sample.reason)),
-            })}
+            {sample.value === '' ? (
+              // An empty field is read as NULL: shown as one, not as a quoted text value.
+              <>
+                {t('import.check.sampleLine', { line: sample.line })}{' '}
+                <span className={styles.nullValue}>{t('import.preview.null')}</span>{' '}
+                {t('import.check.sampleReason', { reason: t(messageOfIssue(sample.reason)) })}
+              </>
+            ) : (
+              t('import.check.sample', {
+                line: sample.line,
+                value: sample.value,
+                reason: t(messageOfIssue(sample.reason)),
+              })
+            )}
           </li>
         ))}
       </ul>
