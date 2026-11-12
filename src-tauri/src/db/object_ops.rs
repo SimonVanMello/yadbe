@@ -471,12 +471,12 @@ mod tests {
 
     #[test]
     fn no_statement_carries_cascade() {
-        for engine in Engine::ALL {
-            for kind in engine.dialect().meta_capabilities().object_kinds {
-                let schema = engine.dialect().capabilities().schemas.then_some("s");
+        for (_, dialect) in Engine::sql_dialects() {
+            for kind in dialect.meta_capabilities().object_kinds {
+                let schema = dialect.capabilities().schemas.then_some("s");
                 let object = at(schema, "x");
                 let info = relation(*kind, "x");
-                let sql = engine.dialect().drop_statement(&object, &info);
+                let sql = dialect.drop_statement(&object, &info);
                 assert!(!sql.to_ascii_uppercase().contains("CASCADE"), "{sql}");
             }
         }

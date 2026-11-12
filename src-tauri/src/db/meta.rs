@@ -658,8 +658,8 @@ mod tests {
 
     #[test]
     fn every_engine_lists_tables_and_views_first() {
-        for engine in Engine::ALL {
-            let kinds = engine.dialect().meta_capabilities().object_kinds;
+        for (_, dialect) in Engine::sql_dialects() {
+            let kinds = dialect.meta_capabilities().object_kinds;
             assert_eq!(&kinds[..2], &[ObjectKind::Table, ObjectKind::View]);
         }
     }

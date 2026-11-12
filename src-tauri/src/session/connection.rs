@@ -12,7 +12,6 @@ use tokio::task::JoinHandle;
 use crate::db::config::ConnectTarget;
 use crate::db::dialect::Dialect;
 use crate::db::driver::{Backend, ConnectRequest, Driver, Link, SqlConnection, StatementRecorder};
-use crate::db::engine::EngineFamily;
 use crate::db::errors::YadbeError;
 use crate::db::value::QueryResult;
 use crate::events::{BackendEvent, ConnectionStateChanged, EventSink};
@@ -360,11 +359,6 @@ impl ConnectionSession {
     pub fn sql(&self) -> Result<Arc<dyn SqlConnection>, YadbeError> {
         self.dialect()?;
         self.backend()?.into_sql()
-    }
-
-    /// The family of the session's engine.
-    pub fn family(&self) -> EngineFamily {
-        self.target.engine.family()
     }
 
     /// The SQL dialect of the session's engine, or `sqlOnly` for an engine of another family:

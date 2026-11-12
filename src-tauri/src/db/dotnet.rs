@@ -468,7 +468,7 @@ mod tests {
             text(&lite, ConnectionStringFlavor::AdoNet),
             "Data Source=/data/my app.db;Mode=ReadOnly"
         );
-        for engine in Engine::ALL {
+        for (engine, _) in Engine::sql_dialects() {
             assert!(
                 !text(&definition(engine), ConnectionStringFlavor::AdoNet).contains("Password")
             );

@@ -24,7 +24,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::watch;
 
 use crate::db::config::ConnectTarget;
-use crate::db::engine::{Engine, EngineFamily};
+use crate::db::engine::Engine;
 use crate::db::errors::{ConstraintViolation, YadbeError};
 use crate::db::params::ParamStatement;
 use crate::db::plan::RawPlan;
@@ -178,12 +178,6 @@ pub enum Backend {
 }
 
 impl Backend {
-    pub fn family(&self) -> EngineFamily {
-        match self {
-            Backend::Sql(_) => EngineFamily::Sql,
-        }
-    }
-
     /// What every family has: version, ping, link watch, cancel, close, read-only switch.
     pub fn as_link(&self) -> &dyn Link {
         match self {
@@ -192,13 +186,6 @@ impl Backend {
     }
 
     /// The SQL connection, or `sqlOnly` for an engine of another family.
-    pub fn sql(&self) -> Result<&Arc<dyn SqlConnection>, YadbeError> {
-        match self {
-            Backend::Sql(conn) => Ok(conn),
-        }
-    }
-
-    /// [`Self::sql`], by value.
     pub fn into_sql(self) -> Result<Arc<dyn SqlConnection>, YadbeError> {
         match self {
             Backend::Sql(conn) => Ok(conn),
