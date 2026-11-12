@@ -9,6 +9,7 @@ use tauri_specta::Event;
 
 use crate::db::meta::{MetaNode, ObjectRef};
 use crate::export::model::{ExportFinished, ExportProgress};
+use crate::import::model::{ImportFinished, ImportProgress};
 use crate::session::SessionInfo;
 use crate::session::query_model::{ExecutionDelta, TransactionState};
 use crate::session::statement_log::StatementLogEntry;
@@ -133,6 +134,8 @@ pub enum BackendEvent {
     TableDataChanged(TableDataChanged),
     SavedQueriesChanged(SavedQueriesChanged),
     ChangeJournalChanged(ChangeJournalChanged),
+    ImportProgress(ImportProgress),
+    ImportFinished(ImportFinished),
 }
 
 pub trait EventSink: Send + Sync {
@@ -190,6 +193,8 @@ impl EventSink for TauriSink {
             BackendEvent::TableDataChanged(e) => e.emit(app),
             BackendEvent::SavedQueriesChanged(e) => e.emit(app),
             BackendEvent::ChangeJournalChanged(e) => e.emit(app),
+            BackendEvent::ImportProgress(e) => e.emit(app),
+            BackendEvent::ImportFinished(e) => e.emit(app),
         };
         if let Err(err) = result {
             tracing::warn!(error = %err, "failed to emit event");

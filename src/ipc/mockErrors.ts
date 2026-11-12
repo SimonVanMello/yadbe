@@ -221,6 +221,30 @@ export const mockErrors = {
       `La modification enfreint ${fr}${nameFr}${columnFr}.`,
     );
   },
+  importFileInvalid: (line: number, problem: string) =>
+    error(
+      'importFileInvalid',
+      `The file cannot be read as the chosen format (line ${line}). Check the format options.`,
+      `Le fichier ne peut pas être lu dans le format choisi (ligne ${line}). Vérifiez les options de format.`,
+      'chooseFile',
+      problem,
+    ),
+  importRejected: (line: number, problem: string) =>
+    error(
+      'importRejected',
+      `The import stopped at line ${line}: a row was rejected. Nothing was kept unless the import commits batch by batch.`,
+      `L'import s'est arrêté à la ligne ${line} : une ligne a été rejetée. Rien n'a été conservé, sauf si l'import valide lot par lot.`,
+      null,
+      problem,
+    ),
+  connectionFileInvalid: (en: string, fr: string) =>
+    error('connectionFileInvalid', en, fr, 'chooseFile'),
+  objectNotFound: (name: string) =>
+    error(
+      'objectNotFound',
+      `"${name}" no longer exists. Refresh the explorer to see the current objects.`,
+      `« ${name} » n'existe plus. Actualisez l'explorateur pour voir les objets actuels.`,
+    ),
   invalidValue: (detail: string) =>
     error(
       'invalidValue',

@@ -27,7 +27,9 @@ import {
   MOCK_SERVER_VERSIONS,
 } from './mockData';
 import { mockErrors } from './mockErrors';
+import { createMockConnectionImport } from './mock/connectionImport';
 import { createMockExport } from './mock/export';
+import { createMockImport } from './mock/import';
 import { createMockFiles } from './mockFiles';
 import { createMockHistory } from './mock/history';
 import { createMockSavedQueries } from './mock/savedQueries';
@@ -497,6 +499,65 @@ function createMockBackend() {
     return ok(clone(info));
   }
 
+  function createConnectionNow(definition: ConnectionDefinition): SavedConnection | YadbeError {
+    const def = normalized(definition);
+    if (isError(def)) return def;
+    const at = now();
+    const conn: SavedConnection = {
+      id: newId('conn'),
+      definition: def,
+      position: nextPosition(connections.filter((c) => c.definition.groupId === def.groupId)),
+      createdAt: at,
+      updatedAt: at,
+      lastConnectedAt: null,
+    };
+    connections = [...connections, conn];
+    return clone(conn);
+  }
+
+  const importer = createMockImport({
+    events,
+    readFile: (path) => files.get(path),
+    writeFile: (path, text) => {
+      files.set(path, text);
+    },
+    relation: (connectionId, table) => meta.relation(connectionId, table),
+    session: (connectionId) => {
+      const conn = findConnection(connectionId);
+      if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
+      return { engine: conn.definition.engine, readOnly: conn.definition.readOnly };
+    },
+    logStatement: (connectionId, sql, error = null) => {
+      logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
+    },
+  });
+
+  const connectionImport = createMockConnectionImport({
+    connections: () => connections,
+    groups: () => groups,
+    createGroup: (name, parentId) => {
+      const group: ConnectionGroup = {
+        id: newId('group'),
+        name,
+        parentId,
+        position: nextPosition(groups.filter((g) => g.parentId === parentId)),
+        collapsed: false,
+      };
+      groups = [...groups, group];
+      return clone(group);
+    },
+    createConnection: createConnectionNow,
+    storePassword: (connectionId, password) => {
+      const location: SecretLocation = keychainAvailable ? 'keychain' : 'session';
+      secrets.set(secretKey(connectionId, 'password'), { value: password, location });
+      return location;
+    },
+    readFile: (path) => files.get(path),
+    writeFile: (path, text) => {
+      files.set(path, text);
+    },
+  });
+
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
 
@@ -505,19 +566,8 @@ function createMockBackend() {
     listConnections: () => ok(clone(connections)),
 
     createConnection: (definition) => {
-      const def = normalized(definition);
-      if (isError(def)) return fail(def);
-      const at = now();
-      const conn: SavedConnection = {
-        id: newId('conn'),
-        definition: def,
-        position: nextPosition(connections.filter((c) => c.definition.groupId === def.groupId)),
-        createdAt: at,
-        updatedAt: at,
-        lastConnectedAt: null,
-      };
-      connections = [...connections, conn];
-      return ok(clone(conn));
+      const created = createConnectionNow(definition);
+      return isError(created) ? fail(created) : ok(created);
     },
 
     updateConnection: (connectionId, definition) => {
@@ -802,6 +852,8 @@ function createMockBackend() {
     ...files.commands,
     ...exporter.commands,
     ...objects.commands,
+    ...importer.commands,
+    ...connectionImport.commands,
   };
 
   function reset(): void {
@@ -829,6 +881,7 @@ function createMockBackend() {
     references.reset();
     files.reset();
     exporter.reset();
+    importer.reset();
     clearReloadState();
     seed();
   }
@@ -908,6 +961,10 @@ function createMockBackend() {
     /** Time between two simulated steps of an export, in ms (0 in unit tests). */
     setExportTick(ms: number): void {
       exporter.setTick(ms);
+    },
+    /** Time between two simulated steps of an import, in ms (0 in unit tests). */
+    setImportTick(ms: number): void {
+      importer.setTick(ms);
     },
     /** `count` synthetic history entries over the last year (100 000 for the scroll check). */
     seedHistory(count: number): void {

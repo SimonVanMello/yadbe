@@ -164,6 +164,28 @@ pub trait EditDialect {
     fn rollback(&self) -> &'static str {
         "ROLLBACK"
     }
+
+    /// Most bound parameters one statement can take, with a margin below the engine's own
+    /// limit (65 535 PostgreSQL / MySQL, 32 766 SQLite, 2 100 SQL Server): imports size
+    /// their multi-row inserts from it.
+    fn max_bound_parameters(&self) -> usize {
+        30_000
+    }
+
+    /// Opens a savepoint in the running transaction (an import recovers from a failed batch
+    /// on PostgreSQL, where an error aborts the transaction).
+    fn savepoint(&self, name: &str) -> String {
+        format!("SAVEPOINT {name}")
+    }
+
+    fn rollback_to_savepoint(&self, name: &str) -> String {
+        format!("ROLLBACK TO SAVEPOINT {name}")
+    }
+
+    /// `None`: the engine has no release (SQL Server keeps savepoints until the end).
+    fn release_savepoint(&self, name: &str) -> Option<String> {
+        Some(format!("RELEASE SAVEPOINT {name}"))
+    }
 }
 
 /// `'text'`, quotes doubled.
@@ -410,6 +432,18 @@ impl EditDialect for MssqlDialect {
     }
     fn count_expression(&self) -> &'static str {
         "COUNT_BIG(*)"
+    }
+    fn max_bound_parameters(&self) -> usize {
+        2_000
+    }
+    fn savepoint(&self, name: &str) -> String {
+        format!("SAVE TRANSACTION {name}")
+    }
+    fn rollback_to_savepoint(&self, name: &str) -> String {
+        format!("ROLLBACK TRANSACTION {name}")
+    }
+    fn release_savepoint(&self, _name: &str) -> Option<String> {
+        None
     }
     fn row_estimate(&self) -> RowEstimateSource {
         RowEstimateSource::Catalog(

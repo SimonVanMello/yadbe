@@ -102,6 +102,9 @@ export const UNBOUND_ACTIONS = [
   'table.showDdl',
   'table.properties',
   'table.togglePin',
+  'table.import',
+  'connection.import',
+  'connection.export',
 ] as const;
 
 export type BoundActionId = keyof typeof DEFAULT_BINDINGS;
@@ -176,6 +179,9 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'table.showDdl': 'action.table.showDdl',
   'table.properties': 'action.table.properties',
   'table.togglePin': 'action.table.togglePin',
+  'table.import': 'action.table.import',
+  'connection.import': 'action.connection.import',
+  'connection.export': 'action.connection.export',
   'table.goToReference': 'action.table.goToReference',
   'table.peekReference': 'action.table.peekReference',
   'table.referencingRows': 'action.table.referencingRows',

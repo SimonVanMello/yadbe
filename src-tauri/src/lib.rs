@@ -1,8 +1,10 @@
 pub mod commands;
+pub mod conn_import;
 pub mod db;
 pub mod edit;
 pub mod events;
 pub mod export;
+pub mod import;
 pub mod secrets;
 pub mod session;
 pub mod state;
@@ -102,6 +104,15 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::export::start_export,
             commands::export::cancel_export,
             commands::export::preview_export,
+            commands::import::preview_import_file,
+            commands::import::get_import_target,
+            commands::import::analyze_import,
+            commands::import::start_import,
+            commands::import::cancel_import,
+            commands::connection_import::list_connection_sources,
+            commands::connection_import::scan_connection_source,
+            commands::connection_import::import_connections,
+            commands::connection_import::export_connections,
             commands::table_data::open_table_data,
             commands::table_data::fetch_table_page,
             commands::table_data::count_table_rows,
@@ -146,6 +157,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             events::TableDataChanged,
             events::SavedQueriesChanged,
             events::ChangeJournalChanged,
+            import::model::ImportProgress,
+            import::model::ImportFinished,
         ])
 }
 

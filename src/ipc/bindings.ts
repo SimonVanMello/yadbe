@@ -286,6 +286,78 @@ export const commands = {
 	/**  The first `limit` rows (at most 100) as the file will contain them, for the dialog's preview. */
 	previewExport: (source: ExportSourceSpec, format: ExportFormat, limit: number) => typedError<string, YadbeError>(__TAURI_INVOKE("preview_export", { source, format, limit })),
 	/**
+	 *  The first `limit` rows (at most 200) of an import file as `options` read them; without
+	 *  options the encoding, format, delimiter, header and null token are detected and returned
+	 *  in the preview. Fails with `invalidArgument` for a relative path or an extension that is
+	 *  not a data file, `fileNotFound`, `importFileInvalid` for a file that does not follow the
+	 *  format.
+	 */
+	previewImportFile: (path: string, options: {
+	format: ImportFormat,
+	encoding: ImportEncoding,
+	/**  CSV only. */
+	delimiter: ImportDelimiter,
+	/**  CSV only. */
+	quote: ImportQuote,
+	/**  CSV: the first row (after the skipped ones) holds the column names. */
+	header: boolean,
+	/**  Text read as `NULL` when it is not quoted (`NULL`, `\N`…). CSV only. */
+	nullToken: string | null,
+	/**  An unquoted empty CSV field is `NULL` (a quoted `""` stays an empty string). */
+	emptyAsNull: boolean,
+	/**  Spaces around unquoted CSV fields are dropped. */
+	trim: boolean,
+	/**  Lines skipped before the header, CSV only. */
+	skipRows: number,
+} | null, limit: number) => typedError<ImportPreview, YadbeError>(__TAURI_INVOKE("preview_import_file", { path, options, limit })),
+	/**
+	 *  The columns of a table as an import sees them (which can be written, which the server
+	 *  fills). `objectNotFound` when the table no longer exists.
+	 */
+	getImportTarget: (connectionId: string, table: ObjectRef) => typedError<ImportTarget, YadbeError>(__TAURI_INVOKE("get_import_target", { connectionId, table })),
+	/**
+	 *  Checks the mapping against the table and counts, per mapped column, the values among the
+	 *  first 10 000 rows that will not convert. Reads the file only; writes nothing.
+	 */
+	analyzeImport: (request: ImportRequest) => typedError<ImportAnalysis, YadbeError>(__TAURI_INVOKE("analyze_import", { request })),
+	/**
+	 *  Starts an import (a dry run when `request.dryRun`) and returns at once. Fails with
+	 *  `readOnlyViolation` on a read-only connection, `invalidArgument` for a bad mapping, a
+	 *  column that cannot be written or a `NOT NULL` column left without a value. Values are
+	 *  converted exactly (nothing is coerced), bound as parameters and written in multi-row
+	 *  inserts; a single transaction by default.
+	 */
+	startImport: (request: ImportRequest) => typedError<ImportStarted, YadbeError>(__TAURI_INVOKE("start_import", { request })),
+	/**
+	 *  Cancels an import: rolled back in a single transaction, batches already committed kept in
+	 *  per-batch mode. Does nothing for an unknown id.
+	 */
+	cancelImport: (importId: number) => typedError<null, YadbeError>(__TAURI_INVOKE("cancel_import", { importId })),
+	/**
+	 *  The sources connections can be imported from, with the file each has on this computer
+	 *  (`null` when it does not exist there).
+	 */
+	listConnectionSources: () => typedError<ConnectionSourceInfo[], YadbeError>(__TAURI_INVOKE("list_connection_sources")),
+	/**
+	 *  Reads a source file (its default place when `path` is `null`) and lists the connections it
+	 *  defines, with the ones that already exist marked. Passwords are never returned. Fails
+	 *  with `fileNotFound`, `connectionFileInvalid` for a file that is not of that source's
+	 *  format (or a yadbe file from a newer version).
+	 */
+	scanConnectionSource: (kind: ConnectionSourceKind, path: string | null) => typedError<ConnectionScan, YadbeError>(__TAURI_INVOKE("scan_connection_source", { kind, path })),
+	/**
+	 *  Imports the chosen connections as new ones (new ids, a unique name, folders recreated).
+	 *  The file is read again for the passwords; those of a `.pgpass` go to the OS keychain when
+	 *  `importPasswords`, nowhere else. A connection that cannot be saved is listed in `failed`.
+	 */
+	importConnections: (request: ImportConnectionsRequest) => typedError<ConnectionImportResult, YadbeError>(__TAURI_INVOKE("import_connections", { request })),
+	/**
+	 *  Writes the chosen connections (all when the list is empty) to a yadbe connections file:
+	 *  definitions, folders, environment tags and flags, SSH tunnel settings, and no password,
+	 *  passphrase or token. Returns how many were written. `path` must be absolute, `.json`.
+	 */
+	exportConnections: (path: string, connectionIds: string[]) => typedError<number, YadbeError>(__TAURI_INVOKE("export_connections", { path, connectionIds })),
+	/**
 	 *  Opens `table` (a table, view or materialized view) in the table tab `tabId`: its columns,
 	 *  row identity and why it or its columns cannot be edited. Reads the cached metadata
 	 *  (`objectNotFound` when it no longer exists). Opening another table in the same tab
@@ -429,6 +501,8 @@ export const events = {
 	exportFinished: makeEvent<ExportFinished>("export-finished"),
 	exportProgress: makeEvent<ExportProgress>("export-progress"),
 	historyChanged: makeEvent<HistoryChanged>("history-changed"),
+	importFinished: makeEvent<ImportFinished>("import-finished"),
+	importProgress: makeEvent<ImportProgress>("import-progress"),
 	metaRefreshed: makeEvent<MetaRefreshed>("meta-refreshed"),
 	queryFinished: makeEvent<QueryFinished>("query-finished"),
 	queryProgress: makeEvent<QueryProgress>("query-progress"),
@@ -701,6 +775,18 @@ export type CompletionCatalog = {
 	foreignKeys: CatalogForeignKey[],
 };
 
+export type ConflictKind = 
+/**  A saved connection has the same engine, host, port, database and user (or file). */
+"sameTarget" | 
+/**  A saved connection has the same name. */
+"sameName";
+
+export type ConnectionConflict = {
+	existingId: string,
+	existingName: string,
+	kind: ConflictKind,
+};
+
 /**
  *  Everything the user defines for a connection, without any secret. Server engines use
  *  `host` / `port` / `database` / `username`; file engines use `filePath` (see the
@@ -755,11 +841,76 @@ export type ConnectionGroup = {
 	collapsed: boolean,
 };
 
+export type ConnectionImportFailure = {
+	key: string,
+	name: string,
+	detail: string,
+};
+
+export type ConnectionImportResult = {
+	created: SavedConnection[],
+	groupsCreated: number,
+	/**  Passwords now in the OS keychain. */
+	passwordsStored: number,
+	/**  Passwords kept for this session only (no keychain on this computer). */
+	passwordsSessionOnly: number,
+	failed: ConnectionImportFailure[],
+};
+
+export type ConnectionNote = {
+	kind: ConnectionNoteKind,
+	detail: string | null,
+};
+
+/**  Something to know about a found connection before importing it. */
+export type ConnectionNoteKind = 
+/**
+ *  The source uses Windows integrated authentication, which yadbe does not support
+ *  yet: the connection needs a SQL login.
+ */
+"integratedAuth" | 
+/**  The source signs in with Microsoft Entra ID, which yadbe does not support yet. */
+"entraAuth" | 
+/**  The source holds a password that was not imported (only `.pgpass` passwords are). */
+"passwordNotImported" | 
+/**  The user name is not in the source (DBeaver keeps it encrypted). */
+"userMissing" | 
+/**  An SSH tunnel is defined but cannot be recreated (no user, or a jump host). */
+"sshIncomplete" | 
+/**  A setting of the source has no equivalent and was left out (`detail` says which). */
+"settingIgnored";
+
 /**  Extra engine parameter passed through to the driver (`application_name`…). */
 export type ConnectionOption = {
 	key: string,
 	value: string,
 };
+
+export type ConnectionScan = {
+	kind: ConnectionSourceKind,
+	/**  The file that was read. */
+	path: string,
+	connections: FoundConnection[],
+	skipped: SkippedEntry[],
+};
+
+export type ConnectionSourceInfo = {
+	kind: ConnectionSourceKind,
+	/**  The file at its usual place on this computer, when it exists. */
+	defaultPath: string | null,
+	supportsPasswords: boolean,
+};
+
+/**  A program or file connections can be imported from. */
+export type ConnectionSourceKind = "azureDataStudio" | 
+/**  The `mssql` extension of Visual Studio Code. */
+"vscodeMssql" | 
+/**  SQL Server Management Studio's registered servers (`RegSrvr.xml`). */
+"ssms" | "dbeaver" | 
+/**  PostgreSQL's password file: the only source whose passwords can be imported. */
+"pgpass" | "pgService" | 
+/**  A file written by yadbe's own export. */
+"yadbe";
 
 /**  Life cycle of an open connection (F-013). */
 export type ConnectionState = 
@@ -1069,7 +1220,22 @@ export type ErrorCode =
 /**  The key passphrase is wrong. */
 "sshKeyPassphraseWrong" | 
 /**  This engine cannot do that on this kind of object (no DDL text, no rename…). */
-"notSupported";
+"notSupported" | 
+/**
+ *  An import file (CSV, JSON) cannot be read as the chosen format (bad quoting, invalid
+ *  JSON…); `detail` says where.
+ */
+"importFileInvalid" | 
+/**
+ *  An import stopped at a row the engine or the type check rejected (stop on first
+ *  error); nothing of a single-transaction import was kept.
+ */
+"importRejected" | 
+/**
+ *  A connections file (yadbe export, Azure Data Studio settings, DBeaver…) is not in a
+ *  format yadbe understands, or comes from a newer version.
+ */
+"connectionFileInvalid";
 
 export type ExecuteRequest = {
 	/**  The editor tab: it owns a dedicated server connection, opened on its first run. */
@@ -1244,6 +1410,19 @@ export type ForeignKey = {
 
 export type ForeignKeyAction = "noAction" | "restrict" | "cascade" | "setNull" | "setDefault";
 
+export type FoundConnection = {
+	/**  Identifies the connection in its file, for `import_connections`. */
+	key: string,
+	/**  Never carries a group id: see `group_path`. */
+	definition: ConnectionDefinition,
+	/**  The folders of the source, outermost first. */
+	groupPath: string[],
+	/**  A password is available and `import_connections` can store it in the keychain. */
+	hasPassword: boolean,
+	conflict: ConnectionConflict | null,
+	notes: ConnectionNote[],
+};
+
 /**  A computed column: never written by yadbe. */
 export type Generated = {
 	/**  Stored on disk (otherwise computed on read). */
@@ -1333,6 +1512,208 @@ export type Identity =
  */
 "byDefault";
 
+/**  The type check of a mapping over the first rows of the file. */
+export type ImportAnalysis = {
+	rowsExamined: number,
+	/**  The file has more rows than were examined: the dry run reads them all. */
+	sampled: boolean,
+	raggedRows: number,
+	columns: ImportColumnCheck[],
+	/**
+	 *  `NOT NULL` columns without a default that the mapping leaves out: the insert fails
+	 *  whatever the data.
+	 */
+	missingRequired: string[],
+};
+
+export type ImportBadValue = {
+	/**  1-based line of the row in the file. */
+	line: number,
+	/**  The text as read, cut at 80 characters. */
+	value: string,
+	reason: ImportIssueKind,
+};
+
+/**  How well the values of one mapped column convert. */
+export type ImportColumnCheck = {
+	column: string,
+	typeName: string,
+	kind: ValueKind,
+	nullable: boolean,
+	/**  Rows examined. */
+	examined: number,
+	nulls: number,
+	/**  Values that will not convert (a `NULL` for a `NOT NULL` column counts). */
+	invalid: number,
+	/**  The first bad values. */
+	samples: ImportBadValue[],
+};
+
+export type ImportCommit = 
+/**
+ *  One transaction: everything or nothing. Locks and the transaction log grow until the
+ *  end.
+ */
+"single" | 
+/**  Every batch is committed on its own: a failure or a cancel keeps the earlier batches. */
+"perBatch";
+
+export type ImportConnectionsRequest = {
+	kind: ConnectionSourceKind,
+	/**  `null`: the source's default file. */
+	path: string | null,
+	/**  The `key`s of the found connections to import. */
+	keys: string[],
+	/**  Store the passwords the source holds (`.pgpass`) in the OS keychain. */
+	importPasswords: boolean,
+};
+
+export type ImportConvertOptions = {
+	/**  `1,5` is a decimal number (and `1.5` is not) when this is a comma. */
+	decimalSeparator: ImportDecimalSeparator,
+	/**  How binary columns are written in the file. */
+	binary: BinaryEncoding,
+};
+
+export type ImportDecimalSeparator = "dot" | "comma";
+
+export type ImportDelimiter = "comma" | "semicolon" | "tab" | "pipe";
+
+export type ImportEncoding = "utf8" | "utf16le" | "utf16be" | 
+/**  Windows-1252 (ISO 8859-1 with the printable characters of 0x80 to 0x9F). */
+"latin1";
+
+/**  The import ended; always the last event of an import. */
+export type ImportFinished = {
+	importId: number,
+	status: ImportStatus,
+	dryRun: boolean,
+	commit: ImportCommit,
+	rowsRead: number,
+	/**  Rows written (dry run: that would have been written). */
+	inserted: number,
+	/**
+	 *  Rows still in the table after the end: `inserted` once committed, `0` after a
+	 *  rollback, the committed batches for a per-batch import that failed or was cancelled.
+	 */
+	kept: number,
+	rejected: number,
+	batches: number,
+	durationMs: number | null,
+	/**  The first rejected rows (at most 50). */
+	rejectSamples: ImportReject[],
+	rejectsPath: string | null,
+	/**  Invalid byte sequences replaced while decoding. */
+	invalidBytes: number,
+	/**  JSON: keys met after the first objects that are not columns of the file's schema. */
+	droppedKeys: number,
+	error: YadbeError | null,
+};
+
+export type ImportFormat = "csv" | 
+/**  A JSON array of objects (`[{…}, {…}]`). */
+"json" | 
+/**  One JSON object after the other (JSON Lines / NDJSON). */
+"jsonLines";
+
+/**  Why a value is not written as is. Also the reason of a rejected row. */
+export type ImportIssueKind = 
+/**  Not a number, date, boolean… of the column's type. */
+"invalidFormat" | "outOfRange" | "tooLong" | 
+/**  More decimals than the column keeps: the server would round. */
+"tooManyDecimals" | 
+/**  An empty or `NULL` value for a `NOT NULL` column. */
+"nullNotAllowed" | 
+/**  A time zone offset for a column without zone. */
+"unexpectedTimeZone" | 
+/**  The row has more or fewer fields than the header. */
+"fieldCount" | 
+/**  A unique, foreign key, check or not null constraint. */
+"constraint" | 
+/**  The server refused the row for another reason (`detail`). */
+"serverError";
+
+/**
+ *  One written column. A table column without a mapping is left out of the `INSERT`: the
+ *  server applies its default.
+ */
+export type ImportMapping = {
+	column: string,
+	source: ImportValueSource,
+};
+
+/**  What happens to a row that does not convert or that the server refuses. */
+export type ImportOnError = 
+/**  The import ends at the first rejected row. */
+"stop" | 
+/**  The row is left out, counted and reported; the others go on. */
+"skip";
+
+/**  How the file is read. `preview_import_file` detects them when none are given. */
+export type ImportParseOptions = {
+	format: ImportFormat,
+	encoding: ImportEncoding,
+	/**  CSV only. */
+	delimiter: ImportDelimiter,
+	/**  CSV only. */
+	quote: ImportQuote,
+	/**  CSV: the first row (after the skipped ones) holds the column names. */
+	header: boolean,
+	/**  Text read as `NULL` when it is not quoted (`NULL`, `\N`…). CSV only. */
+	nullToken: string | null,
+	/**  An unquoted empty CSV field is `NULL` (a quoted `""` stays an empty string). */
+	emptyAsNull: boolean,
+	/**  Spaces around unquoted CSV fields are dropped. */
+	trim: boolean,
+	/**  Lines skipped before the header, CSV only. */
+	skipRows: number,
+};
+
+/**  The first rows of a file as the options read them. A cell is `null` for `NULL`. */
+export type ImportPreview = {
+	/**  The options that were used: the detected ones when the call gave none. */
+	options: ImportParseOptions,
+	/**  The file starts with a byte order mark (dropped). */
+	bom: boolean,
+	fileSize: number | null,
+	/**  The header, or `Column 1`… without one; for JSON the keys of the first objects. */
+	columns: string[],
+	rows: ((string | null)[])[],
+	/**  Rows among those read whose field count differs from the header's (CSV). */
+	raggedRows: number,
+	/**
+	 *  Byte sequences that are not valid in the encoding, replaced by `U+FFFD` (a sign of
+	 *  a wrong encoding).
+	 */
+	invalidBytes: number,
+};
+
+/**  Progress of an import, throttled (about ten per second). */
+export type ImportProgress = {
+	importId: number,
+	rowsRead: number,
+	/**  Rows written (a dry run: that would be written). */
+	inserted: number,
+	rejected: number,
+	bytesRead: number | null,
+	totalBytes: number | null,
+};
+
+export type ImportQuote = "double" | "single" | 
+/**  No quoting: every delimiter separates fields. */
+"none";
+
+/**  A row that was not written. */
+export type ImportReject = {
+	line: number,
+	column: string | null,
+	/**  The offending text (cut at 80 characters), when one value is at fault. */
+	value: string | null,
+	reason: ImportIssueKind,
+	/**  What the server said. */
+	detail: string | null,
+};
+
 /**  What an import added. */
 export type ImportReport = {
 	folders: number,
@@ -1340,6 +1721,57 @@ export type ImportReport = {
 	/**  Queries already in the library (same folder, name and text). */
 	skipped: number,
 };
+
+export type ImportRequest = {
+	connectionId: string,
+	table: ObjectRef,
+	/**  From the native open dialog: absolute, with a known extension. */
+	path: string,
+	parse: ImportParseOptions,
+	mapping: ImportMapping[],
+	convert: ImportConvertOptions,
+	onError: ImportOnError,
+	commit: ImportCommit,
+	/**  Runs everything in a transaction that is rolled back at the end. */
+	dryRun: boolean,
+	/**  Rejected rows are written here as CSV (with their line and the reason). */
+	rejectsPath: string | null,
+};
+
+export type ImportStarted = {
+	importId: number,
+};
+
+export type ImportStatus = "done" | "failed" | "cancelled";
+
+export type ImportTarget = {
+	table: ObjectRef,
+	columns: ImportTargetColumn[],
+	/**  The connection is read-only: nothing can be imported. */
+	readOnly: boolean,
+	/**  Rows per multi-row `INSERT` at most (from the engine's parameter limit). */
+	maxBatchRows: number,
+};
+
+/**  A column of the target table, as the import sees it. */
+export type ImportTargetColumn = {
+	name: string,
+	typeName: string,
+	kind: ValueKind,
+	nullable: boolean,
+	/**  A default, an identity or a computed value fills the column when it is left out. */
+	filledByServer: boolean,
+	primaryKey: boolean,
+	/**  `null`: the column can be written. */
+	readOnlyReason: ColumnReadOnlyReason | null,
+};
+
+/**  What a column of the file is written as. */
+export type ImportValueSource = 
+/**  The file's column at this position of `ImportPreview.columns`. */
+{ kind: "file"; index: number } | { kind: "null" } | 
+/**  The same text for every row, converted like a file value. */
+{ kind: "constant"; value: string };
 
 /**
  *  A foreign key that references a given table, seen from that table (F-088: "rows
@@ -2187,6 +2619,23 @@ export type SessionInfo = {
 	reconnectAttempt: number | null,
 	/**  The SSH tunnel of the connection and its phase (`opening` while connecting through it). */
 	tunnel: TunnelStatus | null,
+};
+
+/**  Why an entry of a file is not offered. */
+export type SkipReason = 
+/**  An engine yadbe does not support (`detail`: its name). */
+"unsupportedEngine" | 
+/**  A pattern (`*` host or user) rather than one connection. */
+"wildcard" | 
+/**  Not enough to connect (no host, no file…). */
+"incomplete" | 
+/**  The definition is not valid (`detail`). */
+"invalid";
+
+export type SkippedEntry = {
+	name: string,
+	reason: SkipReason,
+	detail: string | null,
 };
 
 /**  A snippet with its whole template, for the editor's completion. */

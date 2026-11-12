@@ -12,10 +12,15 @@ import { useHistoryActions } from '../features/history/useHistoryActions';
 import { SaveQueryDialog } from '../features/library/SaveQueryDialog';
 import { useLibraryActions } from '../features/library/useLibraryActions';
 import { useJournalActions } from '../features/journal/useJournalActions';
+import { ConnectionExportDialog } from '../features/connections/ConnectionExportDialog';
+import { ConnectionImportDialog } from '../features/connections/ConnectionImportDialog';
+import { useConnectionTransferActions } from '../features/connections/useConnectionTransferActions';
 import { ExportDialog } from '../features/export/ExportDialog';
 import { ObjectActionDialog } from '../features/objects/ObjectActionDialog';
 import { PropertiesDialog } from '../features/objects/PropertiesDialog';
 import { useExportActions } from '../features/export/useExportActions';
+import { ImportDialog } from '../features/import/ImportDialog';
+import { useImportActions } from '../features/import/useImportActions';
 import { CommandPalette } from '../features/palette/CommandPalette';
 import { PreferencesDialog } from '../features/preferences/PreferencesDialog';
 import { usePaletteActions } from '../features/palette/usePaletteActions';
@@ -164,6 +169,8 @@ export function Shell() {
   useQueryActions();
   useTableActions();
   useExportActions();
+  useImportActions();
+  useConnectionTransferActions();
   useHistoryActions();
   useLibraryActions();
   useJournalActions();
@@ -221,6 +228,9 @@ export function Shell() {
       <ExportDialog />
       <ObjectActionDialog />
       <PropertiesDialog />
+      <ImportDialog />
+      <ConnectionImportDialog />
+      <ConnectionExportDialog />
       <SaveQueryDialog />
       <CommandPalette />
       <PreferencesDialog />
