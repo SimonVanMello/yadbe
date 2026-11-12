@@ -19,7 +19,8 @@ import {
 } from '@codemirror/view';
 import { useEffect, useMemo, useRef } from 'react';
 
-import { runAction, type ActionId } from '../../app/actions';
+import { runAction, shortcutOf, type ActionId, type BoundActionId } from '../../app/actions';
+import { matchShortcut } from '../../ui/shortcuts';
 import { useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import type { Engine, TextRange } from '../../ipc';
@@ -95,14 +96,33 @@ function runKeys(): Extension {
       bind('Mod-Enter', 'query.run'),
       bind('Mod-Shift-Enter', 'query.runStatement'),
       bind('Mod-.', 'query.cancel'),
-      // `Mod-l` selects the line in CodeMirror; SSMS and Azure Data Studio explain with it.
-      bind('Mod-l', 'query.explain'),
-      bind('Mod-Alt-l', 'query.explainAnalyze'),
-      bind('Shift-Alt-f', 'query.format'),
-      bind('F12', 'query.goToDefinition'),
       // CodeMirror's search keymap binds `Mod-Shift-l` (select every match): the library is ours.
       bind('Mod-Shift-l', 'query.saveToLibrary'),
     ]),
+  );
+}
+
+/** Editor shortcuts of the query tools, matched like the app's (exact modifiers, key codes). */
+const TOOL_ACTIONS: readonly BoundActionId[] = [
+  // `Mod-l` selects the line in CodeMirror; SSMS and Azure Data Studio explain with it.
+  'query.explain',
+  'query.explainAnalyze',
+  'query.format',
+  'query.goToDefinition',
+];
+
+function toolKeys(): Extension {
+  // A keymap entry for `Mod-l` would also take `Mod-Shift-l` when the browser reports a
+  // lower-case key with Shift held: the app's matcher compares every modifier.
+  return Prec.highest(
+    EditorView.domEventHandlers({
+      keydown: (event) => {
+        const id = TOOL_ACTIONS.find((action) => matchShortcut(event, shortcutOf(action)));
+        if (!id || !runAction(id)) return false;
+        event.preventDefault();
+        return true;
+      },
+    }),
   );
 }
 
@@ -130,6 +150,7 @@ function editorExtensions(
     // `<style>` tags of its own.
     nonce === null ? [] : EditorView.cspNonce.of(nonce),
     runKeys(),
+    toolKeys(),
     highlightSpecialChars(),
     history(),
     drawSelection(),
