@@ -132,8 +132,8 @@
   --activity-user-width: 120px;
   --activity-database-width: 120px;
   --activity-client-width: 150px;
-  --activity-state-width: 168px;
-  --activity-duration-width: 84px;
+  --activity-state-width: 224px;
+  --activity-duration-width: 108px;
   --activity-lock-type-width: 130px;
   --activity-lock-mode-width: 190px;
   --activity-lock-status-width: 96px;

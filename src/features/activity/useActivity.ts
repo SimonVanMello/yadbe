@@ -23,7 +23,8 @@ export function useActivity(connectionId: string, interval: RefreshInterval) {
     queryKey: activityKeys.connection(connectionId),
     queryFn: ({ signal }) => fetchActivity(connectionId, signal),
     enabled: connected,
-    refetchInterval: interval ?? false,
+    // A failed read stops the timer: the error says what to fix, and "Retry" reads again.
+    refetchInterval: (query) => (query.state.status === 'error' ? false : (interval ?? false)),
     refetchIntervalInBackground: false,
     placeholderData: keepPreviousData,
     staleTime: 0,

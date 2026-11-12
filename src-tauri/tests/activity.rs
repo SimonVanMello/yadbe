@@ -126,6 +126,15 @@ impl Harness {
     }
 }
 
+/// The session runs the long statement (and not the one that asked for its id a moment before).
+fn is_running(session: &ActivitySession, word: &str) -> bool {
+    session.state == SessionState::Active
+        && session
+            .statement
+            .as_deref()
+            .is_some_and(|text| text.to_lowercase().contains(word))
+}
+
 fn session_of<'a>(snapshot: &'a ActivitySnapshot, id: &str) -> Option<&'a ActivitySession> {
     snapshot.sessions.iter().find(|s| s.id == id)
 }
@@ -196,7 +205,7 @@ async fn scenario(
     let running = run_in_background(&victim, kit.long_sql.to_owned());
     let snapshot = h
         .wait_for(&id, "the long statement to be listed", |s| {
-            session_of(s, &victim_id).is_some_and(|v| v.state == SessionState::Active)
+            session_of(s, &victim_id).is_some_and(|v| is_running(v, kit.long_word))
         })
         .await;
     let listed = session_of(&snapshot, &victim_id).expect("victim");
@@ -300,7 +309,7 @@ async fn scenario(
     let running = run_in_background(&doomed, kit.long_sql.to_owned());
     let snapshot = h
         .wait_for(&id, "the second long statement", |s| {
-            session_of(s, &doomed_id).is_some_and(|v| v.state == SessionState::Active)
+            session_of(s, &doomed_id).is_some_and(|v| is_running(v, kit.long_word))
         })
         .await;
     let sent = h
@@ -695,6 +704,9 @@ async fn mssql_without_view_server_state_is_an_error() {
     assert_eq!(err.code, ErrorCode::InsufficientPrivilege, "{err:?}");
     assert!(err.message.en.contains("VIEW SERVER STATE"), "{err:?}");
     assert!(err.message.fr.contains("VIEW SERVER STATE"), "{err:?}");
+    // The login can only be dropped once its session is gone.
+    h.manager.disconnect(&id).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
 }
 
 // --- MySQL ----------------------------------------------------------------------------------

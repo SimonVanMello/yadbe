@@ -76,7 +76,8 @@ export function ActivityView({ connection }: { connection: ConnectionSummary }) 
   const [interval, setIntervalValue] = useState<RefreshInterval>(readInterval);
   const [view, setView] = useState<View>('sessions');
   const [filters, setFilters] = useState<ActivityFilters>(DEFAULT_FILTERS);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The session is known by its fingerprint too: an id the server gives again is not it.
+  const [selection, setSelection] = useState<{ id: string; fingerprint: string } | null>(null);
   const searched = useDebouncedValue(filters.text, SEARCH_DELAY_MS);
 
   const activity = useActivity(connection.id, interval);
@@ -99,7 +100,15 @@ export function ActivityView({ connection }: { connection: ConnectionSummary }) 
     () => (snapshot ? filterLocks(snapshot.locks, searched) : []),
     [snapshot, searched],
   );
-  const selected = snapshot?.sessions.find((session) => session.id === selectedId) ?? null;
+  const selected =
+    snapshot?.sessions.find(
+      (session) => session.id === selection?.id && session.fingerprint === selection.fingerprint,
+    ) ?? null;
+  const selectedId = selected?.id ?? null;
+  const select = (id: string) => {
+    const session = snapshot?.sessions.find((candidate) => candidate.id === id);
+    if (session) setSelection({ id, fingerprint: session.fingerprint });
+  };
   const filtered = isFiltered({ ...filters, text: searched });
 
   const patch = (change: Partial<ActivityFilters>) => {
@@ -273,7 +282,7 @@ export function ActivityView({ connection }: { connection: ConnectionSummary }) 
               sessions={visible}
               selectedId={selectedId}
               blocking={blocking}
-              onSelect={setSelectedId}
+              onSelect={select}
             />
           )}
           {selected && (
@@ -287,7 +296,7 @@ export function ActivityView({ connection }: { connection: ConnectionSummary }) 
                 cancelQuery: engine?.capabilities.activityCancelQuery ?? false,
               })}
               onKill={kill}
-              onSelect={setSelectedId}
+              onSelect={select}
             />
           )}
         </>
@@ -303,7 +312,7 @@ export function ActivityView({ connection }: { connection: ConnectionSummary }) 
             <LocksList
               locks={locks}
               onSelectSession={(id) => {
-                setSelectedId(id);
+                select(id);
                 setView('sessions');
               }}
             />
