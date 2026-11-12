@@ -111,22 +111,23 @@ Open performance points carried from M2: P-09 (idle RAM ≈ 486 MB on WebKitGTK 
 
 ## M4 — MongoDB, Elasticsearch, Redis
 
-Analysis in `docs/analysis/NOSQL.md`: read it first. **Nothing starts before the product owner has answered its section 8** (MongoDB query syntax, editing scope, non-atomic applies, compatible servers, topologies) and approved the amendment of rules 2, 3 and 10 in `CLAUDE.md`. The table is refined once the decisions are taken.
+Analysis and decisions in `docs/analysis/NOSQL.md`: read it first (section 8 for what the product owner decided: full mongosh, editing scope, non-atomic applies explained, Valkey and OpenSearch, topologies).
 
 | ID | Task | Depends on | Session |
 |---|---|---|---|
 | M4-0 ✅ | **Preliminary analysis** (`docs/analysis/NOSQL.md`) | M3 | master |
-| M4-1 ⬜ | **Engine families**: `Engine::family()`, `Connection` split into `Link` + `SqlConnection`, session backend enum, capabilities replacing every `engine ===` of the front, connection form built from capabilities, query tab and explorer shells per family. No new engine, no behaviour change, existing suites green | decisions | opus · high |
-| M4-2 ⬜ | **MongoDB, read**: driver, connection forms (URI, SRV, replica set), BSON values, explorer with sampled fields, query language, collection tab (grid + documents), read-only allow-list, cancel, compose service and conformance suite | M4-1 | opus · high |
-| M4-3 ⬜ | **MongoDB, edit**: pending changes, preview as commands, apply (transaction where the server has them), conflicts, journal and revert, dangerous-command confirmation | M4-2 | opus · high |
-| M4-4 ⬜ | **Redis, read**: driver, explorer on `SCAN` with the namespace tree, key tab per type, console, read-only from `COMMAND INFO`, compose service and suite | M4-1 | opus · medium |
-| M4-5 ⬜ | **Redis, edit**: per-type edits, `WATCH` / `MULTI` apply, TTL, rename, delete, journal, dangerous commands | M4-4 | opus · medium |
-| M4-6 ⬜ | **Elasticsearch, read**: HTTP client, authentication, explorer (indices, data streams, aliases, mappings), console syntax, hits grid + JSON (reusing the document view of M4-2), ES\|QL / SQL results, index tab with `search_after`, read-only allow-list, cancel | M4-2 | opus · high |
-| M4-7 ⬜ | **Elasticsearch, edit**: one document at a time with `if_seq_no` / `if_primary_term`, journal, dangerous requests | M4-6 | opus · medium |
-| M4-8 ⬜ | **Cross-cutting**: completion per family, JSON Lines export, palette objects, history and restore of the new tabs | M4-3, M4-5, M4-7 | sonnet · medium |
-| M4-9 ⬜ | **Integration and validation**: real-app scenarios on the three engines, installer size, `docs/validation/M4.md` | all of M4 | opus · medium |
+| M4-1 🟦 | **Engine families**: `Engine::family()`, `Connection` split into `Link` + `SqlConnection`, session backend enum, capabilities replacing every `engine ===` of the front, connection form built from capabilities, query tab and explorer shells per family. No new engine, no behaviour change, existing suites green | — | opus · high |
+| M4-2 ⬜ | **MongoDB, connection and browsing**: driver, connection forms (URI, SRV, replica set), BSON values, explorer with sampled fields, collection tab (grid + documents view), the command gate (read-only allow-list, dangerous commands), cancel, compose services and conformance suite | M4-1 | opus · high |
+| M4-3 ⬜ | **mongosh runtime**: embedded JavaScript engine (spike QuickJS / boa on the three platforms first), `db` / collection / cursor API and BSON helpers on the driver, sandbox, cursor results into the `ResultStore`, messages pane, interrupt and limits, conformance suite from the mongosh documentation | M4-2 | opus · high |
+| M4-4 ⬜ | **MongoDB, edit**: pending changes, preview as commands, apply (transaction where the server has them, otherwise one by one with the reason shown), conflicts, journal and revert | M4-2 | opus · high |
+| M4-5 ⬜ | **Redis, read** (Valkey included): driver, explorer on `SCAN` with the namespace tree, key tab per type, console, read-only from `COMMAND INFO`, compose services and suite | M4-1 | opus · medium |
+| M4-6 ⬜ | **Redis, edit**: per-type edits, `WATCH` / `MULTI` apply, TTL, rename, delete, journal, dangerous commands | M4-5 | opus · medium |
+| M4-7 ⬜ | **Elasticsearch, read** (OpenSearch where the API is the same): HTTP client, authentication, explorer (indices, data streams, aliases, mappings), console syntax, hits grid + JSON (reusing the documents view of M4-2), ES\|QL / SQL results, index tab with `search_after`, read-only allow-list, cancel | M4-2 | opus · high |
+| M4-8 ⬜ | **Elasticsearch, edit**: one document at a time with `if_seq_no` / `if_primary_term`, the non-atomic reason shown, journal, dangerous requests | M4-7 | opus · medium |
+| M4-9 ⬜ | **Cross-cutting**: completion per family, JSON Lines export, palette objects, history and restore of the new tabs | M4-3, M4-4, M4-6, M4-8 | sonnet · medium |
+| M4-10 ⬜ | **Integration and validation**: real-app scenarios on the three engines, installer size, `docs/validation/M4.md` | all of M4 | opus · medium |
 
-Order: M4-1, then M4-2 ∥ M4-4, then M4-3 ∥ M4-5 ∥ M4-6, then M4-7, M4-8, M4-9.
+Order: M4-1, then M4-2 ∥ M4-5, then M4-3 ∥ M4-4 ∥ M4-6 ∥ M4-7, then M4-8, M4-9, M4-10.
 
 ## V2
 

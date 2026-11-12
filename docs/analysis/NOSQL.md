@@ -1,6 +1,6 @@
 # MongoDB, Elasticsearch and Redis: preliminary analysis
 
-Status: analysis, nothing implemented. Written after M3 on the code as it stands. It says what the three engines need, what the current architecture gives them for free, what has to change first, and which decisions the product owner has to take before a task is started. The plan that follows from it is milestone M4 in `docs/PLAN.md`.
+Status: analysis, decisions taken (section 8), nothing implemented. Written after M3 on the code as it stands. It says what the three engines need, what the current architecture gives them for free, what has to change first, and which decisions the product owner has to take before a task is started. The plan that follows from it is milestone M4 in `docs/PLAN.md`.
 
 ## 1. Summary
 
@@ -8,7 +8,7 @@ Status: analysis, nothing implemented. Written after M3 on the code as it stands
 - About half of yadbe is family-neutral and is reused as is: connections, secrets, SSH tunnels, TLS, sessions, the result store and the grid, history, statement log, journal, tabs, palette, exports. The other half is SQL by construction and stays SQL only: splitter, classifier, dialects, table browsing SQL, edit planner, completion, formatter, plans, import, DDL, Script as, EF Core, .NET connection strings.
 - The first task is therefore a **refactor with no new engine**: families in the backend contract and in the front, with the four SQL engines unchanged and their tests green. Each engine then comes as a read task followed by an edit task.
 - Order proposed: foundations → MongoDB ∥ Redis → Elasticsearch (it reuses MongoDB's document viewer) → validation.
-- Five decisions are open (section 8). The largest is the MongoDB query syntax.
+- The five decisions of section 8 are taken. The largest: MongoDB runs full mongosh scripts in an embedded JavaScript engine.
 
 ## 2. What the current code gives and what it assumes
 
@@ -44,7 +44,7 @@ A session holds `enum Backend { Sql(..), Document(..), Search(..), KeyValue(..) 
 
 **Commands.** New families get their own command sets (`mongo_*`, `search_*`, `kv_*`) and mock modules. SQL commands do not change, so the 522 backend tests and 404 Playwright tests are the regression net of the refactor.
 
-**Rules to amend in `CLAUDE.md`** (owner approval): rule 2 ("values are bound, identifiers are quoted") becomes "values never travel inside command text built by yadbe" (BSON documents, JSON bodies, RESP arguments are structured, so the rule holds by construction); rule 3 ("user SQL is sent as written") needs a clause for MongoDB (section 4.3); rule 10 needs the non-atomic case (decision 3).
+**Rules to amend in `CLAUDE.md`** (owner approval): rule 2 ("values are bound, identifiers are quoted") becomes "values never travel inside command text built by yadbe" (BSON documents, JSON bodies, RESP arguments are structured, so the rule holds by construction); rule 3 ("user SQL is sent as written") extends to scripts and requests of every family; rule 10 needs the non-atomic case (decision 3).
 
 ## 4. MongoDB
 
@@ -62,15 +62,17 @@ BSON has types JSON does not: ObjectId, Date, Int32 / Int64 / Double / Decimal12
 - A nested document or array crosses as `Json` in **canonical Extended JSON v2**, which is lossless. The front shows it relaxed and sends it back canonical.
 - A result is shown two ways: **grid** (top-level fields as columns, the union over the loaded window, missing ≠ null) and **documents** (JSON tree). The grid is the existing one.
 
-### 4.3 Query language (decision 1)
+### 4.3 Query language (decided: full mongosh)
 
-MongoDB has no text query language of its own; what people type is mongosh, which is JavaScript. Three options:
+MongoDB has no text query language of its own; what people type is mongosh, which is JavaScript. The product owner wants every mongosh query to work, so a parsed subset is out: yadbe **embeds a JavaScript engine and implements the mongosh API on the Rust driver**.
 
-1. **Embed a JavaScript engine** and run mongosh syntax. Full compatibility, but a large dependency, a sandbox to secure, and arbitrary code in a tool whose point is safety. Rejected.
-2. **Parse a mongosh-like subset**: `db.<coll>.find(filter, projection).sort().skip().limit()`, `aggregate([...])`, `countDocuments`, `distinct`, `insertOne/Many`, `updateOne/Many`, `replaceOne`, `deleteOne/Many`, `createIndex`, `drop`, plus `db.runCommand({...})`; arguments in relaxed JSON with the shell constructors (`ObjectId()`, `ISODate()`, `NumberLong()`, `NumberDecimal()`, regex literals). No variables, no loops, no functions. **Recommended**: it is what users paste from documentation and from Compass, and it parses into typed driver calls.
-3. **JSON only**: a form per operation (collection, filter, projection, sort). Simplest, but nothing can be pasted.
-
-With option 2, rule 3 reads: yadbe sends the operation the text denotes, without changing its meaning; the history keeps the text as typed and the statement log the command sent.
+- **Engine**: QuickJS through `rquickjs` (about 1 MB of C compiled by `cc`, complete modern JavaScript, an interrupt hook and a memory limit). `boa` (pure Rust) is the fallback if the C build is a problem on one of the three platforms; to settle by a spike at the start of the task. Shelling out to an installed `mongosh` is rejected: it is a Node application users may not have, and yadbe could neither window its results nor enforce read-only on it.
+- **Synchronous calls, as in mongosh.** mongosh makes `db.c.find().toArray()` look synchronous by rewriting the user's code. yadbe does not rewrite anything: each script runs on its own thread and the API functions block on the driver call. The text runs as written (rule 3 holds).
+- **Sandbox**: the engine has no file, network, process or module access; the only things a script can reach are the `db` API and the shell helpers. `require`, `load()`, `fs`, `process`, `.mongoshrc` are not provided. A script can therefore do nothing a query could not.
+- **API surface**: `db`, `db.getSiblingDB`, `db.getCollection`, collection methods (find, findOne, aggregate, count / distinct, insert / update / replace / delete, bulkWrite, findOneAnd*, indexes, stats, drop, rename, watch excluded at first), cursors (sort, limit, skip, projection, hint, collation, batchSize, toArray, forEach, map, hasNext / next, explain, count), `db.runCommand` / `db.adminCommand`, BSON helpers (`ObjectId`, `ISODate`, `Date`, `NumberLong` / `Long`, `NumberInt` / `Int32`, `NumberDecimal` / `Decimal128`, `UUID`, `BinData`, `Timestamp`, `MinKey` / `MaxKey`, regular expressions), `print` / `printjson` / `EJSON`, and the shell commands `use <db>`, `show dbs` / `collections` (read before the script, they are not JavaScript). Helpers of `rs.*`, `sh.*` and user management come after; until then `db.adminCommand` reaches them. "All of mongosh" is therefore a coverage that grows, measured by a conformance suite built from the mongosh documentation, and a missing method fails with a typed error that names it.
+- **Read-only and danger checks move to the command layer.** With arbitrary JavaScript the text cannot be classified, so every command the script issues passes through one gate before it reaches the driver: the read-only allow-list (section 4.4) and the dangerous-command confirmation apply there. This is stricter than classifying text.
+- **Results**: the value of the last expression. A cursor is not drained: it becomes the result and feeds the `ResultStore` window by window (rule 8). `print` output goes to a messages pane.
+- **Cancel and limits**: the interrupt hook stops the script (an infinite loop included), `killOp` stops the running server operation, the statement timeout bounds both, and the engine's memory is capped.
 
 ### 4.4 Explorer, browsing, editing
 
@@ -140,17 +142,17 @@ A command line as in `redis-cli` (`HGETALL user:42`), tokenized with its quoting
 ### Risks
 
 1. **The foundations refactor touches the centre of the backend.** Mitigation: no behaviour change, the existing suites as the net, and it lands alone before any engine.
-2. **The mongosh subset is a language to maintain.** Users will type things outside it. Mitigation: a precise error saying what is supported, and `db.runCommand` as the escape hatch.
+2. **The mongosh API is large** and yadbe reimplements it. Mitigation: a conformance suite from the mongosh documentation, a typed error naming a missing method, `db.runCommand` as the escape hatch, and a C dependency (QuickJS) to validate on the three platforms first.
 3. **Non-atomic applies** weaken the product's main safety promise on two engines. Mitigation in decision 3.
 4. **Sampled schemas are wrong by nature** (a field present in 1 document out of 10 000). The UI must show them as estimates.
 5. **Scope**: three engines, each with read and edit, is of the order of the whole of M2 + part of M3. Splitting by engine keeps each deliverable usable on its own.
 
-## 8. Decisions for the product owner
+## 8. Decisions taken by the product owner
 
-1. **MongoDB query syntax**: mongosh-like subset parsed by yadbe (recommended), or JSON forms only.
-2. **Editing scope of the first version**: recommended MongoDB full (cells, insert, delete), Redis full (per type), Elasticsearch one document at a time; bulk and by-query writes only through the console.
-3. **Applies that cannot be atomic** (MongoDB standalone, Elasticsearch): recommended to allow them, labelled "applied one by one, not atomic" in the preview, each operation checked (one document matched, original values / sequence number), stopping at the first failure, with the journal recording what was applied so that it can be reverted. The alternative is to refuse multi-document applies on those servers.
-4. **Compatible servers**: OpenSearch and Valkey supported and tested in compose (recommended: yes for Valkey, which costs nothing; OpenSearch yes but only where its API equals Elasticsearch's), or left to chance.
-5. **Topologies in the first version**: recommended MongoDB replica sets and `mongodb+srv` yes (the driver does it), Redis standalone only (Cluster and Sentinel later), Elasticsearch single URL.
+1. **MongoDB query syntax**: every mongosh query must work → embedded JavaScript engine with the mongosh API (section 4.3). The parsed subset first recommended is dropped.
+2. **Editing scope of the first version**: MongoDB full (cells, insert, delete), Redis full (per type), Elasticsearch one document at a time; bulk and by-query writes only through the console.
+3. **Applies that cannot be atomic** (MongoDB standalone, Elasticsearch): allowed. The preview says that the changes are applied one by one and **why** (this server has no multi-document transaction); each operation is checked (one document matched, original values / sequence number), the apply stops at the first failure, and the journal records what was applied so that it can be reverted.
+4. **Compatible servers**: Valkey supported and tested; OpenSearch where its API equals Elasticsearch's.
+5. **Topologies**: MongoDB replica sets and `mongodb+srv` from the start, Redis standalone only (Cluster and Sentinel later), Elasticsearch single URL.
 
-Also to confirm: milestone name and order (M4, MongoDB ∥ Redis then Elasticsearch), and the amendment of rules 2, 3 and 10 in `CLAUDE.md`.
+Rules of `CLAUDE.md` amended accordingly: 2 (structured values outside SQL), 3 (commands and scripts of every family run as written), 10 (the non-atomic case).
