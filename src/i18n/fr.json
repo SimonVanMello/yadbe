@@ -1048,7 +1048,6 @@
   "resultEdit.apply": "Appliquer",
   "resultEdit.preview": "Aperçu SQL",
   "resultEdit.revertAll": "Tout annuler",
-  "resultEdit.openTable": "Ouvrir la table",
   "tableData.discard.confirm": "Abandonner les modifications",
   "tableData.fk.notForeignKey": "Cette cellule ne fait pas partie d’une clé étrangère.",
   "tableData.fk.nullValue": "NULL ne référence aucune ligne.",
