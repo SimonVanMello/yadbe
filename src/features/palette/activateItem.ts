@@ -2,11 +2,12 @@ import { runAction } from '../../app/actions';
 import { useTabsStore } from '../../app/tabs/tabsStore';
 import type { MessageKey } from '../../i18n/i18n';
 import { openQuery } from '../connections/connectionActions';
+import { openKeyTab } from '../keyvalue/kvActions';
 import { openTable, scriptAs } from '../explorer/explorerActions';
 import { revealInExplorer } from '../explorer/revealInExplorer';
 import { insertEntry, openEntry } from '../history/historyActions';
 import { insertSaved, openSaved } from '../library/libraryActions';
-import { isScriptable, type PaletteItem } from './paletteItems';
+import { isScriptable, type ObjectItem, type PaletteItem } from './paletteItems';
 
 /** What `↵` does, shown in the footer. */
 export function primaryHint(item: PaletteItem): MessageKey {
@@ -18,7 +19,7 @@ export function primaryHint(item: PaletteItem): MessageKey {
     case 'tab':
       return 'palette.hint.switch';
     case 'object':
-      return 'palette.hint.reveal';
+      return item.family ? 'palette.hint.openObject' : 'palette.hint.reveal';
     case 'history':
       return 'palette.hint.openHistory';
     case 'saved':
@@ -30,6 +31,20 @@ export function primaryHint(item: PaletteItem): MessageKey {
 export function secondaryHint(item: PaletteItem): MessageKey | null {
   if (isScriptable(item)) return 'palette.hint.script';
   return item.kind === 'history' || item.kind === 'saved' ? 'palette.hint.insert' : null;
+}
+
+/** A collection, index, data stream, alias or key opens in its own tab. */
+function openFamilyObject(item: ObjectItem): void {
+  const { family } = item;
+  if (family?.type === 'key') {
+    openKeyTab(item.connectionId, family.database, family.key);
+  } else if (family) {
+    void openTable(item.connectionId, {
+      database: item.database,
+      schema: null,
+      name: item.name,
+    });
+  }
 }
 
 /**
@@ -50,7 +65,9 @@ export function activateItem(item: PaletteItem, secondary: boolean, openData = f
       useTabsStore.getState().activate(item.tabId);
       return;
     case 'object':
-      if (openData && isScriptable(item)) {
+      if (item.family) {
+        openFamilyObject(item);
+      } else if (openData && isScriptable(item)) {
         void openTable(item.connectionId, {
           database: item.database,
           schema: item.schema,

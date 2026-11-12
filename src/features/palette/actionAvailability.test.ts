@@ -88,4 +88,16 @@ describe('the tools', () => {
       );
     }
   });
+
+  it('keeps the SQL-only actions off the other engine families', () => {
+    const mongo = { ...idle, queryTab: true, connected: true, family: 'document' };
+    for (const id of ['query.explain', 'query.goToDefinition'] as const) {
+      expect(disabledReason(id, mongo)).toBe('palette.disabled.sqlOnly');
+      expect(disabledReason(id, { ...mongo, family: 'sql' })).toBeNull();
+    }
+    expect(disabledReason('query.run', mongo)).toBeNull();
+    const table = { ...idle, tableTab: true, ddl: false, dataImport: false };
+    expect(disabledReason('table.showDdl', table)).toBe('palette.disabled.sqlOnly');
+    expect(disabledReason('table.import', table)).toBe('palette.disabled.sqlOnly');
+  });
 });

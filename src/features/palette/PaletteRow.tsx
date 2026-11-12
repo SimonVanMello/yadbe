@@ -126,7 +126,9 @@ function Content({ item, indices }: { item: PaletteItem; indices: readonly numbe
             {item.connectionName} · {item.database}
           </span>
           <RowEnvironment connectionId={item.connectionId} />
-          <span className={styles.aside}>{kindLabel(t, item.objectKind)}</span>
+          <span className={styles.aside}>
+            {item.family ? t(`palette.family.${item.family.type}`) : kindLabel(t, item.objectKind)}
+          </span>
         </>
       );
     case 'saved':

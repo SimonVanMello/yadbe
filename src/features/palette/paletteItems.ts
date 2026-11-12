@@ -1,6 +1,6 @@
 import type { ActionId } from '../../app/actions';
 import type { MessageKey } from '../../i18n/i18n';
-import type { ObjectKind } from '../../ipc';
+import type { KvBytes, ObjectKind } from '../../ipc';
 import type { IconName } from '../../ui/Icon';
 import type { ConnectionState, ConnectionSummary } from '../connections/model';
 import { KIND_ICONS } from '../explorer/explorerLabels';
@@ -40,6 +40,17 @@ export interface TabItem extends Searchable {
   active: boolean;
 }
 
+/**
+ * What an object of another engine family is: a MongoDB collection, an Elasticsearch index, data
+ * stream or alias, a Redis key. The item opens the object's own tab (never the SQL ones).
+ */
+export type FamilyObject =
+  | { type: 'collection' }
+  | { type: 'index' }
+  | { type: 'dataStream' }
+  | { type: 'alias' }
+  | { type: 'key'; database: number; key: KvBytes };
+
 export interface ObjectItem extends Searchable {
   kind: 'object';
   key: string;
@@ -51,6 +62,8 @@ export interface ObjectItem extends Searchable {
   objectKind: ObjectKind;
   /** Argument types of a routine, as the catalog has them. */
   signature: string | null;
+  /** Set for an object of the document, search or key-value family; `objectKind` is then unused. */
+  family?: FamilyObject;
 }
 
 export interface HistoryItem extends Searchable {
@@ -128,14 +141,24 @@ const KIND_ICON: Record<Exclude<PaletteKind, 'object'>, IconName> = {
   saved: 'bookmark',
 };
 
+const FAMILY_ICONS: Record<FamilyObject['type'], IconName> = {
+  collection: 'table',
+  index: 'index',
+  dataStream: 'layers',
+  alias: 'link',
+  key: 'key',
+};
+
 export function iconOf(item: PaletteItem): IconName {
-  return item.kind === 'object' ? KIND_ICONS[item.objectKind] : KIND_ICON[item.kind];
+  if (item.kind !== 'object') return KIND_ICON[item.kind];
+  return item.family ? FAMILY_ICONS[item.family.type] : KIND_ICONS[item.objectKind];
 }
 
 /** Whether the object is a relation a `SELECT` can read (the secondary action). */
 export function isScriptable(item: PaletteItem): item is ObjectItem {
   return (
     item.kind === 'object' &&
+    item.family === undefined &&
     (item.objectKind === 'table' ||
       item.objectKind === 'view' ||
       item.objectKind === 'materializedView')

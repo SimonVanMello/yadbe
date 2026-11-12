@@ -27,7 +27,21 @@ export interface ActionContext {
   efMigrations?: boolean;
   /** The active connection can be copied as a .NET connection string (F-143). */
   dotnetConnectionString?: boolean;
+  /** The active connection's engine family (`sql` when unknown). */
+  family?: string;
+  /** The active connection's engine has DDL, "Script as" and a data import (SQL features). */
+  ddl?: boolean;
+  dataImport?: boolean;
 }
+
+/** What only a SQL editor or a SQL result has: a plan, a definition, a parameter set. */
+const SQL_ONLY: ReadonlySet<ActionId> = new Set([
+  'query.explain',
+  'query.explainAnalyze',
+  'query.goToDefinition',
+  'query.runSameParameters',
+  'query.openDefinitionData',
+]);
 
 const NEEDS_QUERY_TAB: ReadonlySet<ActionId> = new Set([
   'query.run',
@@ -52,7 +66,15 @@ export function disabledReason(id: ActionId, context: ActionContext): MessageKey
   if (!context.registered.has(id)) return 'palette.disabled.unavailable';
   if (NEEDS_QUERY_TAB.has(id) && !context.queryTab) return 'palette.disabled.noQueryTab';
   if (id.startsWith('table.') && context.tableTab !== true) return 'palette.disabled.noTableTab';
+  if (SQL_ONLY.has(id) && context.family !== undefined && context.family !== 'sql') {
+    return 'palette.disabled.sqlOnly';
+  }
   switch (id) {
+    case 'table.showDdl':
+    case 'table.properties':
+      return context.ddl === false ? 'palette.disabled.sqlOnly' : null;
+    case 'table.import':
+      return context.dataImport === false ? 'palette.disabled.sqlOnly' : null;
     case 'query.format':
       return context.formatter === false ? 'palette.disabled.unavailable' : null;
     case 'query.updateSavedQuery':

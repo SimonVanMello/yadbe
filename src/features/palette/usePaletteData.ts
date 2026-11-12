@@ -35,6 +35,7 @@ import {
 import { usePaletteStore } from './paletteStore';
 import { useHistoryHits } from './useHistoryHits';
 import { useSavedHits } from './useSavedHits';
+import { useFamilyObjects } from './useFamilyObjects';
 import { useScriptTab } from '../document/scriptStore';
 
 /** Longest text the history is searched with in the mixed list: shorter ones match everything. */
@@ -113,12 +114,17 @@ export function usePaletteData(raw: string) {
   const wantsObjects = mode === 'all' || mode === 'object';
   const { targets, loading: loadingDatabases } = useCatalogTargets(wantsObjects);
   const { catalogs, loading: loadingCatalogs } = useCatalogs(targets, wantsObjects);
-  const loadingObjects = loadingDatabases || loadingCatalogs;
+  const family = useFamilyObjects(wantsObjects);
+  const loadingObjects = loadingDatabases || loadingCatalogs || family.loading;
   const names = useMemo(
     () => new Map(connections.map((connection) => [connection.id, connection.name])),
     [connections],
   );
-  const objects = useMemo(() => buildObjectItems(catalogs, names), [catalogs, names]);
+  const sqlObjects = useMemo(() => buildObjectItems(catalogs, names), [catalogs, names]);
+  const objects = useMemo(
+    () => (family.items.length === 0 ? sqlObjects : [...sqlObjects, ...family.items]),
+    [sqlObjects, family.items],
+  );
   const objectSearcher = useMemo(() => createSearcher(objects), [objects]);
 
   const historyWanted = mode === 'history' || (mode === 'all' && text.length >= HISTORY_MIN_CHARS);
@@ -152,6 +158,9 @@ export function usePaletteData(raw: string) {
     formatter: activeEngine?.capabilities.formatter ?? true,
     efMigrations: activeEngine?.capabilities.efMigrations ?? true,
     dotnetConnectionString: activeEngine?.capabilities.dotnetConnectionString ?? true,
+    family: activeEngine?.capabilities.family ?? 'sql',
+    ddl: activeEngine?.capabilities.ddl ?? true,
+    dataImport: activeEngine?.capabilities.dataImport ?? true,
   };
   const contextKey = [
     context.queryTab,
@@ -167,6 +176,9 @@ export function usePaletteData(raw: string) {
     context.formatter,
     context.efMigrations,
     context.dotnetConnectionString,
+    context.family,
+    context.ddl,
+    context.dataImport,
   ].join();
   const actions = useMemo(
     () => buildActionItems(t, context),
@@ -244,6 +256,6 @@ export function usePaletteData(raw: string) {
     loading: loadingObjects || history.loading || savedHits.loading,
     loadingObjects,
     hasObjects: objects.length > 0,
-    connectedCount: targets.length,
+    connectedCount: targets.length + (family.items.length > 0 ? 1 : 0),
   };
 }
