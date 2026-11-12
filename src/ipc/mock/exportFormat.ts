@@ -8,6 +8,7 @@ import type {
   SqlOptions,
   Value,
 } from '../bindings';
+import { sqlEngineOf, type SqlEngine } from '../sqlEngine';
 
 /**
  * The mock's stand-in for the backend's row encoders (`export/csv.rs`, `export/json.rs`): the
@@ -33,6 +34,7 @@ function binary(hex: string, encoding: 'hex' | 'base64'): string {
 function plainText(value: Value, encoding: 'hex' | 'base64'): string {
   switch (value.kind) {
     case 'null':
+    case 'missing':
       return '';
     case 'bool':
       return value.value ? 'true' : 'false';
@@ -93,6 +95,7 @@ function jsonValue(value: Value, numbers: 'auto' | 'strings', encoding: 'hex' | 
   const auto = numbers === 'auto';
   switch (value.kind) {
     case 'null':
+    case 'missing':
       return 'null';
     case 'bool':
       return value.value ? 'true' : 'false';
@@ -151,7 +154,7 @@ function jsonEncoder(options: JsonOptions): RowEncoder {
   };
 }
 
-const QUOTES: Record<Engine, readonly [string, string]> = {
+const QUOTES: Record<SqlEngine, readonly [string, string]> = {
   postgres: ['"', '"'],
   sqlite: ['"', '"'],
   mysql: ['`', '`'],
@@ -159,7 +162,7 @@ const QUOTES: Record<Engine, readonly [string, string]> = {
 };
 
 function quoteIdentifier(engine: Engine, name: string): string {
-  const [open, close] = QUOTES[engine];
+  const [open, close] = QUOTES[sqlEngineOf(engine)];
   return `${open}${name.replaceAll(close, close + close)}${close}`;
 }
 
@@ -169,6 +172,7 @@ function sqlLiteral(engine: Engine, value: Value): string {
   const number = (text: string) => (/^-?\d[\d.eE+-]*$/.test(text) ? text : quoted(text));
   switch (value.kind) {
     case 'null':
+    case 'missing':
       return 'NULL';
     case 'bool':
       return engine === 'postgres' ? (value.value ? 'TRUE' : 'FALSE') : value.value ? '1' : '0';

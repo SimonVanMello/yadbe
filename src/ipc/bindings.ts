@@ -89,7 +89,7 @@ export const commands = {
 	 *  Parses a pasted connection string into form fields. A password in it is kept by the
 	 *  backend for 15 minutes under `passwordId`; it is never sent back.
 	 */
-	parseConnectionString: (input: Secret, engineHint: "postgres" | "mssql" | "mysql" | "sqlite" | null) => typedError<ParsedConnectionString, YadbeError>(__TAURI_INVOKE("parse_connection_string", { input, engineHint })),
+	parseConnectionString: (input: Secret, engineHint: "postgres" | "mssql" | "mysql" | "sqlite" | "mongodb" | null) => typedError<ParsedConnectionString, YadbeError>(__TAURI_INVOKE("parse_connection_string", { input, engineHint })),
 	/**  Drops a password held from a parsed connection string (dialog cancelled). */
 	discardPendingSecret: (id: string) => typedError<null, YadbeError>(__TAURI_INVOKE("discard_pending_secret", { id })),
 	getPreferences: () => typedError<Preferences, YadbeError>(__TAURI_INVOKE("get_preferences")),
@@ -595,6 +595,42 @@ export const commands = {
 	 *  `passwordRequired` when none is stored.
 	 */
 	copyConnectionString: (connectionId: string, flavor: ConnectionStringFlavor, includePassword: boolean) => typedError<ConnectionStringCopy, YadbeError>(__TAURI_INVOKE("copy_connection_string", { connectionId, flavor, includePassword })),
+	/**  The databases of the server (`listDatabases`), system ones flagged. */
+	mongoListDatabases: (connectionId: string) => typedError<DocDatabase[], YadbeError>(__TAURI_INVOKE("mongo_list_databases", { connectionId })),
+	/**  The collections, views and time series of a database, by name. */
+	mongoListCollections: (connectionId: string, database: string) => typedError<DocCollection[], YadbeError>(__TAURI_INVOKE("mongo_list_collections", { connectionId, database })),
+	/**  The indexes of a collection. */
+	mongoListIndexes: (connectionId: string, database: string, collection: string) => typedError<DocIndex[], YadbeError>(__TAURI_INVOKE("mongo_list_indexes", { connectionId, database, collection })),
+	/**
+	 *  The fields of a collection estimated from a random sample (`$sample`, 200 documents by
+	 *  default, at most 1000): paths, types seen and how often.
+	 */
+	mongoSampleFields: (connectionId: string, database: string, collection: string, size: number | null) => typedError<FieldSample, YadbeError>(__TAURI_INVOKE("mongo_sample_fields", { connectionId, database, collection, size })),
+	/**  Opens a collection in the collection tab `tabId`: its kind and estimated size. */
+	mongoOpenCollection: (tabId: string, connectionId: string, database: string, collection: string) => typedError<CollectionInfo, YadbeError>(__TAURI_INVOKE("mongo_open_collection", { tabId, connectionId, database, collection })),
+	/**
+	 *  Reads page `page` (0-based) of a collection with the query's filter, projection and
+	 *  sort. Frees the tab's previous page. Fails with `invalidArgument` for a field that is
+	 *  not a JSON object.
+	 */
+	mongoFetchPage: (tabId: string, connectionId: string, database: string, collection: string, query: CollectionQuery, page: number) => typedError<CollectionPage, YadbeError>(__TAURI_INVOKE("mongo_fetch_page", { tabId, connectionId, database, collection, query, page })),
+	/**  Counts exactly the documents matching `filter` (`countDocuments`); cancellable. */
+	mongoCountDocuments: (tabId: string, connectionId: string, database: string, collection: string, filter: string) => typedError<number | null, YadbeError>(__TAURI_INVOKE("mongo_count_documents", { tabId, connectionId, database, collection, filter })),
+	/**
+	 *  Runs one JSON command (`runCommand`) typed in a document console tab, as written. A
+	 *  dangerous one answers `confirm` with its effect and runs only when sent again with
+	 *  `confirmed`. Recorded in the history.
+	 */
+	mongoRunCommand: (tabId: string, connectionId: string, database: string, command: string, confirmed: boolean) => typedError<CommandOutcome, YadbeError>(__TAURI_INVOKE("mongo_run_command", { tabId, connectionId, database, command, confirmed })),
+	/**  Stops what the tab runs (`killOp`); the call it made fails with `cancelled`. */
+	mongoCancel: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("mongo_cancel", { tabId })),
+	/**  Forgets a collection or console tab: stops what it runs and frees its results. */
+	mongoCloseTab: (tabId: string) => typedError<null, YadbeError>(__TAURI_INVOKE("mongo_close_tab", { tabId })),
+	/**
+	 *  Whole documents `offset .. offset + limit` (at most 500) of a document result, as
+	 *  canonical Extended JSON texts.
+	 */
+	mongoFetchDocuments: (documentsId: number, offset: number, limit: number) => typedError<string[], YadbeError>(__TAURI_INVOKE("mongo_fetch_documents", { documentsId, offset, limit })),
 };
 
 /** Events */
@@ -757,6 +793,9 @@ export type BoundedCount = {
 	durationMs: number | null,
 };
 
+/**  The BSON types, named as MongoDB's `$type` aliases. */
+export type BsonType = "double" | "string" | "object" | "array" | "binData" | "undefined" | "objectId" | "bool" | "date" | "null" | "regex" | "dbPointer" | "javascript" | "symbol" | "javascriptWithScope" | "int" | "timestamp" | "long" | "decimal" | "minKey" | "maxKey";
+
 /**
  *  What an engine supports, as data the services and the UI can branch on. Identifier
  *  quoting, parameter styles, plans and the flags from `formatter` on describe SQL features:
@@ -899,6 +938,44 @@ export type CheckConstraint = {
 	expression: string,
 };
 
+/**  A collection as its tab opens it. */
+export type CollectionInfo = {
+	database: string,
+	collection: string,
+	kind: CollectionKind | null,
+	/**  From the collection's metadata, at once (`estimatedDocumentCount`); `null` for a view. */
+	estimatedCount: number | null,
+	topology: DocTopology,
+};
+
+export type CollectionKind = "collection" | "view" | "timeseries";
+
+/**  One page of a collection tab. */
+export type CollectionPage = {
+	documents: DocumentResult,
+	/**  0-based. */
+	page: number,
+	/**  Documents exist after this page. */
+	hasMore: boolean,
+	/**  Pages follow `_id` (stable while documents are added); otherwise they skip. */
+	keyset: boolean,
+	/**  The operation as it was sent, shell style. */
+	command: string,
+	durationMs: number | null,
+};
+
+/**
+ *  What a collection tab asks for. The texts are relaxed or canonical Extended JSON; empty
+ *  means none.
+ */
+export type CollectionQuery = {
+	filter: string,
+	projection: string,
+	sort: string,
+	/**  Documents per page, 1 to 1000. */
+	pageSize: number,
+};
+
 /**
  *  One condition on one column. Values are bound as parameters, never written into the SQL;
  *  the engine converts them to the column's type (a `text` value for a `uuid` column is
@@ -980,6 +1057,17 @@ export type ColumnValue = {
 	column: string,
 	value: Value,
 };
+
+/**  How a console command ended. */
+export type CommandOutcome = 
+/**  It ran: a cursor's documents, or the reply document. */
+{ status: "done"; documents: DocumentResult; 
+/**  The reply was a cursor (otherwise one reply document). */
+cursor: boolean; 
+/**  The cursor had more documents than the console keeps. */
+truncated: boolean; durationMs: number | null } | 
+/**  Nothing ran: the command is dangerous; send it again with `confirmed` to run it. */
+{ status: "confirm"; danger: DangerReport };
 
 /**
  *  Everything the autocomplete (M2-5) and the palette (M2-6) need for one database, in one
@@ -1072,6 +1160,11 @@ export type ConnectionDefinition = {
 	historyEnabled?: boolean,
 	/**  SSH tunnel in front of a server connection (F-010); absent in older payloads. */
 	ssh?: SshTunnel | null,
+	/**
+	 *  The fields of a document connection (MongoDB, M4-2): SRV, replica set, auth source and
+	 *  mechanism, direct connection. `null` for the other families; absent in older payloads.
+	 */
+	mongo?: MongoSettings | null,
 };
 
 /**  A folder of connections; groups can nest. */
@@ -1282,6 +1375,33 @@ export type CursorPosition = {
 	head: number,
 };
 
+/**  What makes an operation dangerous. */
+export type DangerKind = 
+/**  Drops a collection (or the target of a rename that replaces it). */
+"dropCollection" | "dropDatabase" | 
+/**  Deletes every document of a collection (`deleteMany({})`). */
+"deleteAll" | 
+/**  Updates every document of a collection (`updateMany({}, …)`). */
+"updateAll" | 
+/**  Drops every index of a collection but `_id`'s. */
+"dropAllIndexes";
+
+/**  What a dangerous operation would do, for the confirmation (rule 10). */
+export type DangerReport = {
+	kind: DangerKind,
+	/**  The command as the user knows it (`deleteMany`, `drop`…). */
+	command: string,
+	database: string,
+	collection: string | null,
+	/**
+	 *  Documents it would delete, update or drop, as the server counts them now (estimated
+	 *  for a whole collection); `null` when they could not be counted.
+	 */
+	documents: number | null,
+	/**  Collections it would drop (`dropDatabase`). */
+	collections: number | null,
+};
+
 export type DatabaseInfo = {
 	name: string,
 	/**  The database the connection was opened on. */
@@ -1335,6 +1455,58 @@ export type Dependent = {
 	via: DependencyLink | null,
 };
 
+export type DocCollection = {
+	name: string,
+	kind: CollectionKind,
+	/**  `system.*` collections. */
+	system: boolean,
+	capped: boolean,
+	/**  The source of a view. */
+	viewOn: string | null,
+};
+
+export type DocDatabase = {
+	name: string,
+	/**  Bytes on disk, as the server reports them. */
+	sizeOnDisk: number | null,
+	empty: boolean,
+	/**  `admin`, `local`, `config`. */
+	system: boolean,
+};
+
+export type DocIndex = {
+	name: string,
+	/**  The key document, relaxed Extended JSON (`{"email":1}`). */
+	keys: string,
+	unique: boolean,
+	sparse: boolean,
+	/**  Has a `partialFilterExpression`. */
+	partial: boolean,
+	hidden: boolean,
+	/**  TTL index: documents expire after this many seconds. */
+	expireAfterSecs: number | null,
+};
+
+/**  The servers behind a connection, for what an apply can promise (decision 3). */
+export type DocTopology = 
+/**  One server without replication: no multi-document transaction. */
+"standalone" | "replicaSet" | "sharded" | 
+/**  Not known yet (no server selected). */
+"unknown";
+
+/**
+ *  Documents shown two ways: `result`, the grid (top-level fields as columns, the union over
+ *  the documents, a field a document lacks as `missing`), read with `fetch_result_window`;
+ *  and the whole documents, in canonical Extended JSON, read with `mongo_fetch_documents`
+ *  from `documentsId`. Both live in the backend until the tab reads again or closes.
+ */
+export type DocumentResult = {
+	result: ResultSummary,
+	documentsId: number,
+	/**  Documents in the result. */
+	count: number,
+};
+
 /**  The data provider behind a string, for the label of the copy and the notes. */
 export type DotnetProvider = {
 	/**  The ADO.NET provider (`Npgsql`). */
@@ -1374,7 +1546,7 @@ export type EfMigrations = {
 };
 
 /**  Database engines yadbe knows; drivers arrive one by one. */
-export type Engine = "postgres" | "mssql" | "mysql" | "sqlite";
+export type Engine = "postgres" | "mssql" | "mysql" | "sqlite" | "mongodb";
 
 /**
  *  What kind of database an engine is: it decides the connection's backend (the `Backend`
@@ -1460,6 +1632,11 @@ export type ErrorCode =
  *  key-value).
  */
 "sqlOnly" | 
+/**
+ *  A document feature (collections, documents, the command console) was asked of a
+ *  connection of another engine family.
+ */
+"documentOnly" | 
 /**  The connection is not open (never opened, closed, or reconnecting). */
 "notConnected" | 
 /**  The connection needs a password and none was given or stored. */
@@ -1774,6 +1951,21 @@ export type ExportStarted = {
 };
 
 export type ExportStatus = "done" | "failed" | "cancelled";
+
+/**  The fields of a collection, estimated from a sample. */
+export type FieldSample = {
+	/**  Documents read (fewer than asked in a small collection). */
+	sampled: number,
+	fields: SampledField[],
+	/**  More paths than listed were seen. */
+	truncated: boolean,
+};
+
+export type FieldTypeCount = {
+	type: BsonType,
+	/**  Sampled documents where the field has this type (an array counts once per type). */
+	count: number,
+};
 
 /**  Comparison of a column filter (F-081). */
 export type FilterOp = 
@@ -2475,6 +2667,32 @@ export type MetaRefreshed = {
 	reason: MetaRefreshReason,
 };
 
+/**  How a MongoDB connection authenticates, beyond user and password. */
+export type MongoAuthMechanism = 
+/**  What the server offers (SCRAM-SHA-256, else SCRAM-SHA-1) when a user is given. */
+"default" | "scramSha1" | "scramSha256" | 
+/**  The TLS client certificate is the identity (`MONGODB-X509`): no password. */
+"x509";
+
+/**
+ *  The fields only MongoDB connections have. `host` of the definition holds the seed list
+ *  (`a:27017,b,c:27019`) or the SRV name; `port` is the port of hosts written without one.
+ */
+export type MongoSettings = {
+	/**  `mongodb+srv://`: the hosts (and default options) come from DNS records of `host`. */
+	srv?: boolean,
+	/**  Name of the replica set to join; `null`: discovered. */
+	replicaSet?: string | null,
+	/**  Database the user is defined in; `null`: the connection's database, else `admin`. */
+	authSource?: string | null,
+	authMechanism?: MongoAuthMechanism,
+	/**
+	 *  Talk to the one host given, without discovering the other members (required through
+	 *  an SSH tunnel).
+	 */
+	directConnection?: boolean,
+};
+
 /**  What a new saved query holds. */
 export type NewSavedQuery = {
 	name: string,
@@ -2695,6 +2913,11 @@ export type ParsedConnectionString = {
 	passwordId: string | null,
 	/**  Keys yadbe did not understand and ignored. */
 	ignoredKeys: string[],
+	/**
+	 *  The MongoDB fields of a `mongodb://` / `mongodb+srv://` string (then `host` holds the
+	 *  host list).
+	 */
+	mongo: MongoSettings | null,
 };
 
 export type PauseReason = "rowLimit" | "memoryLimit";
@@ -3164,6 +3387,19 @@ export type RowDelete = {
 /**  A new row. Columns left out take their default (or identity, or computed value). */
 export type RowInsert = {
 	values: ColumnValue[],
+};
+
+export type SampledField = {
+	/**  Dotted path (`address.city`); fields of documents inside arrays use the array's path. */
+	path: string,
+	/**  The last part of the path. */
+	name: string,
+	/**  0 for a top-level field. */
+	depth: number,
+	/**  Sampled documents that have the field. */
+	present: number,
+	/**  Types seen, most frequent first. */
+	types: FieldTypeCount[],
 };
 
 /**  A connection as saved in the app database. Never contains a secret. */
@@ -3882,7 +4118,11 @@ export type Value = { kind: "null" } | { kind: "bool"; value: boolean } |
 /**  JSON text exactly as stored (numbers keep their precision). */
 { kind: "json"; value: string } | { kind: "array"; value: Value[] } | 
 /**  A type yadbe does not decode, in its text form (read-only in the grid). */
-{ kind: "other"; value: string };
+{ kind: "other"; value: string } | 
+/**  A MongoDB ObjectId: 24 lowercase hexadecimal digits (document family). */
+{ kind: "objectId"; value: string } | 
+/**  A field the document does not have (document family): not the same as `null`. */
+{ kind: "missing" };
 
 /**  How the `contents` string of `write_value_file` becomes bytes. */
 export type ValueFileEncoding = 
@@ -3895,7 +4135,9 @@ export type ValueFileEncoding =
  *  Logical family of a column, for alignment, formatting and editors. Per-cell values may
  *  still differ (SQLite columns are dynamically typed).
  */
-export type ValueKind = "bool" | "int" | "decimal" | "float" | "text" | "bytes" | "date" | "time" | "timestamp" | "timestampTz" | "interval" | "uuid" | "json" | "array" | "other";
+export type ValueKind = "bool" | "int" | "decimal" | "float" | "text" | "bytes" | "date" | "time" | "timestamp" | "timestampTz" | "interval" | "uuid" | "json" | "array" | "other" | "objectId" | 
+/**  No value at all: a field absent from a document. */
+"missing";
 
 /**
  *  A condition on one column, or on every column (`column` absent: some cell matches; for the

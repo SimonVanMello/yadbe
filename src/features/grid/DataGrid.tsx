@@ -506,6 +506,7 @@ export function DataGrid({
         null: styles.null ?? '',
         empty: styles.empty ?? '',
         mark: styles.mark ?? '',
+        missing: styles.missing ?? '',
       },
       labels: { null: getPreference('nullText'), empty: '' },
     });
@@ -528,6 +529,7 @@ export function DataGrid({
       empty: t('grid.empty'),
       default: t('grid.default'),
       required: t('grid.required'),
+      missing: t('document.missing'),
     });
     if (!metrics || !layout) {
       snapshot.current = null;

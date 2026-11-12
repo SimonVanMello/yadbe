@@ -12,6 +12,8 @@ export const DISPLAY_CHARS = 400;
 
 export type CellDisplay =
   | { type: 'null' }
+  /** A field the document does not have (document results): not the same as NULL. */
+  | { type: 'missing' }
   | { type: 'empty' }
   | { type: 'plain'; text: string }
   /** Text with marked parts (whitespace shown as symbols), as alternating segments. */
@@ -40,6 +42,7 @@ function symbolize(whitespace: string): string {
 /** Display form of a cell. `kind` decides prefixes (binary is shown as `0x…`). */
 export function describeCell(text: string | null, kind: ValueKind): CellDisplay {
   if (text === null) return { type: 'null' };
+  if (kind === 'missing') return { type: 'missing' };
   if (text === '') return { type: 'empty' };
   if (kind === 'bytes') return { type: 'plain', text: `0x${text.slice(0, DISPLAY_CHARS)}` };
   if (kind === 'array') {

@@ -21,6 +21,7 @@ import {
   type SshDraft,
   type SshDraftErrors,
 } from './sshModel';
+import { emptyMongoDraft, mongoDraftFrom, toMongoSettings, type MongoDraft } from './mongoModel';
 
 export type { ConnectionGroup, Engine, EngineInfo, EnvironmentKind, TlsMode };
 
@@ -172,6 +173,8 @@ export interface ConnectionDraft {
   tlsClientKey: string;
   tlsKeyPassphrase: string;
   rememberTlsKeyPassphrase: boolean;
+  /** The MongoDB fields (document family). */
+  mongo: MongoDraft;
   // Not editable in this form yet: carried so that saving does not lose them.
   caCertPath: string | null;
   options: ConnectionOption[];
@@ -215,6 +218,7 @@ export function emptyDraft(info: EngineInfo): ConnectionDraft {
     tlsClientKey: '',
     tlsKeyPassphrase: '',
     rememberTlsKeyPassphrase: true,
+    mongo: emptyMongoDraft(),
     caCertPath: null,
     options: [],
   };
@@ -253,6 +257,7 @@ export function draftFromSaved(saved: SavedConnection): ConnectionDraft {
     tlsClientKey: definition.tlsClientKeyPath ?? '',
     tlsKeyPassphrase: '',
     rememberTlsKeyPassphrase: true,
+    mongo: mongoDraftFrom(definition.mongo),
     caCertPath: definition.caCertPath,
     options: definition.options,
   };
@@ -312,7 +317,11 @@ export function suggestedName(draft: ConnectionDraft, info: EngineInfo | undefin
 export function toDefinition(draft: ConnectionDraft, info: EngineInfo): ConnectionDefinition {
   const { capabilities } = info;
   const file = capabilities.usesFile;
+  const document = capabilities.family === 'document';
   const port = draft.port.trim();
+  // A document server without a user (or authenticated by its certificate) asks no password.
+  const passwordless =
+    document && (draft.username.trim() === '' || draft.mongo.authMechanism === 'x509');
   const environment = draft.environment;
   const clientCert =
     info.capabilities.clientCertificate && draft.tlsMode !== 'disable'
@@ -326,8 +335,9 @@ export function toDefinition(draft: ConnectionDraft, info: EngineInfo): Connecti
     database: file ? '' : draft.database.trim(),
     username: file ? '' : draft.username.trim(),
     filePath: file ? draft.filePath.trim() : '',
-    auth: file ? 'none' : 'password',
-    tlsMode: draft.tlsMode,
+    auth: file || passwordless ? 'none' : 'password',
+    // MongoDB has no opportunistic TLS: `prefer` is none.
+    tlsMode: document && draft.tlsMode === 'prefer' ? 'disable' : draft.tlsMode,
     caCertPath: draft.caCertPath,
     tlsClientCertPath: clientCert,
     tlsClientKeyPath: clientCert === null ? null : textOrNull(draft.tlsClientKey),
@@ -347,6 +357,7 @@ export function toDefinition(draft: ConnectionDraft, info: EngineInfo): Connecti
     rememberPassword: draft.rememberPassword,
     historyEnabled: draft.historyEnabled,
     ssh: file ? null : toSshTunnel(draft.ssh),
+    mongo: document ? toMongoSettings(draft.mongo) : null,
   };
 }
 
@@ -436,6 +447,7 @@ export function applyParsed(
     tlsModeAuto,
     caCertPath: parsed.caCertPath ?? base.caCertPath,
     options: parsed.options.length > 0 ? parsed.options : base.options,
+    mongo: parsed.mongo ? mongoDraftFrom(parsed.mongo) : base.mongo,
     // A password in the string is held by the backend; a password typed before is replaced.
     password: parsed.passwordId === null ? base.password : '',
     pendingPasswordId: parsed.passwordId ?? base.pendingPasswordId,

@@ -46,6 +46,14 @@ export function openRow(row: SidebarTreeRow): boolean {
       if (!isRelationKind(row.object.kind)) return false;
       void openTable(row.connectionId, row.ref);
       return true;
+    case 'docCollection':
+      // A collection tab is a table tab of a document connection (its body follows the family).
+      void openTable(row.connectionId, {
+        database: row.database,
+        schema: null,
+        name: row.collection.name,
+      });
+      return true;
     case 'pinned': {
       const { kind } = row.pin;
       if (kind === null) {

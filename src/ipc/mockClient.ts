@@ -47,6 +47,7 @@ import { createMockSsh, tunnelStatus } from './mock/ssh';
 import { createMockTableData } from './mock/tableData';
 import { createMockResultEdit, parseTableSelect, tableSelect } from './mock/resultEdit';
 import { createMockJournal } from './mock/journal';
+import { createMockDocument } from './mock/document';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
 const MOCK_APP_INFO: AppInfo = { appVersion: '0.1.0', os: 'linux', arch: 'x86_64' };
@@ -667,6 +668,35 @@ function createMockBackend() {
     },
   });
 
+  const document = createMockDocument({
+    session: (connectionId) => {
+      const conn = findConnection(connectionId);
+      if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
+      return { readOnly: conn.definition.readOnly };
+    },
+    latency: () => meta.latency(),
+    logStatement: (connectionId, sql, error = null) => {
+      logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
+    },
+    recordHistory: (entry) => {
+      history.record(entry);
+    },
+    storeRows: (columns, rows) => query.storeRows(columns, rows),
+    freeResults: (ids) => {
+      query.freeResults(ids);
+    },
+    readTexts: (resultId, offset, limit) => {
+      const source = query.resultSource(resultId);
+      if (!source) return null;
+      const texts: string[] = [];
+      for (let row = offset; row < Math.min(source.loaded, offset + limit); row++) {
+        const value = source.value(row, 0);
+        texts.push('value' in value && typeof value.value === 'string' ? value.value : '{}');
+      }
+      return texts;
+    },
+  });
+
   const commands: YadbeClient['commands'] = {
     appInfo: () => ok(appInfo),
 
@@ -982,6 +1012,7 @@ function createMockBackend() {
     ...dotnet.commands,
     ...importer.commands,
     ...connectionImport.commands,
+    ...document.commands,
   };
 
   function reset(): void {
@@ -1010,6 +1041,7 @@ function createMockBackend() {
     resultEdit.reset();
     journal.reset();
     references.reset();
+    document.reset();
     files.reset();
     exporter.reset();
     importer.reset();

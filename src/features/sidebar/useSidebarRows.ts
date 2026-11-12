@@ -13,7 +13,7 @@ import { pruneNodes, type ExplorerNode } from '../explorer/explorerRows';
 import { usePinStore } from '../objects/pinStore';
 import { useExplorerStore } from '../explorer/explorerStore';
 import { requestKey, type MetaRequest } from '../explorer/metaKeys';
-import { createCacheSource, metaQuery } from '../explorer/metaSource';
+import { createCacheSource, documentSourceOf, metaQuery } from '../explorer/metaSource';
 import { composeSidebarRows, type SidebarTreeRow } from './sidebarRows';
 
 let cacheVersion = 0;
@@ -120,6 +120,12 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
         createCacheSource(queryClient, connectionId, (id, request) => {
           sink({ connectionId: id, request });
         }),
+      documentSourceFor: (connectionId) =>
+        documentSourceOf(
+          createCacheSource(queryClient, connectionId, (id, request) => {
+            sink({ connectionId: id, request });
+          }),
+        ),
       filteredTree: (connectionId, filter, build) => {
         const tree = trees.filtered(connectionId, filter, () => {
           const own: Recorded[] = [];
@@ -157,7 +163,10 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
   const databaseSeeds = useMemo(() => {
     const seeds: { connectionId: string; node: string }[] = [];
     for (const row of rows) {
-      if (row.type !== 'database' || !row.database.current) continue;
+      const current =
+        (row.type === 'database' && row.database.current) ||
+        (row.type === 'docDatabase' && row.current);
+      if (!current) continue;
       seeds.push({ connectionId: row.connectionId, node: row.nodeKey });
     }
     return seeds;

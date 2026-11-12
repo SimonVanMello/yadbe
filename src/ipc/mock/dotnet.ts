@@ -10,6 +10,7 @@ import type {
   ObjectRef,
   YadbeError,
 } from '../bindings';
+import { sqlEngineOf, type SqlEngine } from '../sqlEngine';
 import type { YadbeClient } from '../client';
 
 type Commands = YadbeClient['commands'];
@@ -123,7 +124,7 @@ export function csharpString(text: string): string {
   return `${out}"`;
 }
 
-const PROVIDERS: Record<Engine, DotnetProvider> = {
+const PROVIDERS: Record<SqlEngine, DotnetProvider> = {
   postgres: { adoNet: 'Npgsql', efCore: 'Npgsql.EntityFrameworkCore.PostgreSQL' },
   mssql: {
     adoNet: 'Microsoft.Data.SqlClient',
@@ -148,7 +149,7 @@ function pairsOf(
     if (password) pairs.push(['Password', password]);
   };
   const { tlsMode, caCertPath: ca } = definition;
-  switch (definition.engine) {
+  switch (sqlEngineOf(definition.engine)) {
     case 'postgres': {
       push('Host', definition.host);
       if (definition.port !== null) pairs.push(['Port', String(definition.port)]);
@@ -241,7 +242,7 @@ function pairsOf(
   }
 }
 
-const EF_CALL: Record<Engine, (cs: string) => string> = {
+const EF_CALL: Record<SqlEngine, (cs: string) => string> = {
   postgres: (cs) => `UseNpgsql(${cs})`,
   mssql: (cs) => `UseSqlServer(${cs})`,
   mysql: (cs) => `UseMySql(${cs}, ServerVersion.AutoDetect(${cs}))`,
@@ -263,8 +264,8 @@ export function buildConnectionString(
   const text =
     flavor === 'adoNet'
       ? ado
-      : `var connectionString = ${csharpString(ado)};\noptions.${EF_CALL[definition.engine]('connectionString')};`;
-  return { text, provider: PROVIDERS[definition.engine], includesPassword, notes };
+      : `var connectionString = ${csharpString(ado)};\noptions.${EF_CALL[sqlEngineOf(definition.engine)]('connectionString')};`;
+  return { text, provider: PROVIDERS[sqlEngineOf(definition.engine)], includesPassword, notes };
 }
 
 export function createMockDotnet(deps: DotnetDeps) {

@@ -23,6 +23,8 @@ export function cellValue(text: string | null, kind: ValueKind): Value {
       }
       return { kind: 'other', value: text };
     }
+    case 'missing':
+      return { kind: 'missing' };
     default:
       return { kind, value: text };
   }
@@ -262,6 +264,12 @@ export function parseInput(input: string, column: EditColumn): ParseResult {
     case 'text':
     case 'other':
       return { ok: true, value: { kind, value: text } };
+    case 'objectId':
+      return /^[0-9a-fA-F]{24}$/.test(text)
+        ? { ok: true, value: { kind, value: text.toLowerCase() } }
+        : fail('document.invalid.objectId');
+    case 'missing':
+      return { ok: true, value: { kind: 'text', value: text } };
   }
 }
 

@@ -143,6 +143,12 @@
   --migration-time-width: 168px;
   --migration-rail-width: 28px;
   --migration-content-width: 720px;
+  /* Documents view and collection tab (M4-2). */
+  --doc-indent: 16px;
+  --doc-label-max-width: 280px;
+  --collection-filter-min-width: 240px;
+  --collection-option-width: 180px;
+  --console-editor-height: 160px;
 
   /* Motion: transitions only signal a state change, ≤ 150 ms (spec §6.7). */
   --duration-fast: 100ms;

@@ -1,0 +1,84 @@
+import { describe, expect, it } from 'vitest';
+
+import { cellOf, gridOf, mockDatabases } from './documentData';
+import { createMockDocument } from './document';
+
+function backend(readOnly = false) {
+  const stored = new Map<number, string[][]>();
+  let next = 1;
+  const history: string[] = [];
+  const mock = createMockDocument({
+    session: () => ({ readOnly }),
+    latency: () => 0,
+    logStatement: () => undefined,
+    recordHistory: (entry) => history.push(`${entry.outcome}:${entry.sql}`),
+    storeRows: (_columns, rows) => {
+      const id = next++;
+      stored.set(
+        id,
+        rows.map((row) => row.map((cell) => cell?.[1] ?? '')),
+      );
+      return id;
+    },
+    freeResults: (ids) => {
+      for (const id of ids) stored.delete(id);
+    },
+    readTexts: (id, offset, limit) =>
+      stored
+        .get(id)
+        ?.slice(offset, offset + limit)
+        .map((row) => row[0] ?? '') ?? null,
+  });
+  return { commands: mock.commands, history };
+}
+
+describe('the mock MongoDB server', () => {
+  it('has believable documents: nested, mixed types, missing fields', () => {
+    const products = mockDatabases().get('catalog')?.get('products')?.documents ?? [];
+    const { columns, rows } = gridOf(products.slice(0, 12));
+    const names = columns.map((c) => c.name);
+    expect(names[0]).toBe('_id');
+    expect(names).toContain('discontinued');
+    const stock = columns.find((c) => c.name === 'stock');
+    expect(stock?.typeName).toBe('long | int');
+    const discontinued = names.indexOf('discontinued');
+    expect(rows.some((row) => row[discontinued]?.[0] === 'missing')).toBe(true);
+    expect(cellOf({ $date: { $numberLong: '1700000000123' } })).toEqual([
+      'timestampTz',
+      '2023-11-14 22:13:20.123+00',
+    ]);
+  });
+
+  it('pages a collection and reads its documents back', async () => {
+    const { commands } = backend();
+    const query = { filter: '{"status":"paid"}', projection: '', sort: '', pageSize: 50 };
+    const page = await commands.mongoFetchPage('t', 'c', 'catalog', 'orders', query, 0);
+    if (page.status !== 'ok') throw new Error('page');
+    expect(page.data.keyset).toBe(true);
+    expect(page.data.documents.count).toBe(50);
+    const docs = await commands.mongoFetchDocuments(page.data.documents.documentsId, 0, 2);
+    if (docs.status !== 'ok') throw new Error('documents');
+    expect(JSON.parse(docs.data[0] ?? '{}')).toMatchObject({ status: 'paid' });
+  });
+
+  it('refuses writes on a read-only connection and confirms dangerous commands', async () => {
+    const readOnly = backend(true);
+    const refused = await readOnly.commands.mongoRunCommand(
+      't',
+      'c',
+      'catalog',
+      '{"insert":"orders","documents":[{}]}',
+      false,
+    );
+    expect(refused.status === 'error' && refused.error.code).toBe('readOnlyViolation');
+    expect(readOnly.history).toEqual(['refused:{"insert":"orders","documents":[{}]}']);
+
+    const { commands } = backend();
+    const command = '{"delete":"orders","deletes":[{"q":{},"limit":0}]}';
+    const first = await commands.mongoRunCommand('t', 'c', 'catalog', command, false);
+    if (first.status !== 'ok' || first.data.status !== 'confirm') throw new Error('confirm');
+    expect(first.data.danger).toMatchObject({ kind: 'deleteAll', documents: 1300 });
+    const done = await commands.mongoRunCommand('t', 'c', 'catalog', command, true);
+    expect(done.status === 'ok' && done.data.status).toBe('done');
+  });
+});

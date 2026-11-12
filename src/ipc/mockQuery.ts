@@ -402,6 +402,8 @@ export function cellValue(cell: Cell): Value {
       return { kind, value: text === 'true' };
     case 'array':
       return { kind, value: JSON.parse(text) as Value[] };
+    case 'missing':
+      return { kind };
     default:
       return { kind, value: text };
   }

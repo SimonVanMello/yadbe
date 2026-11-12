@@ -11,6 +11,7 @@ import {
   type ExplorerRow,
   type MetaSource,
 } from '../explorer/explorerRows';
+import { buildDocumentNodes, type DocumentSource } from '../explorer/documentRows';
 
 export type SidebarTreeRow =
   | {
@@ -48,6 +49,8 @@ export interface SidebarInput {
   pins?: readonly PinnedObject[];
   /** Where the tree of a connection reads its data. */
   sourceFor: (connectionId: string) => MetaSource;
+  /** Where the tree of a document connection reads its data (absent: no document tree). */
+  documentSourceFor?: (connectionId: string) => DocumentSource;
   /**
    * The loaded tree of a connection pruned to `filter`, from a cache: the whole tree does not
    * depend on the query, only on the data and the expanded nodes, so a keystroke only prunes it
@@ -88,9 +91,37 @@ function explorerRows(
         open,
         level,
       });
+    case 'document':
+      return documentExplorerRows(input, connection, state, filter, { expanded, open, level });
     default:
       return [];
   }
+}
+
+/** The explorer of a document connection: databases, collections, sampled fields, indexes. */
+function documentExplorerRows(
+  input: SidebarInput,
+  connection: ConnectionSummary,
+  state: ConnectionState,
+  filter: string,
+  { expanded, open, level }: { expanded: ReadonlySet<string>; open: boolean; level: number },
+): ExplorerRow[] {
+  const source = input.documentSourceFor?.(connection.id);
+  if (!source) return [];
+  const options = { connectionId: connection.id, level };
+  const context = {
+    source,
+    expanded,
+    showSystem: input.showSystem,
+    current: connection.definition.database,
+  };
+  const fetching = state === 'connected' && open;
+  if (filter === '') {
+    const nodes = buildDocumentNodes({ ...context, exhaustive: false }, fetching);
+    return flattenNodes(nodes, { ...options, expanded, open: false });
+  }
+  const nodes = pruneNodes(buildDocumentNodes({ ...context, exhaustive: true }, fetching), filter);
+  return flattenNodes(nodes, { ...options, expanded, open: true });
 }
 
 /** The explorer of a SQL connection: databases, schemas, kinds of objects, objects, details. */

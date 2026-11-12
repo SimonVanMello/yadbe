@@ -8,7 +8,13 @@ export type MetaRequest =
   | { type: 'schemas'; database: string }
   | { type: 'counts'; database: string; schema: string | null }
   | { type: 'objects'; database: string; schema: string | null; kind: ObjectKind }
-  | { type: 'table'; table: ObjectRef; kind: ObjectKind };
+  | { type: 'table'; table: ObjectRef; kind: ObjectKind }
+  // Document connections (MongoDB): their own reads, under the same prefixes so that a refresh
+  // of the connection, a database or a collection (`table` level) drops them.
+  | { type: 'docDatabases' }
+  | { type: 'docCollections'; database: string }
+  | { type: 'docIndexes'; database: string; collection: string }
+  | { type: 'docFields'; database: string; collection: string };
 
 type Key = readonly (string | null)[];
 
@@ -59,6 +65,20 @@ export function requestKey(connectionId: string, request: MetaRequest): Key {
       return metaKeys.objects(connectionId, request.database, request.schema, request.kind);
     case 'table':
       return metaKeys.table(connectionId, request.table, request.kind);
+    case 'docDatabases':
+      return ['meta', connectionId, 'docDatabases'];
+    case 'docCollections':
+      return [...metaKeys.database(connectionId, request.database), 'collections'];
+    case 'docIndexes':
+    case 'docFields':
+      // `[…schema, 'table', kind, name]`: what a `table` refresh of the collection matches.
+      return [
+        ...metaKeys.schema(connectionId, request.database, null),
+        'table',
+        'collection',
+        request.collection,
+        request.type === 'docIndexes' ? 'indexes' : 'fields',
+      ];
   }
 }
 

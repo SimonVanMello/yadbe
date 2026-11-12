@@ -29,6 +29,8 @@ export function mockObjectActions(
         return { kind, drop: true, truncate: table, rename: table || kind === 'view' };
       case 'sqlite':
         return { kind, drop: true, truncate: table, rename: table };
+      case 'mongodb':
+        return { kind, drop: false, truncate: false, rename: false };
     }
   });
 }
@@ -187,7 +189,50 @@ const ENGINES: EngineInfo[] = [
   },
 ];
 
-export const MOCK_ENGINES: EngineInfo[] = ENGINES.map((info) => ({
+/** MongoDB: the document family, none of the SQL features. */
+const MONGODB: EngineInfo = {
+  engine: 'mongodb',
+  label: 'MongoDB',
+  capabilities: {
+    family: 'document',
+    formatter: false,
+    ddl: false,
+    scriptAs: false,
+    dataImport: false,
+    efMigrations: false,
+    dotnetConnectionString: false,
+    usesFile: false,
+    defaultPort: 27017,
+    supportsTls: true,
+    clientCertificate: true,
+    multipleDatabases: true,
+    schemas: false,
+    nativeCancel: true,
+    readOnlySession: false,
+    identifierQuoteOpen: '"',
+    identifierQuoteClose: '"',
+    foldsUnquotedToLower: false,
+    parameterStyles: {
+      colon: false,
+      at: false,
+      atDeclaredAreVariables: false,
+      dollarName: false,
+      dollarNumber: false,
+      question: false,
+      questionNumber: false,
+    },
+    explain: false,
+    explainAnalyze: false,
+    activityMonitor: false,
+    activityCancelQuery: false,
+    tableQualifier: 'database',
+  },
+  defaultUsername: null,
+  available: true,
+  objectActions: [],
+};
+
+export const MOCK_ENGINES: EngineInfo[] = [...ENGINES, MONGODB].map((info) => ({
   ...info,
   objectActions: mockObjectActions(info.engine, MOCK_OBJECT_KINDS[info.engine] ?? []),
 }));
@@ -223,6 +268,7 @@ export function blankDefinition(engine: Engine, name = ''): ConnectionDefinition
     rememberPassword: true,
     historyEnabled: true,
     ssh: null,
+    mongo: null,
   };
 }
 
@@ -307,6 +353,23 @@ export const MOCK_CONNECTIONS: SavedConnection[] = [
     groupId: 'group-local',
     environment: { kind: 'dev', label: null, color: null },
   }),
+  saved('conn-catalog-mongo', 2, {
+    ...blankDefinition('mongodb', 'catalog · mongo'),
+    host: 'localhost',
+    tlsMode: 'disable',
+    port: 27017,
+    database: 'catalog',
+    auth: 'none',
+    groupId: 'group-local',
+    environment: { kind: 'dev', label: null, color: null },
+    mongo: {
+      srv: false,
+      replicaSet: 'rs0',
+      authSource: null,
+      authMechanism: 'default',
+      directConnection: false,
+    },
+  }),
   saved('conn-app-sqlite', 0, {
     ...blankDefinition('sqlite', 'app.sqlite'),
     filePath: '/home/ana/projects/app/app.sqlite',
@@ -332,4 +395,5 @@ export const MOCK_SERVER_VERSIONS: Record<Engine, string> = {
   mssql: 'SQL Server 16.0.4135.4',
   mysql: 'MySQL 8.4.2',
   sqlite: 'SQLite 3.46.0',
+  mongodb: '7.0.14',
 };

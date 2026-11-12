@@ -46,6 +46,10 @@ export function operatorsFor(
       return ['eq', ...nulls];
     case 'uuid':
       return ['eq', 'ne', 'in', 'startsWith', ...nulls];
+    case 'objectId':
+      return ['eq', 'ne', 'in', ...nulls];
+    case 'missing':
+      return nulls;
     case 'json':
     case 'array':
       return ['contains', ...nulls];

@@ -41,11 +41,15 @@ export interface BodyClasses {
   null: string;
   empty: string;
   mark: string;
+  /** A field a document lacks; absent: drawn like an empty cell. */
+  missing?: string;
 }
 
 export interface BodyLabels {
   null: string;
   empty: string;
+  /** Shown in a field a document lacks (document results). */
+  missing?: string;
   /** Shown instead of NULL in a cell the server will fill in (a new row's default). */
   default?: string;
   /** Shown instead of NULL in a cell of a new row that must be filled before Apply. */
@@ -421,6 +425,10 @@ export class GridBody {
       case 'empty':
         el.className = `${base} ${classes.empty}`;
         el.textContent = this.labels.empty;
+        return;
+      case 'missing':
+        el.className = `${base} ${classes.missing ?? classes.empty}`;
+        el.textContent = this.labels.missing ?? this.labels.empty;
         return;
       case 'plain':
         el.className = base;

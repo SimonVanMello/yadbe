@@ -1,4 +1,5 @@
 import type { SecretLocation } from '../../ipc';
+import { DocumentConnectionFields } from './DocumentConnectionFields';
 import type { ConnectionDraft, DraftErrors, EngineInfo } from './model';
 import { SqlConnectionFields } from './SqlConnectionFields';
 import type { SshHopName, SshSecretLocations } from './sshModel';
@@ -32,6 +33,8 @@ export function EngineFields(props: EngineFieldsProps) {
   switch (props.info.capabilities.family) {
     case 'sql':
       return <SqlConnectionFields {...props} />;
+    case 'document':
+      return <DocumentConnectionFields {...props} />;
     default:
       return null;
   }

@@ -1,4 +1,5 @@
 import type { Engine } from '../../ipc';
+import { sqlEngineOf, type SqlEngine } from '../../ipc/sqlEngine';
 import { dialectOf } from '../query/sqlLanguage';
 
 /**
@@ -32,7 +33,7 @@ const COMMON_KEYWORDS = split(`
   any some fetch next only for cast interval lateral window
 `);
 
-const KEYWORDS: Record<Engine, string[]> = {
+const KEYWORDS: Record<SqlEngine, string[]> = {
   postgres: split(`ilike similar analyze vacuum copy show describe materialized cascade restrict
     serial bigserial generated always identity do conflict nothing returning tablesample
     filter within group using extension sequence function procedure trigger type enum`),
@@ -54,7 +55,7 @@ const COMMON_FUNCTIONS = split(`
   row_number rank dense_rank ntile lag lead first_value last_value cast
 `);
 
-const FUNCTIONS: Record<Engine, string[]> = {
+const FUNCTIONS: Record<SqlEngine, string[]> = {
   postgres: split(`now current_timestamp current_date current_time date_trunc date_part extract age
     to_char to_date to_timestamp to_number string_agg array_agg jsonb_agg json_agg jsonb_build_object
     json_build_object jsonb_extract_path jsonb_array_elements unnest generate_series regexp_replace
@@ -85,8 +86,8 @@ export function vocabularyOf(engine: Engine): Vocabulary {
     const types = split(dialectOf(engine).spec.types ?? '');
     const sorted = (words: string[]) => [...new Set(words.map((w) => w.toLowerCase()))].sort();
     found = {
-      keywords: sorted([...COMMON_KEYWORDS, ...KEYWORDS[engine]]),
-      functions: sorted([...COMMON_FUNCTIONS, ...FUNCTIONS[engine]]),
+      keywords: sorted([...COMMON_KEYWORDS, ...KEYWORDS[sqlEngineOf(engine)]]),
+      functions: sorted([...COMMON_FUNCTIONS, ...FUNCTIONS[sqlEngineOf(engine)]]),
       types: sorted(types),
     };
     cache.set(engine, found);

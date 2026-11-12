@@ -1,6 +1,6 @@
-import { TableTabBody } from '../../features/table-data/TableTabBody';
 import { WelcomeScreen } from '../../features/welcome/WelcomeScreen';
 import { LazyActivityTabBody, LazyDdlTabBody, LazyMigrationsTabBody } from '../lazyViews';
+import { DataTabBody } from './DataTabBody';
 import { QueryTabBody } from './QueryTabBody';
 import styles from './TabContent.module.css';
 import { selectActiveTab, useTabsStore } from './tabsStore';
@@ -13,7 +13,7 @@ export function TabContent() {
       {tab.connectionId === null ? (
         <WelcomeScreen key={tab.id} />
       ) : tab.table ? (
-        <TableTabBody key={tab.id} tab={tab} table={tab.table} />
+        <DataTabBody key={tab.id} tab={tab} table={tab.table} />
       ) : tab.ddl ? (
         <LazyDdlTabBody key={tab.id} tab={tab} target={tab.ddl} />
       ) : tab.tool?.type === 'activity' ? (

@@ -4,6 +4,7 @@ import { openQueryTab } from '../query/openQueryTab';
 import { translate, useI18nStore, type MessageKey, type MessageParams } from '../../i18n/i18n';
 import { ipc, unwrap, type MetaNode, type ObjectRef, type ScriptKind } from '../../ipc';
 import { toast } from '../../ui/toastStore';
+import { documentNodeOf } from './documentRows';
 import { isRelationKind, type ExplorerRow } from './explorerRows';
 
 function t(key: MessageKey, params?: MessageParams): string {
@@ -112,6 +113,12 @@ export function metaNodeOf(row: ExplorerRow): MetaNode | null {
       return { level: 'table', table: row.table };
     case 'status':
       return row.refresh;
+    case 'docDatabase':
+    case 'docCollection':
+    case 'docGroup':
+    case 'docField':
+    case 'docIndex':
+      return documentNodeOf(row);
   }
 }
 
@@ -139,5 +146,12 @@ export function databaseOf(row: ExplorerRow): string | null {
       return row.table.database;
     case 'status':
       return null;
+    case 'docDatabase':
+      return row.database.name;
+    case 'docCollection':
+    case 'docGroup':
+    case 'docField':
+    case 'docIndex':
+      return row.database;
   }
 }

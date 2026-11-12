@@ -12,6 +12,9 @@ import { useRenameStore } from '../objects/renameStore';
 import { rowStyle } from '../sidebar/rowStyle';
 import styles from './ExplorerRow.module.css';
 import { explorerRowLabel, GROUP_ICONS, groupLabel, kindLabel, KIND_ICONS } from './explorerLabels';
+import type { CollectionKind } from '../../ipc';
+import { fieldShare } from './documentRows';
+import { DocumentContextMenu } from './DocumentContextMenu';
 import type { ExplorerRow as Row } from './explorerRows';
 import { ExplorerContextMenu } from './ExplorerContextMenu';
 
@@ -255,7 +258,114 @@ function contentOf(row: Row, t: Translate, locale: Locale): Content {
     }
     case 'status':
       return { icon: null, name: explorerRowLabel(row, t) };
+    case 'docDatabase':
+      return {
+        icon: 'database',
+        name: name(row.database.name),
+        meta:
+          row.database.sizeOnDisk === null
+            ? undefined
+            : formatBytes(locale, row.database.sizeOnDisk),
+      };
+    case 'docCollection': {
+      const { collection } = row;
+      return {
+        icon: COLLECTION_ICONS[collection.kind],
+        name: name(collection.name),
+        meta: collection.kind === 'collection' ? undefined : t(`mongo.explorer.${collection.kind}`),
+        tooltip:
+          collection.viewOn === null ? undefined : (
+            <Lines
+              lines={[collection.name, t('mongo.explorer.viewOn', { name: collection.viewOn })]}
+            />
+          ),
+      };
+    }
+    case 'docGroup':
+      return {
+        icon: row.group === 'fields' ? 'columns' : 'index',
+        name: t(row.group === 'fields' ? 'mongo.explorer.fields' : 'mongo.explorer.indexes'),
+        meta:
+          row.group === 'fields' && row.sampled !== null ? (
+            <span className={styles.count}>
+              {t('mongo.explorer.sampled', { count: formatNumber(locale, row.sampled) })}
+            </span>
+          ) : row.group === 'indexes' && row.count > 0 ? (
+            <span className={styles.count}>{formatNumber(locale, row.count)}</span>
+          ) : undefined,
+        tooltip:
+          row.group === 'fields' ? (
+            <Lines lines={[t('mongo.explorer.fields'), t('mongo.explorer.estimate')]} />
+          ) : undefined,
+      };
+    case 'docField': {
+      const { field, sampled } = row;
+      const share = fieldShare(field.present, sampled);
+      return {
+        icon: field.path === '_id' ? 'key' : 'columns',
+        iconTone: field.path === '_id' ? styles.keyTone : styles.mutedTone,
+        // A nested field shows its path: the sample lists every path under one group.
+        name: name(field.path),
+        meta: (
+          <>
+            {field.types.map((type) => type.type).join(' | ')}
+            {share < 100 && <span className={styles.nullability}>{` · ${String(share)}%`}</span>}
+          </>
+        ),
+        tooltip: (
+          <Lines
+            lines={[
+              field.path,
+              t('mongo.explorer.present', {
+                share: String(share),
+                count: formatNumber(locale, field.present),
+                sampled: formatNumber(locale, sampled),
+              }),
+              ...field.types.map(
+                (type) => `${type.type}: ${String(fieldShare(type.count, sampled))}%`,
+              ),
+              t('mongo.explorer.estimate'),
+            ]}
+          />
+        ),
+      };
+    }
+    case 'docIndex': {
+      const { index } = row;
+      const flags = [
+        index.unique && t('mongo.explorer.index.unique'),
+        index.sparse && t('mongo.explorer.index.sparse'),
+        index.partial && t('mongo.explorer.index.partial'),
+        index.hidden && t('mongo.explorer.index.hidden'),
+        index.expireAfterSecs !== null &&
+          t('mongo.explorer.index.ttl', { seconds: formatNumber(locale, index.expireAfterSecs) }),
+      ].filter(Boolean);
+      return {
+        icon: 'index',
+        iconTone: index.name === '_id_' ? styles.keyTone : undefined,
+        name: name(index.name),
+        meta: `${flags.length > 0 ? `${flags.join(', ')} ` : ''}${index.keys}`,
+        tooltip: <Lines lines={[index.name, index.keys, ...flags]} />,
+      };
+    }
   }
+}
+
+const COLLECTION_ICONS: Record<CollectionKind, IconName> = {
+  collection: 'table',
+  view: 'view',
+  timeseries: 'timeline',
+};
+
+function formatBytes(locale: Locale, bytes: number): string {
+  const units = ['B', 'kB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${formatNumber(locale, Math.round(value * 10) / 10)} ${units[unit] ?? 'B'}`;
 }
 
 /** One row of an open connection's tree: database, schema, kind, object, column… (F-020, F-021). */
@@ -334,6 +444,8 @@ export const ExplorerRow = memo(function ExplorerRow({
   if (renaming) content.name = <RenameField row={row} name={explorerRowLabel(row, t)} />;
   const disabled = row.type === 'database' && !row.database.accessible;
   const refreshable =
+    row.type === 'docDatabase' ||
+    row.type === 'docCollection' ||
     row.type === 'database' ||
     row.type === 'schema' ||
     row.type === 'kind' ||
@@ -355,7 +467,9 @@ export const ExplorerRow = memo(function ExplorerRow({
       onClick={() => {
         onSelect(index);
         // Containers open with a click; objects and connections only select (double click opens).
-        if (row.expandable && row.type !== 'object') onToggle(row);
+        if (row.expandable && row.type !== 'object' && row.type !== 'docCollection') {
+          onToggle(row);
+        }
       }}
       onDoubleClick={() => {
         onOpen(row);
@@ -415,5 +529,8 @@ export const ExplorerRow = memo(function ExplorerRow({
       )}
     </div>
   );
+  if (row.type.startsWith('doc')) {
+    return <DocumentContextMenu row={row}>{body}</DocumentContextMenu>;
+  }
   return <ExplorerContextMenu row={row}>{body}</ExplorerContextMenu>;
 });

@@ -8,6 +8,7 @@ import type {
   QueryPlan,
   TextRange,
 } from '../bindings';
+import { sqlEngineOf, type SqlEngine } from '../sqlEngine';
 import { mockSplit, mockStatementAt } from '../mockSplit';
 
 /**
@@ -42,7 +43,7 @@ interface Styles {
   questionNumber: boolean;
 }
 
-const STYLES: Record<Engine, Styles> = {
+const STYLES: Record<SqlEngine, Styles> = {
   postgres: {
     colon: true,
     at: false,
@@ -151,7 +152,7 @@ function nameAt(sql: string, i: number): string {
 
 /** The placeholders of one statement. */
 export function mockPlaceholders(engine: Engine, sql: string): Found[] {
-  const styles = STYLES[engine];
+  const styles = STYLES[sqlEngineOf(engine)];
   if (/^\s*(create|alter)\b[\s\S]{0,80}?\b(procedure|proc|function|trigger|event)\b/i.test(sql)) {
     return [];
   }
@@ -295,7 +296,7 @@ function tablesOf(sql: string): string[] {
 
 function draftFor(engine: Engine, sql: string): Draft {
   const [first = 'orders', second] = tablesOf(sql);
-  const words: Record<Engine, { scan: string; seek: string; join: string; sort: string }> = {
+  const words: Record<SqlEngine, { scan: string; seek: string; join: string; sort: string }> = {
     postgres: { scan: 'Seq Scan', seek: 'Index Scan', join: 'Hash Join', sort: 'Sort' },
     mssql: {
       scan: 'Clustered Index Scan',
@@ -311,7 +312,7 @@ function draftFor(engine: Engine, sql: string): Draft {
       sort: 'USE TEMP B-TREE FOR ORDER BY',
     },
   };
-  const w = words[engine];
+  const w = words[sqlEngineOf(engine)];
   const scan: Draft = {
     operation: w.scan,
     relation: first,
@@ -423,7 +424,7 @@ export function mockPlan(engine: Engine, sql: string, analyzed: boolean): QueryP
     sqlite: 'sqliteRows',
   } as const;
   return {
-    format: format[engine],
+    format: format[sqlEngineOf(engine)],
     analyzed,
     weightBasis: engine === 'sqlite' ? 'heuristic' : analyzed ? 'time' : 'cost',
     nodes,
@@ -442,7 +443,7 @@ export function mockPlan(engine: Engine, sql: string, analyzed: boolean): QueryP
 
 /** What the backend sends to get a plan, per engine. */
 export function mockExplainSent(engine: Engine, sql: string, analyzed: boolean): string {
-  switch (engine) {
+  switch (sqlEngineOf(engine)) {
     case 'postgres':
       return `EXPLAIN (${analyzed ? 'ANALYZE, BUFFERS, ' : ''}FORMAT JSON) ${sql}`;
     case 'mssql':

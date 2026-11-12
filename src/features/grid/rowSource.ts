@@ -100,6 +100,7 @@ export function blockTruncated(block: RowBlock, index: number, col: number): boo
 export function valueText(value: Value): string | null {
   switch (value.kind) {
     case 'null':
+    case 'missing':
       return null;
     case 'bool':
       return value.value ? 'true' : 'false';

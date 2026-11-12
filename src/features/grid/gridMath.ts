@@ -173,6 +173,8 @@ const KIND_CHARS: Record<ValueKind, number> = {
   json: 32,
   array: 24,
   other: 20,
+  objectId: 24,
+  missing: 4,
 };
 
 export interface WidthMetrics {

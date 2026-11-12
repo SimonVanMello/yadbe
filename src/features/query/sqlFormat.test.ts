@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Engine } from '../../ipc';
+import type { SqlEngine } from '../../ipc/sqlEngine';
 import { formatSql, significantTokens, type FormatOptions } from './sqlFormat';
 
 const options = (engine: Engine, extra: Partial<FormatOptions> = {}): FormatOptions => ({
@@ -11,7 +12,7 @@ const options = (engine: Engine, extra: Partial<FormatOptions> = {}): FormatOpti
 });
 
 /** Tricky scripts per engine: every one must keep its tokens and be a fixed point. */
-const CORPUS: Record<Engine, string[]> = {
+const CORPUS: Record<SqlEngine, string[]> = {
   postgres: [
     "select a, b from t where x = 'it''s -- not a comment' and y::int > -1 order by a desc limit 10;",
     'select $1, :name, "Mixed Case"."Col", e\'\\n\', $tag$ select ; -- $tag$ from t',

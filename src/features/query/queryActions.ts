@@ -546,5 +546,8 @@ export function isTabDirty(tabId: string): boolean {
 /** The active query tab's id, for shortcuts and toolbar actions. */
 export function activeQueryTabId(): string | null {
   const tab = selectActiveTab(useTabsStore.getState());
-  return isQueryTab(tab) ? tab.id : null;
+  if (!isQueryTab(tab)) return null;
+  // The query tab of another family (a document console) has its own run and cancel.
+  const family = findConnection(tab.connectionId)?.family;
+  return family === undefined || family === 'sql' ? tab.id : null;
 }

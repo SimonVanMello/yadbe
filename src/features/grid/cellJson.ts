@@ -14,6 +14,7 @@ export const JSON_NUMBER = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/;
 function jsonOfValue(value: Value): string {
   switch (value.kind) {
     case 'null':
+    case 'missing':
       return 'null';
     case 'bool':
       return value.value ? 'true' : 'false';

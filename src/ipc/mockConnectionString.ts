@@ -42,6 +42,7 @@ function empty(format: ConnectionStringFormat, engine: Engine | null): ParsedCon
     options: [],
     passwordId: null,
     ignoredKeys: [],
+    mongo: null,
   };
 }
 
@@ -134,8 +135,42 @@ function parseAdoNet(input: string, hint: Engine | null): MockParsed {
   return { fields, password };
 }
 
+/** `mongodb://` and `mongodb+srv://` (mirror of `document::settings::parse_uri`). */
+function parseMongo(input: string): MockParsed | null {
+  const match = /^mongodb(\+srv)?:\/\/(?:([^@/]*)@)?([^/?]+)(?:\/([^?]*))?(?:\?(.*))?$/i.exec(
+    input,
+  );
+  if (!match) return null;
+  const [, srv, userinfo, hosts = '', database, query = ''] = match;
+  const fields = empty('url', 'mongodb');
+  const [user = '', pass = ''] = (userinfo ?? '').split(':');
+  fields.host = decodeURIComponent(hosts);
+  fields.database = database ? decodeURIComponent(database) : null;
+  fields.username = user ? decodeURIComponent(user) : null;
+  fields.tlsMode = srv ? 'verifyFull' : null;
+  const mongo = {
+    srv: Boolean(srv),
+    replicaSet: null as string | null,
+    authSource: null as string | null,
+    authMechanism: 'default' as const,
+    directConnection: false,
+  };
+  for (const [key, value] of new URLSearchParams(query)) {
+    const k = key.toLowerCase();
+    if (k === 'replicaset') mongo.replicaSet = value;
+    else if (k === 'authsource') mongo.authSource = value;
+    else if (k === 'directconnection') mongo.directConnection = value === 'true';
+    else if (k === 'tls' || k === 'ssl')
+      fields.tlsMode = value === 'true' ? 'verifyFull' : 'disable';
+    else fields.options.push({ key, value });
+  }
+  fields.mongo = mongo;
+  return { fields, password: pass ? decodeURIComponent(pass) : null };
+}
+
 export function mockParseConnectionString(input: string, hint: Engine | null): MockParsed | null {
   const text = input.trim();
+  if (/^mongodb(\+srv)?:\/\//i.test(text)) return parseMongo(text);
   if (/^jdbc:/i.test(text)) return parseUrl(text.slice(5), 'jdbc');
   if (/^[a-z]+:/i.test(text) && !text.includes('=')) return parseUrl(text, 'url');
   if (/^[a-z]+:\/\//i.test(text)) return parseUrl(text, 'url');

@@ -317,7 +317,9 @@ describe('mock table data', () => {
               ? { kind: 'bool', value: text === 'true' }
               : kind === 'array'
                 ? { kind: 'array', value: [] }
-                : { kind, value: text };
+                : kind === 'missing'
+                  ? { kind: 'missing' }
+                  : { kind, value: text };
         return { column: column.name, value };
       });
     const phone = named(0).find((c) => c.column === 'phone')?.value ?? { kind: 'null' };

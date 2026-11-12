@@ -4,6 +4,7 @@ import { useTabsStore } from '../../app/tabs/tabsStore';
 import { useT } from '../../i18n/useT';
 import { IconButton } from '../../ui/IconButton';
 import type { ConnectionSummary } from '../connections/model';
+import { CollectionControls } from '../document/CollectionControls';
 import { DdlControls } from '../objects/DdlControls';
 import { TableControls } from '../table-data/TableControls';
 import { ToolControls } from '../tools/ToolControls';
@@ -42,7 +43,11 @@ export function Toolbar({
       />
       <span className={styles.separator} aria-hidden="true" />
       {connection && table ? (
-        <TableControls tabId={tabId} connection={connection} />
+        connection.family === 'document' ? (
+          <CollectionControls tabId={tabId} connection={connection} />
+        ) : (
+          <TableControls tabId={tabId} connection={connection} />
+        )
       ) : connection && ddl ? (
         <DdlControls target={ddl} connection={connection} />
       ) : connection && tool ? (

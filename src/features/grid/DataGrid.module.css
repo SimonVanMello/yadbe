@@ -247,6 +247,13 @@
   color: var(--fg-muted);
 }
 
+/* A field the document does not have: fainter than NULL, which is a value. */
+.missing {
+  color: var(--fg-disabled);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+}
+
 /* Rows whose window is still loading: one element per run of rows, bars drawn by a gradient. */
 .placeholder {
   position: absolute;

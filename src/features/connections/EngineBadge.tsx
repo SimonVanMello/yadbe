@@ -7,6 +7,7 @@ const MARKS: Record<Engine, string> = {
   postgres: 'PG',
   mssql: 'MS',
   mysql: 'MY',
+  mongodb: 'MG',
   sqlite: 'SL',
 };
 

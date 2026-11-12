@@ -44,6 +44,17 @@ export function fetchMeta(connectionId: string, request: MetaRequest, signal: Ab
       );
     case 'table':
       return read(signal, (id) => commands.getTableDetails(id, connectionId, request.table));
+    // The document reads cannot be stopped on the server: an abandoned one is ignored.
+    case 'docDatabases':
+      return unwrap(commands.mongoListDatabases(connectionId));
+    case 'docCollections':
+      return unwrap(commands.mongoListCollections(connectionId, request.database));
+    case 'docIndexes':
+      return unwrap(commands.mongoListIndexes(connectionId, request.database, request.collection));
+    case 'docFields':
+      return unwrap(
+        commands.mongoSampleFields(connectionId, request.database, request.collection, null),
+      );
   }
 }
 

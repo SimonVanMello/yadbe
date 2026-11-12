@@ -30,6 +30,7 @@ const mssql = engine('mssql');
 const sqlite = engine('sqlite');
 
 const NOTHING: ParsedConnectionString = {
+  mongo: null,
   format: 'url',
   engine: null,
   host: null,

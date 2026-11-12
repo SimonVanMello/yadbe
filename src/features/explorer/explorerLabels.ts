@@ -2,6 +2,7 @@ import type { MessageKey, MessageParams } from '../../i18n/i18n';
 import type { ObjectKind } from '../../ipc';
 import type { IconName } from '../../ui/Icon';
 import { localize } from '../../app/errors/presentError';
+import { documentNameOf } from './documentRows';
 import type { DetailGroup, ExplorerRow, StatusSubject } from './explorerRows';
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
@@ -101,5 +102,12 @@ export function explorerRowLabel(row: ExplorerRow, t: Translate): string {
         );
       }
       return t(EMPTY_LABELS[row.subject]);
+    case 'docGroup':
+      return t(row.group === 'fields' ? 'mongo.explorer.fields' : 'mongo.explorer.indexes');
+    case 'docDatabase':
+    case 'docCollection':
+    case 'docField':
+    case 'docIndex':
+      return documentNameOf(row) ?? '';
   }
 }

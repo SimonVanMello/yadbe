@@ -16,6 +16,7 @@ import type {
   YadbeError,
 } from '../../ipc';
 import { fuzzyMatch } from '../connections/fuzzy';
+import { documentNameOf, type DocumentBody } from './documentRows';
 import { PINNED_NODE, ROOT_NODE } from './explorerStore';
 
 /** What a node's data is: not asked, on its way, failed, or there. */
@@ -79,7 +80,8 @@ export type ExplorerBody =
       error: YadbeError | null;
       /** What the retry button refreshes. */
       refresh: MetaNode;
-    };
+    }
+  | DocumentBody;
 
 export const DETAIL_GROUPS: readonly DetailGroup[] = [
   'columns',
@@ -143,6 +145,9 @@ function node(
   return { id, body, expandable, children, indices: [] };
 }
 
+/** A node of the tree, for the explorers of other families (`documentRows.ts`). */
+export const explorerNode = node;
+
 /** A "loading", "empty" or "error" row under `parent`. */
 export function statusNode(
   parent: string,
@@ -158,8 +163,8 @@ export function statusNode(
  * The children of an expandable node. Collapsed: none (unless the filter wants the loaded
  * ones). Expanded: a "loading", "error" or "empty" row, or the real children.
  */
-function expandNode<T>(
-  ctx: BuildContext,
+export function expandNode<T>(
+  ctx: Pick<BuildContext, 'expanded' | 'exhaustive'>,
   id: string,
   fetching: boolean,
   read: (fetch: boolean) => Loadable<T>,
@@ -467,6 +472,12 @@ function nameOf(body: ExplorerBody): string | null {
       return body.check.name;
     case 'trigger':
       return body.trigger.name;
+    case 'docDatabase':
+    case 'docCollection':
+    case 'docGroup':
+    case 'docField':
+    case 'docIndex':
+      return documentNameOf(body);
     default:
       return null;
   }

@@ -119,6 +119,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<boolean> {
 export function mockValueText(value: Value): string | null {
   switch (value.kind) {
     case 'null':
+    case 'missing':
       return null;
     case 'bool':
       return value.value ? 'true' : 'false';
@@ -252,6 +253,8 @@ function generate(
       return ['array', JSON.stringify(items)];
     }
     case 'other':
+    case 'objectId':
+    case 'missing':
       // Domains over text (`shop.email`) read like their base type.
       if (name.includes('email')) return ['other', `user${row}@example.com`];
       return [
@@ -371,6 +374,7 @@ export function mockLiteral(engine: Engine, value: Value): string {
   const text = (s: string) => `'${s.replace(/'/g, "''")}'`;
   switch (value.kind) {
     case 'null':
+    case 'missing':
       return 'NULL';
     case 'bool':
       return engine === 'postgres' ? (value.value ? 'TRUE' : 'FALSE') : value.value ? '1' : '0';

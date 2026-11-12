@@ -94,7 +94,7 @@ export interface Analysis {
 
 /** What the viewer can show for a value. `null` for SQL NULL. */
 export function analyzeValue(value: Value): Analysis | null {
-  if (value.kind === 'null') return null;
+  if (value.kind === 'null' || value.kind === 'missing') return null;
   if (value.kind === 'bytes') {
     return {
       text: value.value,
@@ -133,6 +133,7 @@ function arrayTree(values: Value[]): JsonNode {
   const node = (v: Value): JsonNode => {
     switch (v.kind) {
       case 'null':
+      case 'missing':
         return { type: 'null' };
       case 'bool':
         return { type: 'bool', value: v.value };
