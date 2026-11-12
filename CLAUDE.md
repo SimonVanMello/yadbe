@@ -22,7 +22,7 @@ When this file and the spec disagree, this file wins for conventions and the spe
 | SQL editor | CodeMirror 6 (`@codemirror/lang-sql`) |
 | Grid, lists | In-house grid and lists on TanStack Virtual |
 | Backend | Stable Rust (2024 edition), `tokio` |
-| Drivers | `tokio-postgres` (+ `rustls`), `tiberius`, `mysql_async`, `rusqlite` |
+| Drivers | `tokio-postgres` (+ `rustls`), `tiberius`, `mysql_async`, `rusqlite`, `mongodb` + `bson` (MongoDB, rustls) |
 | Secrets | `keyring` (OS keychain) |
 | Bindings | `tauri-specta`: TS types and commands **generated** from Rust, never written by hand |
 | Persistence | SQLite (`rusqlite`) in the OS config folder |
