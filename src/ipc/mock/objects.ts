@@ -141,6 +141,7 @@ export function mockActionStatement(
         case 'mongodb':
           return `ALTER TABLE ${name} RENAME TO ${quote(action.newName)}`;
         case 'redis':
+        case 'elasticsearch':
           return notSupported('Cannot rename this object.', 'Impossible de renommer cet objet.');
       }
     }

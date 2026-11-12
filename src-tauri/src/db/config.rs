@@ -12,6 +12,7 @@ use specta::Type;
 use crate::db::document::settings::MongoSettings;
 use crate::db::engine::{Engine, EngineFamily};
 use crate::db::errors::YadbeError;
+use crate::db::search::settings::SearchSettings;
 use crate::db::tls_identity::TlsIdentity;
 use crate::tunnel::SshTunnel;
 
@@ -234,6 +235,10 @@ pub struct ConnectionDefinition {
     /// What only key-value connections have (Redis, Valkey); `null` for the other families.
     #[serde(default)]
     pub key_value: Option<KeyValueSettings>,
+    /// What only search connections have (Elasticsearch, OpenSearch): the kind of
+    /// authentication and the URL's path; `null` for the other families.
+    #[serde(default)]
+    pub search: Option<SearchSettings>,
     // The fields only one engine family has (replica set, key delimiter, API key kind…) go
     // here the way `ssh` does: one `Option` per family with `#[serde(default)]`, kept as JSON
     // in a column that a migration adds (`ALTER TABLE connections ADD COLUMN`), so existing
@@ -392,6 +397,24 @@ impl ConnectionDefinition {
         } else {
             None
         };
+        self.search = if caps.family == EngineFamily::Search {
+            let search = self.search.unwrap_or_default().normalized()?;
+            // No secret to ask for without authentication; the others keep one.
+            self.auth = if search.auth.has_secret() {
+                AuthMethod::Password
+            } else {
+                AuthMethod::None
+            };
+            // A search connection has no database: one cluster, many indices.
+            self.database = String::new();
+            // TLS or not is the URL's scheme: http is plain, https is TLS from the start.
+            if self.tls_mode == TlsMode::Prefer {
+                self.tls_mode = TlsMode::Disable;
+            }
+            Some(search)
+        } else {
+            None
+        };
         Ok(self)
     }
 
@@ -446,6 +469,7 @@ impl ConnectionDefinition {
             read_only: self.read_only,
             dial: None,
             mongo: self.mongo.clone(),
+            search: self.search.clone(),
         }
     }
 }
@@ -541,6 +565,8 @@ pub struct ConnectTarget {
     pub dial: Option<SocketAddr>,
     /// The fields of a document connection; `None` for the other families.
     pub mongo: Option<MongoSettings>,
+    /// The fields of a search connection; `None` for the other families.
+    pub search: Option<SearchSettings>,
 }
 
 #[cfg(test)]
@@ -583,6 +609,7 @@ pub(crate) fn sample_definition(engine: Engine) -> ConnectionDefinition {
         ssh: None,
         mongo: None,
         key_value: None,
+        search: None,
     }
 }
 

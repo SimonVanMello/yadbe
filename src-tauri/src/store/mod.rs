@@ -53,8 +53,9 @@ const CONNECTION_COLUMNS: &str = "id, name, engine, group_id, position, host, po
      statement_timeout_secs, keep_alive_secs, tls_client_cert_path, tls_client_key_path";
 
 /// Columns only one engine family uses, read with the common ones and written by
-/// `write_family_fields` (v10: MongoDB settings, v11: key-value settings).
-const FAMILY_COLUMNS: &str = "mongo_settings, key_value";
+/// `write_family_fields` (v10: MongoDB settings, v11: key-value settings, v13: search
+/// settings).
+const FAMILY_COLUMNS: &str = "mongo_settings, key_value, search_settings";
 
 /// Thread-safe handle on the app database. Queries are small: one connection behind a
 /// mutex is enough.
@@ -102,6 +103,10 @@ fn row_to_connection(row: &Row<'_>) -> rusqlite::Result<SavedConnection> {
     let key_value = key_value
         .map(|json| serde_json::from_str(&json).map_err(|_| corrupt("key-value settings", &json)))
         .transpose()?;
+    let search: Option<String> = row.get("search_settings")?;
+    let search = search
+        .map(|json| serde_json::from_str(&json).map_err(|_| corrupt("search settings", &json)))
+        .transpose()?;
     Ok(SavedConnection {
         id: row.get("id")?,
         family: engine.family(),
@@ -139,6 +144,7 @@ fn row_to_connection(row: &Row<'_>) -> rusqlite::Result<SavedConnection> {
             ssh,
             mongo,
             key_value,
+            search,
         },
         position: row.get("position")?,
         created_at: row.get("created_at")?,
@@ -155,8 +161,8 @@ fn ssh_json(definition: &ConnectionDefinition) -> Result<Option<String>, YadbeEr
         .transpose()?)
 }
 
-/// Writes the family fields of a connection (v10: MongoDB settings, v11: key-value settings)
-/// next to the common ones.
+/// Writes the family fields of a connection (v10: MongoDB settings, v11: key-value settings,
+/// v13: search settings) next to the common ones.
 fn write_family_fields(
     conn: &Connection,
     id: &str,
@@ -172,9 +178,15 @@ fn write_family_fields(
         .as_ref()
         .map(serde_json::to_string)
         .transpose()?;
+    let search = definition
+        .search
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
     conn.execute(
-        "UPDATE connections SET mongo_settings = ?2, key_value = ?3 WHERE id = ?1",
-        params![id, mongo, key_value],
+        "UPDATE connections SET mongo_settings = ?2, key_value = ?3, search_settings = ?4
+         WHERE id = ?1",
+        params![id, mongo, key_value, search],
     )?;
     Ok(())
 }
@@ -947,5 +959,7 @@ mod history_tests;
 mod keyvalue_tests;
 #[cfg(test)]
 mod saved_queries_tests;
+#[cfg(test)]
+mod search_tests;
 #[cfg(test)]
 mod tests;

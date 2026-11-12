@@ -19,6 +19,7 @@ pub mod query;
 pub mod references;
 pub mod result_edit;
 pub mod saved_queries;
+pub mod search;
 pub mod secrets;
 pub mod sessions;
 pub mod ssh;

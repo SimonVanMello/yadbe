@@ -39,6 +39,9 @@ pub enum ErrorCode {
     /// A key-value feature (keys browser, command console) was asked of a connection of
     /// another engine family.
     KeyValueOnly,
+    /// A search feature (indices, the request console) was asked of a connection of another
+    /// engine family.
+    SearchOnly,
     /// The connection is not open (never opened, closed, or reconnecting).
     NotConnected,
     /// The connection needs a password and none was given or stored.
@@ -336,6 +339,14 @@ impl YadbeError {
             ErrorCode::KeyValueOnly,
             "This works on key-value connections (Redis, Valkey) only.",
             "Cela ne fonctionne que sur les connexions clé-valeur (Redis, Valkey).",
+        )
+    }
+
+    pub fn search_only() -> Self {
+        Self::new(
+            ErrorCode::SearchOnly,
+            "This works on search connections (Elasticsearch, OpenSearch) only.",
+            "Cela ne fonctionne que sur les connexions de recherche (Elasticsearch, OpenSearch).",
         )
     }
 
@@ -1049,6 +1060,39 @@ pub fn from_redis_connect_error(
         _ => return None,
     };
     Some(error.with_detail(format!("{code} {message}")))
+}
+
+/// Classification of an Elasticsearch / OpenSearch error response to a request yadbe made
+/// (connecting, the explorer, an index tab): `status` and the `error.type` / `error.reason`
+/// of its body. `None`: nothing more precise than `queryFailed`.
+pub fn from_search_error(
+    status: u16,
+    kind: &str,
+    reason: &str,
+    user: &str,
+    password_given: bool,
+) -> Option<YadbeError> {
+    let detail = if kind.is_empty() {
+        format!("HTTP {status}: {reason}")
+    } else {
+        format!("HTTP {status} {kind}: {reason}")
+    };
+    let error = match (status, kind) {
+        (401, _) if !password_given => YadbeError::password_required(),
+        (401, _) => YadbeError::auth_failed(if user.is_empty() { "(API key)" } else { user }),
+        (403, _) => YadbeError::new(
+            ErrorCode::InsufficientPrivilege,
+            "The server refused this request: the user or API key lacks the privilege it needs.",
+            "Le serveur a refusé cette requête : l'utilisateur ou la clé d'API n'a pas le privilège nécessaire.",
+        ),
+        (_, "index_not_found_exception") => YadbeError::new(
+            ErrorCode::ObjectNotFound,
+            "The index no longer exists. Refresh the explorer to see the current indices.",
+            "L'index n'existe plus. Actualisez l'explorateur pour voir les index actuels.",
+        ),
+        _ => return None,
+    };
+    Some(error.with_detail(detail))
 }
 
 /// Removes secrets from a technical message: the password of URLs

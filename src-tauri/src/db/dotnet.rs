@@ -435,6 +435,7 @@ mod tests {
             ssh: None,
             mongo: None,
             key_value: None,
+            search: None,
         }
     }
 

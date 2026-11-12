@@ -214,6 +214,14 @@ const MIGRATIONS: &[&str] = &[
     // v11: settings of key-value connections (Redis, Valkey) as JSON (`KeyValueSettings`);
     // NULL for the other families and for connections saved before.
     "ALTER TABLE connections ADD COLUMN key_value TEXT;",
+    // v12: taken by the change journal of every family (M4-6), developed in parallel; this
+    // placeholder keeps v13 in place until both branches meet, when M4-6's migration
+    // replaces it.
+    "-- v12 reserved",
+    // v13: settings of search connections (Elasticsearch, OpenSearch) as JSON
+    // (`SearchSettings`: authentication kind, URL path); NULL for the other families and for
+    // connections saved before.
+    "ALTER TABLE connections ADD COLUMN search_settings TEXT;",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {

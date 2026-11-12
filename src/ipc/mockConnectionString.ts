@@ -43,7 +43,37 @@ function empty(format: ConnectionStringFormat, engine: Engine | null): ParsedCon
     passwordId: null,
     ignoredKeys: [],
     mongo: null,
+    search: null,
   };
+}
+
+/** `http[s]://[user[:password]@]host[:port][/path]` (mirror of `connstring::parse_search`). */
+function parseSearch(input: string): MockParsed | null {
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    return null;
+  }
+  const https = url.protocol === 'https:';
+  const fields = empty('url', 'elasticsearch');
+  fields.host = url.hostname ? decodeURIComponent(url.hostname.replace(/^\[|\]$/g, '')) : null;
+  fields.port = url.port ? port(url.port) : https ? 443 : 80;
+  fields.username = url.username ? decodeURIComponent(url.username) : null;
+  fields.tlsMode = https ? 'verifyFull' : 'disable';
+  const password = url.password ? decodeURIComponent(url.password) : null;
+  const path = url.pathname.replace(/^\/+|\/+$/g, '');
+  url.searchParams.forEach((value, key) => {
+    const k = key.toLowerCase();
+    if (k === 'ca' || k === 'cacert' || k === 'sslrootcert') fields.caCertPath = value;
+    else if (k === 'insecure' && value === 'true') fields.tlsMode = 'require';
+    else fields.ignoredKeys.push(key);
+  });
+  fields.search = {
+    auth: fields.username !== null || password !== null ? 'basic' : 'none',
+    pathPrefix: path === '' ? null : `/${decodeURIComponent(path)}`,
+  };
+  return { fields, password };
 }
 
 function port(value: string): number | null {
@@ -171,6 +201,7 @@ function parseMongo(input: string): MockParsed | null {
 export function mockParseConnectionString(input: string, hint: Engine | null): MockParsed | null {
   const text = input.trim();
   if (/^mongodb(\+srv)?:\/\//i.test(text)) return parseMongo(text);
+  if (/^https?:\/\//i.test(text)) return parseSearch(text);
   if (/^jdbc:/i.test(text)) return parseUrl(text.slice(5), 'jdbc');
   if (/^[a-z]+:/i.test(text) && !text.includes('=')) return parseUrl(text, 'url');
   if (/^[a-z]+:\/\//i.test(text)) return parseUrl(text, 'url');

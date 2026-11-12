@@ -190,6 +190,18 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::keyvalue::kv_console_run,
             commands::keyvalue::kv_console_stop,
             commands::keyvalue::kv_console_close,
+            commands::search::search_list_indices,
+            commands::search::search_list_data_streams,
+            commands::search::search_list_aliases,
+            commands::search::search_list_templates,
+            commands::search::search_index_details,
+            commands::search::search_open_index,
+            commands::search::search_fetch_page,
+            commands::search::search_count,
+            commands::search::search_console_run,
+            commands::search::search_cancel,
+            commands::search::search_close_tab,
+            commands::search::search_fetch_documents,
         ])
         .events(collect_events![
             events::AppReady,

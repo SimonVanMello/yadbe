@@ -241,6 +241,7 @@ function pairsOf(
     }
     case 'redis':
     case 'mongodb':
+    case 'elasticsearch':
       return pairs;
   }
 }

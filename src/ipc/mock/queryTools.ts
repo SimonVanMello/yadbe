@@ -455,6 +455,7 @@ export function mockExplainSent(engine: Engine, sql: string, analyzed: boolean):
     case 'sqlite':
     case 'redis':
     case 'mongodb':
+    case 'elasticsearch':
       return `EXPLAIN QUERY PLAN ${sql}`;
   }
 }

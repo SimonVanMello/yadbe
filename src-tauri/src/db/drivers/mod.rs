@@ -1,5 +1,6 @@
 //! Engine drivers: the only place a driver crate is used.
 
+mod elasticsearch;
 mod mongodb;
 mod mssql;
 mod mysql;
@@ -20,5 +21,6 @@ pub fn builtin() -> Vec<Arc<dyn Driver>> {
         Arc::new(sqlite::SqliteDriver),
         Arc::new(mongodb::MongoDriver),
         Arc::new(redis::RedisDriver),
+        Arc::new(elasticsearch::ElasticsearchDriver),
     ]
 }

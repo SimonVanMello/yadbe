@@ -65,7 +65,9 @@ pub fn database_index(target: &ConnectTarget) -> Result<u32, YadbeError> {
     })
 }
 
-async fn tcp(target: &ConnectTarget) -> Result<TcpStream, YadbeError> {
+/// A TCP connection to the target, or to its SSH tunnel's local end (also used by the
+/// Elasticsearch driver).
+pub(super) async fn tcp(target: &ConnectTarget) -> Result<TcpStream, YadbeError> {
     let refused = |e: std::io::Error| match e.kind() {
         std::io::ErrorKind::ConnectionRefused => {
             YadbeError::connection_refused(&target.host, target.port).with_detail(e.to_string())

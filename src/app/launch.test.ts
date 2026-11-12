@@ -22,6 +22,7 @@ const SCRIPT = '/home/ana/queries/orders-report.sql';
 function parsed(fields: Partial<ParsedConnectionString>): ParsedConnectionString {
   return {
     mongo: null,
+    search: null,
     format: 'url',
     engine: 'postgres',
     host: null,

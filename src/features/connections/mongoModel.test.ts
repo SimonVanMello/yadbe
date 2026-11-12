@@ -52,6 +52,7 @@ describe('the MongoDB part of the connection form', () => {
         options: [],
         passwordId: 'pending-1',
         ignoredKeys: [],
+        search: null,
         mongo: {
           srv: true,
           replicaSet: null,

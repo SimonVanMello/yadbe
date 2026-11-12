@@ -95,6 +95,17 @@ base64 = "0.22"
 # hook, in about 1 MB; no std/os modules, no module loader (default features only). boa
 # (pure Rust) was the fallback: larger, slower, no stack limit of its own.
 rquickjs = "0.14"
+# Elasticsearch / OpenSearch (M4-7): HTTP/1.1 + JSON, no client crate. hyper and hyper-util's
+# pooled client are already in the lockfile (reqwest, through Tauri), with every crate these
+# features need. reqwest itself was ruled out: its rustls features pull aws-lc-rs or
+# rustls-platform-verifier + hyper-rustls (new crates) and it dials by itself, while yadbe's own
+# connector reuses the TCP dial (SSH tunnel) and the rustls config of the other drivers.
+hyper = { version = "1", default-features = false, features = ["client", "http1"] }
+hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "http1", "tokio"] }
+http-body-util = "0.1"
+http = "1"
+bytes = "1"
+tower-service = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

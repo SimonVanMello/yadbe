@@ -15,6 +15,7 @@ use crate::session::library::Library;
 use crate::session::meta_cache::{MetaService, ObservingSink};
 use crate::session::references::ReferenceService;
 use crate::session::result_edit::ResultEditService;
+use crate::session::search::SearchService;
 use crate::session::statement_log::StatementLog;
 use crate::session::table_data::TableDataService;
 use crate::session::{ConnectionManager, QueryRunner};
@@ -40,6 +41,7 @@ pub struct AppState {
     pub result_edits: Arc<ResultEditService>,
     pub documents: Arc<DocumentService>,
     pub key_values: Arc<KeyValueService>,
+    pub searches: Arc<SearchService>,
 }
 
 impl AppState {
@@ -111,6 +113,12 @@ impl AppState {
             )
             .with_events(Arc::clone(&sink)),
         );
+        // Hits, tables and console answers live in the query results' store as well.
+        let searches = Arc::new(SearchService::new(
+            Arc::clone(&connections),
+            queries.shared_store(),
+            history.clone(),
+        ));
         let imports = Arc::new(ImportManager::new(
             Arc::clone(&connections),
             Arc::clone(&meta),
@@ -133,6 +141,7 @@ impl AppState {
             result_edits,
             documents,
             key_values,
+            searches,
         }
     }
 }

@@ -31,6 +31,7 @@ export function mockObjectActions(
         return { kind, drop: true, truncate: table, rename: table };
       case 'mongodb':
       case 'redis':
+      case 'elasticsearch':
         return { kind, drop: false, truncate: false, rename: false };
     }
   });
@@ -274,7 +275,21 @@ const MONGODB: EngineInfo = {
   objectActions: [],
 };
 
-export const MOCK_ENGINES: EngineInfo[] = [...ENGINES, MONGODB].map((info) => ({
+/** Elasticsearch / OpenSearch: the search family, none of the SQL features. */
+const ELASTICSEARCH: EngineInfo = {
+  ...MONGODB,
+  engine: 'elasticsearch',
+  label: 'Elasticsearch / OpenSearch',
+  capabilities: {
+    ...MONGODB.capabilities,
+    family: 'search',
+    defaultPort: 9200,
+    multipleDatabases: false,
+    tableQualifier: 'none',
+  },
+};
+
+export const MOCK_ENGINES: EngineInfo[] = [...ENGINES, MONGODB, ELASTICSEARCH].map((info) => ({
   ...info,
   objectActions: mockObjectActions(info.engine, MOCK_OBJECT_KINDS[info.engine] ?? []),
 }));
@@ -433,6 +448,16 @@ export const MOCK_CONNECTIONS: SavedConnection[] = [
       directConnection: false,
     },
   }),
+  saved('conn-search', 4, {
+    ...blankDefinition('elasticsearch', 'search · logs'),
+    host: 'localhost',
+    port: 9200,
+    username: 'elastic',
+    tlsMode: 'verifyFull',
+    groupId: 'group-local',
+    environment: { kind: 'dev', label: null, color: null },
+    search: { auth: 'basic', pathPrefix: null },
+  }),
   saved('conn-app-sqlite', 0, {
     ...blankDefinition('sqlite', 'app.sqlite'),
     filePath: '/home/ana/projects/app/app.sqlite',
@@ -447,6 +472,7 @@ export const MOCK_CONNECTIONS: SavedConnection[] = [
 
 /** Connections whose password the mock keychain already holds. */
 export const MOCK_REMEMBERED_PASSWORDS = [
+  'conn-search',
   'conn-shop-prod',
   'conn-shop-staging',
   'conn-local-pg',
@@ -462,4 +488,5 @@ export const MOCK_SERVER_VERSIONS: Record<Engine, string> = {
   sqlite: 'SQLite 3.46.0',
   mongodb: '7.0.14',
   redis: 'Redis 8.2.1',
+  elasticsearch: 'Elasticsearch 9.1.0',
 };

@@ -9,6 +9,7 @@ use crate::db::config::{ConnectionOption, TlsMode};
 use crate::db::document::settings::MongoSettings;
 use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
+use crate::db::search::settings::{SearchAuth, SearchSettings};
 use crate::secrets::Secret;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
@@ -43,6 +44,9 @@ pub struct ParsedConnectionString {
     /// The MongoDB fields of a `mongodb://` / `mongodb+srv://` string (then `host` holds the
     /// host list).
     pub mongo: Option<Box<MongoSettings>>,
+    /// The search fields of an `http://` / `https://` URL (Elasticsearch, OpenSearch): the
+    /// URL's path and basic authentication when it names a user.
+    pub search: Option<Box<SearchSettings>>,
 }
 
 /// Parser output: the fields, and the password kept apart.
@@ -67,6 +71,9 @@ pub fn parse(input: &str, hint: Option<Engine>) -> Result<Parsed, YadbeError> {
     {
         if engine == Engine::Mongodb {
             return parse_mongo(text);
+        }
+        if engine == Engine::Elasticsearch {
+            return parse_search(text, &scheme);
         }
         return parse_url(text, &scheme, engine, ConnectionStringFormat::Url);
     }
@@ -122,8 +129,54 @@ fn engine_of_scheme(scheme: &str) -> Option<Engine> {
         "sqlite" | "sqlite3" => Some(Engine::Sqlite),
         "mongodb" | "mongodb+srv" => Some(Engine::Mongodb),
         "redis" | "rediss" | "valkey" | "valkeys" => Some(Engine::Redis),
+        // The only engine yadbe speaks HTTP to.
+        "http" | "https" => Some(Engine::Elasticsearch),
         _ => None,
     }
+}
+
+/// `http[s]://[user[:password]@]host[:port][/path]`: TLS from the scheme (`https` verifies
+/// the certificate), the port the URL implies (80 / 443 when it names none), the path as the
+/// API's prefix, basic authentication when it names a user, the password apart.
+fn parse_search(text: &str, scheme: &str) -> Result<Parsed, YadbeError> {
+    let url = url::Url::parse(text).map_err(|err| invalid().with_detail(err.to_string()))?;
+    let mut fields = empty(ConnectionStringFormat::Url, Engine::Elasticsearch);
+    fields.host = url
+        .host_str()
+        .map(|h| percent_decode(h.trim_start_matches('[').trim_end_matches(']')))
+        .and_then(non_empty);
+    fields.port = url.port_or_known_default();
+    fields.username = non_empty(percent_decode(url.username()));
+    fields.tls_mode = Some(if scheme == "https" {
+        TlsMode::VerifyFull
+    } else {
+        TlsMode::Disable
+    });
+    let path = url.path().trim_matches('/');
+    let mut settings = SearchSettings {
+        auth: if fields.username.is_some() {
+            SearchAuth::Basic
+        } else {
+            SearchAuth::None
+        },
+        path_prefix: (!path.is_empty()).then(|| format!("/{}", percent_decode(path))),
+    };
+    for (key, value) in url.query_pairs() {
+        match norm_key(&key).as_str() {
+            "sslrootcert" | "ca" | "cacert" => fields.ca_cert_path = non_empty(value.into_owned()),
+            "insecure" if is_true(&value) => fields.tls_mode = Some(TlsMode::Require),
+            _ => fields.ignored_keys.push(key.into_owned()),
+        }
+    }
+    let password = url
+        .password()
+        .map(|p| Secret::new(percent_decode(p)))
+        .filter(|p| !p.is_empty());
+    if password.is_some() && settings.auth == SearchAuth::None {
+        settings.auth = SearchAuth::Basic;
+    }
+    fields.search = Some(Box::new(settings));
+    Ok(Parsed { fields, password })
 }
 
 /// `mongodb://` and `mongodb+srv://` (see `db::document::settings`).
@@ -186,6 +239,7 @@ fn empty(format: ConnectionStringFormat, engine: Engine) -> ParsedConnectionStri
         password_id: None,
         ignored_keys: Vec::new(),
         mongo: None,
+        search: None,
     }
 }
 
@@ -849,6 +903,32 @@ mod tests {
         assert_eq!(valkey.fields.engine, Some(Engine::Redis));
         assert_eq!(valkey.fields.database, None);
         assert!(!format!("{:?}", parse_ok("redis://u:pw-secret@h")).contains("pw-secret"));
+    }
+
+    #[test]
+    fn http_urls_are_search_connections() {
+        let p = parse_ok("https://elastic:s3cret@search.example.com:9243/es/?ca=/tmp/ca.crt&x=1");
+        assert_eq!(p.fields.engine, Some(Engine::Elasticsearch));
+        assert_eq!(p.fields.host.as_deref(), Some("search.example.com"));
+        assert_eq!(p.fields.port, Some(9243));
+        assert_eq!(p.fields.username.as_deref(), Some("elastic"));
+        assert_eq!(p.fields.tls_mode, Some(TlsMode::VerifyFull));
+        assert_eq!(p.fields.ca_cert_path.as_deref(), Some("/tmp/ca.crt"));
+        assert_eq!(p.fields.ignored_keys, ["x"]);
+        let search = p.fields.search.as_deref().expect("search fields");
+        assert_eq!(search.auth, SearchAuth::Basic);
+        assert_eq!(search.path_prefix.as_deref(), Some("/es"));
+        assert_eq!(p.password.as_ref().map(Secret::expose), Some("s3cret"));
+
+        let plain = parse_ok("http://localhost:9200");
+        assert_eq!(plain.fields.tls_mode, Some(TlsMode::Disable));
+        let search = plain.fields.search.as_deref().expect("search fields");
+        assert_eq!(
+            (search.auth, search.path_prefix.as_deref()),
+            (SearchAuth::None, None)
+        );
+        assert_eq!(parse_ok("https://cloud.example.io").fields.port, Some(443));
+        assert!(looks_like_url("https://localhost:9200"));
     }
 
     #[test]

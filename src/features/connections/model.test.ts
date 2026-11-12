@@ -31,6 +31,7 @@ const sqlite = engine('sqlite');
 
 const NOTHING: ParsedConnectionString = {
   mongo: null,
+  search: null,
   format: 'url',
   engine: null,
   host: null,
