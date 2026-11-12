@@ -69,6 +69,12 @@ pub fn parse(text: &str) -> Parsed {
         definition.auth = AuthMethod::Password;
         definition.tls_mode = tls_of(keys.get("sslmode").map_or("", String::as_str), &host);
         definition.ca_cert_path = keys.get("sslrootcert").filter(|p| !p.is_empty()).cloned();
+        // libpq's client certificate and key (the key's passphrase is never in the file).
+        definition.tls_client_cert_path = keys.get("sslcert").filter(|p| !p.is_empty()).cloned();
+        definition.tls_client_key_path = definition
+            .tls_client_cert_path
+            .as_ref()
+            .and_then(|_| keys.get("sslkey").filter(|p| !p.is_empty()).cloned());
         definition.connect_timeout_secs = keys
             .get("connect_timeout")
             .and_then(|s| s.parse::<u32>().ok())
@@ -96,7 +102,7 @@ mod tests {
     fn reads_services() {
         let parsed = parse(
             "# services\n[shop]\nhost=db.example.com\nport=5433\ndbname=shop\nuser=app\n\
-             sslmode=verify-ca\nsslrootcert=/etc/ca.pem\nconnect_timeout=10\npassword=hunter2\n\n\
+             sslmode=verify-ca\nsslrootcert=/etc/ca.pem\nsslcert=/etc/client.crt\nsslkey=/etc/client.key\nconnect_timeout=10\npassword=hunter2\n\n\
              [local]\ndbname=dev\n",
         );
         assert_eq!(parsed.connections.len(), 2);
@@ -110,6 +116,14 @@ mod tests {
         assert_eq!(
             shop.found.definition.ca_cert_path.as_deref(),
             Some("/etc/ca.pem")
+        );
+        assert_eq!(
+            shop.found.definition.tls_client_cert_path.as_deref(),
+            Some("/etc/client.crt")
+        );
+        assert_eq!(
+            shop.found.definition.tls_client_key_path.as_deref(),
+            Some("/etc/client.key")
         );
         assert_eq!(shop.found.definition.connect_timeout_secs, Some(10));
         assert_eq!(

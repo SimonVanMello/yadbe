@@ -24,8 +24,8 @@ use std::time::Duration;
 use mysql_async::consts::StatusFlags;
 use mysql_async::prelude::{Protocol, Queryable};
 use mysql_async::{
-    Conn, DriverError, Error as MyError, IoError, Opts, OptsBuilder, QueryResult as MyResult,
-    SslOpts,
+    ClientIdentity, Conn, DriverError, Error as MyError, IoError, Opts, OptsBuilder,
+    QueryResult as MyResult, SslOpts,
 };
 
 use self::decode::Decoder;
@@ -40,6 +40,7 @@ use crate::db::errors::{
     ErrorCode, YadbeError, from_connect_sqlstate, from_mysql_connect_error, from_mysql_query_error,
 };
 use crate::db::params::ParamStatement;
+use crate::db::tls_identity::TlsIdentity;
 use crate::db::value::{ColumnMeta, QueryResult, Value};
 
 const APPLICATION_NAME: &str = "yadbe";
@@ -130,7 +131,27 @@ fn ca_roots(path: &std::path::Path) -> Result<Vec<Vec<u8>>, YadbeError> {
 /// `require` with a CA verifies the host name too, unlike the other engines (chain only):
 /// mysql_async 0.37 cannot skip the name check with rustls 0.23 (its option matches an
 /// error text rustls no longer produces). Stricter, never weaker.
-fn ssl_opts(mode: TlsMode, ca: Option<&std::path::Path>) -> Result<Option<SslOpts>, YadbeError> {
+fn ssl_opts(
+    mode: TlsMode,
+    ca: Option<&std::path::Path>,
+    identity: Option<&TlsIdentity>,
+) -> Result<Option<SslOpts>, YadbeError> {
+    let opts = ssl_opts_without_identity(mode, ca)?;
+    // The decrypted key stays in the options for the life of the connection: mysql_async
+    // reads the identity again at every (re)connect.
+    Ok(opts.map(|opts| match identity {
+        Some(identity) => opts.with_client_identity(Some(ClientIdentity::new(
+            identity.cert_pem().to_vec().into(),
+            identity.key_pem().to_vec().into(),
+        ))),
+        None => opts,
+    }))
+}
+
+fn ssl_opts_without_identity(
+    mode: TlsMode,
+    ca: Option<&std::path::Path>,
+) -> Result<Option<SslOpts>, YadbeError> {
     Ok(match (mode, ca) {
         (TlsMode::Disable, _) => None,
         (TlsMode::Prefer, _) | (TlsMode::Require, None) => {
@@ -272,8 +293,11 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
     let target = request.target;
     resolve(target).await?;
     let password = request.password.map(|p| p.expose());
-    let builder = builder(target, password)
-        .ssl_opts(ssl_opts(target.tls_mode, target.ca_cert_path.as_deref())?);
+    let builder = builder(target, password).ssl_opts(ssl_opts(
+        target.tls_mode,
+        target.ca_cert_path.as_deref(),
+        target.tls_identity.as_deref(),
+    )?);
     let opts = Opts::from(builder);
     let (mut conn, opts) = open(opts, target).await?;
 

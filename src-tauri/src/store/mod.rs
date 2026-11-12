@@ -50,7 +50,7 @@ const CONNECTION_COLUMNS: &str = "id, name, engine, group_id, position, host, po
      username, file_path, auth, tls_mode, ca_cert_path, connect_timeout_secs, options, \
      environment, environment_label, environment_color, favorite, read_only, remember_password, \
      created_at, updated_at, last_connected_at, history_enabled, ssh_tunnel, \
-     statement_timeout_secs, keep_alive_secs";
+     statement_timeout_secs, keep_alive_secs, tls_client_cert_path, tls_client_key_path";
 
 /// Thread-safe handle on the app database. Queries are small: one connection behind a
 /// mutex is enough.
@@ -105,6 +105,8 @@ fn row_to_connection(row: &Row<'_>) -> rusqlite::Result<SavedConnection> {
             connect_timeout_secs: row.get("connect_timeout_secs")?,
             statement_timeout_secs: row.get("statement_timeout_secs")?,
             keep_alive_secs: row.get("keep_alive_secs")?,
+            tls_client_cert_path: row.get("tls_client_cert_path")?,
+            tls_client_key_path: row.get("tls_client_key_path")?,
             options: options
                 .into_iter()
                 .map(|(key, value)| ConnectionOption { key, value })
@@ -310,7 +312,7 @@ impl Store {
                 &format!(
                     "INSERT INTO connections ({CONNECTION_COLUMNS}) VALUES
                      (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                      ?17, ?18, ?19, ?20, ?21, ?22, ?22, NULL, ?23, ?24, ?25, ?26)"
+                      ?17, ?18, ?19, ?20, ?21, ?22, ?22, NULL, ?23, ?24, ?25, ?26, ?27, ?28)"
                 ),
                 params![
                     id,
@@ -339,6 +341,8 @@ impl Store {
                     ssh_json(definition)?,
                     definition.statement_timeout_secs,
                     definition.keep_alive_secs,
+                    definition.tls_client_cert_path,
+                    definition.tls_client_key_path,
                 ],
             )?;
         }
@@ -367,7 +371,8 @@ impl Store {
                     options = ?15, environment = ?16, environment_label = ?17,
                     environment_color = ?18, favorite = ?19, read_only = ?20,
                     remember_password = ?21, updated_at = ?22, history_enabled = ?23,
-                    ssh_tunnel = ?24, statement_timeout_secs = ?25, keep_alive_secs = ?26
+                    ssh_tunnel = ?24, statement_timeout_secs = ?25, keep_alive_secs = ?26,
+                    tls_client_cert_path = ?27, tls_client_key_path = ?28
                  WHERE id = ?1",
                 params![
                     id,
@@ -396,6 +401,8 @@ impl Store {
                     ssh_json(definition)?,
                     definition.statement_timeout_secs,
                     definition.keep_alive_secs,
+                    definition.tls_client_cert_path,
+                    definition.tls_client_key_path,
                 ],
             )?;
         }

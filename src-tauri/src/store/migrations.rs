@@ -204,6 +204,10 @@ const MIGRATIONS: &[&str] = &[
     // default interval; connections saved before have neither.
     "ALTER TABLE connections ADD COLUMN statement_timeout_secs INTEGER;
     ALTER TABLE connections ADD COLUMN keep_alive_secs INTEGER;",
+    // TLS client certificate and key files of a connection (F-009). Paths only: the key's
+    // passphrase is a secret and lives in the keychain.
+    "ALTER TABLE connections ADD COLUMN tls_client_cert_path TEXT;
+    ALTER TABLE connections ADD COLUMN tls_client_key_path TEXT;",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {

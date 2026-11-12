@@ -604,6 +604,8 @@ mod tests {
             auth: AuthMethod::Password,
             tls_mode: TlsMode::Prefer,
             ca_cert_path: None,
+            tls_client_cert_path: None,
+            tls_client_key_path: None,
             connect_timeout_secs: Some(3),
             statement_timeout_secs: None,
             keep_alive_secs: None,

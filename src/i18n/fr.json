@@ -1870,5 +1870,18 @@
   "connection.timeouts.keepAlive": "Maintien de connexion (s)",
   "connection.timeouts.keepAliveHint": "Secondes entre les pings qui gardent une connexion inactive ouverte. 0 : aucun.",
   "connection.timeouts.default": "{seconds} (par défaut)",
-  "connection.timeouts.none": "Aucune limite"
+  "connection.timeouts.none": "Aucune limite",
+  "connection.tls.client": "Certificat client",
+  "connection.tls.cert": "Fichier du certificat",
+  "connection.tls.cert.hint": "Fichier PEM demandé par le serveur (TLS mutuel). Laissez vide s’il n’en demande pas.",
+  "connection.tls.cert.pick": "Choisir le certificat client TLS",
+  "connection.tls.key": "Fichier de la clé privée",
+  "connection.tls.key.hint": "Fichier PEM de la clé : PKCS#8 (chiffrée ou non), PKCS#1 ou SEC1.",
+  "connection.tls.key.pick": "Choisir la clé privée du certificat client",
+  "connection.tls.key.placeholder": "Le même fichier que le certificat",
+  "connection.tls.passphrase": "Phrase de passe de la clé",
+  "connection.tls.passphrase.hint": "Seulement si la clé est chiffrée.",
+  "connection.tls.remember": "Mémoriser la phrase de passe",
+  "connection.tls.prompt.title": "Phrase de passe de la clé TLS pour {name}",
+  "connection.tls.prompt.description": "Protège {endpoint}."
 }

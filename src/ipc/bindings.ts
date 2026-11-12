@@ -624,6 +624,8 @@ export type Capabilities = {
 	defaultPort: number | null,
 	/**  The engine supports TLS and the connection form shows the TLS settings. */
 	supportsTls: boolean,
+	/**  The connection can present a TLS client certificate (F-009). */
+	clientCertificate: boolean,
 	/**  A server hosts several databases that can be listed and switched. */
 	multipleDatabases: boolean,
 	/**  Schemas exist between the database and its tables. */
@@ -850,6 +852,16 @@ export type ConnectionDefinition = {
 	tlsMode: TlsMode,
 	/**  PEM file of the CA that signs the server certificate (instead of the OS trust store). */
 	caCertPath: string | null,
+	/**
+	 *  PEM file of the TLS client certificate (chain) presented to the server (F-009). The
+	 *  key's passphrase, when it has one, is a secret kept in the keychain, not here.
+	 */
+	tlsClientCertPath?: string | null,
+	/**
+	 *  PEM file of the client certificate's private key; `null`: the key is in the
+	 *  certificate file.
+	 */
+	tlsClientKeyPath?: string | null,
 	/**  `null`: 15 s. */
 	connectTimeoutSecs: number | null,
 	/**
@@ -1192,6 +1204,12 @@ export type ErrorCode =
 "tlsFailed" | 
 /**  TLS is required but the server does not offer it. */
 "tlsNotSupported" | 
+/**  The TLS client certificate or its key could not be read or do not match (F-009). */
+"tlsClientCertInvalid" | 
+/**  The TLS client key is encrypted and no passphrase was given. */
+"tlsKeyPassphraseRequired" | 
+/**  The passphrase given for the TLS client key does not decrypt it. */
+"tlsKeyPassphraseWrong" | 
 /**  The server rejected the user name or the password. */
 "authFailed" | 
 /**  The database does not exist on the server. */
@@ -2844,7 +2862,9 @@ export type SecretKind = "password" | "sshPassphrase" | "token" |
 /**  Password of the SSH tunnel's server. */
 "sshPassword" | 
 /**  Password and key passphrase of the SSH tunnel's jump host. */
-"jumpPassword" | "jumpPassphrase";
+"jumpPassword" | "jumpPassphrase" | 
+/**  Passphrase of the encrypted private key of a TLS client certificate (F-009). */
+"tlsKeyPassphrase";
 
 /**  Where a secret is kept. */
 export type SecretLocation = 
@@ -3357,9 +3377,12 @@ export type TunnelPhase =
 /**  Closed or dropped; reopened before the next database connection. */
 "down";
 
-/**  An SSH password or key passphrase typed for one attempt (F-010). */
+/**
+ *  An SSH password or key passphrase (F-010), or the passphrase of a TLS client key (F-009),
+ *  typed for one attempt.
+ */
 export type TunnelSecretInput = {
-	/**  `sshPassword`, `sshPassphrase`, `jumpPassword` or `jumpPassphrase`. */
+	/**  `sshPassword`, `sshPassphrase`, `jumpPassword`, `jumpPassphrase` or `tlsKeyPassphrase`. */
 	kind: SecretKind,
 	secret: SecretInput,
 };

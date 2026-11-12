@@ -10,6 +10,7 @@ import type {
   SavedConnection,
   SecretInput,
   TlsMode,
+  TunnelSecretInput,
 } from '../../ipc';
 import {
   emptySshDraft,
@@ -150,6 +151,11 @@ export interface ConnectionDraft {
   connectTimeout: string;
   statementTimeout: string;
   keepAlive: string;
+  /** TLS client certificate and key files (F-009); the key's passphrase is write-only. */
+  tlsClientCert: string;
+  tlsClientKey: string;
+  tlsKeyPassphrase: string;
+  rememberTlsKeyPassphrase: boolean;
   // Not editable in this form yet: carried so that saving does not lose them.
   caCertPath: string | null;
   options: ConnectionOption[];
@@ -189,6 +195,10 @@ export function emptyDraft(info: EngineInfo): ConnectionDraft {
     connectTimeout: '',
     statementTimeout: '',
     keepAlive: '',
+    tlsClientCert: '',
+    tlsClientKey: '',
+    tlsKeyPassphrase: '',
+    rememberTlsKeyPassphrase: true,
     caCertPath: null,
     options: [],
   };
@@ -223,9 +233,18 @@ export function draftFromSaved(saved: SavedConnection): ConnectionDraft {
     connectTimeout: secondsText(definition.connectTimeoutSecs),
     statementTimeout: secondsText(definition.statementTimeoutSecs ?? null),
     keepAlive: secondsText(definition.keepAliveSecs ?? null),
+    tlsClientCert: definition.tlsClientCertPath ?? '',
+    tlsClientKey: definition.tlsClientKeyPath ?? '',
+    tlsKeyPassphrase: '',
+    rememberTlsKeyPassphrase: true,
     caCertPath: definition.caCertPath,
     options: definition.options,
   };
+}
+
+function textOrNull(text: string): string | null {
+  const trimmed = text.trim();
+  return trimmed === '' ? null : trimmed;
 }
 
 function secondsText(secs: number | null): string {
@@ -279,6 +298,10 @@ export function toDefinition(draft: ConnectionDraft, info: EngineInfo): Connecti
   const file = capabilities.usesFile;
   const port = draft.port.trim();
   const environment = draft.environment;
+  const clientCert =
+    info.capabilities.clientCertificate && draft.tlsMode !== 'disable'
+      ? textOrNull(draft.tlsClientCert)
+      : null;
   return {
     name: draft.name.trim() || suggestedName(draft, info),
     engine: draft.engine,
@@ -290,6 +313,8 @@ export function toDefinition(draft: ConnectionDraft, info: EngineInfo): Connecti
     auth: file ? 'none' : 'password',
     tlsMode: draft.tlsMode,
     caCertPath: draft.caCertPath,
+    tlsClientCertPath: clientCert,
+    tlsClientKeyPath: clientCert === null ? null : textOrNull(draft.tlsClientKey),
     // A file has no connection to time out or keep open: only the statement limit applies.
     connectTimeoutSecs: file ? null : parseSeconds(draft.connectTimeout),
     statementTimeoutSecs: parseSeconds(draft.statementTimeout),
@@ -344,7 +369,28 @@ export function withEngine(
     pendingPasswordId: to.usesFile ? null : draft.pendingPasswordId,
     tlsMode: !to.supportsTls ? 'prefer' : draft.tlsModeAuto ? defaultTlsMode(host) : draft.tlsMode,
     ssh: to.usesFile ? { ...draft.ssh, enabled: false } : draft.ssh,
+    ...(to.clientCertificate ? {} : { tlsClientCert: '', tlsClientKey: '', tlsKeyPassphrase: '' }),
   };
+}
+
+/** The refusals that ask for the passphrase of the TLS client key again. */
+export function isTlsKeyError(error: { code: string }): boolean {
+  return error.code === 'tlsKeyPassphraseRequired' || error.code === 'tlsKeyPassphraseWrong';
+}
+
+/**
+ * The TLS key passphrase typed in the form, as the backend takes it for one attempt
+ * (a test): empty when none is typed or the connection presents no certificate.
+ */
+export function tlsSecretsOf(draft: ConnectionDraft, info: EngineInfo): TunnelSecretInput[] {
+  const used =
+    info.capabilities.clientCertificate &&
+    draft.tlsMode !== 'disable' &&
+    draft.tlsClientCert.trim() !== '' &&
+    draft.tlsKeyPassphrase !== '';
+  return used
+    ? [{ kind: 'tlsKeyPassphrase', secret: { kind: 'value', value: draft.tlsKeyPassphrase } }]
+    : [];
 }
 
 /**

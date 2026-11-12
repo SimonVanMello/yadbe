@@ -14,6 +14,7 @@ import {
   summarize,
   tintOf,
   parseSeconds,
+  tlsSecretsOf,
   toDefinition,
   validateDraft,
   withEngine,
@@ -310,6 +311,55 @@ describe('toDefinition', () => {
       postgres,
     );
     expect(prod.environment).toEqual({ kind: 'prod', label: null, color: null });
+  });
+
+  it('sends the TLS client certificate where the engine can present one (F-009)', () => {
+    const draft = {
+      ...emptyDraft(postgres),
+      host: 'db',
+      tlsClientCert: ' /c/client.crt ',
+      tlsClientKey: ' ',
+      tlsKeyPassphrase: 'secret',
+    };
+    const definition = toDefinition(draft, postgres);
+    expect(definition).toMatchObject({
+      tlsClientCertPath: '/c/client.crt',
+      tlsClientKeyPath: null,
+    });
+    // The passphrase is a secret: it never reaches the definition.
+    expect(JSON.stringify(definition)).not.toContain('secret');
+    expect(
+      toDefinition({ ...draft, tlsClientKey: '/c/client.key' }, postgres).tlsClientKeyPath,
+    ).toBe('/c/client.key');
+    // No certificate, a stray key path goes too; without TLS nothing is presented.
+    expect(
+      toDefinition({ ...draft, tlsClientCert: '', tlsClientKey: '/c/k' }, postgres),
+    ).toMatchObject({ tlsClientCertPath: null, tlsClientKeyPath: null });
+    expect(toDefinition({ ...draft, tlsMode: 'disable' }, postgres).tlsClientCertPath).toBeNull();
+    // An engine without the capability keeps none.
+    const mssql = MOCK_ENGINES.find((engine) => engine.engine === 'mssql');
+    if (!mssql) throw new Error('no mssql engine');
+    expect(
+      toDefinition({ ...draft, engine: 'mssql', port: '' }, mssql).tlsClientCertPath,
+    ).toBeNull();
+    expect(withEngine(draft, mssql, postgres)).toMatchObject({
+      tlsClientCert: '',
+      tlsClientKey: '',
+      tlsKeyPassphrase: '',
+    });
+  });
+
+  it('sends the typed TLS key passphrase only for a connection that presents a certificate', () => {
+    const draft = {
+      ...emptyDraft(postgres),
+      tlsClientCert: '/c/client.crt',
+      tlsKeyPassphrase: 'pw',
+    };
+    expect(tlsSecretsOf(draft, postgres)).toEqual([
+      { kind: 'tlsKeyPassphrase', secret: { kind: 'value', value: 'pw' } },
+    ]);
+    expect(tlsSecretsOf({ ...draft, tlsClientCert: '' }, postgres)).toEqual([]);
+    expect(tlsSecretsOf({ ...draft, tlsKeyPassphrase: '' }, postgres)).toEqual([]);
   });
 
   it('sends the timeouts and the keep-alive as whole seconds, empty meaning the default (F-014)', () => {

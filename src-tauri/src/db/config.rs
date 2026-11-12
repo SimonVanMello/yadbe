@@ -3,6 +3,7 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -10,6 +11,7 @@ use specta::Type;
 
 use crate::db::dialect::Engine;
 use crate::db::errors::YadbeError;
+use crate::db::tls_identity::TlsIdentity;
 use crate::tunnel::SshTunnel;
 
 /// Connect timeout when the definition does not set one.
@@ -189,6 +191,14 @@ pub struct ConnectionDefinition {
     pub tls_mode: TlsMode,
     /// PEM file of the CA that signs the server certificate (instead of the OS trust store).
     pub ca_cert_path: Option<String>,
+    /// PEM file of the TLS client certificate (chain) presented to the server (F-009). The
+    /// key's passphrase, when it has one, is a secret kept in the keychain, not here.
+    #[serde(default)]
+    pub tls_client_cert_path: Option<String>,
+    /// PEM file of the client certificate's private key; `null`: the key is in the
+    /// certificate file.
+    #[serde(default)]
+    pub tls_client_key_path: Option<String>,
     /// `null`: 15 s.
     pub connect_timeout_secs: Option<u32>,
     /// A statement that runs longer than this is cancelled with the engine's own mechanism
@@ -235,6 +245,14 @@ impl ConnectionDefinition {
             .ca_cert_path
             .map(|p| p.trim().to_owned())
             .filter(|p| !p.is_empty());
+        let path = |p: Option<String>| p.map(|p| p.trim().to_owned()).filter(|p| !p.is_empty());
+        self.tls_client_cert_path = path(self.tls_client_cert_path);
+        self.tls_client_key_path = path(self.tls_client_key_path);
+        // Only an engine that can present a certificate keeps one, and a key goes with a cert.
+        if !caps.client_certificate || self.tls_client_cert_path.is_none() {
+            self.tls_client_cert_path = None;
+            self.tls_client_key_path = None;
+        }
         self.group_id = self.group_id.filter(|g| !g.is_empty());
 
         if self.name.is_empty() {
@@ -357,6 +375,7 @@ impl ConnectionDefinition {
             file_path: PathBuf::from(&self.file_path),
             tls_mode: self.tls_mode,
             ca_cert_path: self.ca_cert_path.as_ref().map(PathBuf::from),
+            tls_identity: None,
             connect_timeout: Duration::from_secs(u64::from(
                 self.connect_timeout_secs.unwrap_or(default_timeout_secs),
             )),
@@ -418,6 +437,9 @@ pub struct ConnectTarget {
     pub file_path: PathBuf,
     pub tls_mode: TlsMode,
     pub ca_cert_path: Option<PathBuf>,
+    /// The client certificate and key, read and decrypted by the connection manager from the
+    /// definition's paths (F-009); only engines with the `client_certificate` capability use it.
+    pub tls_identity: Option<Arc<TlsIdentity>>,
     pub connect_timeout: Duration,
     /// Statements of query tabs are cancelled after this long (F-014); `None`: never.
     pub statement_timeout: Option<Duration>,
@@ -457,6 +479,8 @@ pub(crate) fn sample_definition(engine: Engine) -> ConnectionDefinition {
         },
         tls_mode: TlsMode::Prefer,
         ca_cert_path: None,
+        tls_client_cert_path: None,
+        tls_client_key_path: None,
         connect_timeout_secs: None,
         statement_timeout_secs: None,
         keep_alive_secs: None,
@@ -592,5 +616,50 @@ mod tests {
                 "{secs}"
             );
         }
+    }
+    #[test]
+    fn a_client_certificate_is_kept_only_where_the_engine_can_present_one() {
+        let normalized = |engine: Engine, cert: Option<&str>, key: Option<&str>| {
+            let mut def = sample_definition(engine);
+            def.tls_client_cert_path = cert.map(str::to_owned);
+            def.tls_client_key_path = key.map(str::to_owned);
+            def.normalized().expect("valid")
+        };
+        let kept = normalized(
+            Engine::Postgres,
+            Some("  /c/client.crt "),
+            Some(" /c/client.key"),
+        );
+        assert_eq!(kept.tls_client_cert_path.as_deref(), Some("/c/client.crt"));
+        assert_eq!(kept.tls_client_key_path.as_deref(), Some("/c/client.key"));
+        let mysql = normalized(Engine::Mysql, Some("/c/client.pem"), None);
+        assert_eq!(mysql.tls_client_cert_path.as_deref(), Some("/c/client.pem"));
+        assert_eq!(mysql.tls_client_key_path, None);
+        // No certificate: a stray key path goes too; blank paths are no paths.
+        let keyless = normalized(Engine::Postgres, Some("  "), Some("/c/client.key"));
+        assert_eq!(
+            (keyless.tls_client_cert_path, keyless.tls_client_key_path),
+            (None, None)
+        );
+        // SQL Server and SQLite cannot present one: nothing is stored.
+        for engine in [Engine::Mssql, Engine::Sqlite] {
+            let def = normalized(engine, Some("/c/client.crt"), Some("/c/client.key"));
+            assert_eq!(
+                (def.tls_client_cert_path, def.tls_client_key_path),
+                (None, None),
+                "{engine:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn older_payloads_have_no_client_certificate() {
+        let mut json = serde_json::to_value(sample_definition(Engine::Postgres)).expect("json");
+        let object = json.as_object_mut().expect("object");
+        object.remove("tlsClientCertPath");
+        object.remove("tlsClientKeyPath");
+        let def: ConnectionDefinition = serde_json::from_value(json).expect("old payload");
+        assert_eq!(def.tls_client_cert_path, None);
+        assert_eq!(def.tls_client_key_path, None);
     }
 }

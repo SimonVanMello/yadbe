@@ -34,16 +34,19 @@ pub enum SecretKind {
     /// Password and key passphrase of the SSH tunnel's jump host.
     JumpPassword,
     JumpPassphrase,
+    /// Passphrase of the encrypted private key of a TLS client certificate (F-009).
+    TlsKeyPassphrase,
 }
 
 impl SecretKind {
-    pub const ALL: [SecretKind; 6] = [
+    pub const ALL: [SecretKind; 7] = [
         SecretKind::Password,
         SecretKind::SshPassphrase,
         SecretKind::Token,
         SecretKind::SshPassword,
         SecretKind::JumpPassword,
         SecretKind::JumpPassphrase,
+        SecretKind::TlsKeyPassphrase,
     ];
 
     fn account_suffix(self) -> &'static str {
@@ -54,6 +57,7 @@ impl SecretKind {
             SecretKind::SshPassword => "ssh-password",
             SecretKind::JumpPassword => "jump-password",
             SecretKind::JumpPassphrase => "jump-passphrase",
+            SecretKind::TlsKeyPassphrase => "tls-key-passphrase",
         }
     }
 }

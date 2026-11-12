@@ -6759,6 +6759,7 @@ dependencies = [
  "futures-util",
  "keyring",
  "mysql_async",
+ "pkcs8",
  "postgres-protocol",
  "rusqlite",
  "russh",

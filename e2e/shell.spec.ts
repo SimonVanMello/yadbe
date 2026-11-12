@@ -259,6 +259,91 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'statement-timeout');
     });
 
+    test('a TLS client certificate is set in the form, its key passphrase asked for', async ({
+      page,
+    }) => {
+      await newConnection(page);
+      const dialog = page.getByRole('dialog', { name: 'New connection' });
+      await dialog.getByLabel('Host').fill('mtls.example.com');
+      await dialog.getByLabel('Database', { exact: true }).fill('mtls');
+      await dialog.getByRole('textbox', { name: 'Password' }).fill('secret');
+      const fields = dialog.getByTestId('tls-client-fields');
+      await expect(fields).toBeVisible();
+      // The key, its passphrase and the "remember" switch follow the certificate.
+      await expect(fields.getByLabel('Private key file')).toBeHidden();
+      await fields.getByLabel('Certificate file').fill('/certs/client.crt');
+      await fields.getByLabel('Private key file').fill('/certs/client.encrypted.key');
+      await capture(page, name, 'dialog-tls-client');
+
+      // The key is encrypted: the test asks for its passphrase and points at the field.
+      await dialog.getByRole('button', { name: 'Test connection' }).click();
+      const alert = dialog.getByRole('alert').filter({ hasText: 'The connection test failed' });
+      await expect(alert).toContainText('protected by a passphrase');
+      await alert.getByRole('button', { name: 'Enter the password' }).click();
+      await expect(fields.getByLabel('Key passphrase')).toBeFocused();
+      await fields.getByLabel('Key passphrase').fill('wrong');
+      await dialog.getByRole('button', { name: 'Test connection' }).click();
+      await expect(alert).toContainText('passphrase of the TLS client key is wrong');
+      await fields.getByLabel('Key passphrase').fill('right');
+      await dialog.getByRole('button', { name: 'Test connection' }).click();
+      await expect(
+        dialog.getByRole('status').filter({ hasText: 'Connected to PostgreSQL' }),
+      ).toBeVisible();
+
+      // An unreadable file is reported against the certificate field.
+      await fields.getByLabel('Certificate file').fill('/certs/missing.crt');
+      await dialog.getByRole('button', { name: 'Test connection' }).click();
+      await expect(alert).toContainText('could not be used');
+      await alert.getByRole('button', { name: 'Edit the connection' }).click();
+      await expect(fields.getByLabel('Certificate file')).toBeFocused();
+      await fields.getByLabel('Certificate file').fill('/certs/client.crt');
+
+      // Saved, the paths come back and the passphrase is marked as kept.
+      await dialog.getByRole('button', { name: 'Save' }).click();
+      await expect(dialog).toBeHidden();
+      await sidebarItem(page, 'mtls@mtls\\.example\\.com').click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Edit…' }).click();
+      const edit = page.getByRole('dialog', { name: 'Edit connection' });
+      await expect(edit.getByLabel('Certificate file')).toHaveValue('/certs/client.crt');
+      await expect(edit.getByLabel('Private key file')).toHaveValue('/certs/client.encrypted.key');
+      await expect(
+        edit.getByTestId('tls-client-fields').getByText('Stored in the keychain'),
+      ).toBeVisible();
+      await edit.getByRole('button', { name: 'Cancel' }).click();
+    });
+
+    test('connecting asks for the passphrase of an encrypted TLS key', async ({ page }) => {
+      await newConnection(page);
+      const dialog = page.getByRole('dialog', { name: 'New connection' });
+      await dialog.getByLabel('Host').fill('keyed.example.com');
+      await dialog.getByLabel('Database', { exact: true }).fill('keyed');
+      await dialog.getByRole('textbox', { name: 'Password' }).fill('secret');
+      const fields = dialog.getByTestId('tls-client-fields');
+      await fields.getByLabel('Certificate file').fill('/certs/client.pem');
+      await fields.getByLabel('Private key file').fill('/certs/client.encrypted.key');
+      await dialog.getByRole('button', { name: 'Save' }).click();
+      await expect(dialog).toBeHidden();
+
+      await sidebarItem(page, 'keyed@keyed\\.example\\.com').dblclick();
+      const prompt = page.getByRole('dialog', { name: /Passphrase of the TLS key/ });
+      await expect(prompt).toBeVisible();
+      await expect(prompt).toContainText('/certs/client.encrypted.key');
+      await capture(page, name, 'tls-key-passphrase-prompt');
+      await prompt.getByLabel('Passphrase').fill('right');
+      await prompt.getByRole('button', { name: 'Connect' }).click();
+      await expect(sidebarItem(page, 'keyed@keyed\\.example\\.com')).toHaveAccessibleName(
+        /Connected/,
+      );
+    });
+
+    test('SQL Server has no TLS client certificate to set', async ({ page }) => {
+      await newConnection(page);
+      const dialog = page.getByRole('dialog', { name: 'New connection' });
+      await expect(dialog.getByTestId('tls-client-fields')).toBeVisible();
+      await dialog.getByRole('radio', { name: 'SQL Server' }).click();
+      await expect(dialog.getByTestId('tls-client-fields')).toBeHidden();
+    });
+
     test('a connected tab is tinted by its environment', async ({ page }) => {
       await openFromSidebar(page, 'shop · prod');
       await expect(tab(page, /Query 1/)).toBeVisible();

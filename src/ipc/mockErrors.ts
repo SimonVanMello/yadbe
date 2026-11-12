@@ -102,6 +102,28 @@ export const mockErrors = {
       'changeTlsMode',
       'invalid peer certificate: UnknownIssuer',
     ),
+  tlsClientCertInvalid: (detail: string) =>
+    error(
+      'tlsClientCertInvalid',
+      "The TLS client certificate or its private key could not be used. Check the two files in the connection's TLS settings.",
+      "Le certificat client TLS ou sa clé privée n'a pas pu être utilisé. Vérifiez les deux fichiers dans les paramètres TLS de la connexion.",
+      'editConnection',
+      detail,
+    ),
+  tlsKeyPassphraseRequired: () =>
+    error(
+      'tlsKeyPassphraseRequired',
+      'The TLS client key is protected by a passphrase.',
+      'La clé client TLS est protégée par une phrase de passe.',
+      'enterPassword',
+    ),
+  tlsKeyPassphraseWrong: () =>
+    error(
+      'tlsKeyPassphraseWrong',
+      'The passphrase of the TLS client key is wrong.',
+      'La phrase de passe de la clé client TLS est incorrecte.',
+      'enterPassword',
+    ),
   authFailed: (user: string) =>
     error(
       'authFailed',

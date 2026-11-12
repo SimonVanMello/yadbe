@@ -6,11 +6,12 @@ use std::time::Instant;
 
 use tokio::sync::Notify;
 
-use crate::db::config::{AuthMethod, ConnectionDefinition, DEFAULT_CONNECT_TIMEOUT_SECS};
+use crate::db::config::{AuthMethod, ConnectionDefinition, DEFAULT_CONNECT_TIMEOUT_SECS, TlsMode};
 use crate::db::dialect::{Engine, EngineInfo};
 use crate::db::driver::{ConnectRequest, Driver};
 use crate::db::drivers;
 use crate::db::errors::YadbeError;
+use crate::db::tls_identity::TlsIdentity;
 use crate::events::EventSink;
 use crate::secrets::{Secret, SecretKind, SecretStore};
 use crate::session::connection::{ConnectionSession, SessionConfig};
@@ -157,6 +158,38 @@ impl ConnectionManager {
             .ok_or_else(YadbeError::password_required)
     }
 
+    /// The TLS client certificate of a definition (F-009), read from its files; the key's
+    /// passphrase comes from `provided`, else the stored one. `None` when the connection has
+    /// no certificate or does not use TLS.
+    async fn tls_identity(
+        &self,
+        definition: &ConnectionDefinition,
+        connection_id: Option<&str>,
+        provided: &TunnelSecrets,
+    ) -> Result<Option<Arc<TlsIdentity>>, YadbeError> {
+        let caps = definition.engine.dialect().capabilities();
+        let Some(cert) = definition.tls_client_cert_path.clone() else {
+            return Ok(None);
+        };
+        if !caps.client_certificate || definition.tls_mode == TlsMode::Disable {
+            return Ok(None);
+        }
+        let key = definition.tls_client_key_path.clone();
+        let passphrase = self
+            .stored_secret(connection_id, provided, SecretKind::TlsKeyPassphrase)
+            .await?;
+        // Reading two files and hashing a passphrase: off the async threads.
+        let identity = blocking(move || {
+            TlsIdentity::load(
+                std::path::Path::new(&cert),
+                key.as_deref().map(std::path::Path::new),
+                passphrase.as_ref(),
+            )
+        })
+        .await?;
+        Ok(Some(Arc::new(identity)))
+    }
+
     /// The tunnel of a definition, its secrets taken from `provided`, else the stored ones.
     async fn tunnel_config(
         &self,
@@ -279,6 +312,9 @@ impl ConnectionManager {
         let cancel = Arc::new(Notify::new());
         lock(&self.tests).insert(request_id.clone(), Arc::clone(&cancel));
         let mut target = definition.target_with_timeout(self.default_connect_timeout().await);
+        target.tls_identity = self
+            .tls_identity(&definition, connection_id.as_deref(), &tunnel_secrets)
+            .await?;
         let tunnel_config = self
             .tunnel_config(
                 &definition,
@@ -389,9 +425,12 @@ impl ConnectionManager {
         let password = self
             .password(&saved.definition, Some(connection_id), password)
             .await?;
-        let target = saved
+        let mut target = saved
             .definition
             .target_with_timeout(self.default_connect_timeout().await);
+        target.tls_identity = self
+            .tls_identity(&saved.definition, Some(connection_id), &tunnel_secrets)
+            .await?;
         let tunnel = self
             .tunnel_config(
                 &saved.definition,

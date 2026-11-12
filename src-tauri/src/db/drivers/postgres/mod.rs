@@ -148,7 +148,11 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
         TlsMode::Prefer => SslMode::Prefer,
         TlsMode::Require | TlsMode::VerifyFull => SslMode::Require,
     });
-    let tls = RustlsConnect::new(tls::client_config(mode, target.ca_cert_path.as_deref())?);
+    let tls = RustlsConnect::new(tls::client_config(
+        mode,
+        target.ca_cert_path.as_deref(),
+        target.tls_identity.as_deref(),
+    )?);
 
     let (client, connection) = config
         .connect(tls.clone())

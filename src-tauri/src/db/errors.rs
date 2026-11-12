@@ -46,6 +46,12 @@ pub enum ErrorCode {
     TlsFailed,
     /// TLS is required but the server does not offer it.
     TlsNotSupported,
+    /// The TLS client certificate or its key could not be read or do not match (F-009).
+    TlsClientCertInvalid,
+    /// The TLS client key is encrypted and no passphrase was given.
+    TlsKeyPassphraseRequired,
+    /// The passphrase given for the TLS client key does not decrypt it.
+    TlsKeyPassphraseWrong,
     /// The server rejected the user name or the password.
     AuthFailed,
     /// The database does not exist on the server.
@@ -350,6 +356,35 @@ impl YadbeError {
             "La connexion sécurisée (TLS) a échoué : le certificat du serveur n'a pas pu être vérifié ou la négociation a été refusée.",
         )
         .with_action(ErrorAction::ChangeTlsMode)
+    }
+
+    /// `what`: what is wrong with the identity, in English, as a technical detail.
+    pub fn tls_client_cert_invalid(detail: impl AsRef<str>) -> Self {
+        Self::new(
+            ErrorCode::TlsClientCertInvalid,
+            "The TLS client certificate or its private key could not be used. Check the two files in the connection's TLS settings.",
+            "Le certificat client TLS ou sa clé privée n'a pas pu être utilisé. Vérifiez les deux fichiers dans les paramètres TLS de la connexion.",
+        )
+        .with_detail(detail)
+        .with_action(ErrorAction::EditConnection)
+    }
+
+    pub fn tls_key_passphrase_required() -> Self {
+        Self::new(
+            ErrorCode::TlsKeyPassphraseRequired,
+            "The TLS client key is protected by a passphrase.",
+            "La clé client TLS est protégée par une phrase de passe.",
+        )
+        .with_action(ErrorAction::EnterPassword)
+    }
+
+    pub fn tls_key_passphrase_wrong() -> Self {
+        Self::new(
+            ErrorCode::TlsKeyPassphraseWrong,
+            "The passphrase of the TLS client key is wrong.",
+            "La phrase de passe de la clé client TLS est incorrecte.",
+        )
+        .with_action(ErrorAction::EnterPassword)
     }
 
     pub fn tls_not_supported() -> Self {
