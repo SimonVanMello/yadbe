@@ -183,7 +183,26 @@ fn parse_search(text: &str, scheme: &str) -> Result<Parsed, YadbeError> {
 fn parse_mongo(text: &str) -> Result<Parsed, YadbeError> {
     let uri = crate::db::document::settings::parse_uri(text)?;
     let mut fields = empty(ConnectionStringFormat::Url, Engine::Mongodb);
-    fields.host = non_empty(uri.hosts);
+    // One host with its port fills the host and port fields; a seed list stays whole in the
+    // host field (each host keeps its own port).
+    match crate::db::document::settings::seed_hosts(&uri.hosts).as_deref() {
+        Some(
+            [
+                crate::db::document::settings::SeedHost {
+                    host,
+                    port: Some(port),
+                },
+            ],
+        ) if !uri.settings.srv => {
+            fields.host = non_empty(if host.contains(':') {
+                format!("[{host}]")
+            } else {
+                host.clone()
+            });
+            fields.port = Some(*port);
+        }
+        _ => fields.host = non_empty(uri.hosts),
+    }
     fields.database = uri.database;
     fields.username = uri.username;
     fields.tls_mode = uri.tls_mode;
@@ -879,6 +898,36 @@ mod tests {
             let code = parse(input, None).map(|_| ()).map_err(|e| e.code);
             assert_eq!(code, Err(ErrorCode::InvalidConnectionString), "{input}");
         }
+    }
+
+    #[test]
+    fn mongodb_urls_keep_tls_off_unless_asked_and_split_one_host() {
+        // M4-2 bug: a URL without `tls=…` was saved with TLS on and shown as `host:port:27017`.
+        let p = parse_ok("mongodb://localhost:57017/?replicaSet=rs0");
+        assert_eq!(p.fields.engine, Some(Engine::Mongodb));
+        assert_eq!(p.fields.host.as_deref(), Some("localhost"));
+        assert_eq!(p.fields.port, Some(57017));
+        assert_eq!(p.fields.tls_mode, Some(TlsMode::Disable));
+        assert_eq!(
+            p.fields
+                .mongo
+                .as_ref()
+                .and_then(|m| m.replica_set.as_deref()),
+            Some("rs0")
+        );
+        let list = parse_ok("mongodb://a:27018,b/shop?tls=true");
+        assert_eq!(list.fields.host.as_deref(), Some("a:27018,b"));
+        assert_eq!(list.fields.port, None, "a seed list keeps its ports");
+        assert_eq!(list.fields.tls_mode, Some(TlsMode::VerifyFull));
+        let bare = parse_ok("mongodb://db.example.com");
+        assert_eq!(bare.fields.host.as_deref(), Some("db.example.com"));
+        assert_eq!(bare.fields.port, None);
+        let v6 = parse_ok("mongodb://[::1]:27019");
+        assert_eq!(v6.fields.host.as_deref(), Some("[::1]"));
+        assert_eq!(v6.fields.port, Some(27019));
+        let srv = parse_ok("mongodb+srv://cluster0.example.net/");
+        assert_eq!(srv.fields.host.as_deref(), Some("cluster0.example.net"));
+        assert_eq!(srv.fields.tls_mode, Some(TlsMode::VerifyFull));
     }
 
     #[test]

@@ -69,6 +69,22 @@
   background: var(--bg-selected);
 }
 
+.row[data-state='modified'] {
+  background-image: linear-gradient(var(--cell-modified-bg), var(--cell-modified-bg));
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--cell-modified);
+}
+
+.row[data-state='inserted'] {
+  background-image: linear-gradient(var(--cell-inserted-bg), var(--cell-inserted-bg));
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--cell-inserted);
+}
+
+.row[data-state='deleted'] {
+  background-image: linear-gradient(var(--cell-deleted-bg), var(--cell-deleted-bg));
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--cell-deleted);
+  text-decoration: line-through;
+}
+
 .row[data-depth='0'] {
   border-top: var(--border-width) solid var(--border-subtle);
 }

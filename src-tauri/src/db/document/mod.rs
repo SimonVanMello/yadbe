@@ -5,8 +5,10 @@
 //! [`settings`] the connection fields and strings. No driver crate here.
 
 pub mod classify;
+pub mod edit;
 pub mod ejson;
 pub mod json;
 pub mod meta;
 pub mod ops;
 pub mod settings;
+pub mod shell;

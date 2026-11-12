@@ -209,6 +209,67 @@ async fn mysql_presents_its_client_certificate() {
     check_identity(&harness(), def, password).await;
 }
 
+/// MongoDB (M4-4): the driver reads the client key from a file, which yadbe writes encrypted
+/// under a one-time password; every key format connects, and the file is gone afterwards.
+#[tokio::test]
+async fn mongodb_presents_its_client_certificate() {
+    let test = "mongodb_presents_its_client_certificate";
+    let Some(url) = std::env::var("YADBE_TEST_MONGO_MTLS_URL")
+        .ok()
+        .filter(|u| !u.trim().is_empty())
+    else {
+        skip(test, "YADBE_TEST_MONGO_MTLS_URL is not set");
+        return;
+    };
+    let Some(ca) = std::env::var("YADBE_TEST_MONGO_CA")
+        .ok()
+        .filter(|u| !u.trim().is_empty())
+    else {
+        skip(test, "YADBE_TEST_MONGO_CA is not set");
+        return;
+    };
+    let h = harness();
+    let (mut base, password) = from_url(&url);
+    base.tls_mode = TlsMode::VerifyFull;
+    base.ca_cert_path = Some(ca);
+    let pem_files = || -> usize {
+        std::fs::read_dir(std::env::temp_dir())
+            .map(|dir| {
+                dir.filter_map(Result::ok)
+                    .filter(|e| {
+                        let name = e.file_name().to_string_lossy().into_owned();
+                        name.starts_with("yadbe-") && name.ends_with(".pem")
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    };
+    let before = pem_files();
+    let err = h
+        .test(&base, password.clone(), TunnelSecrets::new())
+        .await
+        .expect_err("the server requires a client certificate");
+    assert_ne!(err.code, ErrorCode::TlsClientCertInvalid, "{err:?}");
+    for key in ["client.sec1.key", "client.pkcs8.key"] {
+        let def = with_identity(base.clone(), "client.crt", Some(key));
+        h.test(&def, password.clone(), TunnelSecrets::new())
+            .await
+            .unwrap_or_else(|e| panic!("{key}: {e:?}"));
+    }
+    let encrypted = with_identity(base.clone(), "client.crt", Some("client.encrypted.key"));
+    h.test(&encrypted, password.clone(), typed(PASSPHRASE))
+        .await
+        .expect("the encrypted key with its passphrase connects");
+    let combined = with_identity(base, "client.crt", None);
+    assert!(
+        h.test(&combined, password, TunnelSecrets::new())
+            .await
+            .is_err(),
+        "a certificate file without its key is refused"
+    );
+    assert_eq!(pem_files(), before, "no key file is left behind");
+}
+
 /// SQL Server and SQLite have no client certificate: a definition that carries one (an old
 /// file, a switched engine) loses it when normalized, so it is never half used.
 #[test]

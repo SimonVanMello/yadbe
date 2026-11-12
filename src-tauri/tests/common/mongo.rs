@@ -14,6 +14,7 @@ use yadbe_lib::session::document::DocumentService;
 use yadbe_lib::session::document::gate::{self, GateContext, GateOutcome, GateRequest, Origin};
 use yadbe_lib::session::document::model::{MongoScriptConfirm, ScriptOutcome, ScriptRequest};
 use yadbe_lib::session::history_hook::NoHistory;
+use yadbe_lib::session::journal::ChangeJournal;
 use yadbe_lib::session::result_store::ResultStore;
 use yadbe_lib::session::statement_log::StatementLog;
 use yadbe_lib::store::Store;
@@ -87,6 +88,7 @@ pub struct Mongo {
     pub confirms: Arc<AutoConfirm>,
     pub store: Arc<ResultStore>,
     pub log: Arc<StatementLog>,
+    pub journal: Arc<ChangeJournal>,
     pub _db_store: Arc<Store>,
     pub id: String,
     pub database: String,
@@ -111,13 +113,18 @@ impl Mongo {
             .expect("connect");
         let store = Arc::new(ResultStore::default());
         let confirms = Arc::new(AutoConfirm::default());
+        let journal = Arc::new(ChangeJournal::new(
+            Arc::clone(&h.store),
+            h.sink.clone() as Arc<dyn EventSink>,
+        ));
         let service = Arc::new(
             DocumentService::new(
                 Arc::clone(&manager),
                 Arc::clone(&store),
                 Arc::new(NoHistory),
             )
-            .with_events(Arc::clone(&confirms) as Arc<dyn EventSink>),
+            .with_events(Arc::clone(&confirms) as Arc<dyn EventSink>)
+            .with_journal(Arc::clone(&journal)),
         );
         let _ = confirms.service.set(Arc::downgrade(&service));
         Mongo {
@@ -126,6 +133,7 @@ impl Mongo {
             confirms,
             store,
             log: h.log,
+            journal,
             _db_store: h.store,
             id: saved.id,
             database: def.database.clone(),

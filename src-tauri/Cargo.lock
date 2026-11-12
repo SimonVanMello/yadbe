@@ -3190,7 +3190,9 @@ dependencies = [
  "mongocrypt",
  "mongodb-internal-macros",
  "pbkdf2",
+ "pem",
  "percent-encoding",
+ "pkcs8",
  "rand 0.9.5",
  "rustc_version_runtime",
  "rustls",
@@ -3853,6 +3855,16 @@ checksum = "112d82ceb8c5bf524d9af484d4e4970c9fd5a0cc15ba14ad93dccd28873b0629"
 dependencies = [
  "digest 0.11.3",
  "hmac",
+]
+
+[[package]]
+name = "pem"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
+dependencies = [
+ "base64 0.22.1",
+ "serde_core",
 ]
 
 [[package]]
@@ -7448,6 +7460,7 @@ dependencies = [
  "russh",
  "rustls",
  "rustls-native-certs",
+ "sec1",
  "serde",
  "serde_json",
  "specta",

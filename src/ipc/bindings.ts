@@ -646,6 +646,26 @@ export const commands = {
 	 *  canonical Extended JSON texts.
 	 */
 	mongoFetchDocuments: (documentsId: number, offset: number, limit: number) => typedError<string[], YadbeError>(__TAURI_INVOKE("mongo_fetch_documents", { documentsId, offset, limit })),
+	/**
+	 *  What applying `changes` would send (M4-4): one guarded operation per document, in mongosh
+	 *  syntax, and whether they run in one transaction (replica set, sharded cluster) or one by
+	 *  one (standalone server).
+	 */
+	mongoPreviewChanges: (connectionId: string, changes: DocChangeSet) => typedError<DocPreview, YadbeError>(__TAURI_INVOKE("mongo_preview_changes", { connectionId, changes })),
+	/**
+	 *  Applies `changes`: every update / replace / delete must match its one document as it was
+	 *  read (otherwise a conflict, per document); in one transaction when the server has them,
+	 *  otherwise one by one, stopping at the first conflict or failure. What was applied goes to
+	 *  the change journal. Refused on a read-only connection.
+	 */
+	mongoApplyChanges: (connectionId: string, changes: DocChangeSet) => typedError<DocApplyOutcome, YadbeError>(__TAURI_INVOKE("mongo_apply_changes", { connectionId, changes })),
+	/**  What reverting the document journal entry `entryId` would send. */
+	mongoPreviewRevert: (connectionId: string, entryId: number) => typedError<DocPreview, YadbeError>(__TAURI_INVOKE("mongo_preview_revert", { connectionId, entryId })),
+	/**
+	 *  Reverts the document journal entry `entryId`: its inverse, guarded by what the entry
+	 *  left, applied like any change set.
+	 */
+	mongoApplyRevert: (connectionId: string, entryId: number) => typedError<DocApplyOutcome, YadbeError>(__TAURI_INVOKE("mongo_apply_revert", { connectionId, entryId })),
 	/**  The databases holding keys (`INFO keyspace`) and the connection's own, by index. */
 	kvListDatabases: (connectionId: string) => typedError<KvDatabase[], YadbeError>(__TAURI_INVOKE("kv_list_databases", { connectionId })),
 	/**
@@ -1070,6 +1090,8 @@ export type CollectionInfo = {
 	/**  From the collection's metadata, at once (`estimatedDocumentCount`); `null` for a view. */
 	estimatedCount: number | null,
 	topology: DocTopology,
+	/**  A capped collection: its documents cannot be deleted (M4-4). */
+	capped: boolean,
 };
 
 export type CollectionKind = "collection" | "view" | "timeseries";
@@ -1086,6 +1108,11 @@ export type CollectionPage = {
 	/**  The operation as it was sent, shell style. */
 	command: string,
 	durationMs: number | null,
+	/**
+	 *  The `_id` of each document of the page, canonical Extended JSON; `null` for a document
+	 *  read without one (a projection that leaves it out). What edits identify documents by.
+	 */
+	ids: (string | null)[],
 };
 
 /**
@@ -1624,6 +1651,49 @@ export type Dependent = {
 	via: DependencyLink | null,
 };
 
+/**  What an apply did. */
+export type DocApplyOutcome = {
+	status: DocApplyStatus,
+	/**  It ran in one transaction. */
+	atomic: boolean,
+	/**
+	 *  Indices (in the change set) of the changes now on the server: all of them when
+	 *  applied, none for a transaction that did not commit, those before the stop on a
+	 *  standalone server.
+	 */
+	applied: number[],
+	conflicts: DocConflict[],
+	error: YadbeError | null,
+	/**  The failure is transient: nothing was applied and applying again may succeed. */
+	retryable: boolean,
+	/**
+	 *  The journal entry of what was applied; `null` when nothing was or the journal could
+	 *  not be written.
+	 */
+	journalId: number | null,
+	/**  That entry can be reverted. */
+	revertible: boolean,
+	/**  The `_id` of each inserted document, by change index, canonical Extended JSON. */
+	insertedIds: ([number, string])[],
+};
+
+export type DocApplyStatus = 
+/**  Every change is on the server. */
+"applied" | 
+/**  A document no longer holds what the change was planned on (see `conflicts`). */
+"conflicted" | 
+/**  An operation or the commit failed (see `error`). */
+"failed" | 
+/**  The server could not confirm the commit: the changes may or may not be applied. */
+"uncertain";
+
+/**  The changes an apply sends, on one collection. */
+export type DocChangeSet = {
+	database: string,
+	collection: string,
+	edits: DocEdit[],
+};
+
 export type DocCollection = {
 	name: string,
 	kind: CollectionKind,
@@ -1634,6 +1704,39 @@ export type DocCollection = {
 	viewOn: string | null,
 };
 
+export type DocConflict = {
+	/**  Index of the change in the change set. */
+	edit: number,
+	kind: DocConflictKind,
+	/**  The document's `_id`, canonical Extended JSON. */
+	id: string,
+	/**
+	 *  What differs; empty when the difference is elsewhere (field order, a number's type
+	 *  deep in a value).
+	 */
+	fields: DocConflictField[],
+	/**  The document on the server now, canonical; `null` when gone. */
+	current: string | null,
+};
+
+/**  A path whose value differs from what the change was planned on. */
+export type DocConflictField = {
+	path: PathSeg[],
+	/**  Canonical Extended JSON; `null`: missing. */
+	seen: string | null,
+	now: string | null,
+	yours: string | null,
+};
+
+/**  Why an operation matched no document. */
+export type DocConflictKind = 
+/**  The document changed on the server since it was read. */
+"changed" | 
+/**  The document is gone. */
+"deleted" | 
+/**  A document with this `_id` already exists (insert). */
+"exists";
+
 export type DocDatabase = {
 	name: string,
 	/**  Bytes on disk, as the server reports them. */
@@ -1642,6 +1745,17 @@ export type DocDatabase = {
 	/**  `admin`, `local`, `config`. */
 	system: boolean,
 };
+
+/**  One change of a collection's documents. `id` and documents are Extended JSON. */
+export type DocEdit = 
+/**  Sets and unsets fields of the document `id`. */
+{ kind: "update"; id: string; fields: FieldEdit[] } | 
+/**  Replaces the document `id` (edited as JSON); `original` is the whole document as read. */
+{ kind: "replace"; id: string; original: string; replacement: string } | 
+/**  Deletes the document `id`; `original` is the whole document as read. */
+{ kind: "delete"; id: string; original: string } | 
+/**  Inserts a document; an `_id` is generated when it has none. */
+{ kind: "insert"; document: string };
 
 export type DocIndex = {
 	name: string,
@@ -1654,6 +1768,31 @@ export type DocIndex = {
 	hidden: boolean,
 	/**  TTL index: documents expire after this many seconds. */
 	expireAfterSecs: number | null,
+};
+
+/**  What a line of the preview is. */
+export type DocLineRole = 
+/**  Session, transaction and collection lines. */
+"control" | 
+/**  A write, checked to touch exactly one document. */
+"write";
+
+/**  What Apply would run. */
+export type DocPreview = {
+	/**  The mongosh lines, in order (session and transaction lines included). */
+	lines: DocPreviewLine[],
+	/**  Writes it sends. */
+	operations: number,
+	/**  All in one transaction (replica set, sharded cluster); otherwise one by one. */
+	atomic: boolean,
+	topology: DocTopology,
+};
+
+export type DocPreviewLine = {
+	text: string,
+	role: DocLineRole,
+	/**  The change the write comes from. */
+	edit: number | null,
 };
 
 /**  The servers behind a connection, for what an apply can promise (decision 3). */
@@ -2139,6 +2278,15 @@ export type ExportStarted = {
 };
 
 export type ExportStatus = "done" | "failed" | "cancelled";
+
+/**  A field to set or unset in a document. */
+export type FieldEdit = {
+	path: PathSeg[],
+	/**  What the user saw there, Extended JSON; `null`: the field was missing (not null). */
+	original: string | null,
+	/**  What to write, Extended JSON (canonical or relaxed); `null`: unset the field. */
+	value: string | null,
+};
 
 /**  The fields of a collection, estimated from a sample. */
 export type FieldSample = {
@@ -3646,6 +3794,9 @@ export type ParsedConnectionString = {
 	 */
 	search: SearchSettings | null,
 };
+
+/**  One step of a path: a field name, or an array index. */
+export type PathSeg = number | string;
 
 export type PauseReason = "rowLimit" | "memoryLimit";
 
