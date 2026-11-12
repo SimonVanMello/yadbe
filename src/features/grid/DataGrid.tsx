@@ -56,7 +56,7 @@ import {
 } from './gridMath';
 import { GridHeader, type HeaderSort } from './GridHeader';
 import { GridMenu } from './GridMenu';
-import { readGridMetrics, type GridMetrics } from './gridMetrics';
+import { readGridMetrics, sameSizes, type GridMetrics } from './gridMetrics';
 import { modKey, selectModeOf } from './modifiers';
 import { createRangeStore } from './rangeStore';
 import { headerIcons, type RowSource } from './rowSource';
@@ -462,11 +462,15 @@ export function DataGrid({
       setOrder([...known, ...rest]);
     }
     let live = true;
+    let current = read;
     const reread = () => {
       if (!live || !scrollerRef.current) return;
       const next = readGridMetrics(scrollerRef.current);
-      setMetrics(next);
       const nextFonts = fontsOf(next);
+      // Usually nothing changed (the fonts were already loaded): no second render of the grid.
+      if (nextFonts === fonts && sameSizes(next, current)) return;
+      current = next;
+      setMetrics(next);
       if (nextFonts !== fonts) {
         fonts = nextFonts;
         refit.current(next);

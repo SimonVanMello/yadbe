@@ -62,3 +62,16 @@ export function readGridMetrics(el: HTMLElement): GridMetrics {
     },
   };
 }
+
+/** The sizes are the same (the header widths are compared by the caller, through the fonts). */
+export function sameSizes(a: GridMetrics, b: GridMetrics): boolean {
+  return (
+    a.rowHeight === b.rowHeight &&
+    a.headerHeight === b.headerHeight &&
+    a.gutterMinWidth === b.gutterMinWidth &&
+    a.minWidth === b.minWidth &&
+    a.maxWidth === b.maxWidth &&
+    a.padding === b.padding &&
+    a.charWidth === b.charWidth
+  );
+}
