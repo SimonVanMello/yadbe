@@ -9,7 +9,8 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::db::engine::Engine;
+use crate::db::document::settings::MongoSettings;
+use crate::db::engine::{Engine, EngineFamily};
 use crate::db::errors::YadbeError;
 use crate::db::tls_identity::TlsIdentity;
 use crate::tunnel::SshTunnel;
@@ -226,6 +227,10 @@ pub struct ConnectionDefinition {
     /// SSH tunnel in front of a server connection (F-010); absent in older payloads.
     #[serde(default)]
     pub ssh: Option<SshTunnel>,
+    /// The fields of a document connection (MongoDB, M4-2): SRV, replica set, auth source and
+    /// mechanism, direct connection. `null` for the other families; absent in older payloads.
+    #[serde(default)]
+    pub mongo: Option<MongoSettings>,
     // The fields only one engine family has (replica set, key delimiter, API key kind…) go
     // here the way `ssh` does: one `Option` per family with `#[serde(default)]`, kept as JSON
     // in a column that a migration adds (`ALTER TABLE connections ADD COLUMN`), so existing
@@ -358,6 +363,17 @@ impl ConnectionDefinition {
                 "Un socket Unix ne peut pas être joint par un tunnel SSH : indiquez un nom d'hôte.",
             ));
         }
+        self.mongo = if caps.family == EngineFamily::Document {
+            let mongo = self.mongo.unwrap_or_default().normalized();
+            mongo.check(&self.host, self.port, self.ssh.is_some())?;
+            if mongo.auth_mechanism == crate::db::document::settings::MongoAuthMechanism::X509 {
+                // The certificate is the identity: there is no password to ask for.
+                self.auth = AuthMethod::None;
+            }
+            Some(mongo)
+        } else {
+            None
+        };
         Ok(self)
     }
 
@@ -411,6 +427,7 @@ impl ConnectionDefinition {
             options: self.options.clone(),
             read_only: self.read_only,
             dial: None,
+            mongo: self.mongo.clone(),
         }
     }
 }
@@ -474,6 +491,8 @@ pub struct ConnectTarget {
     /// there instead, and keep `host` for everything else (TLS server name and certificate
     /// checks, messages).
     pub dial: Option<SocketAddr>,
+    /// The fields of a document connection; `None` for the other families.
+    pub mongo: Option<MongoSettings>,
 }
 
 #[cfg(test)]
@@ -514,6 +533,7 @@ pub(crate) fn sample_definition(engine: Engine) -> ConnectionDefinition {
         remember_password: true,
         history_enabled: true,
         ssh: None,
+        mongo: None,
     }
 }
 

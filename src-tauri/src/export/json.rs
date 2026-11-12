@@ -114,7 +114,7 @@ pub(super) fn write_value(
 ) {
     let numeric = numbers == JsonNumbers::Auto;
     match value {
-        Value::Null => out.push_str("null"),
+        Value::Null | Value::Missing => out.push_str("null"),
         Value::Bool(true) => out.push_str("true"),
         Value::Bool(false) => out.push_str("false"),
         Value::Int(s) if numeric && int_is_exact(s) => out.push_str(s),
@@ -146,7 +146,8 @@ pub(super) fn write_value(
         | Value::Interval(s)
         | Value::Uuid(s)
         | Value::Json(s)
-        | Value::Other(s) => push_string(out, s),
+        | Value::Other(s)
+        | Value::ObjectId(s) => push_string(out, s),
     }
 }
 

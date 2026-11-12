@@ -33,6 +33,9 @@ pub enum ErrorCode {
     /// A SQL feature was asked of a connection of another engine family (document, search,
     /// key-value).
     SqlOnly,
+    /// A document feature (collections, documents, the command console) was asked of a
+    /// connection of another engine family.
+    DocumentOnly,
     /// The connection is not open (never opened, closed, or reconnecting).
     NotConnected,
     /// The connection needs a password and none was given or stored.
@@ -311,6 +314,14 @@ impl YadbeError {
             ErrorCode::SqlOnly,
             "This works on SQL connections only.",
             "Cette fonction n'existe que sur les connexions SQL.",
+        )
+    }
+
+    pub fn document_only() -> Self {
+        Self::new(
+            ErrorCode::DocumentOnly,
+            "This works on document (MongoDB) connections only.",
+            "Cette fonction n'existe que sur les connexions documents (MongoDB).",
         )
     }
 
@@ -1034,6 +1045,7 @@ mod tests {
             YadbeError::query_folder_not_found("f"),
             YadbeError::engine_not_supported("MySQL"),
             YadbeError::sql_only(),
+            YadbeError::document_only(),
             YadbeError::object_not_found("shop.orders"),
             YadbeError::execution_running(),
             YadbeError::transaction_open(),

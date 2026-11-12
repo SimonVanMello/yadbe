@@ -4,6 +4,7 @@
 mod connection;
 pub mod connection_string;
 mod decimal;
+pub mod document;
 pub mod history_hook;
 pub mod history_writer;
 pub mod journal;

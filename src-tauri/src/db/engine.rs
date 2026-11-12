@@ -21,6 +21,7 @@ pub enum Engine {
     Mssql,
     Mysql,
     Sqlite,
+    Mongodb,
 }
 
 /// What kind of database an engine is: it decides the connection's backend (the `Backend`
@@ -272,12 +273,48 @@ static SQLITE: EngineProfile = EngineProfile {
     dialect: Some(&SqliteDialect),
 };
 
+static MONGODB: EngineProfile = EngineProfile {
+    id: "mongodb",
+    label: "MongoDB",
+    default_username: None,
+    capabilities: Capabilities {
+        family: EngineFamily::Document,
+        uses_file: false,
+        default_port: Some(27017),
+        supports_tls: true,
+        client_certificate: true,
+        multiple_databases: true,
+        schemas: false,
+        // `killOp` on the operation.
+        native_cancel: true,
+        // Read-only is yadbe's command gate: the server has no read-only session.
+        read_only_session: false,
+        identifier_quote_open: '"',
+        identifier_quote_close: '"',
+        folds_unquoted_to_lower: false,
+        parameter_styles: NO_PARAMETERS,
+        explain: false,
+        explain_analyze: false,
+        activity_monitor: false,
+        activity_cancel_query: false,
+        table_qualifier: Qualifier::Database,
+        formatter: false,
+        ddl: false,
+        script_as: false,
+        data_import: false,
+        ef_migrations: false,
+        dotnet_connection_string: false,
+    },
+    dialect: None,
+};
+
 impl Engine {
-    pub const ALL: [Engine; 4] = [
+    pub const ALL: [Engine; 5] = [
         Engine::Postgres,
         Engine::Mssql,
         Engine::Mysql,
         Engine::Sqlite,
+        Engine::Mongodb,
     ];
 
     /// The one place that maps an engine to what it is.
@@ -287,6 +324,7 @@ impl Engine {
             Engine::Mssql => &MSSQL,
             Engine::Mysql => &MYSQL,
             Engine::Sqlite => &SQLITE,
+            Engine::Mongodb => &MONGODB,
         }
     }
 

@@ -175,6 +175,7 @@ pub trait Driver: Send + Sync {
 #[derive(Clone)]
 pub enum Backend {
     Sql(Arc<dyn SqlConnection>),
+    Document(Arc<dyn DocumentConnection>),
 }
 
 impl Backend {
@@ -182,6 +183,7 @@ impl Backend {
     pub fn as_link(&self) -> &dyn Link {
         match self {
             Backend::Sql(conn) => &**conn,
+            Backend::Document(conn) => &**conn,
         }
     }
 
@@ -189,6 +191,15 @@ impl Backend {
     pub fn into_sql(self) -> Result<Arc<dyn SqlConnection>, YadbeError> {
         match self {
             Backend::Sql(conn) => Ok(conn),
+            Backend::Document(_) => Err(YadbeError::sql_only()),
+        }
+    }
+
+    /// The document connection, or `documentOnly` for an engine of another family.
+    pub fn into_document(self) -> Result<Arc<dyn DocumentConnection>, YadbeError> {
+        match self {
+            Backend::Document(conn) => Ok(conn),
+            Backend::Sql(_) => Err(YadbeError::document_only()),
         }
     }
 }
@@ -325,6 +336,28 @@ pub trait SqlConnection: Link {
         let _ = (statement, analyze);
         Box::pin(async { Err(ExecError::from(YadbeError::not_implemented())) })
     }
+}
+
+/// An open connection of the document family (MongoDB). It runs typed operations; it does not
+/// check them: every operation goes through the session's command gate first
+/// (`session::document::gate`), which applies read-only, danger confirmation, the statement
+/// log and the timeout. Never call it from anywhere else.
+pub trait DocumentConnection: Link {
+    /// Runs one operation. A cursor's documents are pushed into `events` in batches (the
+    /// channel is bounded: a receiver that stops reading stops the reads); other operations
+    /// return their reply document. Fails with `cancelled` when the receiver is gone.
+    fn execute<'a>(
+        &'a self,
+        op: &'a crate::db::document::ops::DocOp,
+        options: &'a crate::db::document::ops::ExecOptions,
+        events: crate::db::document::ops::DocSender,
+    ) -> BoxFuture<'a, Result<crate::db::document::ops::DocReply, YadbeError>>;
+
+    /// Stops on the server the operation started with `token` (`killOp`), if it still runs.
+    fn kill<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<(), YadbeError>>;
+
+    /// What the connection talks to, as known now.
+    fn topology(&self) -> crate::db::document::ops::DocTopology;
 }
 
 /// A plan as the engine gave it, and what was sent to get it.

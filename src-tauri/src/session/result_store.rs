@@ -19,7 +19,7 @@ const CHUNK_ROWS: usize = 500;
 /// Byte code of a SQL `NULL` cell; the kinds are `1 + index in KINDS`.
 const NULL: u8 = 0;
 
-const KINDS: [ValueKind; 15] = [
+const KINDS: [ValueKind; 17] = [
     ValueKind::Bool,
     ValueKind::Int,
     ValueKind::Decimal,
@@ -35,6 +35,8 @@ const KINDS: [ValueKind; 15] = [
     ValueKind::Json,
     ValueKind::Array,
     ValueKind::Other,
+    ValueKind::ObjectId,
+    ValueKind::Missing,
 ];
 
 fn code_of(kind: ValueKind) -> u8 {
@@ -75,6 +77,8 @@ fn encode(value: Value, out: &mut String) -> u8 {
         Value::Uuid(s) => push(out, s, ValueKind::Uuid),
         Value::Json(s) => push(out, s, ValueKind::Json),
         Value::Other(s) => push(out, s, ValueKind::Other),
+        Value::ObjectId(s) => push(out, s, ValueKind::ObjectId),
+        Value::Missing => ValueKind::Missing,
     };
     code_of(kind)
 }
@@ -105,6 +109,8 @@ fn decode(code: u8, text: &str) -> Value {
         ValueKind::Uuid => Value::Uuid(text),
         ValueKind::Json => Value::Json(text),
         ValueKind::Other => Value::Other(text),
+        ValueKind::ObjectId => Value::ObjectId(text),
+        ValueKind::Missing => Value::Missing,
     }
 }
 

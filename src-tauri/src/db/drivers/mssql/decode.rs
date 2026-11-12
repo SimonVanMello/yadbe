@@ -175,7 +175,7 @@ pub fn decode(data: ColumnData<'static>, decoder: Decoder) -> Value {
 /// The text a `sql_variant` shows: its value as SQL Server would convert it.
 fn text_of(value: Value) -> String {
     match value {
-        Value::Null => String::new(),
+        Value::Null | Value::Missing => String::new(),
         Value::Bool(b) => if b { "1" } else { "0" }.to_owned(),
         Value::Bytes(hex) => format!("0x{}", hex.to_uppercase()),
         Value::Array(_) => String::new(),
@@ -190,7 +190,8 @@ fn text_of(value: Value) -> String {
         | Value::Interval(s)
         | Value::Uuid(s)
         | Value::Json(s)
-        | Value::Other(s) => s,
+        | Value::Other(s)
+        | Value::ObjectId(s) => s,
     }
 }
 

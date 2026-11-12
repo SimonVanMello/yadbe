@@ -4,6 +4,7 @@ pub mod activity;
 pub mod app;
 pub mod connection_import;
 pub mod connections;
+pub mod document;
 pub mod dotnet;
 pub mod edit;
 pub mod export;

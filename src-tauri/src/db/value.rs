@@ -36,6 +36,10 @@ pub enum Value {
     Array(Vec<Value>),
     /// A type yadbe does not decode, in its text form (read-only in the grid).
     Other(String),
+    /// A MongoDB ObjectId: 24 lowercase hexadecimal digits (document family).
+    ObjectId(String),
+    /// A field the document does not have (document family): not the same as `null`.
+    Missing,
 }
 
 impl Value {
@@ -98,6 +102,9 @@ pub enum ValueKind {
     Json,
     Array,
     Other,
+    ObjectId,
+    /// No value at all: a field absent from a document.
+    Missing,
 }
 
 /// A column of a result.
@@ -126,7 +133,7 @@ impl QueryResult {
     /// The first column of the first row, as text (`SHOW server_version`, `SELECT 1`…).
     pub fn scalar_text(&self) -> Option<String> {
         match self.rows.first()?.first()? {
-            Value::Null => None,
+            Value::Null | Value::Missing => None,
             Value::Bool(b) => Some(b.to_string()),
             Value::Array(_) => None,
             Value::Int(s)
@@ -141,7 +148,8 @@ impl QueryResult {
             | Value::Interval(s)
             | Value::Uuid(s)
             | Value::Json(s)
-            | Value::Other(s) => Some(s.clone()),
+            | Value::Other(s)
+            | Value::ObjectId(s) => Some(s.clone()),
         }
     }
 }

@@ -7,6 +7,7 @@ use crate::events::EventSink;
 use crate::export::ExportManager;
 use crate::import::ImportManager;
 use crate::secrets::{KeychainBackend, SecretStore};
+use crate::session::document::DocumentService;
 use crate::session::history_writer::StoreHistory;
 use crate::session::journal::ChangeJournal;
 use crate::session::library::Library;
@@ -36,6 +37,7 @@ pub struct AppState {
     pub references: Arc<ReferenceService>,
     pub journal: Arc<ChangeJournal>,
     pub result_edits: Arc<ResultEditService>,
+    pub documents: Arc<DocumentService>,
 }
 
 impl AppState {
@@ -92,6 +94,11 @@ impl AppState {
             Arc::clone(&tables),
             Arc::clone(&sink),
         ));
+        let documents = Arc::new(DocumentService::new(
+            Arc::clone(&connections),
+            queries.shared_store(),
+            history.clone(),
+        ));
         let imports = Arc::new(ImportManager::new(
             Arc::clone(&connections),
             Arc::clone(&meta),
@@ -112,6 +119,7 @@ impl AppState {
             references,
             journal,
             result_edits,
+            documents,
         }
     }
 }

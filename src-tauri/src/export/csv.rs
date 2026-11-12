@@ -43,7 +43,7 @@ impl CsvEncoder {
 /// Plain text of a cell, as a reader of the file would expect it.
 pub(super) fn cell_text(value: &Value, binary: super::model::BinaryEncoding) -> Cow<'_, str> {
     match value {
-        Value::Null => Cow::Borrowed(""),
+        Value::Null | Value::Missing => Cow::Borrowed(""),
         Value::Bool(true) => Cow::Borrowed("true"),
         Value::Bool(false) => Cow::Borrowed("false"),
         Value::Array(_) => {
@@ -63,7 +63,8 @@ pub(super) fn cell_text(value: &Value, binary: super::model::BinaryEncoding) -> 
         | Value::Interval(s)
         | Value::Uuid(s)
         | Value::Json(s)
-        | Value::Other(s) => Cow::Borrowed(s),
+        | Value::Other(s)
+        | Value::ObjectId(s) => Cow::Borrowed(s),
     }
 }
 

@@ -79,6 +79,11 @@ crc32fast = "1"
 # Encrypted PKCS#8 client keys (F-009), `openssl pkcs8 -topk8` / ssh-keygen style. Already in the
 # lockfile with the same features through russh (no new crate): PBES2 with PBKDF2 / scrypt, AES-CBC.
 pkcs8 = { version = "0.11", default-features = false, features = ["encryption", "pem", "std"] }
+# MongoDB (M4-2): the official driver, async on tokio, TLS through rustls + ring like the rest
+# (no OpenSSL, no aws-lc-rs); `dns-resolver` for `mongodb+srv://`. `bson` 3 is the crate the
+# driver uses (same version, no second copy), with `serde_json-1` for Extended JSON.
+mongodb = { version = "3.10", default-features = false, features = ["compat-3-3-0", "bson-3", "rustls-tls", "dns-resolver"] }
+bson = { version = "3.1", features = ["serde_json-1"] }
 
 [dev-dependencies]
 tempfile = "3"

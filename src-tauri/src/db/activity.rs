@@ -157,7 +157,7 @@ pub fn cut_statement(text: Option<String>) -> (Option<String>, bool) {
 /// A column of a driver row as text (`NULL` and anything that is not text read as `None`).
 pub fn text_of(value: Option<&Value>) -> Option<String> {
     match value? {
-        Value::Null => None,
+        Value::Null | Value::Missing => None,
         Value::Text(text)
         | Value::Int(text)
         | Value::Decimal(text)
@@ -167,7 +167,8 @@ pub fn text_of(value: Option<&Value>) -> Option<String> {
         | Value::Timestamp(text)
         | Value::TimestampTz(text)
         | Value::Uuid(text)
-        | Value::Other(text) => Some(text.clone()),
+        | Value::Other(text)
+        | Value::ObjectId(text) => Some(text.clone()),
         Value::Bool(flag) => Some(flag.to_string()),
         Value::Interval(_) | Value::Json(_) | Value::Bytes(_) | Value::Array(_) => None,
     }

@@ -8,6 +8,7 @@ pub mod classify;
 pub mod config;
 pub mod connstring;
 pub mod dialect;
+pub mod document;
 pub mod dotnet;
 pub mod driver;
 pub mod drivers;

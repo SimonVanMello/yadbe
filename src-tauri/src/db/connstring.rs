@@ -6,6 +6,7 @@ use serde::Serialize;
 use specta::Type;
 
 use crate::db::config::{ConnectionOption, TlsMode};
+use crate::db::document::settings::MongoSettings;
 use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
 use crate::secrets::Secret;
@@ -39,6 +40,9 @@ pub struct ParsedConnectionString {
     pub password_id: Option<String>,
     /// Keys yadbe did not understand and ignored.
     pub ignored_keys: Vec<String>,
+    /// The MongoDB fields of a `mongodb://` / `mongodb+srv://` string (then `host` holds the
+    /// host list).
+    pub mongo: Option<Box<MongoSettings>>,
 }
 
 /// Parser output: the fields, and the password kept apart.
@@ -61,6 +65,9 @@ pub fn parse(input: &str, hint: Option<Engine>) -> Result<Parsed, YadbeError> {
     if let Some(scheme) = scheme_of(text)
         && let Some(engine) = engine_of_scheme(&scheme)
     {
+        if engine == Engine::Mongodb {
+            return parse_mongo(text);
+        }
         return parse_url(text, &scheme, engine, ConnectionStringFormat::Url);
     }
     if text.contains('=') {
@@ -113,8 +120,27 @@ fn engine_of_scheme(scheme: &str) -> Option<Engine> {
         "mysql" | "mariadb" => Some(Engine::Mysql),
         "sqlserver" | "mssql" => Some(Engine::Mssql),
         "sqlite" | "sqlite3" => Some(Engine::Sqlite),
+        "mongodb" | "mongodb+srv" => Some(Engine::Mongodb),
         _ => None,
     }
+}
+
+/// `mongodb://` and `mongodb+srv://` (see `db::document::settings`).
+fn parse_mongo(text: &str) -> Result<Parsed, YadbeError> {
+    let uri = crate::db::document::settings::parse_uri(text)?;
+    let mut fields = empty(ConnectionStringFormat::Url, Engine::Mongodb);
+    fields.host = non_empty(uri.hosts);
+    fields.database = uri.database;
+    fields.username = uri.username;
+    fields.tls_mode = uri.tls_mode;
+    fields.ca_cert_path = uri.ca_cert_path;
+    fields.options = uri.options;
+    fields.ignored_keys = uri.ignored_keys;
+    fields.mongo = Some(Box::new(uri.settings));
+    Ok(Parsed {
+        fields,
+        password: uri.password.filter(|p| !p.is_empty()),
+    })
 }
 
 fn percent_decode(text: &str) -> String {
@@ -158,6 +184,7 @@ fn empty(format: ConnectionStringFormat, engine: Engine) -> ParsedConnectionStri
         options: Vec::new(),
         password_id: None,
         ignored_keys: Vec::new(),
+        mongo: None,
     }
 }
 
@@ -632,6 +659,21 @@ mod tests {
         let p = parse_ok("mssql://sa:pw@sql/Reporting");
         assert_eq!(p.fields.host.as_deref(), Some("sql"));
         assert_eq!(password(&p), Some("pw"));
+    }
+
+    #[test]
+    fn mongodb_urls_keep_the_password_apart() {
+        let p = parse_ok("mongodb+srv://app:s3cret@cluster0.example.net/shop?replicaSet=rs0");
+        assert_eq!(p.fields.engine, Some(Engine::Mongodb));
+        assert_eq!(p.fields.host.as_deref(), Some("cluster0.example.net"));
+        assert_eq!(p.fields.database.as_deref(), Some("shop"));
+        assert_eq!(password(&p), Some("s3cret"));
+        let mongo = p.fields.mongo.as_ref().expect("mongo fields");
+        assert!(mongo.srv);
+        assert_eq!(mongo.replica_set.as_deref(), Some("rs0"));
+        let json = serde_json::to_string(&p.fields).expect("json");
+        assert!(!json.contains("s3cret"), "{json}");
+        assert!(looks_like_url("mongodb://localhost"));
     }
 
     #[test]

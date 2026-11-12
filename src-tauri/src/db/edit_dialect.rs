@@ -209,7 +209,7 @@ fn number(text: &str) -> String {
 /// The text of a non-null value as bound (and shown) by the engines that take text.
 pub fn plain_text(value: &Value) -> Option<String> {
     Some(match value {
-        Value::Null => return None,
+        Value::Null | Value::Missing => return None,
         Value::Bool(b) => if *b { "true" } else { "false" }.to_owned(),
         Value::Array(items) => serde_json::to_string(items).unwrap_or_default(),
         Value::Int(s)
@@ -224,7 +224,8 @@ pub fn plain_text(value: &Value) -> Option<String> {
         | Value::Interval(s)
         | Value::Uuid(s)
         | Value::Json(s)
-        | Value::Other(s) => s.clone(),
+        | Value::Other(s)
+        | Value::ObjectId(s) => s.clone(),
     })
 }
 

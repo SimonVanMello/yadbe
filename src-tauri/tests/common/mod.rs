@@ -196,6 +196,7 @@ pub fn blank(engine: Engine, name: &str) -> ConnectionDefinition {
         remember_password: true,
         history_enabled: true,
         ssh: None,
+        mongo: None,
     }
 }
 
@@ -213,6 +214,7 @@ pub fn from_url(url: &str) -> (ConnectionDefinition, Option<Secret>) {
     def.tls_mode = f.tls_mode.unwrap_or(TlsMode::Prefer);
     def.ca_cert_path = f.ca_cert_path;
     def.options = f.options;
+    def.mongo = f.mongo.map(|m| *m);
     def.auth = if parsed.password.is_some() {
         AuthMethod::Password
     } else {

@@ -703,6 +703,7 @@ async fn check_texts(
             assert!(facts.data_bytes.is_some(), "{facts:?}");
         }
         Engine::Sqlite => assert!(facts.owner.is_none()),
+        Engine::Mongodb => unreachable!("a SQL engine"),
     }
     let view_facts = h
         .meta

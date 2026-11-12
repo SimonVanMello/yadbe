@@ -118,7 +118,9 @@ impl Converter {
             }
             ValueKind::Interval => Ok(Value::Interval(text.trim().to_owned())),
             // Arrays, enums, geometry…: the server reads the text form.
-            ValueKind::Array | ValueKind::Other => Ok(Value::Other(text.to_owned())),
+            ValueKind::Array | ValueKind::Other | ValueKind::ObjectId | ValueKind::Missing => {
+                Ok(Value::Other(text.to_owned()))
+            }
         }
     }
 

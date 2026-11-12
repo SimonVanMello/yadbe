@@ -162,6 +162,17 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::activity::kill_session,
             commands::dotnet::get_ef_migrations,
             commands::dotnet::copy_connection_string,
+            commands::document::mongo_list_databases,
+            commands::document::mongo_list_collections,
+            commands::document::mongo_list_indexes,
+            commands::document::mongo_sample_fields,
+            commands::document::mongo_open_collection,
+            commands::document::mongo_fetch_page,
+            commands::document::mongo_count_documents,
+            commands::document::mongo_run_command,
+            commands::document::mongo_cancel,
+            commands::document::mongo_close_tab,
+            commands::document::mongo_fetch_documents,
         ])
         .events(collect_events![
             events::AppReady,

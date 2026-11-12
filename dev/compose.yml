@@ -8,6 +8,9 @@
 #   export YADBE_TEST_MSSQL_CA=../dev/certs/ca.crt
 #   export YADBE_TEST_MYSQL_URL=mysql://yadbe:yadbe-test-pw@localhost:53306/yadbe_test
 #   export YADBE_TEST_MYSQL_CA=../dev/certs/ca.crt
+#   export YADBE_TEST_MONGO_URL=mongodb://localhost:57017/?replicaSet=rs0
+#   export YADBE_TEST_MONGO_STANDALONE_URL=mongodb://yadbe:yadbe-test-pw@localhost:57018/?authSource=admin
+#   export YADBE_TEST_MONGO_CA=../dev/certs/ca.crt
 #   cargo test
 # Ports are offset from the defaults so a local server keeps its own. Throwaway
 # credentials: never reuse them.
@@ -85,5 +88,54 @@ services:
         --ssl-cert=/certs/server.crt --ssl-key=/tmp/server.key --disable-log-bin
     healthcheck:
       test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uyadbe', '-pyadbe-test-pw']
+      interval: 2s
+      retries: 30
+
+  # MongoDB as a single-node replica set (transactions, topology discovery). mongod listens on
+  # 57017 inside the container too, so the member address it announces (localhost:57017)
+  # is the one the host reaches. The healthcheck initiates the set once.
+  mongo:
+    image: mongo:7.0
+    command: ['mongod', '--replSet', 'rs0', '--bind_ip_all', '--port', '57017']
+    ports:
+      - '57017:57017'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          "mongosh --port 57017 --quiet --eval \"try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:57017' }] }).ok }\" | grep -q 1",
+        ]
+      interval: 2s
+      retries: 30
+
+  # MongoDB standalone (no transactions), with authentication and TLS allowed (the dev CA's
+  # `localhost` certificate; plain connections still work).
+  mongo-standalone:
+    image: mongo:7.0
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: yadbe
+      MONGO_INITDB_ROOT_PASSWORD: yadbe-test-pw
+    ports:
+      - '57018:27017'
+    volumes:
+      - ./certs/server.crt:/certs/server.crt:ro
+      - ./certs/server.key:/certs/server.key.src:ro
+      - ./certs/ca.crt:/certs/ca.crt:ro
+    # mongod reads the certificate and its key from one file, owned by its user.
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        cat /certs/server.crt /certs/server.key.src > /tmp/server.pem &&
+        chown mongodb /tmp/server.pem && chmod 600 /tmp/server.pem &&
+        exec docker-entrypoint.sh mongod --bind_ip_all --tlsMode allowTLS
+        --tlsCertificateKeyFile /tmp/server.pem --tlsCAFile /certs/ca.crt
+        --tlsAllowConnectionsWithoutCertificates
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          "mongosh --quiet -u yadbe -p yadbe-test-pw --authenticationDatabase admin --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1",
+        ]
       interval: 2s
       retries: 30

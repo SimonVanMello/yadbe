@@ -172,7 +172,7 @@ type ForeignKeyRows = Vec<((String, String), Vec<[String; 4]>)>;
 /// character set on MySQL 8: their hexadecimal form is turned back into text.
 pub(super) fn text(row: &Row, index: usize) -> Option<String> {
     match row.get(index)? {
-        Value::Null => None,
+        Value::Null | Value::Missing => None,
         Value::Bytes(hex) => Some(String::from_utf8_lossy(&unhex(hex)).into_owned()),
         Value::Bool(b) => Some(if *b { "1" } else { "0" }.to_owned()),
         Value::Array(_) => None,
@@ -187,7 +187,8 @@ pub(super) fn text(row: &Row, index: usize) -> Option<String> {
         | Value::Interval(s)
         | Value::Uuid(s)
         | Value::Json(s)
-        | Value::Other(s) => Some(s.clone()),
+        | Value::Other(s)
+        | Value::ObjectId(s) => Some(s.clone()),
     }
 }
 
