@@ -3,7 +3,7 @@ import type { AggregateRange, SelectionAggregate, ValueKind } from '../bindings'
 /** A cell as the mock stores it: its kind and lossless text, `null` for SQL `NULL`. */
 export type AggregateCell = readonly [ValueKind, string] | null;
 
-interface Decimal {
+export interface Decimal {
   negative: boolean;
   /** Digits of the integer and fractional parts together. */
   digits: bigint;
@@ -12,7 +12,7 @@ interface Decimal {
 
 const PLAIN = /^([+-]?)(\d*)(?:\.(\d*))?$/;
 
-function parseDecimal(text: string): Decimal | null {
+export function parseDecimal(text: string): Decimal | null {
   const match = PLAIN.exec(text.trim());
   if (!match) return null;
   const int = match[2] ?? '';
@@ -22,7 +22,7 @@ function parseDecimal(text: string): Decimal | null {
   return { negative: match[1] === '-' && digits !== 0n, digits, scale: frac.length };
 }
 
-function compare(a: Decimal, b: Decimal): number {
+export function compareDecimal(a: Decimal, b: Decimal): number {
   const scale = Math.max(a.scale, b.scale);
   const left = BigInt(a.negative ? -1 : 1) * a.digits * 10n ** BigInt(scale - a.scale);
   const right = BigInt(b.negative ? -1 : 1) * b.digits * 10n ** BigInt(scale - b.scale);
@@ -88,8 +88,8 @@ export function aggregateSelection(
           }
           sum +=
             BigInt(number.negative ? -1 : 1) * number.digits * 10n ** BigInt(scale - number.scale);
-          if (!min || compare(number, min) < 0) min = number;
-          if (!max || compare(number, max) > 0) max = number;
+          if (!min || compareDecimal(number, min) < 0) min = number;
+          if (!max || compareDecimal(number, max) > 0) max = number;
         } else if (kind === 'float') {
           const value = Number(text);
           if (text.trim() === '' || !Number.isFinite(value)) continue;

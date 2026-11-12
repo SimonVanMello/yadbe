@@ -26,7 +26,7 @@ import { displayLength } from './cellDisplay';
 import { runAction } from '../../app/actions';
 import { CellViewer } from './CellViewer';
 import { RowDetail } from './RowDetail';
-import { onRowDetailAction } from './rowDetailAction';
+import { onGridAction } from './gridActions';
 import type { ViewerPanel } from './ViewerModeSwitch';
 import {
   SETTLE_MS,
@@ -137,6 +137,8 @@ export interface DataGridProps {
    * a selection: what its aggregates (F-065) are computed over.
    */
   onSelectionBlocks?: (blocks: SelectionBlock[] | null) => void;
+  /** Shown above the rows (the filter bar of a result). */
+  top?: ReactNode;
   /** Adds "Export…" to the context menu. */
   onExport?: () => void;
   /** Header sorting (table tabs): a click sorts instead of selecting the column. */
@@ -202,6 +204,8 @@ export interface DataGridApi {
   selectRows: (from: number, to: number) => void;
   /** Gives the keyboard focus back to the grid. */
   focus: () => void;
+  /** Forgets the selection (the rows behind the indices changed). */
+  clearSelection: () => void;
 }
 
 export interface ColumnLayout {
@@ -249,6 +253,7 @@ export function DataGrid({
   onSelectionSize,
   onSelectionRange,
   onSelectionBlocks,
+  top,
   onExport,
   sort,
   editing,
@@ -732,7 +737,8 @@ export function DataGrid({
   panelRef.current = { open: viewerOpen, panel: viewerPanel };
   useEffect(
     () =>
-      onRowDetailAction(() => {
+      onGridAction((action) => {
+        if (action !== 'result.rowDetail') return;
         const { open, panel } = panelRef.current;
         setViewerPanel('row');
         setViewerOpen(!(open && panel === 'row'));
@@ -942,6 +948,9 @@ export function DataGrid({
         setSelection(selectRows(selectRows(null, from, 'replace'), to, 'extend'));
         revealRef.current = { row: from, col: 0 };
       },
+      clearSelection: () => {
+        setSelection(null);
+      },
       focus: () => {
         scrollerRef.current?.focus({ preventScroll: true });
       },
@@ -1019,6 +1028,7 @@ export function DataGrid({
 
   return (
     <div className={styles.grid}>
+      {top}
       <div className={styles.main}>
         <ContextMenu
           content={

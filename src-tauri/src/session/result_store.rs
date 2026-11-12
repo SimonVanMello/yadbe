@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use crate::db::errors::YadbeError;
 use crate::db::value::{ColumnMeta, Value, ValueKind};
@@ -13,6 +13,7 @@ use crate::session::query_model::{
     AggregateRange, CELL_PREVIEW_CHARS, ResultWindow, SelectionAggregate, WindowColumn,
 };
 use crate::session::result_agg::Accumulator;
+use crate::session::result_view::{CellRef, ResultView, ResultViewInfo, ResultViewSpec};
 
 const CHUNK_ROWS: usize = 500;
 /// Byte code of a SQL `NULL` cell; the kinds are `1 + index in KINDS`.
@@ -161,11 +162,40 @@ impl Data {
     }
 }
 
+/// Which stored row each row of the grid is: the stored order, or a view's (F-065).
+enum RowMap<'a> {
+    Direct(usize),
+    View(&'a [u32]),
+}
+
+impl RowMap<'_> {
+    fn len(&self) -> usize {
+        match self {
+            RowMap::Direct(rows) => *rows,
+            RowMap::View(rows) => rows.len(),
+        }
+    }
+
+    fn at(&self, index: usize) -> usize {
+        match self {
+            RowMap::Direct(_) => index,
+            RowMap::View(rows) => rows[index] as usize,
+        }
+    }
+}
+
+fn cell_ref(data: &Data, row: usize, column: usize) -> CellRef<'_> {
+    let (code, text) = data.chunks[row / CHUNK_ROWS][column].cell(row % CHUNK_ROWS);
+    (kind_of(code), text)
+}
+
 /// The rows of one result set.
 pub struct StoredResult {
     id: u32,
     columns: Vec<ColumnMeta>,
     data: RwLock<Data>,
+    /// How the grid shows the rows, when the user sorted or filtered them. Locked after `data`.
+    view: Mutex<Option<ResultView>>,
 }
 
 impl StoredResult {
@@ -185,6 +215,65 @@ impl StoredResult {
 
     pub fn row_count(&self) -> usize {
         self.read().rows
+    }
+
+    fn lock_view(&self) -> MutexGuard<'_, Option<ResultView>> {
+        self.view
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The row map of the current view, brought up to date with the rows stored since.
+    fn mapped<'g>(&self, data: &Data, view: &'g mut Option<ResultView>) -> RowMap<'g> {
+        match view {
+            Some(view) => {
+                view.refresh(data.rows, self.columns.len(), &|row, column| {
+                    cell_ref(data, row, column)
+                });
+                RowMap::View(view.rows())
+            }
+            None => RowMap::Direct(data.rows),
+        }
+    }
+
+    /// Shows the rows sorted and filtered as `spec` says; an empty spec shows them as they
+    /// came. Rows that arrive later join the view.
+    pub fn set_view(&self, spec: ResultViewSpec) -> Result<ResultViewInfo, YadbeError> {
+        if spec
+            .max_column()
+            .is_some_and(|column| column as usize >= self.columns.len())
+        {
+            return Err(YadbeError::invalid_argument(
+                "A sort or filter names a column the result does not have.",
+                "Un tri ou un filtre nomme une colonne absente du résultat.",
+            ));
+        }
+        let data = self.read();
+        let mut view = self.lock_view();
+        *view = (!spec.is_empty()).then(|| ResultView::new(spec));
+        Ok(self.info(&data, &mut view))
+    }
+
+    /// Rows shown and rows stored, the view brought up to date.
+    pub fn view_info(&self) -> ResultViewInfo {
+        let data = self.read();
+        let mut view = self.lock_view();
+        self.info(&data, &mut view)
+    }
+
+    fn info(&self, data: &Data, view: &mut Option<ResultView>) -> ResultViewInfo {
+        let shown = self.mapped(data, view).len();
+        ResultViewInfo {
+            row_count: u32::try_from(shown).unwrap_or(u32::MAX),
+            source_rows: u32::try_from(data.rows).unwrap_or(u32::MAX),
+        }
+    }
+
+    /// Rows the grid shows: the stored ones, or those that pass the view.
+    pub fn display_row_count(&self) -> usize {
+        let data = self.read();
+        let mut view = self.lock_view();
+        self.mapped(&data, &mut view).len()
     }
 
     /// Approximate memory held by the rows.
@@ -231,8 +320,10 @@ impl StoredResult {
     /// [`CELL_PREVIEW_CHARS`].
     pub fn window(&self, offset: usize, limit: usize) -> ResultWindow {
         let data = self.read();
-        let start = offset.min(data.rows);
-        let count = limit.min(data.rows - start);
+        let mut view = self.lock_view();
+        let map = self.mapped(&data, &mut view);
+        let start = offset.min(map.len());
+        let count = limit.min(map.len() - start);
         let columns = self
             .columns
             .iter()
@@ -243,7 +334,7 @@ impl StoredResult {
                 let mut truncated = Vec::new();
                 let mut mixed = false;
                 for i in 0..count {
-                    let row = start + i;
+                    let row = map.at(start + i);
                     let (code, text) = data.chunks[row / CHUNK_ROWS][c].cell(row % CHUNK_ROWS);
                     let Some(kind) = kind_of(code) else {
                         values.push(None);
@@ -282,13 +373,33 @@ impl StoredResult {
         }
     }
 
-    /// Rows `offset .. offset + limit` (fewer at the end) as whole values, for exports.
+    /// Rows `offset .. offset + limit` (fewer at the end) as whole values, for exports, in
+    /// the order they arrived (a view is not applied).
     pub fn rows(&self, offset: usize, limit: usize) -> Vec<Vec<Value>> {
         let data = self.read();
-        let start = offset.min(data.rows);
-        let end = start.saturating_add(limit).min(data.rows);
+        self.rows_through(&data, &RowMap::Direct(data.rows), offset, limit)
+    }
+
+    /// Like [`rows`](Self::rows), for rows as the grid shows them (sorted and filtered).
+    pub fn display_rows(&self, offset: usize, limit: usize) -> Vec<Vec<Value>> {
+        let data = self.read();
+        let mut view = self.lock_view();
+        let map = self.mapped(&data, &mut view);
+        self.rows_through(&data, &map, offset, limit)
+    }
+
+    fn rows_through(
+        &self,
+        data: &Data,
+        map: &RowMap<'_>,
+        offset: usize,
+        limit: usize,
+    ) -> Vec<Vec<Value>> {
+        let start = offset.min(map.len());
+        let end = start.saturating_add(limit).min(map.len());
         (start..end)
-            .map(|row| {
+            .map(|shown| {
+                let row = map.at(shown);
                 let chunk = &data.chunks[row / CHUNK_ROWS];
                 chunk
                     .iter()
@@ -305,10 +416,12 @@ impl StoredResult {
     /// the order the grid shows the rows; a cell covered twice counts once.
     pub fn aggregate(&self, ranges: &[AggregateRange]) -> SelectionAggregate {
         let data = self.read();
+        let mut view = self.lock_view();
+        let map = self.mapped(&data, &mut view);
         let mut per_column: Vec<Vec<(usize, usize)>> = vec![Vec::new(); self.columns.len()];
         for range in ranges {
             let start = range.row_start as usize;
-            let end = (range.row_end as usize).min(data.rows);
+            let end = (range.row_end as usize).min(map.len());
             if start >= end {
                 continue;
             }
@@ -329,9 +442,9 @@ impl StoredResult {
                 }
             }
             for (start, end) in merged {
-                for row in start..end {
-                    let (code, text) = data.chunks[row / CHUNK_ROWS][column].cell(row % CHUNK_ROWS);
-                    accumulator.cell(kind_of(code), text);
+                for shown in start..end {
+                    let (kind, text) = cell_ref(&data, map.at(shown), column);
+                    accumulator.cell(kind, text);
                 }
             }
         }
@@ -341,9 +454,12 @@ impl StoredResult {
     /// One whole cell, `None` outside the result.
     pub fn cell(&self, row: usize, column: usize) -> Option<Value> {
         let data = self.read();
-        if row >= data.rows || column >= self.columns.len() {
+        let mut view = self.lock_view();
+        let map = self.mapped(&data, &mut view);
+        if row >= map.len() || column >= self.columns.len() {
             return None;
         }
+        let row = map.at(row);
         let (code, text) = data.chunks[row / CHUNK_ROWS][column].cell(row % CHUNK_ROWS);
         Some(decode(code, text))
     }
@@ -369,6 +485,7 @@ impl ResultStore {
             id,
             columns,
             data: RwLock::new(Data::default()),
+            view: Mutex::new(None),
         });
         self.lock().insert(id, Arc::clone(&result));
         result
@@ -400,6 +517,7 @@ impl ResultStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::result_view::{ViewFilter, ViewFilterOp, ViewSort};
 
     fn meta(name: &str, kind: ValueKind) -> ColumnMeta {
         ColumnMeta {
@@ -548,6 +666,190 @@ mod tests {
         // Past the end and unknown columns select nothing.
         let none = result.aggregate(&[range(5000, 6000, &[0]), range(0, 10, &[9])]);
         assert_eq!(none.cells, 0);
+    }
+
+    fn view_fixture() -> Arc<StoredResult> {
+        let store = ResultStore::default();
+        let result = store.create(vec![
+            meta("n", ValueKind::Int),
+            meta("d", ValueKind::Decimal),
+            meta("t", ValueKind::Text),
+        ]);
+        // 1200 rows over three chunks: n counts down, d is NULL every tenth row, t cycles.
+        let rows: Vec<Vec<Value>> = (0..1200_i64)
+            .map(|i| {
+                vec![
+                    Value::int(1200 - i),
+                    if i % 10 == 0 {
+                        Value::Null
+                    } else {
+                        Value::Decimal(format!("{}.5", i % 7))
+                    },
+                    Value::Text(["red", "Green", "blue"][(i % 3) as usize].into()),
+                ]
+            })
+            .collect();
+        result.append(rows);
+        result
+    }
+
+    fn spec(sort: Vec<ViewSort>, filters: Vec<ViewFilter>) -> ResultViewSpec {
+        ResultViewSpec {
+            sort,
+            filters,
+            match_case: false,
+        }
+    }
+
+    #[test]
+    fn a_view_sorts_and_filters_what_windows_cells_and_aggregates_read() {
+        let result = view_fixture();
+        // Ascending by n reverses the stored order, across chunk boundaries.
+        let info = result
+            .set_view(spec(
+                vec![ViewSort {
+                    column: 0,
+                    descending: false,
+                }],
+                vec![],
+            ))
+            .expect("view");
+        assert_eq!((info.row_count, info.source_rows), (1200, 1200));
+        let window = result.window(498, 4);
+        assert_eq!(window.offset, 498);
+        assert_eq!(window.columns[0].values[0].as_deref(), Some("499"));
+        assert_eq!(window.columns[0].values[3].as_deref(), Some("502"));
+        assert_eq!(result.cell(0, 0), Some(Value::int(1)));
+        assert_eq!(result.cell(1199, 0), Some(Value::int(1200)));
+
+        // Rows of t equal to "green" (any case), the highest n first.
+        let info = result
+            .set_view(spec(
+                vec![ViewSort {
+                    column: 0,
+                    descending: true,
+                }],
+                vec![ViewFilter {
+                    column: Some(2),
+                    op: ViewFilterOp::Equals,
+                    value: "GREEN".into(),
+                }],
+            ))
+            .expect("view");
+        assert_eq!((info.row_count, info.source_rows), (400, 1200));
+        // Stored row 1 (i = 1) is the first green one: n = 1199.
+        assert_eq!(result.cell(0, 0), Some(Value::int(1199)));
+        assert_eq!(result.cell(1, 0), Some(Value::int(1196)));
+        assert_eq!(result.cell(400, 0), None, "past the view");
+        let window = result.window(398, 10);
+        assert_eq!(window.row_count, 2);
+        assert_eq!(result.display_row_count(), 400);
+        assert_eq!(result.row_count(), 1200);
+        // Aggregates read the displayed rows: the first 3 shown rows of the n column.
+        let sum = result.aggregate(&[AggregateRange {
+            row_start: 0,
+            row_end: 3,
+            columns: vec![0],
+        }]);
+        assert_eq!(sum.sum.as_deref(), Some("3588"));
+        // An export of a selection reads the same rows; a whole export reads stored order.
+        let shown = result.display_rows(0, 2);
+        assert_eq!(shown[0][0], Value::int(1199));
+        assert_eq!(result.rows(0, 1)[0][0], Value::int(1200));
+
+        // An empty spec shows the rows as they came.
+        let info = result.set_view(ResultViewSpec::default()).expect("clear");
+        assert_eq!(info.row_count, 1200);
+        assert_eq!(result.cell(0, 0), Some(Value::int(1200)));
+    }
+
+    #[test]
+    fn a_view_follows_a_result_that_keeps_streaming() {
+        let store = ResultStore::default();
+        let result = store.create(vec![meta("n", ValueKind::Int)]);
+        let batch = |from: i64, to: i64| (from..to).map(|i| vec![Value::int(i)]).collect();
+        result.append(batch(0, 10));
+        let view = spec(
+            vec![ViewSort {
+                column: 0,
+                descending: true,
+            }],
+            vec![ViewFilter {
+                column: Some(0),
+                op: ViewFilterOp::GreaterOrEqual,
+                value: "5".into(),
+            }],
+        );
+        assert_eq!(result.set_view(view).expect("view").row_count, 5);
+        result.append(batch(10, 20));
+        let info = result.view_info();
+        assert_eq!((info.row_count, info.source_rows), (15, 20));
+        assert_eq!(result.cell(0, 0), Some(Value::int(19)));
+        assert_eq!(result.cell(14, 0), Some(Value::int(5)));
+    }
+
+    #[test]
+    fn a_view_of_a_hundred_thousand_rows_is_built_in_well_under_a_second() {
+        let store = ResultStore::default();
+        let result = store.create(vec![
+            meta("d", ValueKind::Decimal),
+            meta("t", ValueKind::Text),
+        ]);
+        for batch in 0..200_i64 {
+            let rows = (0..500_i64)
+                .map(|i| {
+                    let n = batch * 500 + i;
+                    vec![
+                        Value::Decimal(format!("{}.{:02}", (n * 7919) % 100_000, n % 100)),
+                        Value::Text(format!("Customer {n} of Region {}", n % 37)),
+                    ]
+                })
+                .collect();
+            result.append(rows);
+        }
+        let started = std::time::Instant::now();
+        let sorted = result
+            .set_view(spec(
+                vec![ViewSort {
+                    column: 0,
+                    descending: true,
+                }],
+                vec![],
+            ))
+            .expect("sort");
+        let sort_time = started.elapsed();
+        assert_eq!(sorted.row_count, 100_000);
+        let started = std::time::Instant::now();
+        let filtered = result
+            .set_view(spec(
+                vec![],
+                vec![ViewFilter {
+                    column: None,
+                    op: ViewFilterOp::Contains,
+                    value: "region 36".into(),
+                }],
+            ))
+            .expect("filter");
+        let filter_time = started.elapsed();
+        assert!(filtered.row_count > 2000);
+        eprintln!("100k rows: sort {sort_time:?}, filter on every column {filter_time:?}");
+        // A debug build, on a loaded machine: a generous bound that still catches a quadratic.
+        assert!(sort_time.as_millis() < 3000 && filter_time.as_millis() < 3000);
+    }
+
+    #[test]
+    fn a_view_refuses_a_column_the_result_does_not_have() {
+        let result = view_fixture();
+        let err = result
+            .set_view(spec(
+                vec![ViewSort {
+                    column: 3,
+                    descending: false,
+                }],
+                vec![],
+            ))
+            .expect_err("no such column");
+        assert_eq!(err.code, crate::db::errors::ErrorCode::InvalidArgument);
     }
 
     #[test]

@@ -14,6 +14,8 @@ const MAX_WINDOWS = 400;
 export interface ResultRowSource extends RowSource {
   /** The result streamed more rows (`ResultSummary.rowCount`). */
   setRowCount(count: number): void;
+  /** The rows behind the indices changed (a sort or a filter): drops what was read. */
+  resetRows(count: number): void;
   /** Stops fetching and frees the rows; `revive` starts again (remount). */
   dispose(): void;
   revive(): void;
@@ -89,6 +91,9 @@ export function createResultRowSource(
     fullValue: (row, col) => unwrap(ipc.commands.fetchResultCell(resultId, row, col)),
     setRowCount: (count) => {
       cache.setRowCount(count);
+    },
+    resetRows: (count) => {
+      cache.reset(count);
     },
     dispose: () => {
       cache.dispose();

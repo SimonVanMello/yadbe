@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { showError } from '../../app/errors/presentError';
 import { useI18nStore } from '../../i18n/i18n';
@@ -7,7 +7,15 @@ import { ipc, unwrap, type ResumeMode } from '../../ipc';
 import { Button } from '../../ui/Button';
 import { Spinner } from '../../ui/Spinner';
 import { useExportStore } from '../export/exportStore';
-import { DataGrid } from './DataGrid';
+import { DataGrid, type DataGridApi } from './DataGrid';
+import { onGridAction } from './gridActions';
+import type { HeaderSort } from './GridHeader';
+import { ResultFilterBar } from './ResultFilterBar';
+import { activeFilterCount } from './resultViewModel';
+import { useResultViewStore } from './resultViewStore';
+import { useResultView } from './useResultView';
+import { IconButton } from '../../ui/IconButton';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { formatCount } from './formatCount';
 import type { ResultGridProps } from './ResultGrid';
 import type { ExportGridRange } from '../export/exportOptions';
@@ -24,10 +32,50 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
     createResultRowSource(resultId, summary.columns, summary.rowCount),
   );
   const [resuming, setResuming] = useState(false);
+  const shortcutOf = useShortcutOf();
+  const gridApi = useRef<DataGridApi | null>(null);
+  const { view, info } = useResultView(
+    resultId,
+    source,
+    summary.rowCount,
+    summary.columns.length,
+    useCallback(() => {
+      gridApi.current?.clearSelection();
+    }, []),
+  );
 
+  // `result.filter`: the filter bar opens with a first condition ready to type in, or closes.
+  const viewRef = useRef(view);
   useLayoutEffect(() => {
-    source.setRowCount(summary.rowCount);
-  }, [source, summary.rowCount]);
+    viewRef.current = view;
+  });
+  useEffect(
+    () =>
+      onGridAction((action) => {
+        if (action !== 'result.filter') return;
+        const store = useResultViewStore.getState();
+        if (viewRef.current.barOpen) {
+          store.setBar(resultId, false);
+          return;
+        }
+        store.setBar(resultId, true);
+        if (viewRef.current.conditions.length === 0) store.addCondition(resultId, null);
+      }),
+    [resultId],
+  );
+
+  const headerSort: HeaderSort = {
+    keys: view.sort,
+    onSort: (dataCol, additive) => {
+      useResultViewStore.getState().sortBy(resultId, dataCol, additive);
+    },
+  };
+  const filters = activeFilterCount(view);
+  const toggleBar = () => {
+    const store = useResultViewStore.getState();
+    store.setBar(resultId, !view.barOpen);
+    if (!view.barOpen && view.conditions.length === 0) store.addCondition(resultId, null);
+  };
 
   useEffect(() => {
     source.revive();
@@ -82,7 +130,13 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
 
   const footer = (
     <>
-      <span className={styles.count}>{formatCount(locale, 'grid.rows', summary.rowCount)}</span>
+      <span className={styles.count}>
+        {info
+          ? formatCount(locale, 'grid.rows.shown', info.rowCount, {
+              total: new Intl.NumberFormat(locale).format(info.sourceRows),
+            })
+          : formatCount(locale, 'grid.rows', summary.rowCount)}
+      </span>
       {status === 'streaming' && (
         <span className={styles.status} role="status">
           <Spinner />
@@ -119,6 +173,15 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
           </Button>
         </>
       )}
+      <IconButton
+        icon="filter"
+        size="sm"
+        label={t('resultView.toggle')}
+        shortcut={shortcutOf('result.filter')}
+        aria-pressed={view.barOpen}
+        data-active={filters > 0 || undefined}
+        onClick={toggleBar}
+      />
       <Button size="sm" variant="ghost" onClick={openExport}>
         {t('export.menu')}
       </Button>
@@ -145,6 +208,13 @@ export function ResultGridView({ resultId, summary, label }: ResultGridProps) {
       onSelectionSize={onSelectionSize}
       onSelectionRange={onSelectionRange}
       onSelectionBlocks={onSelectionBlocks}
+      sort={headerSort}
+      apiRef={gridApi}
+      top={
+        view.barOpen ? (
+          <ResultFilterBar resultId={resultId} columns={source.columns} view={view} />
+        ) : undefined
+      }
       onExport={openExport}
     />
   );

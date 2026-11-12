@@ -78,8 +78,12 @@ for (const { name, colorScheme } of THEMES) {
 
     test('column selection from the headers', async ({ page }) => {
       await open(page, 'select * from orders');
-      await header(page, 'email').click();
-      await header(page, 'quantity').click({ modifiers: ['Shift'] });
+      // A click on a header sorts the result: whole columns are selected from a cell with
+      // Ctrl+Space (Shift+arrows extend them), or with Ctrl/⌘+click on the header.
+      await cell(page, 0, 2).click();
+      await page.keyboard.press('Control+Space');
+      await page.keyboard.press('Shift+ArrowRight');
+      await page.keyboard.press('Shift+ArrowRight');
       await expect(header(page, 'total')).toHaveAttribute('aria-selected', 'true');
       await expect(cell(page, 100, 3)).toHaveCount(0);
       await expect(cell(page, 10, 3)).toHaveAttribute('aria-selected', 'true');
@@ -232,7 +236,8 @@ test.describe('behaviour', () => {
     await page.getByRole('grid').evaluate((el) => {
       el.scrollLeft = el.scrollWidth;
     });
-    await header(page, 'notes').click();
+    await cell(page, 0, 12).click();
+    await page.keyboard.press('Control+Space');
     await page.keyboard.press('Control+C');
     await expect(
       page.getByText('Copied 1,284 rows as TSV (tab-separated)', { exact: true }),

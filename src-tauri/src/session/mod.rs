@@ -18,6 +18,7 @@ pub mod references;
 pub mod result_agg;
 pub mod result_store;
 pub mod result_tap;
+pub mod result_view;
 pub mod statement_log;
 pub mod table_data;
 pub mod table_model;

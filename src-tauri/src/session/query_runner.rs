@@ -48,6 +48,7 @@ use crate::session::query_model::{
 };
 use crate::session::result_store::{ResultStore, StoredResult};
 use crate::session::result_tap::{ResultStream, TAP_CAPACITY, TapEnd, TapMsg};
+use crate::session::result_view::{ResultViewInfo, ResultViewSpec};
 
 #[derive(Debug, Clone)]
 pub struct RunnerConfig {
@@ -1612,6 +1613,21 @@ impl QueryRunner {
         ranges: &[AggregateRange],
     ) -> Result<SelectionAggregate, YadbeError> {
         Ok(self.store.get(result_id)?.aggregate(ranges))
+    }
+
+    /// Sorts and filters the rows of a stored result as the grid shows them (F-065), without
+    /// running the statement again. An empty spec shows them as they came.
+    pub fn set_result_view(
+        &self,
+        result_id: u32,
+        spec: ResultViewSpec,
+    ) -> Result<ResultViewInfo, YadbeError> {
+        self.store.get(result_id)?.set_view(spec)
+    }
+
+    /// Rows a result view shows now (it follows a result that is still streaming).
+    pub fn result_view(&self, result_id: u32) -> Result<ResultViewInfo, YadbeError> {
+        Ok(self.store.get(result_id)?.view_info())
     }
 
     pub fn cell(&self, result_id: u32, row: u32, column: u32) -> Result<Value, YadbeError> {

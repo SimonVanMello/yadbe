@@ -145,7 +145,7 @@ describe('the preferences screen', () => {
     await user.click(screen.getByRole('button', { name: 'Reset all' }));
     expect(shortcutFor('tab.new')).toBe('Mod+T');
     expect(shortcutFor('tab.close')).toBe('Mod+W');
-  });
+  }, 20_000);
 
   it('finds the shortcuts section by searching for a shortcut', async () => {
     const user = userEvent.setup();

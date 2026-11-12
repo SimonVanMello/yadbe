@@ -99,6 +99,9 @@ pub struct QueryResultSource {
     projection: Option<Vec<usize>>,
     next: usize,
     stored_end: usize,
+    /// Rows are numbered as the grid shows them (a selection, which a sort or a filter of the
+    /// result changed); a whole result is exported in the order the statement returned it.
+    shown: bool,
     tail: Option<mpsc::Receiver<TapMsg>>,
     truncated: bool,
 }
@@ -115,7 +118,7 @@ impl QueryResultSource {
             ExportScope::All => runner.open_result_stream(result_id)?,
             ExportScope::Range { .. } => {
                 let stored = runner.store().get(result_id)?;
-                let stored_rows = stored.row_count();
+                let stored_rows = stored.display_row_count();
                 ResultStream {
                     stored,
                     stored_rows,
@@ -135,6 +138,7 @@ impl QueryResultSource {
             projection: found.columns,
             next: found.rows.start,
             stored_end: found.rows.end,
+            shown: matches!(scope, ExportScope::Range { .. }),
             stored: stream.stored,
             tail: stream.tail,
             truncated: stream.truncated,
@@ -149,13 +153,22 @@ impl QueryResultSource {
         limit: usize,
     ) -> Result<(Vec<ColumnMeta>, Vec<Vec<Value>>), YadbeError> {
         let stored = runner.store().get(result_id)?;
-        let found = bounds(&scope, stored.row_count(), stored.columns().len())?;
+        let shown = matches!(scope, ExportScope::Range { .. });
+        let loaded = if shown {
+            stored.display_row_count()
+        } else {
+            stored.row_count()
+        };
+        let found = bounds(&scope, loaded, stored.columns().len())?;
         let count = limit.min(found.rows.len());
-        let rows = stored
-            .rows(found.rows.start, count)
-            .into_iter()
-            .map(|row| project(row, found.columns.as_deref()))
-            .collect();
+        let rows = if shown {
+            stored.display_rows(found.rows.start, count)
+        } else {
+            stored.rows(found.rows.start, count)
+        }
+        .into_iter()
+        .map(|row| project(row, found.columns.as_deref()))
+        .collect();
         Ok((
             projected_columns(stored.columns(), found.columns.as_deref()),
             rows,
@@ -171,7 +184,11 @@ impl ExportSource for QueryResultSource {
     async fn next_batch(&mut self) -> Result<Option<Vec<Vec<Value>>>, YadbeError> {
         if self.next < self.stored_end {
             let count = STORE_BATCH.min(self.stored_end - self.next);
-            let rows = self.stored.rows(self.next, count);
+            let rows = if self.shown {
+                self.stored.display_rows(self.next, count)
+            } else {
+                self.stored.rows(self.next, count)
+            };
             self.next += count;
             let columns = self.projection.as_deref();
             return Ok(Some(

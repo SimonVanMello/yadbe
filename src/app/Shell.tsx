@@ -20,7 +20,7 @@ import { ExportDialog } from '../features/export/ExportDialog';
 import { ObjectActionDialog } from '../features/objects/ObjectActionDialog';
 import { PropertiesDialog } from '../features/objects/PropertiesDialog';
 import { useExportActions } from '../features/export/useExportActions';
-import { useRowDetailAction } from '../features/grid/rowDetailAction';
+import { useGridActions } from '../features/grid/gridActions';
 import { ImportDialog } from '../features/import/ImportDialog';
 import { useImportActions } from '../features/import/useImportActions';
 import { CommandPalette } from '../features/palette/CommandPalette';
@@ -171,7 +171,7 @@ export function Shell() {
   useQueryActions();
   useTableActions();
   useExportActions();
-  useRowDetailAction();
+  useGridActions();
   useImportActions();
   useConnectionTransferActions();
   useHistoryActions();

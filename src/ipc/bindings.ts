@@ -171,6 +171,17 @@ export const commands = {
 	 *  the rows are: exact for integers and decimals, whatever the size of the selection.
 	 */
 	aggregateResultSelection: (resultId: number, ranges: AggregateRange[]) => typedError<SelectionAggregate, YadbeError>(__TAURI_INVOKE("aggregate_result_selection", { resultId, ranges })),
+	/**
+	 *  Sorts and filters the rows of a result as the grid shows them (F-065), in the backend and
+	 *  without running the statement again; an empty spec shows them as they came. Windows,
+	 *  cells, aggregates and selection exports then follow the view.
+	 */
+	setResultView: (resultId: number, spec: ResultViewSpec) => typedError<ResultViewInfo, YadbeError>(__TAURI_INVOKE("set_result_view", { resultId, spec })),
+	/**
+	 *  Rows the result's view shows and rows the result holds; the view follows a result that
+	 *  is still streaming.
+	 */
+	getResultView: (resultId: number) => typedError<ResultViewInfo, YadbeError>(__TAURI_INVOKE("get_result_view", { resultId })),
 	/**  The tab's transaction state, connection and running or last execution. */
 	getQueryTab: (tabId: string) => typedError<QueryTabInfo, YadbeError>(__TAURI_INVOKE("get_query_tab", { tabId })),
 	/**
@@ -2580,6 +2591,22 @@ export type ResultSummary = {
 	truncated: boolean,
 };
 
+/**  The rows a view shows. */
+export type ResultViewInfo = {
+	/**  Rows shown. */
+	rowCount: number,
+	/**  Rows the result holds, shown or not. */
+	sourceRows: number,
+};
+
+/**  How the grid shows a result: the rows that pass every filter, ordered by the sort keys. */
+export type ResultViewSpec = {
+	sort: ViewSort[],
+	filters: ViewFilter[],
+	/**  Text conditions and sorts tell `a` from `A`. */
+	matchCase?: boolean,
+};
+
 /**  Rows `offset .. offset + rowCount` of a result, column by column. */
 export type ResultWindow = {
 	resultId: number,
@@ -3350,6 +3377,26 @@ export type ValueFileEncoding =
  *  still differ (SQLite columns are dynamically typed).
  */
 export type ValueKind = "bool" | "int" | "decimal" | "float" | "text" | "bytes" | "date" | "time" | "timestamp" | "timestampTz" | "interval" | "uuid" | "json" | "array" | "other";
+
+/**
+ *  A condition on one column, or on every column (`column` absent: some cell matches; for the
+ *  negative operators, no cell does).
+ */
+export type ViewFilter = {
+	column: number | null,
+	op: ViewFilterOp,
+	/**  As typed; ignored by `isNull` / `isNotNull`. */
+	value: string,
+};
+
+/**  What a condition asks of a cell. */
+export type ViewFilterOp = "contains" | "notContains" | "startsWith" | "endsWith" | "equals" | "notEquals" | "greater" | "greaterOrEqual" | "less" | "lessOrEqual" | "isNull" | "isNotNull";
+
+/**  One sort key: a column of the result (data order) and a direction. */
+export type ViewSort = {
+	column: number,
+	descending: boolean,
+};
 
 /**
  *  The cells of one column in a window. Each cell is its lossless text, `null` for SQL

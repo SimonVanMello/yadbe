@@ -203,4 +203,32 @@ describe('WindowCache', () => {
     cache.want(0, 10);
     expect(pending).toHaveLength(1);
   });
+
+  it('forgets every window on reset and drops the answers still in flight', async () => {
+    const { cache, pending, flush } = setup(100, { maxConcurrent: 1 });
+    cache.want(0, 10);
+    await flush();
+    expect(cache.get(5)).toBeDefined();
+    // A window is on its way when the rows behind the indices change.
+    cache.want(30, 40);
+    expect(pending.map((p) => p.offset)).toEqual([30]);
+    const stale = pending.splice(0);
+    const listener = vi.fn();
+    cache.subscribe(listener);
+    cache.reset(20);
+    expect(listener).toHaveBeenCalled();
+    expect(cache.rowCount).toBe(20);
+    expect(cache.get(5)).toBeUndefined();
+    stale.forEach((p) => {
+      p.resolve();
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(cache.get(35)).toBeUndefined();
+    // The grid asks again and gets the new rows.
+    cache.want(0, 10);
+    expect(pending.map((p) => p.offset)).toEqual([0]);
+    await flush();
+    expect(cache.get(5)).toBeDefined();
+  });
 });

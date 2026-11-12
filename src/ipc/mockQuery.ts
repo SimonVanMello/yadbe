@@ -10,6 +10,8 @@ import type {
   QueryMessage,
   QueryTabInfo,
   ResultStatus,
+  ResultViewInfo,
+  ResultViewSpec,
   ResultSummary,
   ResultWindow,
   SavedConnection,
@@ -27,6 +29,7 @@ import type { YadbeCommands } from './client';
 import type { EventEmitter } from './emitter';
 import type { MockHistoryRecord } from './mock/history';
 import { aggregateSelection } from './mock/resultAggregate';
+import { viewRows } from './mock/resultView';
 import { mockErrors } from './mockErrors';
 import { mockSplit, mockStatementAt } from './mockSplit';
 import {
@@ -68,6 +71,8 @@ type QueryCommandName =
   | 'fetchResultWindow'
   | 'fetchResultCell'
   | 'aggregateResultSelection'
+  | 'setResultView'
+  | 'getResultView'
   | 'getQueryTab'
   | 'setTransactionMode'
   | 'commitTransaction'
@@ -136,6 +141,8 @@ interface MockResult {
   status: ResultStatus;
   pausedBy: PauseReason | null;
   resume: ((mode: 'more' | 'all') => void) | null;
+  /** The sort and filter the grid shows (F-065), and the rows fetched when it was last built. */
+  view?: { spec: ResultViewSpec; rows: number[]; built: number } | null;
 }
 
 interface MockExecution {
@@ -655,6 +662,24 @@ export function createMockQuery(host: MockQueryHost) {
     return true;
   }
 
+  /** The stored rows the grid shows, in order, `null` without a view; built again as rows arrive. */
+  function shownRows(result: MockResult): number[] | null {
+    const view = result.view;
+    if (!view) return null;
+    if (view.built !== result.rowCount) {
+      view.rows = viewRows(view.spec, result.rowCount, result.columns.length, (row, column) => {
+        return result.columns[column]?.cell(row) ?? null;
+      });
+      view.built = result.rowCount;
+    }
+    return view.rows;
+  }
+
+  function viewInfo(result: MockResult): ResultViewInfo {
+    const shown = shownRows(result);
+    return { rowCount: shown ? shown.length : result.rowCount, sourceRows: result.rowCount };
+  }
+
   function newResult(exec: MockExecution, index: number, columns: MockColumn[], total: number) {
     const result: MockResult = {
       id: nextResult++,
@@ -1122,15 +1147,17 @@ export function createMockQuery(host: MockQueryHost) {
           ),
         );
       }
-      const start = Math.min(offset, result.rowCount);
-      const count = Math.max(0, Math.min(limit, result.rowCount - start));
+      const shown = shownRows(result);
+      const total = shown ? shown.length : result.rowCount;
+      const start = Math.min(offset, total);
+      const count = Math.max(0, Math.min(limit, total - start));
       const columns: WindowColumn[] = result.columns.map((column) => {
         const values: (string | null)[] = [];
         const kinds: ValueKind[] = [];
         const truncated: number[] = [];
         let mixed = false;
         for (let i = 0; i < count; i++) {
-          const cell = column.cell(start + i);
+          const cell = column.cell(shown ? (shown[start + i] ?? 0) : start + i);
           if (!cell) {
             values.push(null);
             kinds.push(column.meta.kind);
@@ -1154,7 +1181,8 @@ export function createMockQuery(host: MockQueryHost) {
       const result = results.get(resultId);
       if (!result) return fail(mockErrors.resultNotFound(resultId));
       const target = result.columns[column];
-      if (!target || row >= result.rowCount) {
+      const shown = shownRows(result);
+      if (!target || row >= (shown ? shown.length : result.rowCount)) {
         return fail(
           mockErrors.invalidArgument(
             'This cell is outside the result.',
@@ -1162,17 +1190,48 @@ export function createMockQuery(host: MockQueryHost) {
           ),
         );
       }
-      return ok(cellValue(target.cell(row)));
+      return ok(cellValue(target.cell(shown ? (shown[row] ?? 0) : row)));
     },
 
     aggregateResultSelection: (resultId, ranges) => {
       const result = results.get(resultId);
       if (!result) return fail(mockErrors.resultNotFound(resultId));
+      const shown = shownRows(result);
       return ok(
-        aggregateSelection(ranges, result.rowCount, result.columns.length, (row, column) => {
-          return result.columns[column]?.cell(row) ?? null;
-        }),
+        aggregateSelection(
+          ranges,
+          shown ? shown.length : result.rowCount,
+          result.columns.length,
+          (row, column) => result.columns[column]?.cell(shown ? (shown[row] ?? 0) : row) ?? null,
+        ),
       );
+    },
+
+    setResultView: (resultId, spec) => {
+      const result = results.get(resultId);
+      if (!result) return fail(mockErrors.resultNotFound(resultId));
+      const highest = Math.max(
+        -1,
+        ...spec.sort.map((key) => key.column),
+        ...spec.filters.map((f) => f.column ?? -1),
+      );
+      if (highest >= result.columns.length) {
+        return fail(
+          mockErrors.invalidArgument(
+            'A sort or filter names a column the result does not have.',
+            'Un tri ou un filtre nomme une colonne absente du résultat.',
+          ),
+        );
+      }
+      result.view =
+        spec.sort.length === 0 && spec.filters.length === 0 ? null : { spec, rows: [], built: -1 };
+      return ok(viewInfo(result));
+    },
+
+    getResultView: (resultId) => {
+      const result = results.get(resultId);
+      if (!result) return fail(mockErrors.resultNotFound(resultId));
+      return ok(viewInfo(result));
     },
 
     getQueryTab: (tabId) => ok(info(tabs.get(tabId) ?? tabOf(tabId))),

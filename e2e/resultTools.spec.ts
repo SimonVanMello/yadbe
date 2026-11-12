@@ -30,6 +30,12 @@ function cell(page: Page, row: number, col: number) {
     .locator(`[role=row][aria-rowindex="${String(row + 2)}"] [aria-colindex="${String(col + 1)}"]`);
 }
 
+/** Selects a whole column from one of its cells (a click on its header sorts instead). */
+async function selectColumn(page: Page, col: number) {
+  await cell(page, 0, col).click();
+  await page.keyboard.press('Control+Space');
+}
+
 /** Runs `select * from orders` in a new query tab and waits for the rows. */
 async function openOrders(page: Page) {
   await page.goto('/');
@@ -63,18 +69,18 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'aggregates');
 
       // A column of text: only the count; NULLs are not counted.
-      await page.getByRole('columnheader', { name: /^customer\b/ }).click();
+      await selectColumn(page, 1);
       await expect(figures).toContainText('Count 1,167');
       await expect(figures).not.toContainText('Sum');
 
       // A whole column of 1 284 decimals, summed in the backend.
-      await page.getByRole('columnheader', { name: /^total\b/ }).click();
+      await selectColumn(page, 3);
       await expect(figures).toContainText('Count 1,284');
       await expect(figures).toContainText('Sum ');
       await expect(figures).toContainText('Max 999');
 
       // A float in the selection makes the figures approximate.
-      await page.getByRole('columnheader', { name: /^ratio\b/ }).click();
+      await selectColumn(page, 5);
       await expect(figures).toContainText('Sum ≈ ');
     });
 
@@ -121,6 +127,64 @@ for (const { name, colorScheme } of THEMES) {
       );
       await page.getByRole('radio', { name: 'Row' }).click();
       await expect(panel).toBeVisible();
+    });
+
+    test('a click on a header sorts the loaded rows, a third click puts them back', async ({
+      page,
+    }) => {
+      await openOrders(page);
+      const quantity = page.getByRole('columnheader', { name: /^quantity\b/ });
+      await quantity.click();
+      await expect(quantity).toHaveAttribute('aria-sort', 'ascending');
+      // quantity is (row % 9) + 1: the ones first, in the order they arrived.
+      await expect(cell(page, 0, 4)).toHaveText('1');
+      await expect(cell(page, 0, 0)).toHaveText('9000000000');
+      await expect(cell(page, 1, 0)).toHaveText('9000000009');
+      await capture(page, name, 'sorted');
+      await quantity.click();
+      await expect(quantity).toHaveAttribute('aria-sort', 'descending');
+      await expect(cell(page, 0, 4)).toHaveText('9');
+      await expect(cell(page, 0, 0)).toHaveText('9000000008');
+      await quantity.click();
+      await expect(quantity).not.toHaveAttribute('aria-sort', /ascending|descending/);
+      await expect(cell(page, 0, 0)).toHaveText('9000000000');
+      await expect(page.getByText('1,284 rows').first()).toBeVisible();
+    });
+
+    test('the filter bar keeps the rows that match, and the status bar follows', async ({
+      page,
+    }) => {
+      await openOrders(page);
+      await page.keyboard.press('Control+Shift+f');
+      const bar = page.getByRole('search', { name: 'Filter the rows of the result' });
+      await expect(bar).toBeVisible();
+      // Every column contains "user12@": one row.
+      await bar.getByRole('textbox', { name: 'Value' }).fill('user12@');
+      await expect(page.getByText('1 of 1,284 rows')).toBeVisible();
+      await expect(cell(page, 0, 0)).toHaveText('9000000012');
+      await expect(page.getByRole('grid')).toHaveAttribute('aria-rowcount', '2');
+
+      // A condition on a column: quantity equals 9, 142 rows of 1 284.
+      await bar.getByRole('textbox', { name: 'Value' }).fill('');
+      await bar.getByRole('combobox', { name: 'Column' }).selectOption({ label: 'quantity' });
+      await bar.getByRole('combobox', { name: 'Condition' }).selectOption({ label: 'equals' });
+      await bar.getByRole('textbox', { name: 'Value' }).fill('9');
+      await expect(page.getByText('142 of 1,284 rows')).toBeVisible();
+      await expect(cell(page, 0, 0)).toHaveText('9000000008');
+      await capture(page, name, 'filter');
+
+      // The figures of the selection are over the rows shown.
+      await selectColumn(page, 4);
+      const figures = page.getByTestId('selection-aggregate');
+      await expect(figures).toContainText('Count 142');
+      await expect(figures).toContainText('Sum 1278');
+
+      // Sorting still works on the filtered rows, and Clear brings everything back.
+      await bar.getByRole('button', { name: 'Clear sort and filter' }).click();
+      await expect(page.getByText('1,284 rows').first()).toBeVisible();
+      await expect(cell(page, 0, 0)).toHaveText('9000000000');
+      await bar.getByRole('button', { name: 'Hide the filter' }).click();
+      await expect(bar).toBeHidden();
     });
   });
 }

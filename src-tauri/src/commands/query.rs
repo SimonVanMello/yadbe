@@ -12,6 +12,7 @@ use crate::session::query_model::{
     QueryParameter, QueryTabInfo, ResultWindow, ResumeMode, SelectionAggregate, TextRange,
     TransactionMode, TransactionState,
 };
+use crate::session::result_view::{ResultViewInfo, ResultViewSpec};
 use crate::state::AppState;
 
 /// The statements of `text`, split the way `engine` reads them (dollar quoting, `GO`
@@ -121,6 +122,32 @@ pub async fn aggregate_result_selection(
 ) -> Result<SelectionAggregate, YadbeError> {
     let queries = std::sync::Arc::clone(&state.queries);
     super::blocking(move || queries.aggregate(result_id, &ranges)).await
+}
+
+/// Sorts and filters the rows of a result as the grid shows them (F-065), in the backend and
+/// without running the statement again; an empty spec shows them as they came. Windows,
+/// cells, aggregates and selection exports then follow the view.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_result_view(
+    state: State<'_, AppState>,
+    result_id: u32,
+    spec: ResultViewSpec,
+) -> Result<ResultViewInfo, YadbeError> {
+    let queries = std::sync::Arc::clone(&state.queries);
+    super::blocking(move || queries.set_result_view(result_id, spec)).await
+}
+
+/// Rows the result's view shows and rows the result holds; the view follows a result that
+/// is still streaming.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_result_view(
+    state: State<'_, AppState>,
+    result_id: u32,
+) -> Result<ResultViewInfo, YadbeError> {
+    let queries = std::sync::Arc::clone(&state.queries);
+    super::blocking(move || queries.result_view(result_id)).await
 }
 
 /// The tab's transaction state, connection and running or last execution.
