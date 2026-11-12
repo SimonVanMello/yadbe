@@ -116,11 +116,11 @@ Analysis and decisions in `docs/analysis/NOSQL.md`: read it first (section 8 for
 | ID | Task | Depends on | Session |
 |---|---|---|---|
 | M4-0 ✅ | **Preliminary analysis** (`docs/analysis/NOSQL.md`) | M3 | master |
-| M4-1 🟦 | **Engine families**: `Engine::family()`, `Connection` split into `Link` + `SqlConnection`, session backend enum, capabilities replacing every `engine ===` of the front, connection form built from capabilities, query tab and explorer shells per family. No new engine, no behaviour change, existing suites green | — | opus · high |
-| M4-2 ⬜ | **MongoDB, connection and browsing**: driver, connection forms (URI, SRV, replica set), BSON values, explorer with sampled fields, collection tab (grid + documents view), the command gate (read-only allow-list, dangerous commands), cancel, compose services and conformance suite | M4-1 | opus · high |
+| M4-1 ✅ | **Engine families**: `Engine::family()`, `Connection` split into `Link` + `SqlConnection`, session backend enum, capabilities replacing every `engine ===` of the front, connection form built from capabilities, query tab and explorer shells per family. No new engine, no behaviour change, existing suites green | — | opus · high |
+| M4-2 🟦 | **MongoDB, connection and browsing**: driver, connection forms (URI, SRV, replica set), BSON values, explorer with sampled fields, collection tab (grid + documents view), the command gate (read-only allow-list, dangerous commands), cancel, compose services and conformance suite | M4-1 | opus · high |
 | M4-3 ⬜ | **mongosh runtime**: embedded JavaScript engine (spike QuickJS / boa on the three platforms first), `db` / collection / cursor API and BSON helpers on the driver, sandbox, cursor results into the `ResultStore`, messages pane, interrupt and limits, conformance suite from the mongosh documentation | M4-2 | opus · high |
 | M4-4 ⬜ | **MongoDB, edit**: pending changes, preview as commands, apply (transaction where the server has them, otherwise one by one with the reason shown), conflicts, journal and revert | M4-2 | opus · high |
-| M4-5 ⬜ | **Redis, read** (Valkey included): driver, explorer on `SCAN` with the namespace tree, key tab per type, console, read-only from `COMMAND INFO`, compose services and suite | M4-1 | opus · medium |
+| M4-5 🟦 | **Redis, read** (Valkey included): driver, explorer on `SCAN` with the namespace tree, key tab per type, console, read-only from `COMMAND INFO`, compose services and suite | M4-1 | opus · medium |
 | M4-6 ⬜ | **Redis, edit**: per-type edits, `WATCH` / `MULTI` apply, TTL, rename, delete, journal, dangerous commands | M4-5 | opus · medium |
 | M4-7 ⬜ | **Elasticsearch, read** (OpenSearch where the API is the same): HTTP client, authentication, explorer (indices, data streams, aliases, mappings), console syntax, hits grid + JSON (reusing the documents view of M4-2), ES\|QL / SQL results, index tab with `search_after`, read-only allow-list, cancel | M4-2 | opus · high |
 | M4-8 ⬜ | **Elasticsearch, edit**: one document at a time with `if_seq_no` / `if_primary_term`, the non-atomic reason shown, journal, dangerous requests | M4-7 | opus · medium |
@@ -128,6 +128,8 @@ Analysis and decisions in `docs/analysis/NOSQL.md`: read it first (section 8 for
 | M4-10 ⬜ | **Integration and validation**: real-app scenarios on the three engines, installer size, `docs/validation/M4.md` | all of M4 | opus · medium |
 
 Order: M4-1, then M4-2 ∥ M4-5, then M4-3 ∥ M4-4 ∥ M4-6 ∥ M4-7, then M4-8, M4-9, M4-10.
+
+M4-1 notes: `db/engine.rs` holds one profile per engine (the only match on engines), `EngineFamily`, and the capabilities (`family` + SQL-only flags `formatter`, `ddl`, `scriptAs`, `dataImport`, `efMigrations`, `dotnetConnectionString`). `Connection` is split into `Link` and `SqlConnection`; `Driver::connect` returns a `Backend` (only `Sql` until an engine adds its variant); SQL services answer `sqlOnly` to another family. Front seams: `app/tabs/QueryTabBody.tsx`, `features/toolbar/QueryTabControls.tsx`, `explorerRows` in `sidebar/sidebarRows.ts`, `connections/EngineFields.tsx`. `SavedConnection.family` is derived, not stored. Differences from the analysis: no engine variant added ahead of its driver, apply atomicity is a runtime fact (not a capability), one fields component per family instead of a declarative field list. A new engine touches: `db/engine.rs`, `Backend` in `db/driver.rs`, `db/drivers/`, `db/connstring.rs`, `ConnectionDefinition` (+ store migration), its own commands and mock module, the four front seams, the draft model of `connections/model.ts`, and the `Record<Engine, …>` tables (the SQL-only ones become keyed by SQL engines). The `sqlOnly` paths are compiled but unreachable until the first non-SQL engine.
 
 ## V2
 
