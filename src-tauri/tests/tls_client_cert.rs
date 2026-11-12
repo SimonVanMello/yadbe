@@ -91,6 +91,13 @@ async fn check_identity(h: &Harness, base: ConnectionDefinition, password: Optio
         .await
         .expect_err("the server requires a client certificate");
     assert_ne!(err.code, ErrorCode::TlsClientCertInvalid, "{err:?}");
+    // PostgreSQL says so; MySQL answers `REQUIRE X509` without a certificate with the same
+    // 1045 "Access denied" as a wrong password, so it can only read as one.
+    let expected = match base.engine {
+        Engine::Postgres => ErrorCode::TlsClientCertRequired,
+        _ => ErrorCode::AuthFailed,
+    };
+    assert_eq!(err.code, expected, "{err:?}");
 
     // EC key in SEC1 form, in PKCS#8, and the same key encrypted with its passphrase.
     for key in ["client.sec1.key", "client.pkcs8.key"] {

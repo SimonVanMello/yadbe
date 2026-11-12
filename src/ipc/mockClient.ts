@@ -106,7 +106,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<boolean> {
  * TLS is disabled), `fail-auth` or password `wrong` → authFailed, database `missing` →
  * unknownDatabase, a SQLite path containing `missing` → fileNotFound. Host `fail-lost`
  * connects, then drops 3 s later and reconnects. A TLS client certificate or key path containing
- * `missing` → tlsClientCertInvalid; a key path (or certificate, when it holds the key) containing
+ * `missing` → tlsClientCertInvalid, host `fail-cert` without one → tlsClientCertRequired; a key path (or certificate, when it holds the key) containing
  * `encrypted` needs its passphrase (`wrong` is refused).
  */
 function tlsIdentityFailure(
@@ -114,6 +114,9 @@ function tlsIdentityFailure(
   passphrase: string | null,
 ): YadbeError | null {
   const cert = def.tlsClientCertPath ?? null;
+  if (cert === null && def.host === 'fail-cert' && def.tlsMode !== 'disable') {
+    return mockErrors.tlsClientCertRequired();
+  }
   if (cert === null || def.tlsMode === 'disable') return null;
   const key = def.tlsClientKeyPath ?? cert;
   for (const path of [cert, key]) {

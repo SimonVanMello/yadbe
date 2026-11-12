@@ -158,6 +158,7 @@ describe('mock sessions', () => {
     expect(await test('fail-refused')).toBe('connectionRefused');
     expect(await test('fail-timeout')).toBe('connectionTimeout');
     expect(await test('fail-tls')).toBe('tlsFailed');
+    expect(await test('fail-cert')).toBe('tlsClientCertRequired');
     expect(await test('localhost')).toBeNull();
   });
 

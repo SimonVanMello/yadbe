@@ -1436,6 +1436,11 @@ export type ErrorCode =
 "tlsNotSupported" | 
 /**  The TLS client certificate or its key could not be read or do not match (F-009). */
 "tlsClientCertInvalid" | 
+/**
+ *  The server requires a TLS client certificate and the connection presented none
+ *  (F-009). `tlsClientCertInvalid` is for files that cannot be used.
+ */
+"tlsClientCertRequired" | 
 /**  The TLS client key is encrypted and no passphrase was given. */
 "tlsKeyPassphraseRequired" | 
 /**  The passphrase given for the TLS client key does not decrypt it. */

@@ -102,6 +102,14 @@ export const mockErrors = {
       'changeTlsMode',
       'invalid peer certificate: UnknownIssuer',
     ),
+  tlsClientCertRequired: () =>
+    error(
+      'tlsClientCertRequired',
+      "The server requires a TLS client certificate. Add one in the connection's TLS settings.",
+      'Le serveur exige un certificat client TLS. Ajoutez-en un dans les paramètres TLS de la connexion.',
+      'editConnection',
+      'connection requires a valid client certificate (28000)',
+    ),
   tlsClientCertInvalid: (detail: string) =>
     error(
       'tlsClientCertInvalid',

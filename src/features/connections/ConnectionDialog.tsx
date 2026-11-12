@@ -298,7 +298,11 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
               retry: runTest,
               editConnection: () => {
                 if (test.status === 'error' && focusHop(test.error, 'host')) return;
-                if (test.status === 'error' && test.error.code === 'tlsClientCertInvalid') {
+                if (
+                  test.status === 'error' &&
+                  (test.error.code === 'tlsClientCertInvalid' ||
+                    test.error.code === 'tlsClientCertRequired')
+                ) {
                   focusField('tls-cert');
                   return;
                 }

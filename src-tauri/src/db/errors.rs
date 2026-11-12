@@ -48,6 +48,9 @@ pub enum ErrorCode {
     TlsNotSupported,
     /// The TLS client certificate or its key could not be read or do not match (F-009).
     TlsClientCertInvalid,
+    /// The server requires a TLS client certificate and the connection presented none
+    /// (F-009). `tlsClientCertInvalid` is for files that cannot be used.
+    TlsClientCertRequired,
     /// The TLS client key is encrypted and no passphrase was given.
     TlsKeyPassphraseRequired,
     /// The passphrase given for the TLS client key does not decrypt it.
@@ -371,6 +374,15 @@ impl YadbeError {
             "Le certificat client TLS ou sa clé privée n'a pas pu être utilisé. Vérifiez les deux fichiers dans les paramètres TLS de la connexion.",
         )
         .with_detail(detail)
+        .with_action(ErrorAction::EditConnection)
+    }
+
+    pub fn tls_client_cert_required() -> Self {
+        Self::new(
+            ErrorCode::TlsClientCertRequired,
+            "The server requires a TLS client certificate. Add one in the connection's TLS settings.",
+            "Le serveur exige un certificat client TLS. Ajoutez-en un dans les paramètres TLS de la connexion.",
+        )
         .with_action(ErrorAction::EditConnection)
     }
 
@@ -801,6 +813,11 @@ pub fn from_connect_sqlstate(
     message: &str,
 ) -> Option<YadbeError> {
     let error = match sqlstate {
+        // PostgreSQL `cert` authentication (or `clientcert=verify-full`) and no certificate
+        // sent: the message is the only thing that tells it from a refused user.
+        "28000" if message.contains("requires a valid client certificate") => {
+            YadbeError::tls_client_cert_required()
+        }
         // invalid_password, invalid_authorization_specification (no pg_hba entry, unknown user)
         "28P01" | "28000" => YadbeError::auth_failed(user),
         // invalid_catalog_name
@@ -980,6 +997,7 @@ mod tests {
             YadbeError::connection_refused("localhost", 5432),
             YadbeError::connection_timeout("db", 15),
             YadbeError::tls_failed(),
+            YadbeError::tls_client_cert_required(),
             YadbeError::tls_not_supported(),
             YadbeError::auth_failed("app"),
             YadbeError::unknown_database("shop"),
@@ -1017,6 +1035,20 @@ mod tests {
 
     #[test]
     fn maps_standard_sqlstates() {
+        let cert = from_connect_sqlstate(
+            "28000",
+            "app",
+            "shop",
+            "connection requires a valid client certificate (28000)",
+        );
+        assert_eq!(
+            cert.as_ref().map(|e| e.code),
+            Some(ErrorCode::TlsClientCertRequired)
+        );
+        assert_eq!(
+            cert.and_then(|e| e.action),
+            Some(ErrorAction::EditConnection)
+        );
         let auth = from_connect_sqlstate("28P01", "app", "shop", "password authentication failed");
         assert_eq!(auth.map(|e| e.code), Some(ErrorCode::AuthFailed));
         let db = from_connect_sqlstate("3D000", "app", "shop", "database \"shop\" does not exist");
