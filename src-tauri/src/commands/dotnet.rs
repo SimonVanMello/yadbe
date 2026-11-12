@@ -6,11 +6,11 @@ use std::sync::Arc;
 use tauri::State;
 
 use super::blocking;
-use crate::db::dotnet::{self, ConnectionStringCopy, ConnectionStringFlavor};
+use crate::db::dotnet::{ConnectionStringCopy, ConnectionStringFlavor};
 use crate::db::ef::EfMigrations;
 use crate::db::errors::YadbeError;
 use crate::db::meta::ObjectRef;
-use crate::secrets::SecretKind;
+use crate::session::connection_string;
 use crate::state::AppState;
 
 /// The migrations recorded in a `__EFMigrationsHistory` table, oldest first, with the
@@ -50,22 +50,13 @@ pub async fn copy_connection_string(
     let store = Arc::clone(&state.store);
     let secrets = Arc::clone(&state.secrets);
     blocking(move || {
-        let definition = store.connection(&connection_id)?.definition;
-        let password = if include_password {
-            Some(
-                secrets
-                    .get(&connection_id, SecretKind::Password)?
-                    .ok_or_else(YadbeError::password_required)?,
-            )
-        } else {
-            None
-        };
-        Ok(dotnet::build(
-            definition.engine.dialect(),
-            &definition,
+        connection_string::copy_connection_string(
+            &store,
+            &secrets,
+            &connection_id,
             flavor,
-            password.as_ref(),
-        ))
+            include_password,
+        )
     })
     .await
 }

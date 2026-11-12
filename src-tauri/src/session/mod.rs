@@ -2,6 +2,7 @@
 //! metadata cache arrive with M1.
 
 mod connection;
+pub mod connection_string;
 pub mod history_hook;
 pub mod history_writer;
 pub mod journal;

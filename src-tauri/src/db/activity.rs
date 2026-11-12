@@ -9,9 +9,9 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::db::driver::BoxFuture;
+use crate::db::driver::{BoundStatement, BoxFuture};
 use crate::db::errors::YadbeError;
-use crate::db::value::Value;
+use crate::db::value::{QueryResult, Value};
 
 pub type ActivityFuture<'a, T> = BoxFuture<'a, Result<T, YadbeError>>;
 
@@ -90,6 +90,8 @@ pub enum ActivityNote {
     /// The user sees the other sessions but not their statements or states (PostgreSQL
     /// without `pg_read_all_stats`).
     StatementsHidden,
+    /// The server lists only the user's own sessions (MySQL without `PROCESS`).
+    OtherSessionsHidden,
     /// The engine cannot list locks here (MySQL without the data lock tables, MariaDB).
     LocksUnavailable,
 }
@@ -191,6 +193,64 @@ pub fn float_of(value: Option<&Value>) -> Option<f64> {
         .filter(|n| n.is_finite())
 }
 
+/// The columns every driver's session query returns, in this order, so one mapper reads them
+/// all: id, fingerprint, user, database, client, application, state text, state kind
+/// (`active`, `idle`, `idleInTransaction`, anything else), wait, statement, running seconds,
+/// transaction seconds, blocking ids (comma separated), is self, is system.
+pub fn session_from_row(row: &[Value]) -> Option<ActivitySession> {
+    let id = nonempty_of(row.first())?;
+    let (statement, statement_truncated) = cut_statement(text_of(row.get(9)));
+    Some(ActivitySession {
+        fingerprint: text_of(row.get(1)).unwrap_or_default(),
+        user: nonempty_of(row.get(2)),
+        database: nonempty_of(row.get(3)),
+        client: nonempty_of(row.get(4)),
+        application: nonempty_of(row.get(5)),
+        state_text: nonempty_of(row.get(6)),
+        state: match text_of(row.get(7)).as_deref() {
+            Some("active") => SessionState::Active,
+            Some("idle") => SessionState::Idle,
+            Some("idleInTransaction") => SessionState::IdleInTransaction,
+            _ => SessionState::Other,
+        },
+        wait: nonempty_of(row.get(8)),
+        statement,
+        statement_truncated,
+        running_secs: float_of(row.get(10)).map(|s| s.max(0.0)),
+        transaction_secs: float_of(row.get(11)).map(|s| s.max(0.0)),
+        blocked_by: ids_of(row.get(12))
+            .into_iter()
+            .filter(|blocker| *blocker != id)
+            .collect(),
+        is_self: bool_of(row.get(13)),
+        system: bool_of(row.get(14)),
+        id,
+    })
+}
+
+/// The columns every driver's lock query returns: session id, lock type, mode, granted,
+/// object.
+pub fn lock_from_row(row: &[Value]) -> Option<ActivityLock> {
+    Some(ActivityLock {
+        session_id: nonempty_of(row.first())?,
+        lock_type: text_of(row.get(1)).unwrap_or_default(),
+        mode: text_of(row.get(2)).unwrap_or_default(),
+        granted: bool_of(row.get(3)),
+        object: nonempty_of(row.get(4)),
+    })
+}
+
+/// Reads the rows of a lock query, capped at [`MAX_LOCKS`].
+pub fn locks_from_rows(rows: &[Vec<Value>]) -> (Vec<ActivityLock>, bool) {
+    let truncated = rows.len() > MAX_LOCKS;
+    let locks = rows
+        .iter()
+        .take(MAX_LOCKS)
+        .filter_map(|row| lock_from_row(row))
+        .collect();
+    (locks, truncated)
+}
+
 /// Ids joined by a comma (`12,34`), as the drivers' queries print them.
 pub fn ids_of(value: Option<&Value>) -> Vec<String> {
     text_of(value)
@@ -203,6 +263,32 @@ pub fn ids_of(value: Option<&Value>) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Checks what a kill's lookup found (fingerprint, is self) against the request: the session
+/// must still exist, be the one the list showed, and not be the monitor's own.
+pub fn check_target(found: &QueryResult, request: &KillRequest) -> Result<(), YadbeError> {
+    let Some(row) = found.rows.first() else {
+        return Err(YadbeError::session_changed());
+    };
+    if text_of(row.first()).as_deref() != Some(request.fingerprint.as_str()) {
+        return Err(YadbeError::session_changed());
+    }
+    if bool_of(row.get(1)) {
+        return Err(own_session());
+    }
+    Ok(())
+}
+
+/// A statement with one integer parameter, for a kill. `display` is the statement with the id
+/// written in, for the statement log.
+pub fn bound_id(sql: &str, id: u64, display: String, returns_rows: bool) -> BoundStatement {
+    BoundStatement {
+        sql: sql.to_owned(),
+        params: vec![Value::Int(id.to_string())],
+        display,
+        returns_rows,
+    }
 }
 
 /// A session id the user interface sent back, parsed so that only digits can reach a

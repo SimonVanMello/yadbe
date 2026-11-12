@@ -574,6 +574,8 @@ export type ActivityNote =
  *  without `pg_read_all_stats`).
  */
 "statementsHidden" | 
+/**  The server lists only the user's own sessions (MySQL without `PROCESS`). */
+"otherSessionsHidden" | 
 /**  The engine cannot list locks here (MySQL without the data lock tables, MariaDB). */
 "locksUnavailable";
 
