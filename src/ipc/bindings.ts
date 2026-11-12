@@ -1825,6 +1825,16 @@ export type DocTopology =
 "unknown";
 
 /**
+ *  What the rows of the source are, when they are whole documents rather than grid rows: the
+ *  `documentsId` result of a MongoDB collection, a script or a search (the `document` column).
+ */
+export type DocumentLines = 
+/**  MongoDB documents, written as Extended JSON. */
+{ kind: "mongo"; extendedJson: ExtendedJsonMode } | 
+/**  Search hits: the raw `_source`, with the hit's `_id` and `_index` first when asked. */
+{ kind: "search"; includeId: boolean; includeIndex: boolean };
+
+/**
  *  Documents shown two ways: `result`, the grid (top-level fields as columns, the union over
  *  the documents, a field a document lacks as `missing`), read with `fetch_result_window`;
  *  and the whole documents, in canonical Extended JSON, read with `mongo_fetch_documents`
@@ -2261,7 +2271,7 @@ export type ExportFinished = {
 	error: YadbeError | null,
 };
 
-export type ExportFormat = { format: "csv"; options: CsvOptions } | { format: "json"; options: JsonOptions } | { format: "sql"; options: SqlOptions } | { format: "markdown"; options: MarkdownOptions } | { format: "excel"; options: ExcelOptions };
+export type ExportFormat = { format: "csv"; options: CsvOptions } | { format: "json"; options: JsonOptions } | { format: "jsonLines"; options: JsonLinesOptions } | { format: "sql"; options: SqlOptions } | { format: "markdown"; options: MarkdownOptions } | { format: "excel"; options: ExcelOptions };
 
 /**  Rows and bytes written so far. Throttled (at most about ten per second). */
 export type ExportProgress = {
@@ -2300,6 +2310,13 @@ export type ExportStarted = {
 };
 
 export type ExportStatus = "done" | "failed" | "cancelled";
+
+/**  How MongoDB documents are written in a JSON Lines file. */
+export type ExtendedJsonMode = 
+/**  Every BSON type with its wrapper (`{"$numberInt": "1"}`): reads back as the same types. */
+"canonical" | 
+/**  Int32, Int64, Double and dates as plain JSON values: what other tools read easily. */
+"relaxed";
 
 /**  A field to set or unset in a document. */
 export type FieldEdit = {
@@ -2947,6 +2964,17 @@ export type JsonLayout =
 "array" | 
 /**  One object per line, no enclosing array. */
 "ndjson";
+
+/**
+ *  JSON Lines (`.jsonl`): one JSON value per line, streamed. Grid rows are written as objects
+ *  (like the JSON format's NDJSON layout); with `documents` set the source holds whole documents,
+ *  each written as it is, not flattened into columns.
+ */
+export type JsonLinesOptions = {
+	numbers: JsonNumbers,
+	binary: BinaryEncoding,
+	documents: DocumentLines | null,
+};
 
 export type JsonNumbers = 
 /**

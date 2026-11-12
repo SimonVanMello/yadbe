@@ -20,6 +20,7 @@ import {
   CSV_QUOTES,
   DEFAULT_FORMAT_CONTEXT,
   EXPORT_FORMATS,
+  EXTENDED_JSON_MODES,
   JSON_LAYOUTS,
   JSON_NUMBERS,
   LINE_ENDINGS,
@@ -31,6 +32,7 @@ import {
   type FormatContext,
 } from './exportOptions';
 import { useExportStore, type ExportDialogRequest } from './exportStore';
+import { documentsOf } from './exportDocuments';
 import { runExport } from './runExport';
 import styles from './ExportDialog.module.css';
 
@@ -52,9 +54,11 @@ function keyOf(source: ExportDialogRequest['source']): string {
 function sourceSpec(
   source: ExportDialogRequest['source'],
   scope: ReturnType<typeof exportScope>,
+  /** The result that holds the whole documents, when they are what is written. */
+  documentsId: number | null,
 ): ExportSourceSpec {
   return source.kind === 'result'
-    ? { kind: 'result', resultId: source.resultId, scope }
+    ? { kind: 'result', resultId: documentsId ?? source.resultId, scope }
     : { kind: 'table', tabId: source.tabId, filter: source.filter, sort: source.sort };
 }
 
@@ -77,15 +81,23 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
   const [sheetName, setSheetName] = useState(
     request.label.replace(/[[\]:*?/\\]/g, '_').slice(0, 31) || DEFAULT_FORMAT_CONTEXT.sheetName,
   );
+  // A MongoDB or search result also has its whole documents: JSON Lines writes those.
+  const documents = source.kind === 'result' ? documentsOf(source.resultId) : null;
   const context: FormatContext = {
     engine: connection?.engine ?? DEFAULT_FORMAT_CONTEXT.engine,
     schema,
     table,
     sheetName,
+    documents: documents ? { resultId: documents.documentsId, kind: documents.kind } : null,
   };
   const format = toExportFormat(prefs, context);
   const missingTable = prefs.format === 'sql' && table.trim() === '';
-  const scope = exportScope(range, selectionOnly);
+  const wholeDocuments = documents !== null && prefs.format === 'jsonLines';
+  // The documents result has one column: a selection keeps its rows only.
+  const scope = exportScope(
+    wholeDocuments && range ? { ...range, columns: [0] } : range,
+    selectionOnly,
+  );
 
   const number = new Intl.NumberFormat(locale);
   const live =
@@ -100,6 +112,9 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
   const setJson = (patch: Partial<typeof prefs.json>) => {
     setPrefs((current) => ({ ...current, json: { ...current.json, ...patch } }));
   };
+  const setJsonLines = (patch: Partial<typeof prefs.jsonLines>) => {
+    setPrefs((current) => ({ ...current, jsonLines: { ...current.jsonLines, ...patch } }));
+  };
   const setSql = (patch: Partial<typeof prefs.sql>) => {
     setPrefs((current) => ({ ...current, sql: { ...current.sql, ...patch } }));
   };
@@ -111,7 +126,10 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
   };
 
   // The preview follows the options as they are typed, a moment later.
-  const previewKey = JSON.stringify([format, sourceSpec(source, scope)]);
+  const previewKey = JSON.stringify([
+    format,
+    sourceSpec(source, scope, wholeDocuments ? documents.documentsId : null),
+  ]);
   const settled = useDebouncedValue(previewKey, 150);
   const [preview, setPreview] = useState<Preview | null>(null);
   useEffect(() => {
@@ -132,7 +150,11 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
 
   const start = () => {
     onClose();
-    void runExport({ source: sourceSpec(source, scope), name: request.label, format });
+    void runExport({
+      source: sourceSpec(source, scope, wholeDocuments ? documents.documentsId : null),
+      name: request.label,
+      format,
+    });
   };
 
   const labelled = <T extends string>(prefix: string, values: readonly T[]) =>
@@ -320,6 +342,74 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
                 }}
               />
             </Field>
+          </div>
+        )}
+        {documents && prefs.format !== 'jsonLines' && prefs.format !== 'sql' && (
+          <p className={styles.note} role="note">
+            {t('export.gridView')}
+          </p>
+        )}
+        {prefs.format === 'jsonLines' && (
+          <div className={styles.options}>
+            {wholeDocuments && (
+              <p className={styles.note} role="note">
+                {t('export.jsonLines.documents')}
+              </p>
+            )}
+            {documents?.kind === 'mongo' && (
+              <Field label={t('export.jsonLines.extended')} htmlFor={`${id}-extended`}>
+                <Select
+                  id={`${id}-extended`}
+                  value={prefs.jsonLines.extendedJson}
+                  options={labelled('export.jsonLines.extended', EXTENDED_JSON_MODES)}
+                  onChange={(extendedJson) => {
+                    setJsonLines({ extendedJson });
+                  }}
+                />
+              </Field>
+            )}
+            {documents?.kind === 'search' && (
+              <div className={styles.switches}>
+                <Switch
+                  checked={prefs.jsonLines.includeId}
+                  onCheckedChange={(includeId) => {
+                    setJsonLines({ includeId });
+                  }}
+                  label={t('export.jsonLines.includeId')}
+                />
+                <Switch
+                  checked={prefs.jsonLines.includeIndex}
+                  onCheckedChange={(includeIndex) => {
+                    setJsonLines({ includeIndex });
+                  }}
+                  label={t('export.jsonLines.includeIndex')}
+                />
+              </div>
+            )}
+            {!documents && (
+              <>
+                <Field label={t('export.json.numbers')} htmlFor={`${id}-lnumbers`}>
+                  <Select
+                    id={`${id}-lnumbers`}
+                    value={prefs.jsonLines.numbers}
+                    options={labelled('export.json.numbers', JSON_NUMBERS)}
+                    onChange={(numbers) => {
+                      setJsonLines({ numbers });
+                    }}
+                  />
+                </Field>
+                <Field label={t('export.binary')} htmlFor={`${id}-lbinary`}>
+                  <Select
+                    id={`${id}-lbinary`}
+                    value={prefs.jsonLines.binary}
+                    options={labelled('export.binary', BINARY_ENCODINGS)}
+                    onChange={(binary) => {
+                      setJsonLines({ binary });
+                    }}
+                  />
+                </Field>
+              </>
+            )}
           </div>
         )}
         {prefs.format === 'sql' && (

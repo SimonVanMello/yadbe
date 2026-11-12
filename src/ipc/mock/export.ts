@@ -25,6 +25,7 @@ const fail = <T>(error: YadbeError): Result<T> => Promise.resolve({ status: 'err
 const EXTENSIONS = {
   csv: ['csv', 'tsv', 'txt'],
   json: ['json', 'ndjson', 'jsonl', 'txt'],
+  jsonLines: ['jsonl', 'ndjson', 'txt'],
   sql: ['sql', 'txt'],
   markdown: ['md', 'markdown', 'txt'],
   excel: ['xlsx'],

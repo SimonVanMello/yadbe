@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_EXPORT_PREFS,
+  DEFAULT_FORMAT_CONTEXT,
   clampRows,
   defaultFileName,
   dialogExtensions,
@@ -147,5 +148,35 @@ describe('scope and sizes', () => {
     expect(formatBytes(0, 'en')).toBe('0 B');
     expect(formatBytes(1536, 'en')).toBe('1.5 KB');
     expect(formatBytes(250 * 1024 * 1024, 'en')).toBe('250 MB');
+  });
+
+  it('writes JSON Lines as whole documents only when the source has them', () => {
+    const prefs = parseExportPrefs({
+      format: 'jsonLines',
+      jsonLines: { extendedJson: 'relaxed', includeId: true, includeIndex: 'yes' },
+    });
+    expect(prefs.jsonLines).toMatchObject({
+      extendedJson: 'relaxed',
+      includeId: true,
+      includeIndex: false,
+    });
+    const rows = toExportFormat(prefs);
+    expect(rows).toMatchObject({ format: 'jsonLines', options: { documents: null } });
+    const mongo = toExportFormat(prefs, {
+      ...DEFAULT_FORMAT_CONTEXT,
+      documents: { resultId: 9, kind: 'mongo' },
+    });
+    expect(mongo).toMatchObject({
+      options: { documents: { kind: 'mongo', extendedJson: 'relaxed' } },
+    });
+    const search = toExportFormat(prefs, {
+      ...DEFAULT_FORMAT_CONTEXT,
+      documents: { resultId: 9, kind: 'search' },
+    });
+    expect(search).toMatchObject({
+      options: { documents: { kind: 'search', includeId: true, includeIndex: false } },
+    });
+    expect(defaultFileName('orders', rows)).toBe('orders.jsonl');
+    expect(dialogExtensions(rows)).toEqual(['jsonl', 'ndjson', 'txt']);
   });
 });

@@ -7,6 +7,7 @@
 mod csv;
 pub mod encode;
 mod json;
+mod lines;
 pub mod manager;
 mod markdown;
 pub mod model;
@@ -21,5 +22,7 @@ pub use manager::ExportManager;
 mod format_tests;
 #[cfg(test)]
 mod io_tests;
+#[cfg(test)]
+mod lines_tests;
 #[cfg(test)]
 mod tests;

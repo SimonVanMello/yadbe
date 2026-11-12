@@ -264,6 +264,14 @@ export function mockEncoder(format: ExportFormat): RowEncoder {
       return csvEncoder(format.options);
     case 'json':
       return jsonEncoder(format.options);
+    case 'jsonLines':
+      // The mock has no whole documents: rows are written as objects, as the backend does for
+      // a source without documents.
+      return jsonEncoder({
+        layout: 'ndjson',
+        numbers: format.options.numbers,
+        binary: format.options.binary,
+      });
     case 'sql':
       return sqlEncoder(format.options);
     case 'markdown':

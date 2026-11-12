@@ -63,7 +63,9 @@ pub fn secrets_in_text(text: &str) -> String {
         if is_quote(c) {
             let end = string_end(text, at);
             let literal = &text[at..end];
-            let inner = literal.get(1..literal.len().saturating_sub(1)).unwrap_or("");
+            let inner = literal
+                .get(1..literal.len().saturating_sub(1))
+                .unwrap_or("");
             out.push_str(literal);
             at = end;
             if is_secret_key(inner) {

@@ -127,6 +127,55 @@ impl Default for JsonOptions {
     }
 }
 
+/// How MongoDB documents are written in a JSON Lines file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtendedJsonMode {
+    /// Every BSON type with its wrapper (`{"$numberInt": "1"}`): reads back as the same types.
+    Canonical,
+    /// Int32, Int64, Double and dates as plain JSON values: what other tools read easily.
+    Relaxed,
+}
+
+/// What the rows of the source are, when they are whole documents rather than grid rows: the
+/// `documentsId` result of a MongoDB collection, a script or a search (the `document` column).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum DocumentLines {
+    /// MongoDB documents, written as Extended JSON.
+    Mongo { extended_json: ExtendedJsonMode },
+    /// Search hits: the raw `_source`, with the hit's `_id` and `_index` first when asked.
+    Search {
+        include_id: bool,
+        include_index: bool,
+    },
+}
+
+/// JSON Lines (`.jsonl`): one JSON value per line, streamed. Grid rows are written as objects
+/// (like the JSON format's NDJSON layout); with `documents` set the source holds whole documents,
+/// each written as it is, not flattened into columns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonLinesOptions {
+    pub numbers: JsonNumbers,
+    pub binary: BinaryEncoding,
+    pub documents: Option<DocumentLines>,
+}
+
+impl Default for JsonLinesOptions {
+    fn default() -> Self {
+        Self {
+            numbers: JsonNumbers::Auto,
+            binary: BinaryEncoding::Hex,
+            documents: None,
+        }
+    }
+}
+
 /// `INSERT` statements (F-066): identifiers quoted and values written as literals the way the
 /// chosen engine reads them, so the script runs on that engine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -193,6 +242,7 @@ impl Default for ExcelOptions {
 pub enum ExportFormat {
     Csv { options: CsvOptions },
     Json { options: JsonOptions },
+    JsonLines { options: JsonLinesOptions },
     Sql { options: SqlOptions },
     Markdown { options: MarkdownOptions },
     Excel { options: ExcelOptions },

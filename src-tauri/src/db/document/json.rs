@@ -89,6 +89,37 @@ impl Json {
         serde_json::to_string(self).unwrap_or_default()
     }
 
+    /// Canonical Extended JSON as relaxed Extended JSON (the MongoDB specification's second
+    /// form): Int32, Int64 and finite Double as plain numbers, dates from 1970 to 9999 as ISO 8601
+    /// strings. Everything else (ObjectId, Decimal128, dates out of that range, `NaN`…) keeps its
+    /// canonical form, so the text still reads back as the same BSON values, apart from the
+    /// number types the relaxed form folds together.
+    pub fn to_relaxed(&self) -> Json {
+        match self {
+            Json::Object(entries) => {
+                if let [(key, value)] = entries.as_slice()
+                    && let Some(plain) = relaxed_wrapper(key, value)
+                {
+                    return plain;
+                }
+                // A date outside the relaxed range keeps its milliseconds, wrapped.
+                if let [(key, _)] = entries.as_slice()
+                    && key == "$date"
+                {
+                    return self.clone();
+                }
+                Json::Object(
+                    entries
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.to_relaxed()))
+                        .collect(),
+                )
+            }
+            Json::Array(items) => Json::Array(items.iter().map(Json::to_relaxed).collect()),
+            other => other.clone(),
+        }
+    }
+
     /// From a `serde_json` value (whose objects are already sorted by key).
     pub fn from_value(value: serde_json::Value) -> Json {
         match value {
@@ -225,6 +256,61 @@ impl<'de> Deserialize<'de> for Json {
     }
 }
 
+/// The relaxed form of a one-key canonical wrapper, `None` when it stays as it is.
+fn relaxed_wrapper(key: &str, value: &Json) -> Option<Json> {
+    match (key, value) {
+        ("$numberInt" | "$numberLong", Json::String(n)) => n.parse::<i64>().ok().map(Json::int),
+        ("$numberDouble", Json::String(n)) => n
+            .parse::<f64>()
+            .ok()
+            .and_then(serde_json::Number::from_f64)
+            .map(Json::Number),
+        ("$date", Json::Object(inner)) => match inner.as_slice() {
+            [(k, Json::String(ms))] if k == "$numberLong" => {
+                let iso = iso_date(ms.parse::<i64>().ok()?)?;
+                Some(Json::object([("$date", Json::string(iso))]))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// `1970-01-01T00:00:00.000Z` for milliseconds since the epoch, `None` outside years 1970 to 9999
+/// (where the relaxed form keeps the milliseconds).
+fn iso_date(millis: i64) -> Option<String> {
+    if millis < 0 {
+        return None;
+    }
+    let days = millis.div_euclid(86_400_000);
+    let in_day = millis.rem_euclid(86_400_000);
+    // Civil date from a day count (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let shifted_month = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+    let month = if shifted_month < 10 {
+        shifted_month + 3
+    } else {
+        shifted_month - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    if year > 9999 {
+        return None;
+    }
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        in_day / 3_600_000,
+        in_day / 60_000 % 60,
+        in_day / 1000 % 60,
+        in_day % 1000
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,6 +345,18 @@ mod tests {
         assert_eq!(
             json.to_text(),
             "[9223372036854775807,-9223372036854775808,18446744073709551615]"
+        );
+    }
+
+    #[test]
+    fn relaxed_form_folds_numbers_and_dates() {
+        let canonical = Json::parse(
+            r#"{"_id":{"$oid":"5f2b8c9e1c9d440000a1b2c3"},"n":{"$numberInt":"-3"},"big":{"$numberLong":"9007199254740993"},"d":{"$numberDouble":"1.5"},"nan":{"$numberDouble":"NaN"},"when":{"$date":{"$numberLong":"1700000000123"}},"old":{"$date":{"$numberLong":"-1"}},"tags":[{"$numberInt":"1"}]}"#,
+        )
+        .expect("parses");
+        assert_eq!(
+            canonical.to_relaxed().to_text(),
+            r#"{"_id":{"$oid":"5f2b8c9e1c9d440000a1b2c3"},"n":-3,"big":9007199254740993,"d":1.5,"nan":{"$numberDouble":"NaN"},"when":{"$date":"2023-11-14T22:13:20.123Z"},"old":{"$date":{"$numberLong":"-1"}},"tags":[1]}"#
         );
     }
 }

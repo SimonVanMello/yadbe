@@ -1,9 +1,10 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { showError } from '../../app/errors/presentError';
 import { ipc, unwrap, type DocumentResult } from '../../ipc';
 import type { DocNode } from '../documents/docTree';
 import { DocumentsView } from '../documents/DocumentsView';
+import { registerExportDocuments } from '../export/exportDocuments';
 import { ResultGrid } from '../grid/ResultGrid';
 import { HitMenuItems } from './HitMenuItems';
 import type { HitsView } from './indexStore';
@@ -40,6 +41,12 @@ function hitField(node: DocNode | undefined, name: string): string | null {
  */
 export function HitsResults({ result, view, label, editTabId }: HitsResultsProps) {
   const { documentsId } = result;
+  const gridId = result.result.resultId;
+  // JSON Lines exports the whole hits, not the grid rows the export dialog opens on.
+  useEffect(
+    () => registerExportDocuments(gridId, { documentsId, kind: 'search' }),
+    [gridId, documentsId],
+  );
   // The hits read, by number: a row's menu names the hit's index before reading it again.
   const read = useRef(new Map<number, DocNode>());
   const load = useCallback(

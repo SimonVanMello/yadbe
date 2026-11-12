@@ -811,28 +811,7 @@ impl DocumentService {
 
 /// A key document in relaxed Extended JSON (`{"a":1}` rather than `{"a":{"$numberInt":"1"}}`).
 fn relaxed(json: &Json) -> String {
-    fn walk(json: &Json) -> Json {
-        match json {
-            Json::Object(entries) => {
-                if let [(key, Json::String(n))] = entries.as_slice()
-                    && matches!(key.as_str(), "$numberInt" | "$numberLong")
-                    && let Ok(i) = n.parse::<i64>()
-                {
-                    return Json::int(i);
-                }
-                if let [(key, Json::String(n))] = entries.as_slice()
-                    && key == "$numberDouble"
-                    && let Some(f) = n.parse::<f64>().ok().and_then(serde_json::Number::from_f64)
-                {
-                    return Json::Number(f);
-                }
-                Json::Object(entries.iter().map(|(k, v)| (k.clone(), walk(v))).collect())
-            }
-            Json::Array(items) => Json::Array(items.iter().map(walk).collect()),
-            other => other.clone(),
-        }
-    }
-    walk(json).to_text()
+    json.to_relaxed().to_text()
 }
 
 #[cfg(test)]

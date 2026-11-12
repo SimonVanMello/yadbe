@@ -25,6 +25,7 @@ use crate::session::table_data::TableDataService;
 /// Extensions each format may be saved as.
 const CSV_EXTENSIONS: &[&str] = &["csv", "tsv", "txt"];
 const JSON_EXTENSIONS: &[&str] = &["json", "ndjson", "jsonl", "txt"];
+const JSON_LINES_EXTENSIONS: &[&str] = &["jsonl", "ndjson", "txt"];
 const SQL_EXTENSIONS: &[&str] = &["sql", "txt"];
 const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown", "txt"];
 const EXCEL_EXTENSIONS: &[&str] = &["xlsx"];
@@ -50,6 +51,7 @@ pub fn checked_path<'a>(path: &'a str, format: &ExportFormat) -> Result<&'a Path
     let allowed = match format {
         ExportFormat::Csv { .. } => CSV_EXTENSIONS,
         ExportFormat::Json { .. } => JSON_EXTENSIONS,
+        ExportFormat::JsonLines { .. } => JSON_LINES_EXTENSIONS,
         ExportFormat::Sql { .. } => SQL_EXTENSIONS,
         ExportFormat::Markdown { .. } => MARKDOWN_EXTENSIONS,
         ExportFormat::Excel { .. } => EXCEL_EXTENSIONS,

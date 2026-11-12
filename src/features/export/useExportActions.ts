@@ -2,6 +2,11 @@ import { useEffect } from 'react';
 
 import { registerActions } from '../../app/actions';
 import { translate, useI18nStore } from '../../i18n/i18n';
+import { selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
+import { getCollectionTab } from '../document/collectionStore';
+import { openResultExport } from '../grid/ResultFooter';
+import { getIndexTab } from '../search/indexStore';
+import { findConnection } from '../query/connectionLookup';
 import { effectiveSelection } from '../query/executionModel';
 import { getTabExecution, useExecutionStore } from '../query/executionStore';
 import { activeQueryTabId } from '../query/queryActions';
@@ -16,7 +21,20 @@ import { useExportStore } from './exportStore';
 export function openExportForActiveTab(): void {
   const tableTabId = activeTableTabId();
   if (tableTabId !== null) {
-    openTableExport(tableTabId);
+    // A collection or an index tab shows documents: its page is a result, not a table.
+    const tab = selectActiveTab(useTabsStore.getState());
+    const family = findConnection(tab.connectionId)?.family;
+    const documents =
+      family === 'document'
+        ? getCollectionTab(tableTabId).page?.documents
+        : family === 'search'
+          ? getIndexTab(tableTabId).page?.documents
+          : undefined;
+    if (documents && tab.table) {
+      openResultExport(documents.result.resultId, documents.result, tab.table.name);
+    } else if (family === 'sql' || family === undefined) {
+      openTableExport(tableTabId);
+    }
     return;
   }
   const tabId = activeQueryTabId();

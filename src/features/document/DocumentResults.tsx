@@ -1,6 +1,7 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 
 import { ipc, unwrap, type DocumentResult } from '../../ipc';
+import { registerExportDocuments } from '../export/exportDocuments';
 import { DocumentsView } from '../documents/DocumentsView';
 import { ResultGrid } from '../grid/ResultGrid';
 import type { DocumentViewMode } from './collectionStore';
@@ -19,6 +20,12 @@ interface DocumentResultsProps {
  */
 export function DocumentResults({ result, view, label }: DocumentResultsProps) {
   const { documentsId } = result;
+  const gridId = result.result.resultId;
+  // JSON Lines exports these documents, not the grid rows the export dialog opens on.
+  useEffect(
+    () => registerExportDocuments(gridId, { documentsId, kind: 'mongo' }),
+    [gridId, documentsId],
+  );
   const load = useCallback(
     async (offset: number, limit: number) =>
       (await unwrap(ipc.commands.mongoFetchDocuments(documentsId, offset, limit))).map(

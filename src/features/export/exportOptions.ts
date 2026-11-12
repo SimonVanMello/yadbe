@@ -6,7 +6,9 @@ import type {
   Engine,
   ExportFormat,
   ExportScope,
+  ExtendedJsonMode,
   JsonLayout,
+  JsonLinesOptions,
   JsonNumbers,
   JsonOptions,
   LineEnding,
@@ -23,6 +25,17 @@ export interface SqlPrefs {
   lineEnding: LineEnding;
 }
 
+/** JSON Lines: grid rows as objects, or whole documents when the source has them. */
+export interface JsonLinesPrefs {
+  numbers: JsonNumbers;
+  binary: BinaryEncoding;
+  /** MongoDB documents: every BSON type wrapped, or plain numbers and dates. */
+  extendedJson: ExtendedJsonMode;
+  /** Search hits: the hit's `_id` and `_index` written before its `_source`. */
+  includeId: boolean;
+  includeIndex: boolean;
+}
+
 export interface ExcelPrefs {
   binary: BinaryEncoding;
 }
@@ -32,6 +45,7 @@ export interface ExportPrefs {
   format: ExportFormatKind;
   csv: CsvOptions;
   json: JsonOptions;
+  jsonLines: JsonLinesPrefs;
   sql: SqlPrefs;
   markdown: MarkdownOptions;
   excel: ExcelPrefs;
@@ -45,6 +59,11 @@ export interface FormatContext {
   schema: string;
   table: string;
   sheetName: string;
+  /**
+   * The source also has its whole documents (a MongoDB or search result): the result id that
+   * holds them, and what they are. JSON Lines writes these instead of the grid rows.
+   */
+  documents?: { resultId: number; kind: 'mongo' | 'search' } | null;
 }
 
 export const DEFAULT_FORMAT_CONTEXT: FormatContext = {
@@ -72,6 +91,14 @@ export const DEFAULT_JSON_OPTIONS: JsonOptions = {
   binary: 'hex',
 };
 
+export const DEFAULT_JSON_LINES_PREFS: JsonLinesPrefs = {
+  numbers: 'auto',
+  binary: 'hex',
+  extendedJson: 'canonical',
+  includeId: false,
+  includeIndex: false,
+};
+
 export const DEFAULT_SQL_PREFS: SqlPrefs = { engine: null, rowsPerStatement: 50, lineEnding: 'lf' };
 
 export const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = {
@@ -87,6 +114,7 @@ export const DEFAULT_EXPORT_PREFS: ExportPrefs = {
   format: 'csv',
   csv: DEFAULT_CSV_OPTIONS,
   json: DEFAULT_JSON_OPTIONS,
+  jsonLines: DEFAULT_JSON_LINES_PREFS,
   sql: DEFAULT_SQL_PREFS,
   markdown: DEFAULT_MARKDOWN_OPTIONS,
   excel: DEFAULT_EXCEL_PREFS,
@@ -95,6 +123,7 @@ export const DEFAULT_EXPORT_PREFS: ExportPrefs = {
 export const EXPORT_FORMATS: readonly ExportFormatKind[] = [
   'csv',
   'json',
+  'jsonLines',
   'sql',
   'markdown',
   'excel',
@@ -108,6 +137,7 @@ export const LINE_ENDINGS: readonly LineEnding[] = ['lf', 'crlf'];
 export const BINARY_ENCODINGS: readonly BinaryEncoding[] = ['hex', 'base64'];
 export const JSON_LAYOUTS: readonly JsonLayout[] = ['array', 'ndjson'];
 export const JSON_NUMBERS: readonly JsonNumbers[] = ['auto', 'strings'];
+export const EXTENDED_JSON_MODES: readonly ExtendedJsonMode[] = ['canonical', 'relaxed'];
 
 function pick<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return allowed.find((candidate) => candidate === value) ?? fallback;
@@ -126,6 +156,7 @@ export function parseExportPrefs(value: unknown): ExportPrefs {
   const saved = record(value);
   const csv = record(saved.csv);
   const json = record(saved.json);
+  const jsonLines = record(saved.jsonLines);
   const sql = record(saved.sql);
   const markdown = record(saved.markdown);
   const excel = record(saved.excel);
@@ -145,6 +176,17 @@ export function parseExportPrefs(value: unknown): ExportPrefs {
       layout: pick(json.layout, JSON_LAYOUTS, DEFAULT_JSON_OPTIONS.layout),
       numbers: pick(json.numbers, JSON_NUMBERS, DEFAULT_JSON_OPTIONS.numbers),
       binary: pick(json.binary, BINARY_ENCODINGS, DEFAULT_JSON_OPTIONS.binary),
+    },
+    jsonLines: {
+      numbers: pick(jsonLines.numbers, JSON_NUMBERS, DEFAULT_JSON_LINES_PREFS.numbers),
+      binary: pick(jsonLines.binary, BINARY_ENCODINGS, DEFAULT_JSON_LINES_PREFS.binary),
+      extendedJson: pick(
+        jsonLines.extendedJson,
+        EXTENDED_JSON_MODES,
+        DEFAULT_JSON_LINES_PREFS.extendedJson,
+      ),
+      includeId: flag(jsonLines.includeId, DEFAULT_JSON_LINES_PREFS.includeId),
+      includeIndex: flag(jsonLines.includeIndex, DEFAULT_JSON_LINES_PREFS.includeIndex),
     },
     sql: {
       engine: SQL_ENGINES.find((engine) => engine === sql.engine) ?? null,
@@ -180,6 +222,21 @@ export function toExportFormat(
       return { format: 'csv', options: prefs.csv };
     case 'json':
       return { format: 'json', options: prefs.json };
+    case 'jsonLines': {
+      const { numbers, binary, extendedJson, includeId, includeIndex } = prefs.jsonLines;
+      const kind = context.documents?.kind;
+      const options: JsonLinesOptions = {
+        numbers,
+        binary,
+        documents:
+          kind === 'mongo'
+            ? { kind: 'mongo', extendedJson }
+            : kind === 'search'
+              ? { kind: 'search', includeId, includeIndex }
+              : null,
+      };
+      return { format: 'jsonLines', options };
+    }
     case 'sql':
       return {
         format: 'sql',
@@ -206,6 +263,8 @@ export function defaultExtension(format: ExportFormat): string {
   switch (format.format) {
     case 'json':
       return format.options.layout === 'ndjson' ? 'ndjson' : 'json';
+    case 'jsonLines':
+      return 'jsonl';
     case 'csv':
       return format.options.delimiter === 'tab' ? 'tsv' : 'csv';
     case 'sql':
@@ -224,6 +283,8 @@ export function dialogExtensions(format: ExportFormat): string[] {
       return ['csv', 'tsv', 'txt'];
     case 'json':
       return ['json', 'ndjson', 'jsonl', 'txt'];
+    case 'jsonLines':
+      return ['jsonl', 'ndjson', 'txt'];
     case 'sql':
       return ['sql', 'txt'];
     case 'markdown':

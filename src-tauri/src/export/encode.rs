@@ -26,6 +26,9 @@ pub fn encoder(format: &ExportFormat) -> Result<Box<dyn RowEncoder>, YadbeError>
     Ok(match format {
         ExportFormat::Csv { options } => Box::new(super::csv::CsvEncoder::new(options.clone())),
         ExportFormat::Json { options } => Box::new(super::json::JsonEncoder::new(options.clone())),
+        ExportFormat::JsonLines { options } => {
+            Box::new(super::lines::JsonLinesEncoder::new(options.clone()))
+        }
         ExportFormat::Sql { options } => Box::new(super::sql::SqlEncoder::new(options.clone())?),
         ExportFormat::Markdown { options } => {
             Box::new(super::markdown::MarkdownEncoder::new(options.clone()))
