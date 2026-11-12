@@ -8,6 +8,7 @@ use super::blocking;
 use crate::db::config::ConnectionDefinition;
 use crate::db::dialect::EngineInfo;
 use crate::db::errors::YadbeError;
+use crate::session::ConnectionUpdate;
 use crate::state::AppState;
 use crate::store::{ConnectionGroup, SavedConnection};
 
@@ -41,18 +42,31 @@ pub async fn create_connection(
     blocking(move || store.create_connection(&definition)).await
 }
 
-/// Replaces a connection's definition. An open session keeps the settings it was opened
-/// with (reconnections included) until it is closed and opened again.
+/// Replaces a connection's definition. An open session takes read-only and the statement
+/// timeout at once; it keeps its other settings until it connects again (`reconnectNeeded`).
 #[tauri::command]
 #[specta::specta]
 pub async fn update_connection(
     state: State<'_, AppState>,
     connection_id: String,
     definition: ConnectionDefinition,
-) -> Result<SavedConnection, YadbeError> {
+) -> Result<ConnectionUpdate, YadbeError> {
     let definition = definition.normalized()?;
     let store = Arc::clone(&state.store);
-    blocking(move || store.update_connection(&connection_id, &definition)).await
+    let id = connection_id.clone();
+    let (before, connection) = blocking(move || {
+        let before = store.connection(&id)?.definition;
+        Ok((before, store.update_connection(&id, &definition)?))
+    })
+    .await?;
+    let reconnect_needed = state
+        .connections
+        .apply_saved(&connection_id, &before, &connection.definition)
+        .await;
+    Ok(ConnectionUpdate {
+        connection,
+        reconnect_needed,
+    })
 }
 
 /// Copies a connection under a new name (secrets are not copied).

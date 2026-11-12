@@ -188,6 +188,21 @@ pub trait Connection: Send + Sync {
         max_rows: usize,
     ) -> BoxFuture<'a, Result<QueryResult, YadbeError>>;
 
+    /// Whether the engine's own read-only guard is on for the next transactions of this
+    /// connection (PostgreSQL `default_transaction_read_only`, the MySQL session access mode,
+    /// SQLite `query_only`); `None` for an engine yadbe has no such guard on (SQL Server).
+    fn read_only_mode(&self) -> Option<bool> {
+        None
+    }
+
+    /// Turns that guard on or off for the next transactions, when read-only changes under an
+    /// open session (F-008). Recorded. Call it outside a transaction only: on PostgreSQL a
+    /// `SET` made inside one is undone by its rollback.
+    fn set_read_only(&self, on: bool) -> BoxFuture<'_, Result<(), YadbeError>> {
+        let _ = on;
+        Box::pin(async { Ok(()) })
+    }
+
     /// Watches the link to the server; it flips once, when the link is gone.
     fn link(&self) -> LinkWatch;
 

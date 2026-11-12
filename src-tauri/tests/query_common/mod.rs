@@ -354,4 +354,68 @@ impl Bench {
     pub fn logged(&self) -> Vec<String> {
         self.log.entries().into_iter().map(|e| e.sql).collect()
     }
+
+    /// Saves the connection with read-only on or off, as the connection dialog does, and
+    /// applies the change to the open session. Returns whether a reconnection is needed.
+    pub async fn save_read_only(&self, on: bool) -> bool {
+        let saved = self.store.connection(&self.connection_id).expect("saved");
+        let mut after = saved.definition.clone();
+        after.read_only = on;
+        let updated = self
+            .store
+            .update_connection(&self.connection_id, &after)
+            .expect("update");
+        self.manager
+            .apply_saved(&self.connection_id, &saved.definition, &updated.definition)
+            .await
+    }
+
+    /// F-008 under an open session: in the same query tab, `insert` is refused right after
+    /// read-only is turned on and accepted again after it is turned off; `count` reads the
+    /// number of rows, which only the accepted inserts change.
+    pub async fn check_read_only_switch(&self, insert: &str, count: &str) {
+        let start = self
+            .manager
+            .session(&self.connection_id)
+            .expect("session")
+            .read_only();
+        let rows = |run: &Run| -> i64 {
+            assert_eq!(run.status, ExecutionStatus::Succeeded, "{run:?}");
+            self.column(&run.results[0], 0)[0]
+                .as_deref()
+                .and_then(|v| v.parse().ok())
+                .expect("a count")
+        };
+        let mut expected = rows(&self.run("tab", count).await);
+        for read_only in [start, !start, start, !start] {
+            if self
+                .manager
+                .session(&self.connection_id)
+                .expect("session")
+                .read_only()
+                != read_only
+            {
+                assert!(
+                    !self.save_read_only(read_only).await,
+                    "no reconnection needed"
+                );
+            }
+            let run = self.run("tab", insert).await;
+            if read_only {
+                assert_eq!(
+                    run.error_code(),
+                    Some(yadbe_lib::db::errors::ErrorCode::ReadOnlyViolation),
+                    "read-only {read_only}: {run:?}"
+                );
+            } else {
+                assert_eq!(
+                    run.status,
+                    ExecutionStatus::Succeeded,
+                    "read-only off: {run:?}"
+                );
+                expected += 1;
+            }
+            assert_eq!(rows(&self.run("tab", count).await), expected);
+        }
+    }
 }

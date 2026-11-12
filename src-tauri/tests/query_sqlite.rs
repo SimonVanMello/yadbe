@@ -517,3 +517,17 @@ async fn closing_the_session_closes_the_tab_connections() {
         Some(ErrorCode::NotConnected)
     );
 }
+
+#[tokio::test]
+async fn read_only_switched_under_an_open_session() {
+    for start in [false, true] {
+        let (_dir, _path, b) = sqlite(start).await;
+        b.check_read_only_switch("INSERT INTO items (name) VALUES ('m316')", COUNT_ITEMS)
+            .await;
+        assert!(
+            b.logged()
+                .iter()
+                .any(|sql| sql == "PRAGMA query_only = OFF")
+        );
+    }
+}

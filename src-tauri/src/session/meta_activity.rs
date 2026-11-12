@@ -40,7 +40,7 @@ impl MetaService {
     ) -> Result<KillOutcome, YadbeError> {
         let session = Self::session(manager, connection_id)?;
         Self::check_activity(&session)?;
-        if session.target().read_only {
+        if session.read_only() {
             return Err(YadbeError::read_only_violation(match request.mode {
                 KillMode::CancelQuery => "cancelling a session's query",
                 KillMode::TerminateSession => "ending a session",

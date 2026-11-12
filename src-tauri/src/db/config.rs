@@ -357,6 +357,24 @@ impl ConnectionDefinition {
         Ok(self)
     }
 
+    /// Whether `other` changes a setting an open session only picks up when it connects again
+    /// (server, credentials, TLS, SSH, options, keep-alive…). Read-only and the statement
+    /// timeout apply to an open session at once; the organization fields do not touch it.
+    pub fn needs_reconnect(&self, other: &Self) -> bool {
+        let session_part = |d: &Self| Self {
+            name: String::new(),
+            group_id: None,
+            environment: Environment::default(),
+            favorite: false,
+            read_only: false,
+            remember_password: false,
+            history_enabled: false,
+            statement_timeout_secs: None,
+            ..d.clone()
+        };
+        session_part(self) != session_part(other)
+    }
+
     /// The parameters a driver needs, without the organization fields.
     pub fn target(&self) -> ConnectTarget {
         self.target_with_timeout(DEFAULT_CONNECT_TIMEOUT_SECS)
@@ -535,6 +553,36 @@ mod tests {
         assert!(custom.clone().normalized().is_ok());
         custom.environment.color = Some("blue".into());
         assert!(custom.normalized().is_err());
+    }
+
+    #[test]
+    fn only_session_settings_need_a_reconnection() {
+        let base = sample_definition(Engine::Postgres);
+        let live = ConnectionDefinition {
+            name: "Other".into(),
+            favorite: true,
+            read_only: true,
+            statement_timeout_secs: Some(5),
+            history_enabled: false,
+            ..base.clone()
+        };
+        assert!(!base.needs_reconnect(&live));
+        for changed in [
+            ConnectionDefinition {
+                host: "elsewhere".into(),
+                ..base.clone()
+            },
+            ConnectionDefinition {
+                keep_alive_secs: Some(0),
+                ..base.clone()
+            },
+            ConnectionDefinition {
+                tls_mode: TlsMode::Require,
+                ..base.clone()
+            },
+        ] {
+            assert!(base.needs_reconnect(&changed), "{changed:?}");
+        }
     }
 
     #[test]

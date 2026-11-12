@@ -6,6 +6,7 @@ mod execute;
 mod introspect;
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -26,9 +27,9 @@ const VERSION_SQL: &str = "SELECT sqlite_version()";
 /// Reads the database header: fails on a file that is not a database.
 const CHECK_SQL: &str = "PRAGMA schema_version";
 const PING_SQL: &str = "SELECT 1";
-/// Second lock of a read-only connection, after the read-only open: also covers the
-/// temporary database.
+/// The engine's lock of a read-only connection: also covers the temporary database.
 const QUERY_ONLY_SQL: &str = "PRAGMA query_only = ON";
+const QUERY_ONLY_OFF_SQL: &str = "PRAGMA query_only = OFF";
 /// SQLite leaves foreign keys unenforced unless each connection asks: an editor must keep the
 /// constraints the schema declares, as the other engines do.
 const FOREIGN_KEYS_SQL: &str = "PRAGMA foreign_keys = ON";
@@ -75,12 +76,11 @@ impl Driver for SqliteDriver {
                 if !path.is_file() {
                     return Err(YadbeError::file_not_found(&path.display().to_string()));
                 }
-                // Never create a file: a typo must not leave an empty database behind.
-                let mut flags = OpenFlags::default() - OpenFlags::SQLITE_OPEN_CREATE;
-                if read_only {
-                    flags = (flags - OpenFlags::SQLITE_OPEN_READ_WRITE)
-                        | OpenFlags::SQLITE_OPEN_READ_ONLY;
-                }
+                // Never create a file: a typo must not leave an empty database behind. Opened
+                // read-write even for a read-only connection, so that read-only can be lifted
+                // under an open session (F-008): `query_only` and the per-statement check of
+                // `execute` keep it read-only meanwhile.
+                let flags = OpenFlags::default() - OpenFlags::SQLITE_OPEN_CREATE;
                 let conn = rusqlite::Connection::open_with_flags(&path, flags)
                     .map_err(|e| classify(&e, &path))?;
                 conn.busy_timeout(BUSY_TIMEOUT)
@@ -129,7 +129,7 @@ impl Driver for SqliteDriver {
                     path,
                     server_version: format!("SQLite {version}"),
                     recorder,
-                    read_only,
+                    read_only: Arc::new(AtomicBool::new(read_only)),
                 })
             })
             .await?;
@@ -144,7 +144,8 @@ struct SqliteConnection {
     path: std::path::PathBuf,
     server_version: String,
     recorder: Arc<dyn StatementRecorder>,
-    read_only: bool,
+    /// `query_only` as yadbe last set it; statements that would write are refused meanwhile.
+    read_only: Arc<AtomicBool>,
 }
 
 /// The column family from its declared type, following SQLite's affinity rules.
@@ -254,6 +255,38 @@ impl Connection for SqliteConnection {
                 recorded_sync(&*recorder, &sql, rows_of, || {
                     run(&conn, &sql, max_rows, &path)
                 })
+            })
+            .await
+        })
+    }
+
+    fn read_only_mode(&self) -> Option<bool> {
+        Some(self.read_only.load(Ordering::SeqCst))
+    }
+
+    fn set_read_only(&self, on: bool) -> BoxFuture<'_, Result<(), YadbeError>> {
+        let conn = Arc::clone(&self.conn);
+        let recorder = Arc::clone(&self.recorder);
+        let path = self.path.clone();
+        let flag = Arc::clone(&self.read_only);
+        Box::pin(async move {
+            blocking(move || {
+                let conn = conn
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let sql = if on {
+                    QUERY_ONLY_SQL
+                } else {
+                    QUERY_ONLY_OFF_SQL
+                };
+                recorded_sync(
+                    &*recorder,
+                    sql,
+                    |_| None,
+                    || conn.execute_batch(sql).map_err(|e| classify(&e, &path)),
+                )?;
+                flag.store(on, Ordering::SeqCst);
+                Ok(())
             })
             .await
         })

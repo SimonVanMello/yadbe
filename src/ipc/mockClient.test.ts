@@ -61,7 +61,8 @@ describe('mock connections', () => {
     const updated = await unwrap(
       commands.updateConnection(created.id, { ...created.definition, database: 'shop' }),
     );
-    expect(updated.definition.database).toBe('shop');
+    expect(updated.connection.definition.database).toBe('shop');
+    expect(updated.reconnectNeeded).toBe(false);
     const copy = await unwrap(commands.duplicateConnection(created.id, 'new (copy)'));
     expect(copy.id).not.toBe(created.id);
     await unwrap(commands.deleteConnection(created.id));
@@ -102,6 +103,32 @@ describe('mock sessions', () => {
     await unwrap(commands.disconnect('conn-local-pg'));
     expect(states.at(-1)).toBe('closed');
     expect(await unwrap(commands.listSessions())).toHaveLength(0);
+  });
+
+  it('says when a save needs a reconnection to reach the open session', async () => {
+    await unwrap(commands.connect('conn-local-pg', null));
+    const [current] = (await unwrap(commands.listConnections())).filter(
+      (c) => c.id === 'conn-local-pg',
+    );
+    if (!current) throw new Error('no seed');
+    const readOnly = { ...current.definition, readOnly: true, statementTimeoutSecs: 5 };
+    const live = await unwrap(commands.updateConnection(current.id, readOnly));
+    expect(live.reconnectNeeded).toBe(false);
+    const moved = await unwrap(
+      commands.updateConnection(current.id, { ...readOnly, keepAliveSecs: 17 }),
+    );
+    expect(moved.reconnectNeeded).toBe(true);
+    // Still outdated after a save that changes nothing more, until it connects again.
+    const renamed = await unwrap(
+      commands.updateConnection(current.id, { ...readOnly, keepAliveSecs: 17, name: 'other' }),
+    );
+    expect(renamed.reconnectNeeded).toBe(true);
+    await unwrap(commands.disconnect(current.id));
+    await unwrap(commands.connect(current.id, null));
+    const fresh = await unwrap(
+      commands.updateConnection(current.id, { ...readOnly, keepAliveSecs: 17, name: 'again' }),
+    );
+    expect(fresh.reconnectNeeded).toBe(false);
   });
 
   it('simulates the catalog failures', async () => {

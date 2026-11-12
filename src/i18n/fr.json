@@ -307,6 +307,8 @@
   "connection.duplicated": "{name} créée",
   "connection.duplicateFailed": "Impossible de dupliquer {name}",
   "connection.saved": "{name} enregistrée",
+  "connection.savedReconnect": "La connexion ouverte garde ses anciens réglages jusqu'à sa reconnexion. La lecture seule et le délai des instructions s'appliquent déjà.",
+  "connection.reconnect": "Se reconnecter",
   "connection.saveFailed": "Impossible d’enregistrer la connexion",
   "connection.loadFailed": "Impossible de charger la connexion",
   "connection.loading": "Chargement de la connexion…",

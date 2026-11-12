@@ -31,7 +31,7 @@ pub mod tunnel;
 
 pub use connection::{ConnectionSession, SessionConfig};
 pub use manager::ConnectionManager;
-pub use model::{ConnectionState, SessionInfo, TestConnectionResult};
+pub use model::{ConnectionState, ConnectionUpdate, SessionInfo, TestConnectionResult};
 pub use query_runner::{QueryRunner, RunnerConfig};
 
 #[cfg(test)]

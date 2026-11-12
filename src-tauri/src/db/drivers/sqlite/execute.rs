@@ -196,7 +196,9 @@ pub(super) async fn execute(
 ) -> Result<ExecSummary, ExecError> {
     let conn: Arc<Mutex<rusqlite::Connection>> = Arc::clone(&connection.conn);
     let path = connection.path.clone();
-    let read_only = connection.read_only;
+    let read_only = connection
+        .read_only
+        .load(std::sync::atomic::Ordering::SeqCst);
     let result = blocking(move || {
         let conn = conn
             .lock()

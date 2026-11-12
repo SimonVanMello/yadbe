@@ -25,6 +25,12 @@ import {
 } from './sshModel';
 
 /**
+ * A saved connection; `reconnectNeeded`: it is open and keeps settings other than the saved ones
+ * until it connects again (read-only and the statement timeout apply at once).
+ */
+export type SavedConnectionOutcome = SavedConnection & { reconnectNeeded: boolean };
+
+/**
  * What the connections UI asks of the backend. Every function rejects with a `YadbeIpcError`
  * (typed error with a suggested action) when the command fails.
  */
@@ -50,13 +56,15 @@ export const connectionsApi = {
     info: EngineInfo,
     storedSecret: SecretLocation | null,
     storedSshSecrets: SshSecretLocations = {},
-  ): Promise<SavedConnection> {
+  ): Promise<SavedConnectionOutcome> {
     const definition = toDefinition(draft, info);
-    const saved = await unwrap(
+    const { connection: saved, reconnectNeeded } =
       draft.id === null
-        ? ipc.commands.createConnection(definition)
-        : ipc.commands.updateConnection(draft.id, definition),
-    );
+        ? {
+            connection: await unwrap(ipc.commands.createConnection(definition)),
+            reconnectNeeded: false,
+          }
+        : await unwrap(ipc.commands.updateConnection(draft.id, definition));
     const secret = secretOf(draft);
     if (secret) {
       try {
@@ -107,12 +115,14 @@ export const connectionsApi = {
         await unwrap(ipc.commands.deleteConnectionSecret(saved.id, kind));
       }
     }
-    return saved;
+    return { ...saved, reconnectNeeded };
   },
 
   /** Replaces a definition as is (favorite, group…): nothing about the secrets changes. */
   update: (connection: Pick<SavedConnection, 'id' | 'definition'>): Promise<SavedConnection> =>
-    unwrap(ipc.commands.updateConnection(connection.id, connection.definition)),
+    unwrap(ipc.commands.updateConnection(connection.id, connection.definition)).then(
+      (update) => update.connection,
+    ),
 
   remove: (id: string): Promise<null> => unwrap(ipc.commands.deleteConnection(id)),
 

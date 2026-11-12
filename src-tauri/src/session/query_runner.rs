@@ -785,7 +785,7 @@ impl QueryRunner {
             started_at: SystemTime::now(),
             started: Instant::now(),
             limits,
-            statement_timeout: target.statement_timeout,
+            statement_timeout: session.statement_timeout(),
             state: Mutex::new(ExecState {
                 status: if reusable {
                     ExecutionStatus::Running
@@ -884,28 +884,11 @@ impl QueryRunner {
         session: &Arc<ConnectionSession>,
     ) -> ExecutionStatus {
         let dialect = session.target().engine.dialect();
-        if session.target().read_only {
-            let syntax = dialect.syntax();
-            for (index, statement) in exec.statements.iter().enumerate() {
-                let sql = &exec.text[statement.range()];
-                if let Some(keyword) = read_only_refusal(sql, &syntax) {
-                    let error = YadbeError::read_only_violation(&keyword);
-                    self.record(
-                        exec,
-                        index,
-                        SystemTime::now(),
-                        Duration::ZERO,
-                        None,
-                        Err(error.clone()),
-                    );
-                    exec.message(
-                        Some(index),
-                        MessageBody::Error(StatementError {
-                            error,
-                            server: None,
-                            position: Some(exec.position(statement, ErrorLocation::Byte(0))),
-                        }),
-                    );
+        // The whole script is checked before it starts, then each statement again: read-only
+        // can be turned on while it runs (F-008).
+        if session.read_only() {
+            for index in 0..exec.statements.len() {
+                if self.refuse_write(exec, index, dialect) {
                     return ExecutionStatus::Failed;
                 }
             }
@@ -960,7 +943,23 @@ impl QueryRunner {
                 state.status = ExecutionStatus::Running;
                 state.current_statement = Some(to_u32(index));
             });
+            if session.read_only() && self.refuse_write(exec, index, dialect) {
+                return ExecutionStatus::Failed;
+            }
             let transaction = tab.transaction();
+            if transaction.status == TransactionStatus::Idle
+                && let Err(error) = session.align(&*conn).await
+            {
+                exec.message(
+                    Some(index),
+                    MessageBody::Error(StatementError {
+                        error,
+                        server: None,
+                        position: None,
+                    }),
+                );
+                return ExecutionStatus::Failed;
+            }
             if transaction.mode == TransactionMode::Manual
                 && transaction.status == TransactionStatus::Idle
             {
@@ -1002,6 +1001,34 @@ impl QueryRunner {
         } else {
             ExecutionStatus::Succeeded
         }
+    }
+
+    /// Refuses statement `index` when it writes (the session is read-only): recorded in the
+    /// history and reported on the statement. Returns whether it was refused.
+    fn refuse_write(&self, exec: &Execution, index: usize, dialect: &dyn Dialect) -> bool {
+        let statement = &exec.statements[index];
+        let sql = &exec.text[statement.range()];
+        let Some(keyword) = read_only_refusal(sql, &dialect.syntax()) else {
+            return false;
+        };
+        let error = YadbeError::read_only_violation(&keyword);
+        self.record(
+            exec,
+            index,
+            SystemTime::now(),
+            Duration::ZERO,
+            None,
+            Err(error.clone()),
+        );
+        exec.message(
+            Some(index),
+            MessageBody::Error(StatementError {
+                error,
+                server: None,
+                position: Some(exec.position(statement, ErrorLocation::Byte(0))),
+            }),
+        );
+        true
     }
 
     /// The tab's connection for this execution, opened (or reopened) when needed.
@@ -1557,7 +1584,7 @@ impl QueryRunner {
         let statement = *statement;
         let sql = &text[statement.range()];
         if request.analyze
-            && target.read_only
+            && session.read_only()
             && let Some(keyword) = read_only_refusal(sql, &syntax)
         {
             return Err(YadbeError::read_only_violation(&keyword));
@@ -1604,6 +1631,9 @@ impl QueryRunner {
                 return Err(YadbeError::cancelled());
             }
             let transaction = tab.transaction();
+            if transaction.status == TransactionStatus::Idle {
+                session.align(&*conn).await?;
+            }
             if request.analyze
                 && transaction.mode == TransactionMode::Manual
                 && transaction.status == TransactionStatus::Idle

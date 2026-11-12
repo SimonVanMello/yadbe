@@ -516,6 +516,34 @@ impl ConnectionManager {
             .ok_or_else(YadbeError::not_connected)
     }
 
+    /// Applies a saved change of a connection's definition to its open session, if any:
+    /// read-only (F-008) and the statement timeout (F-014) at once. Returns whether the
+    /// session still runs with settings that only a new connection picks up.
+    pub async fn apply_saved(
+        &self,
+        connection_id: &str,
+        before: &ConnectionDefinition,
+        after: &ConnectionDefinition,
+    ) -> bool {
+        let Some(session) = self.session_entry(connection_id) else {
+            return false;
+        };
+        if session.is_closed() {
+            return false;
+        }
+        session.set_statement_timeout(
+            after
+                .statement_timeout_secs
+                .map(|secs| std::time::Duration::from_secs(u64::from(secs))),
+        );
+        // The flag applies whatever happens here: the engine's guard of the main connection
+        // is aligned again before its next write.
+        if let Err(err) = session.set_read_only(after.read_only).await {
+            tracing::warn!(connection = connection_id, error = %err, "could not switch the engine's read-only mode");
+        }
+        session.mark_outdated(before.needs_reconnect(after))
+    }
+
     /// Closes a connection; also aborts a connection attempt or a reconnection.
     pub async fn disconnect(&self, connection_id: &str) {
         let session = lock(&self.sessions).remove(connection_id);

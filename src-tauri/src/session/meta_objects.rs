@@ -305,7 +305,7 @@ impl MetaService {
         request: &ObjectActionRequest,
     ) -> Result<ObjectActionOutcome, YadbeError> {
         let session = Self::session(manager, connection_id)?;
-        if session.target().read_only {
+        if session.read_only() {
             return Err(YadbeError::read_only_violation(match request.action {
                 ObjectAction::Drop => "DROP",
                 ObjectAction::Truncate => "TRUNCATE",
@@ -317,6 +317,7 @@ impl MetaService {
         let conn = self
             .connection_for(&session, &cache, Some(&request.object.database))
             .await?;
+        session.align(&*conn).await?;
         let ran = self
             .run(request_id, &conn, async { conn.query(&sql, 0).await })
             .await;

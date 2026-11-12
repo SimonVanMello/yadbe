@@ -667,3 +667,28 @@ async fn a_killed_session_ends_the_link() {
     assert_eq!(error.code, ErrorCode::ConnectionLost, "{error:?}");
     assert!(victim.link().is_lost());
 }
+
+#[tokio::test]
+async fn read_only_switched_under_an_open_session() {
+    let test = "read_only_switched_under_an_open_session";
+    let Some(writer) = mssql(test, false).await else {
+        return;
+    };
+    let setup = writer
+        .run(
+            "setup",
+            "IF OBJECT_ID('dbo.m316_ro') IS NOT NULL DROP TABLE dbo.m316_ro;
+CREATE TABLE dbo.m316_ro (a int)",
+        )
+        .await;
+    assert_eq!(setup.status, ExecutionStatus::Succeeded, "{setup:?}");
+    let insert = "INSERT INTO dbo.m316_ro VALUES (1)";
+    let count = "SELECT COUNT(*) FROM dbo.m316_ro";
+    writer.check_read_only_switch(insert, count).await;
+    let Some(reader) = mssql(test, true).await else {
+        return;
+    };
+    reader.check_read_only_switch(insert, count).await;
+    writer.save_read_only(false).await;
+    writer.run("setup", "DROP TABLE dbo.m316_ro").await;
+}

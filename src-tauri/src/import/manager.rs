@@ -137,7 +137,7 @@ impl ImportManager {
         Ok(Resolved {
             dialect,
             details,
-            read_only: target.read_only,
+            read_only: session.read_only(),
             database,
         })
     }

@@ -312,7 +312,11 @@ function createMockBackend() {
     events.emit('statementLogged', { entry });
   }
 
+  /** Open sessions whose saved settings changed in a way only a new connection picks up. */
+  const outdated = new Set<string>();
+
   function setSession(info: SessionInfo): SessionInfo {
+    if (info.state === 'connecting' || info.state === 'closed') outdated.delete(info.connectionId);
     if (info.state === 'closed') {
       sessions.delete(info.connectionId);
       meta.forget(info.connectionId);
@@ -694,7 +698,11 @@ function createMockBackend() {
         updatedAt: now(),
       };
       connections = connections.map((c) => (c.id === connectionId ? updated : c));
-      return ok(clone(updated));
+      // Like the backend: read-only and the statement timeout apply to an open session at once.
+      if (sessions.has(connectionId) && needsReconnect(current.definition, def)) {
+        outdated.add(connectionId);
+      }
+      return ok({ connection: clone(updated), reconnectNeeded: outdated.has(connectionId) });
     },
 
     duplicateConnection: (connectionId, name) => {
@@ -1143,3 +1151,20 @@ export const mockClient: YadbeClient = {
   commands: mockBackend.commands,
   events: mockBackend.events,
 };
+
+/** Whether `after` changes a setting an open session only picks up when it connects again. */
+function needsReconnect(before: ConnectionDefinition, after: ConnectionDefinition): boolean {
+  const sessionPart = (d: ConnectionDefinition) =>
+    JSON.stringify({
+      ...d,
+      name: '',
+      groupId: null,
+      environment: null,
+      favorite: false,
+      readOnly: false,
+      rememberPassword: false,
+      historyEnabled: false,
+      statementTimeoutSecs: null,
+    });
+  return sessionPart(before) !== sessionPart(after);
+}

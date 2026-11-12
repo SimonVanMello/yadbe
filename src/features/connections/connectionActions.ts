@@ -188,6 +188,16 @@ export async function disconnectFrom(connection: ConnectionSummary): Promise<voi
   }
 }
 
+/**
+ * Closes the open connection and opens it again, so that it runs with its saved settings
+ * (offered after a save that changes what only a new connection picks up). An open transaction
+ * ends with the old connection, as with Disconnect.
+ */
+export async function reconnectTo(connection: ConnectionSummary): Promise<boolean> {
+  await disconnectFrom(connection);
+  return attempt(connection, freshTyped());
+}
+
 /** Opens a query tab on a connection (in the active welcome tab, else a new one) and connects. */
 export function openQuery(connection: ConnectionSummary, options: { newTab?: boolean } = {}): void {
   if (options.newTab) useTabsStore.getState().openQueryTab(connection.id);

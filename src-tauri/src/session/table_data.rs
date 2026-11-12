@@ -188,6 +188,8 @@ impl TableDataService {
             && current.is_alive()
         {
             let conn = Arc::clone(&current.conn);
+            // Between two calls the connection is outside any transaction.
+            session.align(&*conn).await?;
             return Ok((guard, conn));
         }
         if let Some(stale) = guard.take() {
@@ -203,6 +205,14 @@ impl TableDataService {
             watcher,
         });
         Ok((guard, conn))
+    }
+
+    /// Whether the tab's connection refuses writes now (F-008: it can change under the tab);
+    /// the flag the tab was opened with once the session is gone.
+    fn read_only(&self, tab: &TableTab) -> bool {
+        self.manager
+            .session(&tab.connection_id)
+            .map_or(tab.read_only, |session| session.read_only())
     }
 
     /// Runs one bound statement, cancellable with `cancel_table_data`.
@@ -341,7 +351,7 @@ impl TableDataService {
             ));
         }
         let tab = self.tab(tab_id)?;
-        if tab.read_only {
+        if self.read_only(&tab) {
             table_sql::check_read_only(tab.dialect, &request.filter)?;
         }
         let order = table_sql::resolve_order(&tab.shape, &request.sort)?;
@@ -389,7 +399,7 @@ impl TableDataService {
         let tab = self.tab(tab_id)?;
         let dialect = tab.dialect;
         table_sql::check_filter(dialect, &tab.shape, &filter)?;
-        if tab.read_only {
+        if self.read_only(&tab) {
             table_sql::check_read_only(dialect, &filter)?;
         }
         let unfiltered = filter.conditions.is_empty()
@@ -531,7 +541,7 @@ impl TableDataService {
         sort: &[SortKey],
     ) -> Result<(Arc<TableTab>, Vec<SortKey>), YadbeError> {
         let tab = self.tab(tab_id)?;
-        if tab.read_only {
+        if self.read_only(&tab) {
             table_sql::check_read_only(tab.dialect, filter)?;
         }
         table_sql::check_filter(tab.dialect, &tab.shape, filter)?;
@@ -669,7 +679,7 @@ impl TableDataService {
         mode: PlanMode,
         reverts: Option<i64>,
     ) -> Result<ApplyOutcome, YadbeError> {
-        if tab.read_only {
+        if self.read_only(tab) {
             let statement = if !changes.deletes.is_empty() {
                 "DELETE"
             } else if !changes.updates.is_empty() {
@@ -993,7 +1003,7 @@ impl TableDataService {
             connection_id: tab.connection_id.clone(),
             database: tab.database.clone(),
             table: tab.shape.details.table.clone(),
-            read_only: tab.read_only,
+            read_only: self.read_only(&tab),
             dialect: tab.dialect,
         })
     }

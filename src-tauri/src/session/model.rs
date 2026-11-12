@@ -42,3 +42,14 @@ pub struct TestConnectionResult {
     /// Connect + version query + ping.
     pub duration_ms: f64,
 }
+
+/// A saved change of a connection's definition.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionUpdate {
+    pub connection: crate::store::SavedConnection,
+    /// The connection is open and keeps settings other than the saved ones until it connects
+    /// again (server, TLS, SSH, keep-alive…). Read-only and the statement timeout apply to the
+    /// open session at once.
+    pub reconnect_needed: bool,
+}

@@ -2,6 +2,7 @@
 //! when the link drops (F-013). A statement is never replayed: a statement that fails with
 //! the link fails for its caller, and the session only re-establishes the connection.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -41,6 +42,14 @@ pub struct ConnectionSession {
     id: String,
     driver: Arc<dyn Driver>,
     target: ConnectTarget,
+    /// Read-only as it applies now (F-008): the saved flag can change under an open session,
+    /// `target.read_only` is the one it was opened with.
+    read_only: AtomicBool,
+    /// The statement timeout of query tabs as saved now (F-014); it applies to the next
+    /// execution.
+    statement_timeout: Mutex<Option<Duration>>,
+    /// A save changed settings the session only picks up when it connects again.
+    outdated: AtomicBool,
     password: Option<Secret>,
     recorder: Arc<dyn StatementRecorder>,
     sink: Arc<dyn EventSink>,
@@ -84,6 +93,9 @@ impl ConnectionSession {
         Arc::new(Self {
             id,
             driver,
+            read_only: AtomicBool::new(target.read_only),
+            statement_timeout: Mutex::new(target.statement_timeout),
+            outdated: AtomicBool::new(false),
             target,
             password,
             recorder,
@@ -177,6 +189,7 @@ impl ConnectionSession {
         let started = Instant::now();
         let tunnel = self.route().await?;
         let mut target = self.target.clone();
+        target.read_only = self.read_only();
         if let Some(database) = database {
             database.clone_into(&mut target.database);
         }
@@ -350,9 +363,58 @@ impl ConnectionSession {
         self.connection()?.ping().await
     }
 
-    /// The settings the session was opened with.
+    /// The settings the session was opened with; read-only is [`Self::read_only`].
     pub fn target(&self) -> &ConnectTarget {
         &self.target
+    }
+
+    /// Whether the session refuses writes, as the connection is saved now (F-008).
+    pub fn read_only(&self) -> bool {
+        self.read_only.load(Ordering::SeqCst)
+    }
+
+    /// Notes that the saved settings changed in a way only a new connection picks up; returns
+    /// whether the session runs with outdated settings (this change or an earlier one).
+    pub fn mark_outdated(&self, outdated: bool) -> bool {
+        if outdated {
+            self.outdated.store(true, Ordering::SeqCst);
+        }
+        self.outdated.load(Ordering::SeqCst)
+    }
+
+    /// The limit of a query tab's statement, as saved now (F-014).
+    pub fn statement_timeout(&self) -> Option<Duration> {
+        *lock(&self.statement_timeout)
+    }
+
+    /// Changes the limit for the next executions; a running one keeps its own.
+    pub fn set_statement_timeout(&self, limit: Option<Duration>) {
+        *lock(&self.statement_timeout) = limit;
+    }
+
+    /// Turns read-only on or off under the open session. The yadbe checks read the flag at
+    /// each statement; the engine's own guard follows on the main connection now and on the
+    /// other connections of the session before their next statement outside a transaction
+    /// ([`Self::align`]).
+    pub async fn set_read_only(&self, on: bool) -> Result<(), YadbeError> {
+        if self.read_only.swap(on, Ordering::SeqCst) == on {
+            return Ok(());
+        }
+        tracing::info!(connection = %self.id, read_only = on, "read-only changed");
+        match self.current() {
+            Some(conn) if !conn.link().is_lost() => self.align(&*conn).await,
+            _ => Ok(()),
+        }
+    }
+
+    /// Brings the engine's read-only guard of `conn` (a connection of this session) to the
+    /// session's flag. Only outside a transaction: see [`Connection::set_read_only`].
+    pub async fn align(&self, conn: &dyn Connection) -> Result<(), YadbeError> {
+        let wanted = self.read_only();
+        match conn.read_only_mode() {
+            Some(mode) if mode != wanted => conn.set_read_only(wanted).await,
+            _ => Ok(()),
+        }
     }
 
     /// Records statements yadbe runs on this connection in the statement log.

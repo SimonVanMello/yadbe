@@ -28,12 +28,14 @@ import {
   draftFromSaved,
   emptyDraft,
   isTlsKeyError,
+  summarize,
   validateDraft,
   withEngine,
   type ConnectionDraft,
   type DraftErrors,
   type EngineInfo,
 } from './model';
+import { reconnectTo } from './connectionActions';
 import { askTrustHostKey } from './hostKeyPromptStore';
 import { pickDatabaseFile } from './pickDatabaseFile';
 import { pickKeyFile } from './pickKeyFile';
@@ -242,12 +244,24 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
         // The backend consumed the held password with this save.
         pendingId.current = null;
         await refreshConnections();
-        toast({
-          variant: 'success',
-          title: translate(useI18nStore.getState().locale, 'connection.saved', {
-            name: saved.definition.name,
-          }),
-        });
+        const locale = useI18nStore.getState().locale;
+        const title = translate(locale, 'connection.saved', { name: saved.definition.name });
+        if (saved.reconnectNeeded) {
+          toast({
+            variant: 'warning',
+            title,
+            description: translate(locale, 'connection.savedReconnect'),
+            duration: Infinity,
+            action: {
+              label: translate(locale, 'connection.reconnect'),
+              onClick: () => {
+                void reconnectTo(summarize(saved));
+              },
+            },
+          });
+        } else {
+          toast({ variant: 'success', title });
+        }
         onClose();
       })
       .catch((error: unknown) => {

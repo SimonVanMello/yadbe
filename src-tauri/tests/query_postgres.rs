@@ -531,3 +531,82 @@ async fn p03_first_window_of_a_million_rows() {
         );
     }
 }
+
+#[tokio::test]
+async fn read_only_switched_under_an_open_session() {
+    let test = "read_only_switched_under_an_open_session";
+    let Some(writer) = pg(test, false).await else {
+        return;
+    };
+    let setup = writer
+        .run(
+            "setup",
+            "DROP TABLE IF EXISTS m316_ro CASCADE; CREATE TABLE m316_ro (a int);
+CREATE OR REPLACE FUNCTION m316_write() RETURNS int LANGUAGE sql AS $$ INSERT INTO m316_ro VALUES (2) RETURNING a $$",
+        )
+        .await;
+    assert_eq!(setup.status, ExecutionStatus::Succeeded, "{setup:?}");
+    let insert = "INSERT INTO m316_ro VALUES (1)";
+    let count = "SELECT count(*) FROM m316_ro";
+    writer.check_read_only_switch(insert, count).await;
+
+    // The engine's own guard follows too: a write the classifier cannot see is refused.
+    assert!(!writer.save_read_only(true).await);
+    let run = writer.run("tab", "SELECT m316_write()").await;
+    assert_eq!(
+        run.error_code(),
+        Some(ErrorCode::ReadOnlyViolation),
+        "{run:?}"
+    );
+    assert!(
+        writer
+            .logged()
+            .iter()
+            .any(|sql| sql == "SET default_transaction_read_only = on")
+    );
+
+    // Opened read-only, then lifted: the startup setting is turned off.
+    let Some(reader) = pg(test, true).await else {
+        return;
+    };
+    reader.check_read_only_switch(insert, count).await;
+    assert!(!reader.save_read_only(false).await);
+    let run = reader.run("tab", "SELECT m316_write()").await;
+    assert_eq!(run.status, ExecutionStatus::Succeeded, "{run:?}");
+
+    // A transaction open when read-only is turned on keeps commit and rollback, not writes.
+    let begun = reader
+        .run("tx", "BEGIN; INSERT INTO m316_ro VALUES (3)")
+        .await;
+    assert_eq!(begun.status, ExecutionStatus::Succeeded, "{begun:?}");
+    assert!(!reader.save_read_only(true).await);
+    let refused = reader.run("tx", insert).await;
+    assert_eq!(refused.error_code(), Some(ErrorCode::ReadOnlyViolation));
+    let ended = reader.run("tx", "COMMIT").await;
+    assert_eq!(ended.status, ExecutionStatus::Succeeded, "{ended:?}");
+    let after = reader.run("tx", "SELECT m316_write()").await;
+    assert_eq!(
+        after.error_code(),
+        Some(ErrorCode::ReadOnlyViolation),
+        "{after:?}"
+    );
+
+    // Other session settings wait for the next connection.
+    let saved = writer
+        .store
+        .connection(&writer.connection_id)
+        .expect("saved");
+    let mut moved = saved.definition.clone();
+    moved.keep_alive_secs = Some(17);
+    assert!(
+        writer
+            .manager
+            .apply_saved(&writer.connection_id, &saved.definition, &moved)
+            .await
+    );
+
+    writer.save_read_only(false).await;
+    writer
+        .run("setup", "DROP FUNCTION m316_write(); DROP TABLE m316_ro")
+        .await;
+}

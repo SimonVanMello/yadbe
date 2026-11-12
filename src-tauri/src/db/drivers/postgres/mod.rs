@@ -12,6 +12,7 @@ use std::error::Error as _;
 use std::io;
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures_util::{StreamExt, pin_mut};
 use tokio::task::JoinHandle;
@@ -202,6 +203,7 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
         }
     };
     Ok(Box::new(PgConnection {
+        read_only: AtomicBool::new(target.read_only),
         cancel: client.cancel_token(),
         client,
         server_version: format!("PostgreSQL {version}"),
@@ -222,6 +224,8 @@ struct PgConnection {
     tls: RustlsConnect,
     task: JoinHandle<()>,
     notices: execute::SharedRoute,
+    /// `default_transaction_read_only` as yadbe last set it.
+    read_only: AtomicBool,
 }
 
 impl Connection for PgConnection {
@@ -261,6 +265,30 @@ impl Connection for PgConnection {
             let rows_of =
                 |r: &QueryResult| r.rows_affected.or_else(|| u64::try_from(r.rows.len()).ok());
             recorded(&*self.recorder, sql, rows_of, self.run(sql, max_rows)).await
+        })
+    }
+
+    fn read_only_mode(&self) -> Option<bool> {
+        Some(self.read_only.load(Ordering::SeqCst))
+    }
+
+    fn set_read_only(&self, on: bool) -> BoxFuture<'_, Result<(), YadbeError>> {
+        Box::pin(async move {
+            let sql = if on {
+                "SET default_transaction_read_only = on"
+            } else {
+                "SET default_transaction_read_only = off"
+            };
+            recorded(&*self.recorder, sql, |_| None, async {
+                self.client
+                    .simple_query(sql)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| classify_query(&e))
+            })
+            .await?;
+            self.read_only.store(on, Ordering::SeqCst);
+            Ok(())
         })
     }
 

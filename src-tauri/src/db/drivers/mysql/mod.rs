@@ -47,6 +47,7 @@ use crate::db::value::{ColumnMeta, QueryResult, Value};
 const APPLICATION_NAME: &str = "yadbe";
 const VERSION_SQL: &str = "SELECT VERSION()";
 const READ_ONLY_SQL: &str = "SET SESSION TRANSACTION READ ONLY";
+const READ_WRITE_SQL: &str = "SET SESSION TRANSACTION READ WRITE";
 const PING_SQL: &str = "SELECT 1";
 /// The largest packet the client accepts (the server's own maximum, 1 GiB): the server's
 /// `max_allowed_packet` is the real bound. Setting it avoids a settings query at connect.
@@ -341,6 +342,7 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Box<dyn Connection>, Yad
             signal,
             kill,
             in_transaction: AtomicBool::new(false),
+            read_only: AtomicBool::new(target.read_only),
         }),
         server_version: format!("{product} {number}"),
         link,
@@ -446,6 +448,8 @@ pub(super) struct Inner {
     signal: LinkSignal,
     kill: Arc<Killer>,
     in_transaction: AtomicBool,
+    /// The session's transaction access mode as yadbe last set it.
+    read_only: AtomicBool,
 }
 
 pub(super) struct MysqlConnection {
@@ -652,6 +656,19 @@ impl Connection for MysqlConnection {
             let rows_of =
                 |r: &QueryResult| r.rows_affected.or_else(|| u64::try_from(r.rows.len()).ok());
             recorded(&*self.inner.recorder, sql, rows_of, self.run(sql, max_rows)).await
+        })
+    }
+
+    fn read_only_mode(&self) -> Option<bool> {
+        Some(self.inner.read_only.load(Ordering::SeqCst))
+    }
+
+    fn set_read_only(&self, on: bool) -> BoxFuture<'_, Result<(), YadbeError>> {
+        Box::pin(async move {
+            let sql = if on { READ_ONLY_SQL } else { READ_WRITE_SQL };
+            recorded(&*self.inner.recorder, sql, |_| None, self.run(sql, 0)).await?;
+            self.inner.read_only.store(on, Ordering::SeqCst);
+            Ok(())
         })
     }
 

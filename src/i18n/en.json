@@ -307,6 +307,8 @@
   "connection.duplicated": "Created {name}",
   "connection.duplicateFailed": "Could not duplicate {name}",
   "connection.saved": "{name} saved",
+  "connection.savedReconnect": "The open connection keeps its previous settings until it reconnects. Read-only and the statement timeout already apply.",
+  "connection.reconnect": "Reconnect",
   "connection.saveFailed": "Could not save the connection",
   "connection.loadFailed": "Could not load the connection",
   "connection.loading": "Loading the connection…",

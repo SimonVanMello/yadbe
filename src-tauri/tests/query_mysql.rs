@@ -729,3 +729,31 @@ async fn a_killed_session_ends_the_link() {
     assert_eq!(error.code, ErrorCode::ConnectionLost, "{error:?}");
     assert!(victim.link().is_lost());
 }
+
+#[tokio::test]
+async fn read_only_switched_under_an_open_session() {
+    let Some((db, writer)) = mysql("read_only_switched_under_an_open_session", false).await else {
+        return;
+    };
+    let setup = writer.run("setup", "CREATE TABLE m316_ro (a int)").await;
+    assert_eq!(setup.status, ExecutionStatus::Succeeded, "{setup:?}");
+    let insert = "INSERT INTO m316_ro VALUES (1)";
+    let count = "SELECT COUNT(*) FROM m316_ro";
+    writer.check_read_only_switch(insert, count).await;
+    assert!(
+        writer
+            .logged()
+            .iter()
+            .any(|sql| sql == "SET SESSION TRANSACTION READ ONLY")
+    );
+    let (mut def, password) = db.definition();
+    def.read_only = true;
+    let reader = bench(def, password).await;
+    reader.check_read_only_switch(insert, count).await;
+    assert!(
+        reader
+            .logged()
+            .iter()
+            .any(|sql| sql == "SET SESSION TRANSACTION READ WRITE")
+    );
+}

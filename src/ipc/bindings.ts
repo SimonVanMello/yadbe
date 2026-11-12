@@ -24,10 +24,10 @@ export const commands = {
 	 */
 	createConnection: (definition: ConnectionDefinition) => typedError<SavedConnection, YadbeError>(__TAURI_INVOKE("create_connection", { definition })),
 	/**
-	 *  Replaces a connection's definition. An open session keeps the settings it was opened
-	 *  with (reconnections included) until it is closed and opened again.
+	 *  Replaces a connection's definition. An open session takes read-only and the statement
+	 *  timeout at once; it keeps its other settings until it connects again (`reconnectNeeded`).
 	 */
-	updateConnection: (connectionId: string, definition: ConnectionDefinition) => typedError<SavedConnection, YadbeError>(__TAURI_INVOKE("update_connection", { connectionId, definition })),
+	updateConnection: (connectionId: string, definition: ConnectionDefinition) => typedError<ConnectionUpdate, YadbeError>(__TAURI_INVOKE("update_connection", { connectionId, definition })),
 	/**  Copies a connection under a new name (secrets are not copied). */
 	duplicateConnection: (connectionId: string, name: string) => typedError<SavedConnection, YadbeError>(__TAURI_INVOKE("duplicate_connection", { connectionId, name })),
 	/**  Closes the connection if open, forgets its secrets and deletes it. */
@@ -1191,6 +1191,17 @@ export type ConnectionStringNote =
 "certificateNotExpressed" | 
 /**  The password is not in the string (the default): add it where the app reads secrets. */
 "passwordLeftOut";
+
+/**  A saved change of a connection's definition. */
+export type ConnectionUpdate = {
+	connection: SavedConnection,
+	/**
+	 *  The connection is open and keeps settings other than the saved ones until it connects
+	 *  again (server, TLS, SSH, keep-alive…). Read-only and the statement timeout apply to the
+	 *  open session at once.
+	 */
+	reconnectNeeded: boolean,
+};
 
 /**  Kinds of constraints a change can break. */
 export type ConstraintKind = 

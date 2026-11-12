@@ -196,7 +196,7 @@ impl ResultEditService {
             row_identity: Vec::new(),
             identity_columns: Vec::new(),
         };
-        let read_only = target.read_only;
+        let read_only = session.read_only();
         let refuse = |mut info: ResultEditInfo, reason| {
             info.read_only_reasons.push(reason);
             if read_only {
@@ -447,12 +447,7 @@ impl ResultEditService {
     ) -> Result<ApplyOutcome, YadbeError> {
         let edit = self.edit(meta, result_id).await?;
         Self::check(&edit, changes)?;
-        if self
-            .manager
-            .session(&edit.connection_id)?
-            .target()
-            .read_only
-        {
+        if self.manager.session(&edit.connection_id)?.read_only() {
             return Err(reason_error(ResultReadOnlyReason::ReadOnlyConnection));
         }
         if self.runner.tab_info(&edit.tab_id).transaction.status != TransactionStatus::Idle {
