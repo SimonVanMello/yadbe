@@ -10,6 +10,7 @@ import {
   useSessions,
 } from '../connections/connectionStore';
 import { pruneNodes, type ExplorerNode } from '../explorer/explorerRows';
+import { usePinStore } from '../objects/pinStore';
 import { useExplorerStore } from '../explorer/explorerStore';
 import { requestKey, type MetaRequest } from '../explorer/metaKeys';
 import { createCacheSource, metaQuery } from '../explorer/metaSource';
@@ -80,6 +81,7 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
   const sessions = useSessions((store) => store.sessions);
   const expanded = useExplorerStore((store) => store.expanded);
   const showSystem = useExplorerStore((store) => store.showSystem);
+  const pins = usePinStore((store) => store.pins);
   const version = useSyncExternalStore(subscribeToMeta, getCacheVersion);
   const connections = list.data?.connections;
   const groups = list.data?.groups;
@@ -94,7 +96,7 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
   const trees = useMemo(
     () => createTreeCache(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [connections, groups, capabilities, sessions, expanded, showSystem, version],
+    [connections, groups, capabilities, sessions, expanded, showSystem, version, pins],
   );
 
   const { rows, recorded } = useMemo(() => {
@@ -113,6 +115,7 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
       stateOf: (id) => stateOf(sessions[id]),
       expanded,
       showSystem,
+      pins,
       sourceFor: (connectionId) =>
         createCacheSource(queryClient, connectionId, (id, request) => {
           sink({ connectionId: id, request });
@@ -132,7 +135,7 @@ export function useSidebarRows(query: string): SidebarTreeRow[] {
       },
     });
     return { rows, recorded };
-  }, [connections, groups, query, capabilities, sessions, expanded, showSystem, trees]);
+  }, [connections, groups, query, capabilities, sessions, expanded, showSystem, pins, trees]);
 
   // Observing a query loads it, and unobserving it (node collapsed, filter typed) cancels it.
   useQueries({

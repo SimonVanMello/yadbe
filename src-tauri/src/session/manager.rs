@@ -114,6 +114,7 @@ impl ConnectionManager {
                     capabilities: dialect.capabilities(),
                     default_username: dialect.default_username().map(str::to_owned),
                     available: self.drivers.contains_key(&engine),
+                    object_actions: crate::db::object_ops::support_of(dialect),
                 }
             })
             .collect()

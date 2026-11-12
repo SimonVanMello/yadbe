@@ -8,6 +8,7 @@ use crate::db::meta::{
     CompletionCatalog, DatabaseInfo, IncomingForeignKeys, ObjectCount, ObjectInfo, ObjectKind,
     ObjectRef, SchemaInfo, TableDetails,
 };
+use crate::db::object_model::{DdlTarget, ObjectDdl, ObjectDependents, ObjectProperties};
 
 pub type MetaFuture<'a, T> = BoxFuture<'a, Result<T, YadbeError>>;
 
@@ -58,6 +59,38 @@ pub trait Introspector: Send + Sync {
         _table: &'a ObjectRef,
     ) -> MetaFuture<'a, IncomingForeignKeys> {
         Box::pin(async { Ok(IncomingForeignKeys::unsupported()) })
+    }
+
+    /// The engine's own definition text of an object (F-024): a view, a routine, a table on
+    /// engines that keep one (`source` `catalog`), or text the driver builds from catalog
+    /// functions (`reconstructed`, with the header comment). `None` when the driver has
+    /// nothing better than the generic reconstruction. `info` is the object's entry of its list, for the
+    /// kinds that have one.
+    fn native_ddl<'a>(
+        &'a self,
+        _target: &'a DdlTarget,
+        _info: Option<&'a ObjectInfo>,
+    ) -> MetaFuture<'a, Option<ObjectDdl>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    /// Size, owner, dates and other facts of a table, view or materialized view (F-025).
+    fn properties<'a>(
+        &'a self,
+        object: &'a ObjectRef,
+        kind: ObjectKind,
+    ) -> MetaFuture<'a, ObjectProperties> {
+        Box::pin(async move { Ok(ObjectProperties::empty(object, kind)) })
+    }
+
+    /// What depends on `object` and would break or block a drop (F-026): foreign keys of other
+    /// tables, views reading it. Complete only where the engine can tell.
+    fn dependents<'a>(
+        &'a self,
+        _object: &'a ObjectRef,
+        _kind: ObjectKind,
+    ) -> MetaFuture<'a, ObjectDependents> {
+        Box::pin(async { Ok(ObjectDependents::unknown()) })
     }
 }
 

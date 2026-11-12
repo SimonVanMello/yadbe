@@ -1,0 +1,13 @@
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.separator {
+  align-self: center;
+  width: var(--border-width);
+  height: var(--space-5);
+  margin: 0 var(--space-1);
+  background: var(--border-subtle);
+}

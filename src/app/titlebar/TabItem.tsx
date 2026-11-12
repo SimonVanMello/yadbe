@@ -12,6 +12,12 @@ import {
   useIsDirty,
   useTabFileName,
 } from '../../features/query/queryTabStore';
+import {
+  ddlTargetKind,
+  ddlTargetName,
+  ddlTargetObject,
+  toolKindKey,
+} from '../../features/objects/objectsModel';
 import { tableLabel } from '../../features/table-data/tableNames';
 import { usePendingCount } from '../../features/table-data/tableSessionStore';
 import { EnvTag } from '../../features/connections/EnvTag';
@@ -54,21 +60,32 @@ export function TabItem({
 
   const isWelcome = tab.connectionId === null;
   const pinned = tab.pinned && !isWelcome;
-  const { table } = tab;
+  const { table, ddl } = tab;
   // A table tab's mark is its pending changes, never saved with the tab.
   const dirty = table ? pending > 0 : edited;
   const name = isWelcome
     ? t('tab.new')
     : table
       ? table.name
-      : (fileName ?? t('tab.query', { number: tab.ordinal }));
+      : ddl
+        ? ddlTargetName(ddl)
+        : (fileName ?? t('tab.query', { number: tab.ordinal }));
   const tint = connection ? tintOf(connection) : null;
 
   const tooltip = isWelcome ? (
     t('tab.new')
   ) : (
     <span className={styles.tooltip}>
-      <span className={styles.tooltipName}>{table ? tableLabel(table) : name}</span>
+      <span className={styles.tooltipName}>
+        {table
+          ? tableLabel(table)
+          : ddl
+            ? t('objects.ddl.tooltip', {
+                kind: t(toolKindKey(ddlTargetKind(ddl))),
+                name: tableLabel({ schema: ddlTargetObject(ddl).schema, name }),
+              })
+            : name}
+      </span>
       {table && pending > 0 && <span>{t('tableData.pending', { count: pending })}</span>}
       <span className={styles.tooltipConnection}>
         {connection ? connection.name : t('tab.unknownConnection')}
@@ -114,7 +131,7 @@ export function TabItem({
         data-tab-id={tab.id}
         data-dragging={dragging || undefined}
         data-pinned={pinned || undefined}
-        data-kind={table ? 'table' : undefined}
+        data-kind={table ? 'table' : ddl ? 'ddl' : undefined}
         data-environment={connection?.environment ?? undefined}
         className={styles.tab}
         style={tint ? ({ '--tab-tint': tint } as CSSProperties) : undefined}
@@ -130,6 +147,7 @@ export function TabItem({
       >
         {!isWelcome && <StateDot state={state} decorative />}
         {table && <Icon name="table" className={styles.kind} />}
+        {ddl && <Icon name="file" className={styles.kind} />}
         <span className={styles.label}>{name}</span>
         {dirty && !isWelcome && (
           <span

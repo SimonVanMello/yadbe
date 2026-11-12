@@ -4,6 +4,7 @@ import type {
   ErrorCode,
   MetaNode,
   MetaRefreshed,
+  ObjectInfo,
   ObjectKind,
   ObjectRef,
   ScriptKind,
@@ -471,6 +472,48 @@ export function createMockMeta(deps: MetaDeps) {
       );
       return db ? db.schemas.flatMap((s) => [...s.tables.values()]).map((t) => clone(t)) : null;
     },
+    /** An object of a connected session's catalog, straight from it (the object tools). */
+    lookup(
+      connectionId: string,
+      object: ObjectRef,
+      kind: ObjectKind,
+      id: string,
+    ): {
+      engine: Engine;
+      schema: MockSchema;
+      info: ObjectInfo;
+      details: TableDetails | null;
+    } | null {
+      const session = deps.session(connectionId);
+      if (!session) return null;
+      const db = server(connectionId, session.engine, session.database).find(
+        (d) => d.info.name === object.database,
+      );
+      const schema = db?.schemas.find((s) => (s.info?.name ?? null) === object.schema);
+      const info = schema?.objects.find((o) => o.kind === kind && o.id === id);
+      if (!schema || !info) return null;
+      return {
+        engine: session.engine,
+        schema,
+        info,
+        details: schema.tables.get(info.name) ?? null,
+      };
+    },
+    /**
+     * Drops the cached nodes `node` covers and says so, as the backend does after a drop,
+     * truncate or rename (`meta-refreshed`, reason `ddl`).
+     */
+    changed(connectionId: string, node: MetaNode): void {
+      const cache = loaded.get(connectionId);
+      if (cache) {
+        for (const id of [...cache]) {
+          if (covers(node, JSON.parse(id) as Loaded)) cache.delete(id);
+        }
+      }
+      deps.emitRefreshed({ connectionId, node: clone(node), reason: 'ddl' });
+    },
+    /** Duration of a first load, in ms: what the object tools wait too. */
+    latency: (): number => latency,
     /** The session closed: its cache goes with it. */
     forget(connectionId: string): void {
       loaded.delete(connectionId);

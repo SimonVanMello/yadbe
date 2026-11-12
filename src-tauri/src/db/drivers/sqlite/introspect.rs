@@ -19,6 +19,9 @@ use crate::db::meta::{
     IncomingForeignKeys, IndexInfo, KeyConstraint, ObjectCount, ObjectDetail, ObjectInfo,
     ObjectKind, ObjectRef, RelationSummary, SchemaInfo, TableDetails, TriggerInfo,
 };
+use crate::db::object_model::{
+    DdlSource, DdlTarget, DependencyLink, Dependent, ObjectDdl, ObjectDependents, ObjectProperties,
+};
 
 const MAIN: &str = "main";
 
@@ -619,6 +622,118 @@ impl Meta<'_> {
     }
 }
 
+const DDL_SQL: &str = "SELECT sql FROM sqlite_schema WHERE type = ?1 AND name = ?2";
+
+/// The indexes and triggers of a table, as `CREATE` text; implicit indexes have none.
+const TABLE_EXTRAS_SQL: &str = "\
+SELECT sql FROM sqlite_schema
+WHERE tbl_name = ?1 AND type IN ('index', 'trigger') AND sql IS NOT NULL
+ORDER BY CASE type WHEN 'index' THEN 0 ELSE 1 END, name";
+
+const DBSTAT_SQL: &str = "\
+SELECT 1 FROM pragma_compile_options WHERE compile_options = 'ENABLE_DBSTAT_VTAB'";
+const STAT1_SQL: &str = "SELECT stat FROM sqlite_stat1 WHERE tbl = ?1 LIMIT 1";
+const HAS_STAT1_SQL: &str = "SELECT 1 FROM sqlite_schema WHERE name = 'sqlite_stat1'";
+const TABLE_SIZE_SQL: &str = "SELECT SUM(pgsize) FROM dbstat WHERE name = ?1";
+const INDEX_SIZE_SQL: &str = "\
+SELECT SUM(pgsize) FROM dbstat WHERE name IN (SELECT name FROM pragma_index_list(?1, 'main'))";
+
+fn terminated(text: &str) -> String {
+    let trimmed = text.trim_end();
+    if trimmed.ends_with(';') {
+        trimmed.to_owned()
+    } else {
+        format!("{trimmed};")
+    }
+}
+
+impl Meta<'_> {
+    /// `CREATE` text of a table or view from `sqlite_schema`; a table's own indexes and
+    /// triggers follow it.
+    fn native_ddl(&self, name: &str, kind: ObjectKind) -> Result<String, YadbeError> {
+        let word = if kind == ObjectKind::View {
+            "view"
+        } else {
+            "table"
+        };
+        let rows: Vec<Option<String>> = self.rows(DDL_SQL, [word, name], |r| r.get(0))?;
+        let Some(Some(text)) = rows.into_iter().next() else {
+            return Err(YadbeError::object_not_found(name));
+        };
+        let mut out = terminated(&text);
+        out.push('\n');
+        if kind == ObjectKind::Table {
+            for extra in self.rows(TABLE_EXTRAS_SQL, [name], |r| r.get::<_, String>(0))? {
+                out.push('\n');
+                out.push_str(&terminated(&extra));
+                out.push('\n');
+            }
+        }
+        Ok(out)
+    }
+
+    fn properties(
+        &self,
+        table: &ObjectRef,
+        kind: ObjectKind,
+    ) -> Result<ObjectProperties, YadbeError> {
+        let mut facts = ObjectProperties::empty(table, kind);
+        if kind != ObjectKind::Table {
+            return Ok(facts);
+        }
+        let name = table.name.as_str();
+        // The statistics exist once `ANALYZE` has run; the first number is the row count.
+        if !self
+            .rows(HAS_STAT1_SQL, rusqlite::params![], |r| r.get::<_, i64>(0))?
+            .is_empty()
+        {
+            let stat: Vec<String> = self.rows(STAT1_SQL, [name], |r| r.get(0))?;
+            facts.row_estimate = stat
+                .first()
+                .and_then(|s| s.split_whitespace().next())
+                .and_then(|n| n.parse::<f64>().ok());
+        }
+        // `dbstat` is a compile-time option of SQLite.
+        if !self
+            .rows(DBSTAT_SQL, rusqlite::params![], |r| r.get::<_, i64>(0))?
+            .is_empty()
+        {
+            let size = |sql: &str| -> Result<Option<f64>, YadbeError> {
+                let rows: Vec<Option<i64>> = self.rows(sql, [name], |r| r.get(0))?;
+                #[allow(clippy::cast_precision_loss)]
+                Ok(rows.into_iter().next().flatten().map(|n| n as f64))
+            };
+            let data = size(TABLE_SIZE_SQL)?;
+            let index = size(INDEX_SIZE_SQL)?;
+            facts.data_bytes = data;
+            facts.index_bytes = index;
+            facts.total_bytes = data.map(|d| d + index.unwrap_or(0.0));
+        }
+        Ok(facts)
+    }
+
+    fn dependents(&self, table: &ObjectRef) -> Result<ObjectDependents, YadbeError> {
+        let items = self
+            .incoming(table)?
+            .keys
+            .into_iter()
+            .filter(|key| key.table.name != table.name)
+            .map(|key| Dependent {
+                kind: ObjectKind::Table,
+                via: Some(DependencyLink::ForeignKey {
+                    name: key.foreign_key.columns.join(", "),
+                }),
+                object: key.table,
+            })
+            .collect();
+        // Views that read the table are not tracked by SQLite.
+        Ok(ObjectDependents {
+            complete: false,
+            items,
+        })
+    }
+}
+
 impl Introspector for SqliteConnection {
     fn databases(&self) -> MetaFuture<'_, Vec<DatabaseInfo>> {
         Box::pin(async {
@@ -690,6 +805,60 @@ impl Introspector for SqliteConnection {
             check_database(&table.database)?;
             let table = table.clone();
             self.with_conn(move |meta| meta.incoming(&table)).await
+        })
+    }
+
+    fn native_ddl<'a>(
+        &'a self,
+        target: &'a DdlTarget,
+        _info: Option<&'a ObjectInfo>,
+    ) -> MetaFuture<'a, Option<ObjectDdl>> {
+        Box::pin(async move {
+            let DdlTarget::Object { object, kind, .. } = target else {
+                return Ok(None);
+            };
+            check_database(&object.database)?;
+            if !matches!(kind, ObjectKind::Table | ObjectKind::View) {
+                return Ok(None);
+            }
+            let (name, kind) = (object.name.clone(), *kind);
+            self.with_conn(move |meta| {
+                meta.native_ddl(&name, kind).map(|sql| {
+                    Some(ObjectDdl {
+                        sql,
+                        source: DdlSource::Catalog,
+                    })
+                })
+            })
+            .await
+        })
+    }
+
+    fn properties<'a>(
+        &'a self,
+        object: &'a ObjectRef,
+        kind: ObjectKind,
+    ) -> MetaFuture<'a, ObjectProperties> {
+        Box::pin(async move {
+            check_database(&object.database)?;
+            let object = object.clone();
+            self.with_conn(move |meta| meta.properties(&object, kind))
+                .await
+        })
+    }
+
+    fn dependents<'a>(
+        &'a self,
+        object: &'a ObjectRef,
+        kind: ObjectKind,
+    ) -> MetaFuture<'a, ObjectDependents> {
+        Box::pin(async move {
+            check_database(&object.database)?;
+            if kind != ObjectKind::Table {
+                return Ok(ObjectDependents::unknown());
+            }
+            let object = object.clone();
+            self.with_conn(move |meta| meta.dependents(&object)).await
         })
     }
 }

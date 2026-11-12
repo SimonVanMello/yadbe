@@ -268,3 +268,42 @@ describe('reopening a closed tab', () => {
     expect(reopened).not.toBe(a);
   });
 });
+
+describe('DDL tabs', () => {
+  const ORDERS = { database: 'shop', schema: 'sales', name: 'orders' };
+  const target = { type: 'object', object: ORDERS, kind: 'table', id: 'orders' } as const;
+
+  it('open once per object, and open again from the same one', () => {
+    const first = state().openDdlTab('c1', target);
+    state().openQueryTab('c1');
+    expect(state().openDdlTab('c1', { ...target })).toBe(first);
+    expect(state().activeTabId).toBe(first);
+    expect(state().tabs.filter((tab) => tab.ddl)).toHaveLength(1);
+    // Another connection, or another object, is another tab.
+    expect(state().openDdlTab('c2', target)).not.toBe(first);
+    expect(state().openDdlTab('c1', { ...target, id: 'other' })).not.toBe(first);
+  });
+
+  it('are not query tabs, are not saved and are not brought back', () => {
+    const ddl = state().openDdlTab('c1', target);
+    const query = state().openQueryTab('c1');
+    expect(toSavedTabs(state()).tabs.map((tab) => tab.id)).toEqual([state().tabs[0]?.id, query]);
+    state().closeTab(ddl);
+    expect(state().closedTabs).toEqual([]);
+    expect(state().reopenClosedTab()).toBeNull();
+  });
+
+  it('follow a rename with the table tabs of the object', () => {
+    const ddl = state().openDdlTab('c1', target);
+    const trigger = state().openDdlTab('c1', { type: 'trigger', table: ORDERS, name: 'touch' });
+    const rows = state().openTableTab('c1', ORDERS);
+    const elsewhere = state().openTableTab('c2', ORDERS);
+    const moved = state().renameObject('c1', ORDERS, { ...ORDERS, name: 'purchases' });
+    expect(moved).toEqual([rows]);
+    const tab = (id: string) => state().tabs.find((t) => t.id === id);
+    expect(tab(rows)?.table?.name).toBe('purchases');
+    expect(tab(ddl)?.ddl).toMatchObject({ object: { name: 'purchases' }, id: 'purchases' });
+    expect(tab(trigger)?.ddl).toMatchObject({ table: { name: 'purchases' }, name: 'touch' });
+    expect(tab(elsewhere)?.table?.name).toBe('orders');
+  });
+});

@@ -19,11 +19,12 @@ use crate::db::meta::{
     SequenceSummary, TableDetails, TriggerEvent, TriggerInfo, TriggerTiming, TypeAttribute,
     TypeCategory, TypeSummary,
 };
+use crate::db::object_model::{DdlTarget, ObjectDdl, ObjectDependents, ObjectProperties};
 use crate::db::value::ValueKind;
 
 /// A bound parameter.
 #[derive(Debug, Clone)]
-enum Param {
+pub(super) enum Param {
     Text(String),
     Int(i32),
     Bool(bool),
@@ -58,7 +59,7 @@ fn base_type_expr(t: &str, base: &str) -> String {
 }
 
 /// `MS_Description` of an object (`class` 1), a column, or a schema (`class` 3).
-fn description(alias: &str, class: u8, major: &str, minor: &str) -> String {
+pub(super) fn description(alias: &str, class: u8, major: &str, minor: &str) -> String {
     format!(
         "LEFT JOIN {{db}}.sys.extended_properties {alias} ON {alias}.class = {class} \
 AND {alias}.major_id = {major} AND {alias}.minor_id = {minor} AND {alias}.name = 'MS_Description'"
@@ -127,7 +128,7 @@ WHERE s.name = @P1",
 }
 
 /// Rows of a table (heap or clustered index), from the partition metadata.
-const ROW_COUNT: &str = "(SELECT SUM(p.rows) FROM {db}.sys.partitions p \
+pub(super) const ROW_COUNT: &str = "(SELECT SUM(p.rows) FROM {db}.sys.partitions p \
 WHERE p.object_id = o.object_id AND p.index_id IN (0, 1))";
 
 fn relations_sql(types: &str) -> String {
@@ -370,29 +371,29 @@ SELECT fkc.constraint_object_id, fkc.parent_object_id, fkc.parent_column_id,
 FROM {db}.sys.foreign_key_columns fkc
 ORDER BY fkc.constraint_object_id, fkc.constraint_column_id";
 
-fn text(row: &Row, index: usize) -> Result<Option<String>, YadbeError> {
+pub(super) fn text(row: &Row, index: usize) -> Result<Option<String>, YadbeError> {
     row.try_get::<&str, _>(index)
         .map(|v| v.map(str::to_owned))
         .map_err(|e| YadbeError::internal(format!("metadata column {index}: {e}")))
 }
 
-fn text_req(row: &Row, index: usize) -> Result<String, YadbeError> {
+pub(super) fn text_req(row: &Row, index: usize) -> Result<String, YadbeError> {
     Ok(text(row, index)?.unwrap_or_default())
 }
 
-fn flag(row: &Row, index: usize) -> Result<bool, YadbeError> {
+pub(super) fn flag(row: &Row, index: usize) -> Result<bool, YadbeError> {
     row.try_get::<bool, _>(index)
         .map(Option::unwrap_or_default)
         .map_err(|e| YadbeError::internal(format!("metadata column {index}: {e}")))
 }
 
-fn int(row: &Row, index: usize) -> Result<i32, YadbeError> {
+pub(super) fn int(row: &Row, index: usize) -> Result<i32, YadbeError> {
     row.try_get::<i32, _>(index)
         .map(Option::unwrap_or_default)
         .map_err(|e| YadbeError::internal(format!("metadata column {index}: {e}")))
 }
 
-fn big(row: &Row, index: usize) -> Result<Option<i64>, YadbeError> {
+pub(super) fn big(row: &Row, index: usize) -> Result<Option<i64>, YadbeError> {
     row.try_get::<i64, _>(index)
         .map_err(|e| YadbeError::internal(format!("metadata column {index}: {e}")))
 }
@@ -438,7 +439,7 @@ fn relation_kind(object_type: &str) -> ObjectKind {
     }
 }
 
-fn schema_of(schema: Option<&str>) -> Result<&str, YadbeError> {
+pub(super) fn schema_of(schema: Option<&str>) -> Result<&str, YadbeError> {
     schema.ok_or_else(|| {
         YadbeError::invalid_argument(
             "This engine needs a schema name.",
@@ -449,13 +450,13 @@ fn schema_of(schema: Option<&str>) -> Result<&str, YadbeError> {
 
 /// `count` as a row estimate; `None` for views and unknown counts.
 #[allow(clippy::cast_precision_loss)]
-fn estimate(rows: Option<i64>) -> Option<f64> {
+pub(super) fn estimate(rows: Option<i64>) -> Option<f64> {
     rows.map(|r| r as f64)
 }
 
 impl MssqlConnection {
     /// Runs one metadata query on `database`, recorded in the statement log.
-    async fn meta(
+    pub(super) async fn meta(
         &self,
         database: &str,
         sql: &str,
@@ -870,7 +871,10 @@ impl MssqlConnection {
         Ok(details)
     }
 
-    async fn incoming(&self, table: &ObjectRef) -> Result<IncomingForeignKeys, YadbeError> {
+    pub(super) async fn incoming(
+        &self,
+        table: &ObjectRef,
+    ) -> Result<IncomingForeignKeys, YadbeError> {
         let schema = schema_of(table.schema.as_deref())?;
         let rows = self
             .meta(
@@ -1176,6 +1180,30 @@ impl Introspector for MssqlConnection {
         table: &'a ObjectRef,
     ) -> MetaFuture<'a, IncomingForeignKeys> {
         Box::pin(self.incoming(table))
+    }
+
+    fn native_ddl<'a>(
+        &'a self,
+        target: &'a DdlTarget,
+        _info: Option<&'a ObjectInfo>,
+    ) -> MetaFuture<'a, Option<ObjectDdl>> {
+        Box::pin(self.native_definition(target))
+    }
+
+    fn properties<'a>(
+        &'a self,
+        object: &'a ObjectRef,
+        kind: ObjectKind,
+    ) -> MetaFuture<'a, ObjectProperties> {
+        Box::pin(self.object_properties(object, kind))
+    }
+
+    fn dependents<'a>(
+        &'a self,
+        object: &'a ObjectRef,
+        kind: ObjectKind,
+    ) -> MetaFuture<'a, ObjectDependents> {
+        Box::pin(self.object_dependents(object, kind))
     }
 }
 

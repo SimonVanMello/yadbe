@@ -13,6 +13,7 @@ import {
 
 import { useT } from '../../i18n/useT';
 import { ExplorerRow } from '../explorer/ExplorerRow';
+import { startRename } from '../objects/renameStore';
 import { ConnectionRow } from './ConnectionRow';
 import { GroupRow } from './GroupRow';
 import styles from './SidebarTree.module.css';
@@ -216,6 +217,10 @@ export function SidebarTree({ rows, label, empty, treeRef }: SidebarTreeProps) {
       case 'F5':
         stop();
         if (row) refreshRow(row);
+        return;
+      case 'F2':
+        stop();
+        if (row && row.type !== 'group' && row.type !== 'connection') startRename(row);
         return;
       case 'ContextMenu':
         stop();

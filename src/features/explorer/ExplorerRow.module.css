@@ -158,3 +158,8 @@
   font-family: var(--font-code);
   font-weight: var(--weight-semibold);
 }
+
+.row[data-missing] {
+  color: var(--fg-muted);
+  font-style: italic;
+}

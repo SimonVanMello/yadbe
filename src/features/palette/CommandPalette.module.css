@@ -229,3 +229,10 @@
     opacity: 0;
   }
 }
+
+.pin {
+  display: inline-flex;
+  margin-right: var(--space-1);
+  color: var(--accent);
+  vertical-align: text-bottom;
+}

@@ -5,6 +5,7 @@ import { useT } from '../../i18n/useT';
 import { IconButton } from '../../ui/IconButton';
 import type { ConnectionSummary } from '../connections/model';
 import { QueryControls } from '../query/QueryControls';
+import { DdlControls } from '../objects/DdlControls';
 import { TableControls } from '../table-data/TableControls';
 import styles from './Toolbar.module.css';
 
@@ -23,6 +24,7 @@ export function Toolbar({
   const sidebarCollapsed = useLayoutStore((store) => store.panels.sidebar.collapsed);
   const bottomCollapsed = useLayoutStore((store) => store.panels.bottom.collapsed);
   const table = useTabsStore((store) => store.tabs.some((tab) => tab.id === tabId && !!tab.table));
+  const ddl = useTabsStore((store) => store.tabs.find((tab) => tab.id === tabId)?.ddl);
 
   return (
     <div className={styles.toolbar} role="toolbar" aria-label={t('toolbar.label')}>
@@ -38,6 +40,8 @@ export function Toolbar({
       <span className={styles.separator} aria-hidden="true" />
       {connection && table ? (
         <TableControls tabId={tabId} connection={connection} />
+      ) : connection && ddl ? (
+        <DdlControls target={ddl} connection={connection} />
       ) : connection ? (
         <QueryControls tabId={tabId} connection={connection} />
       ) : (

@@ -34,3 +34,13 @@ export function revealInExplorer(connectionId: string, target: RevealTarget): vo
   useLayoutStore.getState().setCollapsed('sidebar', false);
   useRevealStore.getState().ask(connectionId, { ...target, schema });
 }
+
+/** Shows a schema in the explorer: the nodes above it open, and the sidebar shows the tree. */
+export function revealSchema(connectionId: string, database: string, schema: string): void {
+  const explorer = useExplorerStore.getState();
+  explorer.setExpanded(connectionId, nodeKeys.root, true);
+  explorer.setExpanded(connectionId, nodeKeys.database(database), true);
+  explorer.setExpanded(connectionId, nodeKeys.schema(database, schema), true);
+  useSidebarView.getState().setView('connections');
+  useLayoutStore.getState().setCollapsed('sidebar', false);
+}

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 
 import { useConnection } from '../features/connections/connectionStore';
+import { ddlTargetName } from '../features/objects/objectsModel';
 import { useTabFileName } from '../features/query/queryTabStore';
 import { useT } from '../i18n/useT';
 import { nativeWindow } from '../ipc/nativeWindow';
@@ -18,7 +19,9 @@ export function useWindowTitle(): void {
       ? null
       : tab.table
         ? tab.table.name
-        : (fileName ?? t('tab.query', { number: tab.ordinal }));
+        : tab.ddl
+          ? ddlTargetName(tab.ddl)
+          : (fileName ?? t('tab.query', { number: tab.ordinal }));
   const connectionName = connection?.name ?? null;
   useEffect(() => {
     void nativeWindow

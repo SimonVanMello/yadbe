@@ -3,6 +3,9 @@ import { create } from 'zustand';
 /** Node key of the connection row itself, in its own expanded set. */
 export const ROOT_NODE = '["c"]';
 
+/** Node key of a connection's "Pinned" group (F-027), open by default. */
+export const PINNED_NODE = '["p"]';
+
 interface ExplorerStore {
   /** Expanded nodes per connection (node keys of `explorerRows.ts`), remembered for the session. */
   expanded: Readonly<Record<string, ReadonlySet<string>>>;
@@ -55,7 +58,11 @@ export function createExplorerStore() {
         seeded: { ...state.seeded, [connectionId]: 'root' },
         expanded: {
           ...state.expanded,
-          [connectionId]: withNode(state.expanded[connectionId], ROOT_NODE, true),
+          [connectionId]: withNode(
+            withNode(state.expanded[connectionId], ROOT_NODE, true),
+            PINNED_NODE,
+            true,
+          ),
         },
       }));
       return true;

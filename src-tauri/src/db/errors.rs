@@ -116,6 +116,8 @@ pub enum ErrorCode {
     SshKeyUnreadable,
     /// The key passphrase is wrong.
     SshKeyPassphraseWrong,
+    /// This engine cannot do that on this kind of object (no DDL text, no rename…).
+    NotSupported,
 }
 
 /// A message in every supported UI language.
@@ -439,6 +441,10 @@ impl YadbeError {
                 "« {what} » n'existe plus. Actualisez l'explorateur pour voir les objets actuels."
             ),
         )
+    }
+
+    pub fn not_supported(en: impl Into<String>, fr: impl Into<String>) -> Self {
+        Self::new(ErrorCode::NotSupported, en, fr)
     }
 
     pub fn execution_running() -> Self {

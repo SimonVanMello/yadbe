@@ -11,6 +11,7 @@ import {
   useSessions,
 } from '../connections/connectionStore';
 import { useCatalogs, type CatalogTarget } from '../explorer/catalogCache';
+import { ddlTargetName } from '../objects/objectsModel';
 import { useSavedLibrary } from '../library/useLibrary';
 import { fetchDatabases } from '../explorer/metaApi';
 import { metaKeys } from '../explorer/metaKeys';
@@ -166,9 +167,11 @@ export function usePaletteData(raw: string) {
             ? t('tab.new')
             : tab.table
               ? tab.table.name
-              : filePath
-                ? fileNameOf(filePath)
-                : t('tab.query', { number: tab.ordinal }),
+              : tab.ddl
+                ? ddlTargetName(tab.ddl)
+                : filePath
+                  ? fileNameOf(filePath)
+                  : t('tab.query', { number: tab.ordinal }),
         connectionName: connection?.name ?? null,
       };
     });

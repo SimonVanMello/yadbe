@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import type { ObjectRef } from '../../ipc';
+import type { DdlTarget, ObjectRef } from '../../ipc';
 
 /** A tab of the title bar. Query tabs are placeholders until the editor lands (M1-4). */
 export interface ShellTab {
@@ -13,6 +13,11 @@ export interface ShellTab {
   pinned: boolean;
   /** Set for a table tab (F-080): the table or view whose rows it shows. */
   table?: ObjectRef;
+  /**
+   * Set for a DDL tab (F-024): the object whose definition it shows, read-only. Never saved: it
+   * is a view of the server as it is, opened again from the explorer.
+   */
+  ddl?: DdlTarget;
 }
 
 /** A table tab: bound to a connection and a table. */
@@ -22,9 +27,16 @@ export function isTableTab(
   return tab.connectionId !== null && tab.table !== undefined;
 }
 
+/** A DDL tab: bound to a connection, showing the definition of one object. */
+export function isDdlTab(
+  tab: ShellTab,
+): tab is ShellTab & { connectionId: string; ddl: DdlTarget } {
+  return tab.connectionId !== null && tab.ddl !== undefined;
+}
+
 /** A query tab: bound to a connection, with a SQL editor. */
 export function isQueryTab(tab: ShellTab): tab is ShellTab & { connectionId: string } {
-  return tab.connectionId !== null && tab.table === undefined;
+  return tab.connectionId !== null && tab.table === undefined && tab.ddl === undefined;
 }
 
 /** Shape written to the store and read back at startup. */
@@ -117,6 +129,10 @@ interface TabsStore {
    * active tab when it is still a welcome tab). Returns its id.
    */
   openTableTab: (connectionId: string, table: ObjectRef) => string;
+  /** Shows an object's definition: activates the DDL tab already showing it, else opens one. */
+  openDdlTab: (connectionId: string, target: DdlTarget) => string;
+  /** An object was renamed: its table tabs and DDL tabs follow it. Returns the table tabs' ids. */
+  renameObject: (connectionId: string, from: ObjectRef, to: ObjectRef) => string[];
   closeTab: (id: string) => void;
   /**
    * Closes several tabs at once, remembered so that reopening brings them back in place. The
@@ -175,7 +191,7 @@ function remember(
 ): ClosedTab[] {
   const closed: ClosedTab[] = [];
   tabs.forEach((tab, index) => {
-    if (ids.has(tab.id) && tab.connectionId !== null) {
+    if (ids.has(tab.id) && tab.connectionId !== null && tab.ddl === undefined) {
       closed.unshift({
         id: tab.id,
         connectionId: tab.connectionId,
@@ -265,6 +281,55 @@ export function createTabsStore() {
       const tab: ShellTab = { id: newTabId(), connectionId, ordinal: 0, pinned: false, table };
       set({ tabs: [...tabs, tab], activeTabId: tab.id });
       return tab.id;
+    },
+
+    openDdlTab: (connectionId, target) => {
+      const { tabs } = get();
+      const key = JSON.stringify(target);
+      const open = tabs.find(
+        (tab) =>
+          tab.connectionId === connectionId &&
+          tab.ddl !== undefined &&
+          JSON.stringify(tab.ddl) === key,
+      );
+      if (open) {
+        set({ activeTabId: open.id });
+        return open.id;
+      }
+      const tab: ShellTab = {
+        id: newTabId(),
+        connectionId,
+        ordinal: 0,
+        pinned: false,
+        ddl: target,
+      };
+      set({ tabs: [...tabs, tab], activeTabId: tab.id });
+      return tab.id;
+    },
+
+    renameObject: (connectionId, from, to) => {
+      const same = (other: ObjectRef) =>
+        other.database === from.database &&
+        other.schema === from.schema &&
+        other.name === from.name;
+      const moved: string[] = [];
+      const tabs = get().tabs.map((tab): ShellTab => {
+        if (tab.connectionId !== connectionId) return tab;
+        if (tab.table && same(tab.table)) {
+          moved.push(tab.id);
+          return { ...tab, table: { ...tab.table, name: to.name } };
+        }
+        const { ddl } = tab;
+        if (ddl?.type === 'object' && same(ddl.object)) {
+          return { ...tab, ddl: { ...ddl, object: { ...ddl.object, name: to.name }, id: to.name } };
+        }
+        if ((ddl?.type === 'trigger' || ddl?.type === 'index') && same(ddl.table)) {
+          return { ...tab, ddl: { ...ddl, table: { ...ddl.table, name: to.name } } };
+        }
+        return tab;
+      });
+      set({ tabs });
+      return moved;
     },
 
     closeTab: (id) => {
@@ -417,13 +482,15 @@ export const useTabsStore = createTabsStore();
 
 export function toSavedTabs(state: Pick<TabsStore, 'tabs' | 'activeTabId'>): SavedTabs {
   return {
-    tabs: state.tabs.map((tab) => ({
-      id: tab.id,
-      connectionId: tab.connectionId,
-      ordinal: tab.ordinal,
-      pinned: tab.pinned,
-      ...(tab.table ? { table: tab.table } : {}),
-    })),
+    tabs: state.tabs
+      .filter((tab) => tab.ddl === undefined)
+      .map((tab) => ({
+        id: tab.id,
+        connectionId: tab.connectionId,
+        ordinal: tab.ordinal,
+        pinned: tab.pinned,
+        ...(tab.table ? { table: tab.table } : {}),
+      })),
     activeTabId: state.activeTabId,
   };
 }

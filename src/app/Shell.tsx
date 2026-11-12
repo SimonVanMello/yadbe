@@ -13,6 +13,8 @@ import { SaveQueryDialog } from '../features/library/SaveQueryDialog';
 import { useLibraryActions } from '../features/library/useLibraryActions';
 import { useJournalActions } from '../features/journal/useJournalActions';
 import { ExportDialog } from '../features/export/ExportDialog';
+import { ObjectActionDialog } from '../features/objects/ObjectActionDialog';
+import { PropertiesDialog } from '../features/objects/PropertiesDialog';
 import { useExportActions } from '../features/export/useExportActions';
 import { CommandPalette } from '../features/palette/CommandPalette';
 import { PreferencesDialog } from '../features/preferences/PreferencesDialog';
@@ -217,6 +219,8 @@ export function Shell() {
       <HostKeyDialog />
       <GroupDialog />
       <ExportDialog />
+      <ObjectActionDialog />
+      <PropertiesDialog />
       <SaveQueryDialog />
       <CommandPalette />
       <PreferencesDialog />

@@ -14,3 +14,16 @@
 .view :global(.cm-scroller) {
   font-family: var(--font-code);
 }
+
+.fill {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+}
+
+.fill :global(.cm-editor) {
+  max-height: none;
+  min-height: 100%;
+}

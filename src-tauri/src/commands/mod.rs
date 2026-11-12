@@ -8,6 +8,7 @@ pub mod files;
 pub mod history;
 pub mod journal;
 pub mod meta;
+pub mod objects;
 pub mod query;
 pub mod references;
 pub mod saved_queries;

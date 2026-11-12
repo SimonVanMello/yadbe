@@ -182,6 +182,20 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX change_journal_by_connection ON change_journal(connection_id, id);
     CREATE INDEX change_journal_by_table ON change_journal(table_name, id);",
+    // v6: pinned objects and schemas (F-027), per connection. They go with the connection.
+    // `schema_name` is '' on engines without schemas (a NULL would break the key) and the
+    // schema itself for a pinned schema, whose `kind` is 'schema'.
+    "CREATE TABLE pinned_objects (
+        connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+        database_name TEXT NOT NULL,
+        schema_name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        object_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        pinned_at INTEGER NOT NULL,
+        PRIMARY KEY (connection_id, database_name, schema_name, kind, object_id)
+    );",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {

@@ -7,6 +7,8 @@ import { Icon, type IconName } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
 import { Tooltip } from '../../ui/Tooltip';
 import { Highlight } from '../connections/Highlight';
+import { RenameField } from '../objects/RenameField';
+import { useRenameStore } from '../objects/renameStore';
 import { rowStyle } from '../sidebar/rowStyle';
 import styles from './ExplorerRow.module.css';
 import { explorerRowLabel, GROUP_ICONS, groupLabel, kindLabel, KIND_ICONS } from './explorerLabels';
@@ -104,6 +106,32 @@ function contentOf(row: Row, t: Translate, locale: Locale): Content {
         name: name(object.name),
         meta,
         tooltip: object.comment ? <Lines lines={[object.name, object.comment]} /> : undefined,
+      };
+    }
+    case 'pinnedGroup':
+      return {
+        icon: 'pin',
+        name: t('explorer.pinned'),
+        meta: <span className={styles.count}>{formatNumber(locale, row.count)}</span>,
+      };
+    case 'pinned': {
+      const { pin } = row;
+      const where = pin.kind === null ? null : (pin.schema ?? pin.database);
+      return {
+        icon: pin.kind === null ? 'layers' : KIND_ICONS[pin.kind],
+        iconTone: row.missing ? styles.mutedTone : undefined,
+        name: name(pin.name),
+        meta: row.missing ? t('explorer.pinned.missing') : where,
+        badges: row.missing ? ['warning'] : [],
+        tooltip: (
+          <Lines
+            lines={[
+              pin.name,
+              [pin.database, pin.schema].filter(Boolean).join(' · '),
+              row.missing && t('explorer.pinned.missing'),
+            ]}
+          />
+        ),
       };
     }
     case 'detailGroup':
@@ -247,6 +275,12 @@ export const ExplorerRow = memo(function ExplorerRow({
 }: ExplorerRowProps) {
   const t = useT();
   const locale = useI18nStore((state) => state.locale);
+  const renaming = useRenameStore(
+    (state) =>
+      state.target !== null &&
+      state.target.nodeKey === row.nodeKey &&
+      state.target.connectionId === row.connectionId,
+  );
   const depth = row.level - 1;
   const common = {
     id,
@@ -297,12 +331,14 @@ export const ExplorerRow = memo(function ExplorerRow({
   }
 
   const content = contentOf(row, t, locale);
+  if (renaming) content.name = <RenameField row={row} name={explorerRowLabel(row, t)} />;
   const disabled = row.type === 'database' && !row.database.accessible;
   const refreshable =
     row.type === 'database' ||
     row.type === 'schema' ||
     row.type === 'kind' ||
     (row.type === 'object' && row.expandable);
+  const missing = row.type === 'pinned' && row.missing;
   const label = explorerRowLabel(row, t);
   const ariaLabel = row.type === 'column' ? `${label}, ${row.column.typeName}` : label;
 
@@ -314,6 +350,7 @@ export const ExplorerRow = memo(function ExplorerRow({
       aria-disabled={disabled || undefined}
       aria-label={ariaLabel}
       data-type={row.type}
+      data-missing={missing || undefined}
       className={styles.row}
       onClick={() => {
         onSelect(index);

@@ -14,6 +14,9 @@ pub mod errors;
 pub mod split;
 pub mod value;
 
+pub mod ddl;
 pub mod introspect;
 pub mod meta;
+pub mod object_model;
+pub mod object_ops;
 pub mod script;

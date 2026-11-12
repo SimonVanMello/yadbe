@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { nodeKeys } from './explorerRows';
-import { createExplorerStore, ROOT_NODE } from './explorerStore';
+import { createExplorerStore, PINNED_NODE, ROOT_NODE } from './explorerStore';
 
 let store: ReturnType<typeof createExplorerStore>;
 const state = () => store.getState();
@@ -39,15 +39,16 @@ describe('expanded nodes', () => {
 describe('first connection', () => {
   it('opens the connection once, then the current database once', () => {
     expect(state().seed('a')).toBe(true);
-    expect(open('a')).toEqual([ROOT_NODE]);
+    // The "Pinned" group (F-027) starts open, like the connection.
+    expect(open('a')).toEqual([ROOT_NODE, PINNED_NODE]);
     state().seedDatabase('a', nodeKeys.database('shop'));
-    expect(open('a')).toEqual([ROOT_NODE, nodeKeys.database('shop')]);
+    expect(open('a')).toEqual([ROOT_NODE, PINNED_NODE, nodeKeys.database('shop')]);
     // The user closes both: a reconnection does not open them again.
     state().setExpanded('a', ROOT_NODE, false);
     state().setExpanded('a', nodeKeys.database('shop'), false);
     expect(state().seed('a')).toBe(false);
     state().seedDatabase('a', nodeKeys.database('shop'));
-    expect(open('a')).toEqual([]);
+    expect(open('a')).toEqual([PINNED_NODE]);
   });
 
   it('does not open a database of a connection that was not seeded', () => {
@@ -69,6 +70,6 @@ describe('system objects and forgetting', () => {
     state().forget('a');
     expect(state().expanded['a']).toBeUndefined();
     expect(state().seed('a')).toBe(true);
-    expect(open('b')).toEqual([ROOT_NODE]);
+    expect(open('b')).toEqual([ROOT_NODE, PINNED_NODE]);
   });
 });

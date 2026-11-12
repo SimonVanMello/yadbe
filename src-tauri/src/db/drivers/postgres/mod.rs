@@ -4,6 +4,7 @@ mod bound;
 mod decode;
 mod execute;
 mod introspect;
+mod objects;
 mod tls;
 
 use std::error::Error as _;

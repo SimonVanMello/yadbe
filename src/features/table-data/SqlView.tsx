@@ -9,7 +9,18 @@ import { sqlLanguage } from '../query/sqlLanguage';
 import styles from './SqlView.module.css';
 
 /** SQL shown, not edited: highlighted like the editor, selectable and copyable. */
-export function SqlView({ sql, engine, label }: { sql: string; engine: Engine; label: string }) {
+export function SqlView({
+  sql,
+  engine,
+  label,
+  fill = false,
+}: {
+  sql: string;
+  engine: Engine;
+  label: string;
+  /** Takes the room it is given instead of a height of its own (a tab body). */
+  fill?: boolean;
+}) {
   const parentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,5 +48,5 @@ export function SqlView({ sql, engine, label }: { sql: string; engine: Engine; l
     };
   }, [sql, engine, label]);
 
-  return <div ref={parentRef} className={styles.view} />;
+  return <div ref={parentRef} className={fill ? `${styles.view} ${styles.fill}` : styles.view} />;
 }

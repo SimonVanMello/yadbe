@@ -23,6 +23,7 @@ use crate::db::meta::{
     ObjectInfo, ObjectKind, ObjectRef, RelationSummary, RoutineSignature, SchemaInfo, TableDetails,
     TriggerEvent, TriggerInfo, TriggerTiming,
 };
+use crate::db::object_model::{DdlTarget, ObjectDdl, ObjectDependents, ObjectProperties};
 use crate::db::value::Value;
 
 /// Databases the server itself provides, hidden by default.
@@ -169,7 +170,7 @@ type ForeignKeyRows = Vec<((String, String), Vec<[String; 4]>)>;
 
 /// A cell as text. `information_schema` columns are text, but some come with the binary
 /// character set on MySQL 8: their hexadecimal form is turned back into text.
-fn text(row: &Row, index: usize) -> Option<String> {
+pub(super) fn text(row: &Row, index: usize) -> Option<String> {
     match row.get(index)? {
         Value::Null => None,
         Value::Bytes(hex) => Some(String::from_utf8_lossy(&unhex(hex)).into_owned()),
@@ -196,16 +197,16 @@ fn unhex(hex: &str) -> Vec<u8> {
         .collect()
 }
 
-fn text_req(row: &Row, index: usize) -> Result<String, YadbeError> {
+pub(super) fn text_req(row: &Row, index: usize) -> Result<String, YadbeError> {
     text(row, index).ok_or_else(|| YadbeError::internal(format!("metadata column {index} is null")))
 }
 
 /// Empty comments are no comment.
-fn comment(row: &Row, index: usize) -> Option<String> {
+pub(super) fn comment(row: &Row, index: usize) -> Option<String> {
     text(row, index).filter(|c| !c.trim().is_empty())
 }
 
-fn number(row: &Row, index: usize) -> Option<u64> {
+pub(super) fn number(row: &Row, index: usize) -> Option<u64> {
     text(row, index)?.parse().ok()
 }
 
@@ -218,7 +219,7 @@ fn flag(row: &Row, index: usize) -> bool {
 }
 
 #[allow(clippy::cast_precision_loss)]
-fn estimate(row: &Row, index: usize) -> Option<f64> {
+pub(super) fn estimate(row: &Row, index: usize) -> Option<f64> {
     number(row, index).map(|n| n as f64)
 }
 
@@ -363,7 +364,7 @@ impl Inner {
 
 impl MysqlConnection {
     /// Runs one metadata query with its names bound, recorded in the statement log.
-    async fn meta(&self, sql: &str, params: &[&str]) -> Result<Vec<Row>, YadbeError> {
+    pub(super) async fn meta(&self, sql: &str, params: &[&str]) -> Result<Vec<Row>, YadbeError> {
         let inner = std::sync::Arc::clone(&self.inner);
         let owned = sql.to_owned();
         let params: Vec<MyValue> = params
@@ -857,6 +858,30 @@ impl MysqlConnection {
 }
 
 impl Introspector for MysqlConnection {
+    fn native_ddl<'a>(
+        &'a self,
+        target: &'a DdlTarget,
+        _info: Option<&'a ObjectInfo>,
+    ) -> MetaFuture<'a, Option<ObjectDdl>> {
+        Box::pin(self.native_definition(target))
+    }
+
+    fn properties<'a>(
+        &'a self,
+        object: &'a ObjectRef,
+        kind: ObjectKind,
+    ) -> MetaFuture<'a, ObjectProperties> {
+        Box::pin(self.object_properties(object, kind))
+    }
+
+    fn dependents<'a>(
+        &'a self,
+        object: &'a ObjectRef,
+        kind: ObjectKind,
+    ) -> MetaFuture<'a, ObjectDependents> {
+        Box::pin(self.object_dependents(object, kind))
+    }
+
     fn databases(&self) -> MetaFuture<'_, Vec<DatabaseInfo>> {
         Box::pin(async move {
             self.meta(DATABASES_SQL, &[])

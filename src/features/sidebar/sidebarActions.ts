@@ -4,6 +4,7 @@ import { setGroupCollapsed } from '../connections/groupActions';
 import { metaNodeOf, openTable, refreshNode } from '../explorer/explorerActions';
 import { explorerRowLabel } from '../explorer/explorerLabels';
 import { isRelationKind, nodeKeys } from '../explorer/explorerRows';
+import { revealInExplorer, revealSchema } from '../explorer/revealInExplorer';
 import { useExplorerStore } from '../explorer/explorerStore';
 import type { SidebarTreeRow } from './sidebarRows';
 
@@ -45,6 +46,22 @@ export function openRow(row: SidebarTreeRow): boolean {
       if (!isRelationKind(row.object.kind)) return false;
       void openTable(row.connectionId, row.ref);
       return true;
+    case 'pinned': {
+      const { kind } = row.pin;
+      if (kind === null) {
+        revealSchema(row.connectionId, row.pin.database, row.pin.name);
+      } else if (!row.missing && isRelationKind(kind)) {
+        void openTable(row.connectionId, row.ref);
+      } else {
+        revealInExplorer(row.connectionId, {
+          database: row.pin.database,
+          schema: row.pin.schema,
+          kind,
+          name: row.pin.name,
+        });
+      }
+      return true;
+    }
     default:
       return false;
   }

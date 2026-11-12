@@ -32,6 +32,7 @@ import { createMockFiles } from './mockFiles';
 import { createMockHistory } from './mock/history';
 import { createMockSavedQueries } from './mock/savedQueries';
 import { createMockMeta } from './mock/meta';
+import { createMockObjects } from './mock/objects';
 import type { LargeCatalogOptions } from './mock/metaCatalog';
 import { cellValue, createMockQuery } from './mockQuery';
 import { createMockReferences } from './mock/references';
@@ -156,6 +157,14 @@ function createMockBackend() {
     },
     emitRefreshed: (payload) => {
       events.emit('metaRefreshed', payload);
+    },
+  });
+
+  const objects = createMockObjects({
+    meta,
+    readOnly: (connectionId) => findConnection(connectionId)?.definition.readOnly ?? false,
+    logStatement: (connectionId, sql, error = null) => {
+      logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
     },
   });
 
@@ -540,6 +549,7 @@ function createMockBackend() {
       await commands.disconnect(connectionId);
       connections = connections.filter((c) => c.id !== connectionId);
       savedQueries.connectionDeleted(connectionId);
+      objects.forgetConnection(connectionId);
       for (const kind of ['password', 'sshPassphrase', 'token'] as const) {
         secrets.delete(secretKey(connectionId, kind));
       }
@@ -791,6 +801,7 @@ function createMockBackend() {
 
     ...files.commands,
     ...exporter.commands,
+    ...objects.commands,
   };
 
   function reset(): void {
@@ -809,6 +820,7 @@ function createMockBackend() {
     sessions.clear();
     ssh.seed();
     meta.reset();
+    objects.reset();
     query.reset();
     history.reset();
     savedQueries.reset();
