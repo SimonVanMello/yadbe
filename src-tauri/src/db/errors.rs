@@ -520,6 +520,18 @@ impl YadbeError {
         )
     }
 
+    /// A statement yadbe built on a table failed because the table is not there any more
+    /// (PostgreSQL `42P01`, SQL Server 208, MySQL 1146, SQLite `no such table`). The caller
+    /// that knows the table names it with [`Self::object_not_found`].
+    pub fn table_gone(detail: impl AsRef<str>) -> Self {
+        Self::new(
+            ErrorCode::ObjectNotFound,
+            "The table no longer exists. Refresh the explorer to see the current objects.",
+            "La table n'existe plus. Actualisez l'explorateur pour voir les objets actuels.",
+        )
+        .with_detail(detail)
+    }
+
     pub fn not_supported(en: impl Into<String>, fr: impl Into<String>) -> Self {
         Self::new(ErrorCode::NotSupported, en, fr)
     }

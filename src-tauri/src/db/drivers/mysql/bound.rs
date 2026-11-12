@@ -128,6 +128,8 @@ fn failure(inner: &Inner, err: &MyError) -> BoundFailure {
     let error = match &violation {
         Some(v) => YadbeError::constraint_violation(v).with_detail(&detail),
         None if INVALID_VALUE.contains(&server.code) => YadbeError::invalid_value(&detail),
+        // Table doesn't exist: dropped or renamed since the tab read it.
+        None if server.code == 1146 => YadbeError::table_gone(&detail),
         None => from_mysql_query_error(server.code, &detail)
             .unwrap_or_else(|| super::classify_query(err)),
     };

@@ -229,7 +229,20 @@ impl TableDataService {
         *lock(&tab.cancel) = Some(conn.cancel_handle());
         let result = conn.query_bound(statement, max_rows).await;
         *lock(&tab.cancel) = None;
-        result
+        result.map_err(|mut failure| {
+            // The driver saw the table gone (dropped or renamed elsewhere): say which.
+            if failure.error.code == ErrorCode::ObjectNotFound {
+                let table = &tab.shape.details.table;
+                let name = match &table.schema {
+                    Some(schema) => format!("{schema}.{}", table.name),
+                    None => table.name.clone(),
+                };
+                let mut named = YadbeError::object_not_found(&name);
+                named.detail = failure.error.detail.take();
+                failure.error = named;
+            }
+            failure
+        })
     }
 
     fn keep(&self, tab: &TableTab, rows: Vec<Vec<Value>>) -> ResultWindow {

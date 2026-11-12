@@ -99,6 +99,8 @@ fn failure(err: &rusqlite::Error, path: &Path) -> BoundFailure {
         (None, rusqlite::ErrorCode::ReadOnly) => {
             YadbeError::read_only_violation("").with_detail(&message)
         }
+        // SQLite has no distinct code for it: the message is fixed by the engine.
+        (None, _) if message.starts_with("no such table:") => YadbeError::table_gone(&message),
         _ => classify(err, path),
     };
     BoundFailure {

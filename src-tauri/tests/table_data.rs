@@ -495,6 +495,8 @@ async fn suite(fx: &Fixture) {
     if engine == Engine::Mssql {
         triggers(&b, &conn, fx).await;
     }
+    dropped_elsewhere(&b, &conn, fx).await;
+    read_only_switched(&b, &conn, fx).await;
 
     // Statement log: values written as literals, the transaction around them.
     let logged: Vec<String> = b.log.entries().into_iter().map(|e| e.sql).collect();
@@ -564,6 +566,86 @@ async fn suite(fx: &Fixture) {
         .expect_err("refused");
     assert_eq!(err.code, ErrorCode::ReadOnlyViolation);
     b.tables.close("ro").await;
+}
+
+/// A table dropped while its tab is open: the next page or count says the table is gone and
+/// names it, on every engine (M3-16).
+async fn dropped_elsewhere(b: &Bench, conn: &str, fx: &Fixture) {
+    let name = match &fx.schema {
+        Some(schema) => format!("{schema}.m316_gone"),
+        None => "m316_gone".to_owned(),
+    };
+    let other = common::open(&fx.def, fx.password.as_ref())
+        .await
+        .expect("second connection");
+    other
+        .query(&format!("CREATE TABLE {name} (id int PRIMARY KEY)"), 0)
+        .await
+        .expect("create");
+    let tab = open(b, conn, fx.table("m316_gone"), "gone").await;
+    tab.page(TableFilter::default(), vec![], 0, 5)
+        .await
+        .expect("page before the drop");
+    other
+        .query(&format!("DROP TABLE {name}"), 0)
+        .await
+        .expect("drop");
+    other.close().await;
+    let err = tab
+        .page(TableFilter::default(), vec![], 0, 5)
+        .await
+        .expect_err("gone");
+    assert_eq!(err.code, ErrorCode::ObjectNotFound, "{err:?}");
+    assert!(
+        err.message
+            .en
+            .contains(&format!("\"{name}\" no longer exists")),
+        "{err:?}"
+    );
+    assert!(
+        err.detail.is_some(),
+        "the server's message stays in the details"
+    );
+    let err = b
+        .tables
+        .count("gone", TableFilter::default(), CountMode::Exact)
+        .await
+        .expect_err("gone");
+    assert_eq!(err.code, ErrorCode::ObjectNotFound, "{err:?}");
+    b.tables.close("gone").await;
+}
+
+/// Read-only turned on under an open table tab: the next apply is refused; turned off, it is
+/// applied again (F-008, M3-16).
+async fn read_only_switched(b: &Bench, conn: &str, fx: &Fixture) {
+    let tab = open(b, conn, fx.table("items"), "switch").await;
+    let save = |on: bool| async move {
+        let saved = b.db.connection(conn).expect("saved");
+        let mut after = saved.definition.clone();
+        after.read_only = on;
+        b.db.update_connection(conn, &after).expect("update");
+        assert!(!b.manager.apply_saved(conn, &saved.definition, &after).await);
+    };
+    let row = |sku: &str| inserts(vec![insert(&[("sku", text(sku)), ("qty", int(1))])]);
+    save(true).await;
+    let err = tab.apply(row("m316-ro")).await.expect_err("refused");
+    assert_eq!(err.code, ErrorCode::ReadOnlyViolation);
+    save(false).await;
+    tab.applied(row("m316-rw")).await;
+    let (rows, _) = tab
+        .page(
+            filter(
+                vec![("sku", FilterOp::In, vec![text("m316-ro"), text("m316-rw")])],
+                None,
+            ),
+            vec![],
+            0,
+            10,
+        )
+        .await
+        .expect("page");
+    assert_eq!(rows.len(), 1, "only the insert made while writable");
+    b.tables.close("switch").await;
 }
 
 async fn editability(b: &Bench, conn: &str, fx: &Fixture) {

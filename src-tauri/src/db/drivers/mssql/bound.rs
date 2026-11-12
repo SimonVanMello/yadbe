@@ -125,6 +125,8 @@ fn failure(message: &TdsMessage) -> BoundFailure {
         {
             YadbeError::invalid_value(&detail)
         }
+        // Invalid object name: the table was dropped or renamed since the tab read it.
+        None if message.number == 208 => YadbeError::table_gone(&detail),
         // The database is read-only.
         None if message.number == 3906 => YadbeError::database_read_only().with_detail(&detail),
         None => YadbeError::query_failed(&detail),

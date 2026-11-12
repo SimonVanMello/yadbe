@@ -89,6 +89,8 @@ pub(super) fn failure(err: &tokio_postgres::Error) -> BoundFailure {
         (Some(violation), _) => YadbeError::constraint_violation(violation).with_detail(&detail),
         (None, "57014") => YadbeError::cancelled().with_detail(db.message()),
         (None, "25006") => YadbeError::read_only_violation("").with_detail(&detail),
+        // undefined_table: the table of a table tab was dropped or renamed.
+        (None, "42P01") => YadbeError::table_gone(&detail),
         (None, c) if c.starts_with("22") => YadbeError::invalid_value(&detail),
         _ => base,
     };
