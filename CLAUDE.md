@@ -46,6 +46,7 @@ src/                      Frontend
     preferences/          Preferences screen, schema and store; user-facing settings are read with `usePreference` / `getPreference`
     export/               Export dialog, options, progress toasts (result or table source)
     library/              Saved queries and snippets: Saved view, save dialog, snippet expansion, built-in snippets
+    result-edit/          Editable query results: edit session over a result (table-tab machinery), footer status and read-only reasons
     journal/              Change journal view: search and filters, change set detail, revert entry point
     objects/              DDL tab, properties dialog, drop / truncate / rename confirmation, pins, inline rename
     import/               Data import wizard (file and format, column mapping, dry run and import)
@@ -63,9 +64,9 @@ scripts/                  check-case, P-01 startup and P-04 WebKitGTK measuremen
 src-tauri/
   src/
     commands/             Tauri handlers: thin, no logic (validation → service call → error mapping)
-    db/                   value.rs (Value model), driver.rs (traits), dialect.rs + edit_dialect.rs (paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), ddl.rs + object_ops.rs + object_model.rs (DDL text, object statements, properties), params.rs (query parameters: scanner, binding), plan/ (plan model, one parser per engine, fixtures of real plans), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
+    db/                   value.rs (Value model), driver.rs (traits), dialect.rs + edit_dialect.rs (paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), ddl.rs + object_ops.rs + object_model.rs (DDL text, object statements, properties), params.rs (query parameters: scanner, binding), result_source.rs (plain one-table SELECT check for editable results), plan/ (plan model, one parser per engine, fixtures of real plans), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
       drivers/<engine>/   postgres, mssql, sqlite, mysql: the only place a driver crate is used
-    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs, ReferenceService (references.rs: foreign key lookups), Library (library.rs: saved queries), journal.rs (change journal, reverts), meta_objects.rs (DDL, properties, object actions), tunnel.rs (SSH tunnel of a session)
+    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs, ReferenceService (references.rs: foreign key lookups), Library (library.rs: saved queries), journal.rs (change journal, reverts), result_edit.rs (editable query results), meta_objects.rs (DDL, properties, object actions), tunnel.rs (SSH tunnel of a session)
     tunnel/               SSH tunnels (russh): hops, authentication, host key checks, the loopback listener drivers dial
     edit/                 Change set → EditPlanner → parameterized DML with original-value checks, SQL preview, inverse.rs (what reverts a change set)
     secrets/              Keychain access, Secret type
@@ -112,7 +113,7 @@ pnpm tauri build --bundles deb   # P-10: installer size (Linux .deb; macOS / Win
 cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… cargo test --test table_data --test export   # table browsing / edit plans on the three engines, exports
 cd src-tauri && YADBE_TEST_MYSQL_URL=mysql://yadbe:yadbe-test-pw@localhost:53306/yadbe_test YADBE_TEST_MYSQL_CA=../dev/certs/ca.crt cargo test --test query_mysql --test introspection --test table_data --test export   # MySQL (compose service; `up -d -V mysql` the first time so the init grants run); P-02: `p02_mysql`
 cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… cargo test --test references   # foreign key lookups (SQLite always runs)
-cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… cargo test --test change_journal --test objects --test query_tools --test import   # optimistic concurrency and journal, object DDL and actions, parameters and plans, data import (SQLite always runs)
+cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… cargo test --test change_journal --test result_edit --test objects --test query_tools --test import   # optimistic concurrency and journal, editable query results, object DDL and actions, parameters and plans, data import (SQLite always runs)
 cd src-tauri && YADBE_BENCH_ROWS=1000000 cargo test --release --test import throughput -- --ignored --nocapture   # import throughput per engine; `large_file` instead for the 1 GiB file (about 2.5 GB of disk)
 dev/ssh-test.sh [dir]   # Throwaway OpenSSH servers (tunnel 2222, jump host 2223, no forwarding 2224) + ssh-agent; needs openssh-server and root; `dev/ssh-test.sh stop [dir]`
 cd src-tauri && YADBE_TEST_SSH_DIR=/tmp/yadbe-sshd YADBE_TEST_PG_URL=… YADBE_TEST_PG_CA=… [YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… YADBE_TEST_MYSQL_CA=…] cargo test --test ssh_tunnel   # SSH tunnels on every engine set (unset: SKIPPED; YADBE_TEST_SSH_PORT defaults to 2222)
