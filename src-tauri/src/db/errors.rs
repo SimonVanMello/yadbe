@@ -127,6 +127,11 @@ pub enum ErrorCode {
     /// A connections file (yadbe export, Azure Data Studio settings, DBeaver…) is not in a
     /// format yadbe understands, or comes from a newer version.
     ConnectionFileInvalid,
+    /// The database user lacks a privilege the operation needs (`detail` names it): the
+    /// activity monitor cannot see other sessions, or a kill is refused by the server.
+    InsufficientPrivilege,
+    /// The session to act on ended, or was replaced by another one, since the list was read.
+    SessionChanged,
 }
 
 /// A message in every supported UI language.
@@ -454,6 +459,24 @@ impl YadbeError {
 
     pub fn not_supported(en: impl Into<String>, fr: impl Into<String>) -> Self {
         Self::new(ErrorCode::NotSupported, en, fr)
+    }
+
+    /// `what`: what the user could not do, `privilege`: what to grant (never translated).
+    pub fn insufficient_privilege(what_en: &str, what_fr: &str, privilege: &str) -> Self {
+        Self::new(
+            ErrorCode::InsufficientPrivilege,
+            format!("{what_en} The database user needs the privilege {privilege}."),
+            format!("{what_fr} L'utilisateur de la base a besoin du privilège {privilege}."),
+        )
+    }
+
+    pub fn session_changed() -> Self {
+        Self::new(
+            ErrorCode::SessionChanged,
+            "That session ended or was replaced since the list was read. Refresh the list and check again.",
+            "Cette session s'est terminée ou a été remplacée depuis la lecture de la liste. Actualisez la liste et vérifiez à nouveau.",
+        )
+        .with_action(ErrorAction::Retry)
     }
 
     pub fn execution_running() -> Self {

@@ -195,6 +195,12 @@ pub trait Connection: Send + Sync {
         None
     }
 
+    /// Sessions, locks and kill on this connection (F-140); `None` for an engine without
+    /// sessions (SQLite).
+    fn activity(&self) -> Option<&dyn crate::db::activity::ActivityMonitor> {
+        None
+    }
+
     /// Runs one user statement exactly as written, pushing what it produces into `events`
     /// (columns, row batches, notices). Never recorded in the statement log: the caller
     /// records user statements in the history. The channel is bounded: while the receiver

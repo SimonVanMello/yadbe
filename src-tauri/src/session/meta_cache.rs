@@ -699,6 +699,8 @@ impl EventSink for ObservingSink {
     }
 }
 
+#[path = "meta_activity.rs"]
+mod activity;
 #[path = "meta_objects.rs"]
 mod objects;
 

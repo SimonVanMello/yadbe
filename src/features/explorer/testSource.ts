@@ -88,6 +88,8 @@ export const POSTGRES: Capabilities = {
   },
   explain: true,
   explainAnalyze: true,
+  activityMonitor: true,
+  activityCancelQuery: true,
 };
 
 export const SQLITE: Capabilities = {
@@ -112,6 +114,8 @@ export const SQLITE: Capabilities = {
   },
   explain: true,
   explainAnalyze: false,
+  activityMonitor: false,
+  activityCancelQuery: false,
 };
 
 export const MYSQL: Capabilities = {

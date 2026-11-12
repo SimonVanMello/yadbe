@@ -504,6 +504,33 @@ export const commands = {
 	/**  Pins an object (or a schema: `kind` `null`) at the top of its connection's tree. */
 	pinObject: (pin: PinnedObject) => typedError<null, YadbeError>(__TAURI_INVOKE("pin_object", { pin })),
 	unpinObject: (pin: PinnedObject) => typedError<null, YadbeError>(__TAURI_INVOKE("unpin_object", { pin })),
+	/**
+	 *  The sessions of the server with what they run, their locks and who blocks whom. Fails with
+	 *  `notSupported` on an engine without sessions (SQLite) and with `insufficientPrivilege` when
+	 *  the user cannot see other sessions at all; a partial view (PostgreSQL without
+	 *  `pg_read_all_stats`) comes back with a note saying what is hidden.
+	 */
+	getActivity: (requestId: string | null, connectionId: string) => typedError<ActivitySnapshot, YadbeError>(__TAURI_INVOKE("get_activity", { requestId, connectionId })),
+	/**
+	 *  Cancels the running statement of a session, or ends the session, after the user confirmed
+	 *  what the list showed. Refused with `readOnlyViolation` on a read-only connection, with
+	 *  `sessionChanged` when the session is no longer the one the list showed, and with
+	 *  `insufficientPrivilege` when the server refuses. Recorded in the statement log.
+	 */
+	killSession: (connectionId: string, request: KillRequest) => typedError<KillOutcome, YadbeError>(__TAURI_INVOKE("kill_session", { connectionId, request })),
+	/**
+	 *  The migrations recorded in a `__EFMigrationsHistory` table, oldest first, with the
+	 *  timestamp and the name of each id parsed.
+	 */
+	getEfMigrations: (requestId: string | null, connectionId: string, table: ObjectRef) => typedError<EfMigrations, YadbeError>(__TAURI_INVOKE("get_ef_migrations", { requestId, connectionId, table })),
+	/**
+	 *  A saved connection as an ADO.NET connection string, or as the EF Core call that uses it,
+	 *  for the engine's .NET provider. The password is left out unless `includePassword`: then it
+	 *  is read from the keychain (or the session) here, written into the returned text only, and
+	 *  never logged or stored; the caller puts it on the clipboard and lets it go. Fails with
+	 *  `passwordRequired` when none is stored.
+	 */
+	copyConnectionString: (connectionId: string, flavor: ConnectionStringFlavor, includePassword: boolean) => typedError<ConnectionStringCopy, YadbeError>(__TAURI_INVOKE("copy_connection_string", { connectionId, flavor, includePassword })),
 };
 
 /** Events */
@@ -526,6 +553,70 @@ export const events = {
 };
 
 /* Types */
+export type ActivityLock = {
+	sessionId: string,
+	/**  `relation`, `transactionid`, `KEY`, `RECORD`, `TABLE`…, as the engine names it. */
+	lockType: string,
+	mode: string,
+	/**  `false`: the session waits for this lock. */
+	granted: boolean,
+	/**  The locked object (`public.orders`), when the engine names it. */
+	object: string | null,
+};
+
+/**
+ *  What the monitor could not show in full, and why. The list is still the truth about what
+ *  was visible: these notes say what was left out.
+ */
+export type ActivityNote = 
+/**
+ *  The user sees the other sessions but not their statements or states (PostgreSQL
+ *  without `pg_read_all_stats`).
+ */
+"statementsHidden" | 
+/**  The engine cannot list locks here (MySQL without the data lock tables, MariaDB). */
+"locksUnavailable";
+
+export type ActivitySession = {
+	/**  Process id (PostgreSQL), session id (SQL Server), thread id (MySQL). */
+	id: string,
+	/**
+	 *  Identifies this very session, not only its id (ids are reused): what the kill checks
+	 *  again before it fires. Opaque for the frontend.
+	 */
+	fingerprint: string,
+	user: string | null,
+	database: string | null,
+	/**  Where the client connects from (`host`, `host:port`). */
+	client: string | null,
+	application: string | null,
+	state: SessionState,
+	/**  The engine's own word for the state (`idle in transaction`, `suspended`, `Sleep`…). */
+	stateText: string | null,
+	/**  What the session waits for (`Lock: transactionid`, `LCK_M_X`…), when it waits. */
+	wait: string | null,
+	/**  The statement it runs, or ran last when idle; cut at [`STATEMENT_CHARS`]. */
+	statement: string | null,
+	statementTruncated: boolean,
+	/**  Seconds the current statement has been running, or the session in its current state. */
+	runningSecs: number | null,
+	/**  Seconds the open transaction has lasted, when the engine tells. */
+	transactionSecs: number | null,
+	/**  Ids of the sessions that hold what this one waits for. */
+	blockedBy: string[],
+	/**  The session yadbe reads the monitor with: it cannot be killed from here. */
+	isSelf: boolean,
+	/**  A background or system session (workers, checkpointer…), hidden by default. */
+	system: boolean,
+};
+
+export type ActivitySnapshot = {
+	sessions: ActivitySession[],
+	locks: ActivityLock[],
+	locksTruncated: boolean,
+	notes: ActivityNote[],
+};
+
 export type AppInfo = {
 	/**  yadbe version, from `Cargo.toml`. */
 	appVersion: string,
@@ -621,6 +712,13 @@ export type Capabilities = {
 	explain: boolean,
 	/**  The engine runs a statement and shows its plan with actual rows and times. */
 	explainAnalyze: boolean,
+	/**  The engine has sessions to watch: the activity monitor is offered (F-140). */
+	activityMonitor: boolean,
+	/**
+	 *  A running statement can be stopped while its session stays (`pg_cancel_backend`,
+	 *  `KILL QUERY`); otherwise only the whole session can be ended.
+	 */
+	activityCancelQuery: boolean,
 };
 
 /**  A foreign key between two relations of the catalog (join suggestions). */
@@ -953,7 +1051,42 @@ export type ConnectionStateChanged = {
 	session: SessionInfo,
 };
 
+/**
+ *  The copy handed to the user. The text carries the password only when it was asked for
+ *  (`includes_password`): it crosses the IPC once, is never stored, and its type neither
+ *  logs nor prints it.
+ */
+export type ConnectionStringCopy = {
+	text: RevealedText,
+	provider: DotnetProvider,
+	includesPassword: boolean,
+	notes: ConnectionStringNote[],
+};
+
+/**  What the user asks to copy. */
+export type ConnectionStringFlavor = 
+/**  The connection string alone, as the data provider reads it. */
+"adoNet" | 
+/**  The C# that gives it to an EF Core `DbContext` (`options.UseNpgsql(…)`). */
+"efCore";
+
 export type ConnectionStringFormat = "url" | "adoNet" | "jdbc";
+
+/**  A part of the connection that the string does not carry. */
+export type ConnectionStringNote = 
+/**
+ *  The connection goes through an SSH tunnel: the string holds the database's own host
+ *  and port, to be used from a machine that reaches it.
+ */
+"sshTunnel" | 
+/**  The connection is read-only in yadbe; the provider has no setting for it. */
+"readOnlyNotExpressed" | 
+/**  Engine parameters of the connection the provider has no keyword for. */
+"optionsNotExpressed" | 
+/**  A custom CA file: the provider has no keyword for it. */
+"certificateNotExpressed" | 
+/**  The password is not in the string (the default): add it where the app reads secrets. */
+"passwordLeftOut";
 
 /**  Kinds of constraints a change can break. */
 export type ConstraintKind = 
@@ -1064,12 +1197,42 @@ export type Dependent = {
 	via: DependencyLink | null,
 };
 
+/**  The data provider behind a string, for the label of the copy and the notes. */
+export type DotnetProvider = {
+	/**  The ADO.NET provider (`Npgsql`). */
+	adoNet: string,
+	/**  The EF Core provider package (`Npgsql.EntityFrameworkCore.PostgreSQL`). */
+	efCore: string,
+};
+
 /**  The SQL Apply would run (F-085). */
 export type EditPreview = {
 	/**  In the order they run. */
 	statements: PlannedStatement[],
 	/**  The whole transaction as one script: the engine's `BEGIN`, the statements, `COMMIT`. */
 	script: string,
+};
+
+export type EfMigration = {
+	/**  The full id as recorded (`20231105134530_AddOrders`). */
+	id: string,
+	/**  The name part (`AddOrders`); the whole id when it has no timestamp prefix. */
+	name: string,
+	/**
+	 *  The prefix as `YYYY-MM-DD HH:MM:SS` (as written by the developer's machine, UTC by
+	 *  EF Core's convention), when the id has one.
+	 */
+	timestamp: string | null,
+	/**  The EF Core version that applied it (`8.0.4`). */
+	productVersion: string | null,
+};
+
+export type EfMigrations = {
+	table: ObjectRef,
+	/**  Oldest first: the order of the ids, which is the order they were created in. */
+	migrations: EfMigration[],
+	/**  The table held more rows than were read. */
+	truncated: boolean,
 };
 
 /**  Database engines yadbe knows. Every engine has a dialect; drivers arrive one by one. */
@@ -1254,7 +1417,14 @@ export type ErrorCode =
  *  A connections file (yadbe export, Azure Data Studio settings, DBeaver…) is not in a
  *  format yadbe understands, or comes from a newer version.
  */
-"connectionFileInvalid";
+"connectionFileInvalid" | 
+/**
+ *  The database user lacks a privilege the operation needs (`detail` names it): the
+ *  activity monitor cannot see other sessions, or a kill is refused by the server.
+ */
+"insufficientPrivilege" | 
+/**  The session to act on ended, or was replaced by another one, since the list was read. */
+"sessionChanged";
 
 export type ExecuteRequest = {
 	/**  The editor tab: it owns a dedicated server connection, opened on its first run. */
@@ -1987,6 +2157,25 @@ export type KeychainStatus = {
 	detail: string | null,
 };
 
+/**  How far a kill goes. */
+export type KillMode = 
+/**  Stops the running statement; the session stays (`pg_cancel_backend`, `KILL QUERY`). */
+"cancelQuery" | 
+/**  Ends the session, rolling back its open transaction (`pg_terminate_backend`, `KILL`). */
+"terminateSession";
+
+/**  What a kill reports; the statement is what yadbe sent, for the toast and the log. */
+export type KillOutcome = {
+	statement: string,
+};
+
+/**  The session to act on, as the list showed it. */
+export type KillRequest = {
+	sessionId: string,
+	fingerprint: string,
+	mode: KillMode,
+};
+
 /**  A host key the user accepted (yadbe's own known-hosts store). */
 export type KnownHost = {
 	host: string,
@@ -2581,6 +2770,14 @@ export type ResumeMode =
 /**  Everything, without limit. */
 "all";
 
+/**
+ *  Text that may hold a secret and is handed to the user on purpose, once (a connection
+ *  string copied with its password). Serializable because the user asked for it; redacted in
+ *  `Debug`, zeroized when dropped, and never kept: the caller writes it to the clipboard and
+ *  lets it go.
+ */
+export type RevealedText = string;
+
 /**  Why a change set cannot be reverted faithfully: yadbe refuses rather than guess. */
 export type RevertBlocker = 
 /**  An edited value was sent without the value it replaced. */
@@ -2810,6 +3007,20 @@ export type SessionInfo = {
 	/**  The SSH tunnel of the connection and its phase (`opening` while connecting through it). */
 	tunnel: TunnelStatus | null,
 };
+
+/**
+ *  What a session is doing right now, normalized across engines. The engine's own word stays
+ *  in `state_text`.
+ */
+export type SessionState = 
+/**  Running a statement (or waiting for a lock or a resource inside it). */
+"active" | 
+/**  Connected and waiting for the client. */
+"idle" | 
+/**  Idle with a transaction left open: its locks are still held. */
+"idleInTransaction" | 
+/**  Anything else (background work, unknown). */
+"other";
 
 /**  Why an entry of a file is not offered. */
 export type SkipReason = 
