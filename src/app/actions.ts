@@ -96,6 +96,9 @@ export const UNBOUND_ACTIONS = [
   'table.countExact',
   'table.pasteRows',
   'table.export',
+  // Change journal (F-090): the sidebar view, and the change sets of the active table tab.
+  'view.journal',
+  'table.journal',
 ] as const;
 
 export type BoundActionId = keyof typeof DEFAULT_BINDINGS;
@@ -172,6 +175,8 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'table.referencingRows': 'action.table.referencingRows',
   'table.navigateBack': 'action.table.navigateBack',
   'table.navigateForward': 'action.table.navigateForward',
+  'view.journal': 'action.view.journal',
+  'table.journal': 'action.table.journal',
 };
 
 /** Shortcut of an action that has one, as written in `DEFAULT_BINDINGS` (`Mod+T`). */

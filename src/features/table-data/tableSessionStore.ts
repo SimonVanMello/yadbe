@@ -6,9 +6,11 @@ import type {
   StatementFailure,
   TableDataInfo,
   TableRowCount,
+  Value,
   YadbeError,
 } from '../../ipc';
 import { EMPTY_PENDING, pendingCount, type ChangeTarget, type Pending } from './pendingChanges';
+import type { LooseRow } from './tableRowSource';
 
 /**
  * What a table tab is doing right now (not saved): the table's description, the page on screen,
@@ -50,6 +52,50 @@ export interface TableSession {
   } | null;
   /** Changes were applied to the table from another tab since this page was read. */
   stale: boolean;
+  /** The last apply found rows changed or deleted by someone else (F-089). */
+  conflict: { rows: ConflictRow[] } | null;
+  /** "Revert this change set" running on this tab (F-090). */
+  revert: RevertState | null;
+}
+
+/** A cell of a conflicting row: as read, as the user wants it, as the server holds it now. */
+export interface ConflictCell {
+  column: string;
+  original: Value;
+  /** `null`: the user deletes the row. */
+  mine: Value | null;
+  /** `null`: the row was deleted elsewhere. */
+  theirs: Value | null;
+  /** The user changed this cell. */
+  edited: boolean;
+}
+
+/** A row whose `UPDATE` / `DELETE` matched nothing: it changed or went since it was read. */
+export interface ConflictRow {
+  /** Its grid row. */
+  row: number;
+  kind: 'update' | 'delete';
+  /** The row as the user knows it (`id = 42`). */
+  label: string;
+  sql: string;
+  /** The row as stored now, by data column; `null`: deleted elsewhere. */
+  current: Value[] | null;
+  /** Where the row now reads from (`null`: deleted). */
+  currentRow: LooseRow | null;
+  /** The cells the user edited, and the ones changed elsewhere. */
+  cells: ConflictCell[];
+}
+
+export interface RevertState {
+  entryId: number;
+  status: 'loading' | 'ready' | 'failed' | 'applying' | 'conflicted' | 'rolledBack';
+  preview: EditPreview | null;
+  /** Why the preview could not be built. */
+  error: YadbeError | null;
+  /** Rows changed since the change set: nothing was reverted. */
+  conflicts: { label: string; sql: string; gone: boolean }[];
+  /** A statement failed: nothing was reverted. */
+  failure: StatementFailure | null;
 }
 
 export function newTableSession(): TableSession {
@@ -71,6 +117,8 @@ export function newTableSession(): TableSession {
     failure: null,
     preview: null,
     stale: false,
+    conflict: null,
+    revert: null,
   };
 }
 

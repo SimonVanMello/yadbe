@@ -335,6 +335,22 @@ export class TableRowSource implements RowSource {
     this.notify();
   }
 
+  /**
+   * Rows read again after a conflict (F-089): what the server holds now replaces what was read,
+   * pending changes stay.
+   */
+  refreshRows(refreshed: ReadonlyMap<number, LooseRow>): void {
+    if (refreshed.size === 0) return;
+    for (const [row, fresh] of refreshed) {
+      const source = this.mapping ? (this.mapping[row] ?? row) : row;
+      if (source >= 0) this.overrides.set(source, fresh);
+      else this.extras[-1 - source] = fresh;
+    }
+    this.composed.clear();
+    this.retouch();
+    this.notify();
+  }
+
   /** The value of a cell as the server holds it (pending changes ignored). */
   async underlyingValue(row: number, col: number): Promise<Value> {
     const known = this.underlying(row, this.cacheLookup);

@@ -112,6 +112,12 @@ pub struct TableDataChanged {
     pub deleted: u32,
 }
 
+/// The change journal changed (F-090): a change set was recorded or reverted, or entries
+/// were cleared. Query it again.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeJournalChanged {}
+
 /// Every event the services emit, so they can be tested without Tauri.
 #[derive(Debug, Clone)]
 pub enum BackendEvent {
@@ -126,6 +132,7 @@ pub enum BackendEvent {
     ExportFinished(ExportFinished),
     TableDataChanged(TableDataChanged),
     SavedQueriesChanged(SavedQueriesChanged),
+    ChangeJournalChanged(ChangeJournalChanged),
 }
 
 pub trait EventSink: Send + Sync {
@@ -182,6 +189,7 @@ impl EventSink for TauriSink {
             BackendEvent::ExportFinished(e) => e.emit(app),
             BackendEvent::TableDataChanged(e) => e.emit(app),
             BackendEvent::SavedQueriesChanged(e) => e.emit(app),
+            BackendEvent::ChangeJournalChanged(e) => e.emit(app),
         };
         if let Err(err) = result {
             tracing::warn!(error = %err, "failed to emit event");

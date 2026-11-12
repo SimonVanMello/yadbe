@@ -2,6 +2,7 @@ import type {
   CellUpdate,
   ChangeSet,
   PlannedChange,
+  RowDelete,
   RowInsert,
   TableColumn,
   Value,
@@ -31,6 +32,11 @@ export interface RowChange {
   cells: ReadonlyMap<number, CellChange>;
   /** Marked for deletion; its cell changes come back if the deletion is reverted. */
   deleted: boolean;
+  /**
+   * The whole row as read, by data column, once marked for deletion: the `DELETE` only matches
+   * the row while it still holds them (F-089), and the journal can insert it back (F-090).
+   */
+  values?: readonly Value[] | null;
 }
 
 export interface InsertChange {
@@ -49,6 +55,8 @@ export const EMPTY_PENDING: Pending = { rows: new Map(), inserts: [] };
 export interface RowTarget {
   row: number;
   key: Value[];
+  /** The whole row as read (deletions). */
+  values?: readonly Value[];
 }
 
 function withRow(pending: Pending, row: number, change: RowChange | null): Pending {
@@ -81,6 +89,7 @@ export function setCell(
     key: current?.key ?? target.key,
     cells,
     deleted: current?.deleted ?? false,
+    values: current?.values ?? null,
   });
 }
 
@@ -130,6 +139,7 @@ export function deleteRows(
       key: current?.key ?? target.key,
       cells: current?.cells ?? new Map(),
       deleted: true,
+      values: target.values ?? current?.values ?? null,
     });
   }
   if (inserts.length > 0) {
@@ -138,6 +148,28 @@ export function deleteRows(
   }
   return next;
 }
+
+/**
+ * A conflicting row (F-089) takes what the server holds now as what it was read with: an edit
+ * keeps its value but compares with theirs (one already equal to theirs has nothing left to do),
+ * a deletion deletes their row. The next Apply then overwrites their change, by choice.
+ */
+export function rebaseRow(pending: Pending, row: number, current: readonly Value[]): Pending {
+  const change = pending.rows.get(row);
+  if (!change) return pending;
+  const cells = new Map<number, CellChange>();
+  for (const [col, cell] of change.cells) {
+    const theirs = current[col] ?? NULL_VALUE;
+    if (!valuesEqual(cell.value, theirs)) cells.set(col, { value: cell.value, original: theirs });
+  }
+  return withRow(pending, row, {
+    ...change,
+    cells,
+    values: change.deleted ? [...current] : (change.values ?? null),
+  });
+}
+
+const NULL_VALUE: Value = { kind: 'null' };
 
 /** Reverts cells of existing rows (`dataCols` of `row`). */
 export function revertCells(pending: Pending, row: number, dataCols: readonly number[]): Pending {
@@ -209,20 +241,28 @@ export interface ChangeTrace {
 }
 
 /**
- * The change set Apply sends: updates of the rows not deleted (in row then column order),
- * deletions, new rows with the columns they set. Values go as they are: lossless strings.
+ * The change set Apply sends: updates of the rows not deleted (in row then column order), each
+ * with the value it replaces, deletions with the row as read (F-089), new rows with the columns
+ * they set. Values go as they are: lossless strings.
  */
 export function toChangeSet(
   pending: Pending,
   columns: readonly Pick<TableColumn, 'name'>[],
 ): { changes: ChangeSet; trace: ChangeTrace } {
   const updates: CellUpdate[] = [];
-  const deletes: Value[][] = [];
+  const deletes: RowDelete[] = [];
   const trace: ChangeTrace = { updates: [], deletes: [], inserts: [] };
   const rows = [...pending.rows.entries()].sort(([a], [b]) => a - b);
   for (const [row, change] of rows) {
     if (change.deleted) {
-      deletes.push(change.key);
+      const values = change.values ?? [];
+      deletes.push({
+        key: change.key,
+        values: columns.flatMap((column, col) => {
+          const value = values[col];
+          return value ? [{ column: column.name, value }] : [];
+        }),
+      });
       trace.deletes.push(row);
       continue;
     }
@@ -230,7 +270,12 @@ export function toChangeSet(
     for (const [dataCol, cell] of cells) {
       const column = columns[dataCol];
       if (!column) continue;
-      updates.push({ key: change.key, column: column.name, value: cell.value });
+      updates.push({
+        key: change.key,
+        column: column.name,
+        value: cell.value,
+        original: cell.original,
+      });
       trace.updates.push({ row, dataCol });
     }
   }

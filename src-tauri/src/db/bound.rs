@@ -59,6 +59,17 @@ impl<'d> SqlBuilder<'d> {
         self
     }
 
+    /// A value bound as the next parameter inside `template` (`{}` stands for it), without
+    /// the dialect's conversion: `CAST($1 AS text)`.
+    pub fn value_through(&mut self, value: &Value, template: &str) -> &mut Self {
+        self.params.push(value.clone());
+        let placeholder = self.dialect.placeholder(self.params.len());
+        self.sql.push_str(&template.replace("{}", &placeholder));
+        self.display
+            .push_str(&template.replace("{}", &self.dialect.literal(value)));
+        self
+    }
+
     pub fn finish(self, returns_rows: bool) -> BoundStatement {
         BoundStatement {
             sql: self.sql,

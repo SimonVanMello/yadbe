@@ -37,6 +37,7 @@ import { cellValue, createMockQuery } from './mockQuery';
 import { createMockReferences } from './mock/references';
 import { createMockSsh, tunnelStatus } from './mock/ssh';
 import { createMockTableData } from './mock/tableData';
+import { createMockJournal } from './mock/journal';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
 const MOCK_APP_INFO: AppInfo = { appVersion: '0.1.0', os: 'linux', arch: 'x86_64' };
@@ -50,6 +51,8 @@ const DEFAULT_PREFERENCES: Preferences = {
   historyMaxEntries: 50_000,
   historyMaxAgeDays: 365,
   connectTimeoutSecs: 15,
+  journalMaxEntries: 1000,
+  journalMaxAgeDays: 90,
 };
 
 /** Time a connection attempt takes in the mock, in ms. */
@@ -370,8 +373,12 @@ function createMockBackend() {
     },
   });
 
+  const journal = createMockJournal({ events });
+
   const tableData = createMockTableData({
     events,
+    journal,
+    connectionName: (connectionId) => findConnection(connectionId)?.definition.name ?? connectionId,
     relation: (connectionId, table) => meta.relation(connectionId, table),
     session: (connectionId) => {
       const conn = findConnection(connectionId);
@@ -742,6 +749,7 @@ function createMockBackend() {
 
     setPreferences: (prefs) => {
       preferences = clone(prefs);
+      journal.setMaxEntries(preferences.journalMaxEntries);
       persistForReload();
       return ok(clone(preferences));
     },
@@ -775,6 +783,7 @@ function createMockBackend() {
     ...savedQueries.commands,
     ...tableData.commands,
     ...references.commands,
+    ...journal.commands,
     closeTableData: (tabId) => {
       references.close(tabId);
       return tableData.commands.closeTableData(tabId);
@@ -804,6 +813,7 @@ function createMockBackend() {
     history.reset();
     savedQueries.reset();
     tableData.reset();
+    journal.reset();
     references.reset();
     files.reset();
     exporter.reset();
@@ -915,6 +925,14 @@ function createMockBackend() {
      */
     deleteRowElsewhere: (connectionId: string, table: ObjectRef, key: Value[]): boolean =>
       tableData.deleteRowElsewhere(connectionId, table, key),
+    /** Changes a cell of a table open in a table tab as another session would (F-089). */
+    changeRowElsewhere: (
+      connectionId: string,
+      table: ObjectRef,
+      key: Value[],
+      column: string,
+      value: Value,
+    ): boolean => tableData.changeRowElsewhere(connectionId, table, key, column, value),
     reset,
   };
 }

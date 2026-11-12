@@ -41,6 +41,9 @@ export interface PreferenceValues {
   historyEnabled: boolean;
   historyMaxEntries: number;
   historyMaxAgeDays: number;
+  /** Change journal bounds (F-090): change sets kept, and their age in days. */
+  journalMaxEntries: number;
+  journalMaxAgeDays: number;
   // Connections
   connectTimeoutSecs: number;
 }
@@ -141,6 +144,8 @@ export const DEFINITIONS = {
   historyEnabled: flag(true),
   historyMaxEntries: amount(50_000, 100, 1_000_000),
   historyMaxAgeDays: amount(365, 1, 3650),
+  journalMaxEntries: amount(1000, 10, 100_000),
+  journalMaxAgeDays: amount(90, 1, 3650),
   connectTimeoutSecs: amount(15, 1, 600),
 } satisfies { [K in PreferenceKey]: Definition<PreferenceValues[K]> };
 
@@ -166,6 +171,8 @@ export const BACKEND_KEYS = [
   'historyEnabled',
   'historyMaxEntries',
   'historyMaxAgeDays',
+  'journalMaxEntries',
+  'journalMaxAgeDays',
   'connectTimeoutSecs',
 ] as const satisfies readonly PreferenceKey[];
 /** Theme and language are owned by their stores (first paint, palette actions). */
@@ -196,6 +203,8 @@ export function backendValues(backend: BackendPreferences): Pick<PreferenceValue
     historyEnabled: backend.historyEnabled,
     historyMaxEntries: normalize('historyMaxEntries', backend.historyMaxEntries),
     historyMaxAgeDays: normalize('historyMaxAgeDays', backend.historyMaxAgeDays),
+    journalMaxEntries: normalize('journalMaxEntries', backend.journalMaxEntries),
+    journalMaxAgeDays: normalize('journalMaxAgeDays', backend.journalMaxAgeDays),
     connectTimeoutSecs: normalize('connectTimeoutSecs', backend.connectTimeoutSecs),
   };
 }
@@ -211,6 +220,8 @@ export function toBackend(
     historyEnabled: values.historyEnabled,
     historyMaxEntries: values.historyMaxEntries,
     historyMaxAgeDays: values.historyMaxAgeDays,
+    journalMaxEntries: values.journalMaxEntries,
+    journalMaxAgeDays: values.journalMaxAgeDays,
     connectTimeoutSecs: values.connectTimeoutSecs,
   };
 }

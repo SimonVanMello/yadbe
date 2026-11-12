@@ -7,7 +7,7 @@ use specta::Type;
 use crate::db::errors::{ConstraintViolation, YadbeError};
 use crate::db::value::Value;
 use crate::session::query_model::{ResultWindow, ServerMessage};
-use crate::session::table_model::RowKey;
+use crate::session::table_model::{RefreshedRows, RowKey};
 
 /// A column and the value to write in it (`{ kind: "null" }` for `NULL`). The value's kind
 /// may differ from the column's: the engine converts it (text typed for a `uuid` column).
@@ -26,6 +26,26 @@ pub struct CellUpdate {
     pub key: RowKey,
     pub column: String,
     pub value: Value,
+    /// The cell's value as read (F-089): the `UPDATE` only matches the row while the column
+    /// still holds it, so a row changed by someone else meanwhile is reported as a conflict
+    /// instead of being overwritten. `null`: not known; the column is not checked and the
+    /// change set cannot be reverted from the journal.
+    #[serde(default)]
+    pub original: Option<Value>,
+}
+
+/// An existing row to delete.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RowDelete {
+    /// The row, by its identity as last read.
+    pub key: RowKey,
+    /// The row as read, every loaded column (F-089, F-090): the `DELETE` only matches the row
+    /// while it still holds these values (columns the engine cannot compare exactly are left
+    /// out of the check), and the journal can insert it back. Empty: not known; only the key
+    /// is checked and the change set cannot be reverted.
+    #[serde(default)]
+    pub values: Vec<ColumnValue>,
 }
 
 /// A new row. Columns left out take their default (or identity, or computed value).
@@ -44,7 +64,7 @@ pub struct RowInsert {
 pub struct ChangeSet {
     pub updates: Vec<CellUpdate>,
     pub inserts: Vec<RowInsert>,
-    pub deletes: Vec<RowKey>,
+    pub deletes: Vec<RowDelete>,
 }
 
 /// What a planned statement does, pointing back into the change set.
@@ -142,7 +162,35 @@ pub enum ApplyOutcome {
         inserted: InsertedRows,
         #[serde(rename = "durationMs")]
         duration_ms: f64,
+        /// The change set's entry in the change journal (F-090); `null` when it was not
+        /// recorded.
+        #[serde(rename = "journalId")]
+        journal_id: Option<u32>,
     },
     /// A statement failed: the transaction was rolled back, nothing changed.
     RolledBack { failure: Box<StatementFailure> },
+    /// Rows were changed or deleted by someone else since they were read (F-089): their
+    /// `UPDATE` / `DELETE` matched no row. The transaction was rolled back, nothing changed.
+    /// The statements after the first conflict ran too, so every conflicting row is listed.
+    Conflicted {
+        conflicts: Vec<RowConflict>,
+        /// The conflicting rows as stored now, read after the rollback; `positions` follow
+        /// `conflicts` (`null`: the row no longer exists).
+        current: RefreshedRows,
+        #[serde(rename = "durationMs")]
+        duration_ms: f64,
+    },
+}
+
+/// A row an `UPDATE` / `DELETE` did not find with the values it was read with (F-089).
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RowConflict {
+    /// Index into the preview's statements.
+    pub statement_index: u32,
+    pub change: PlannedChange,
+    /// The statement, as in the preview.
+    pub sql: String,
+    /// The row as the user knows it (`id = 42`).
+    pub row: String,
 }

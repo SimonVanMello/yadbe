@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use crate::db::bound::SqlBuilder;
 use crate::db::dialect::Dialect;
-use crate::db::edit_dialect::plain_text;
+use crate::db::edit_dialect::{OriginalCheck, plain_text};
 use crate::db::errors::YadbeError;
 use crate::db::meta::{ColumnInfo, Identity, ObjectKind, TableDetails};
 use crate::db::value::{ColumnMeta, Value};
@@ -239,6 +239,33 @@ impl TableShape {
             let column = &self.details.columns[*index];
             b.ident(&column.name).push(" = ").value(value, Some(column));
         }
+    }
+
+    /// ` AND <column still holds original>` (F-089), unless the engine cannot compare the
+    /// column exactly; `false` then.
+    pub fn push_original(&self, b: &mut SqlBuilder<'_>, index: usize, original: &Value) -> bool {
+        let column = &self.details.columns[index];
+        if *original == Value::Null {
+            b.push(" AND ").ident(&column.name).push(" IS NULL");
+            return true;
+        }
+        match b.dialect().original_check(column) {
+            OriginalCheck::Equal => {
+                b.push(" AND ")
+                    .ident(&column.name)
+                    .push(" = ")
+                    .value(original, Some(column));
+            }
+            OriginalCheck::Through(template) => {
+                let quoted = b.dialect().quote_identifier(&column.name);
+                b.push(" AND ")
+                    .push(&template.replace("{}", &quoted))
+                    .push(" = ")
+                    .value_through(original, template);
+            }
+            OriginalCheck::Unchecked => return false,
+        }
+        true
     }
 
     /// The row as the user knows it: `id = 42`, `order_id = 1, line_no = 2`.

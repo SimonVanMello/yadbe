@@ -7,7 +7,9 @@ import { Spinner } from '../../ui/Spinner';
 import type { ConnectionSummary } from '../connections/model';
 import { FailureBanner } from './FailureBanner';
 import { FilterBar } from './FilterBar';
+import { ConflictDialog } from './ConflictDialog';
 import { PreviewDialog } from './PreviewDialog';
+import { RevertDialog } from './RevertDialog';
 import { openTable, tableReasonText, tableSource } from './tableActions';
 import { TableGrid } from './TableGrid';
 import { tableLabel } from './tableNames';
@@ -75,6 +77,8 @@ export function TableView({ tabId, table, connection }: TableViewProps) {
       </div>
       {failure && <FailureBanner tabId={tabId} failure={failure.failure} target={failure.target} />}
       <PreviewDialog tabId={tabId} connection={connection} />
+      <ConflictDialog tabId={tabId} connection={connection} />
+      <RevertDialog tabId={tabId} connection={connection} />
     </div>
   );
 }

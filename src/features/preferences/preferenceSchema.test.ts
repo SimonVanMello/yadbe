@@ -146,6 +146,8 @@ describe('the backend record', () => {
     historyMaxEntries: 1000,
     historyMaxAgeDays: 30,
     connectTimeoutSecs: 45,
+    journalMaxEntries: 500,
+    journalMaxAgeDays: 7,
   };
 
   it('feeds the settings the backend stores', () => {
@@ -155,6 +157,8 @@ describe('the backend record', () => {
       historyMaxEntries: 1000,
       historyMaxAgeDays: 30,
       connectTimeoutSecs: 45,
+      journalMaxEntries: 500,
+      journalMaxAgeDays: 7,
     });
     expect(Object.keys(backendValues(backend)).sort()).toEqual([...BACKEND_KEYS].sort());
   });
@@ -168,6 +172,8 @@ describe('the backend record', () => {
       historyMaxEntries: 200,
       historyMaxAgeDays: 365,
       connectTimeoutSecs: 5,
+      journalMaxEntries: 1000,
+      journalMaxAgeDays: 90,
     });
   });
 });

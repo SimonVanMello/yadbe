@@ -15,6 +15,7 @@ import type {
   PlannedStatement,
   RefreshedRows,
   ResultWindow,
+  RevertBlocker,
   SortKey,
   StatementFailure,
   TableColumn,
@@ -32,8 +33,9 @@ import type {
 import type { YadbeClient } from '../client';
 import type { EventEmitter } from '../emitter';
 import { mockErrors } from '../mockErrors';
-import type { Cell } from '../mockQuery';
+import { cellValue, type Cell } from '../mockQuery';
 import { mockSplit } from '../mockSplit';
+import type { MockJournal, MockJournalRecord } from './journal';
 
 type Commands = YadbeClient['commands'];
 type Result<T> = Promise<{ status: 'ok'; data: T } | { status: 'error'; error: YadbeError }>;
@@ -49,6 +51,8 @@ export type TableDataCommands = Pick<
   | 'closeTableData'
   | 'previewTableChanges'
   | 'applyTableChanges'
+  | 'previewChangeSetRevert'
+  | 'applyChangeSetRevert'
 >;
 
 export interface TableDataDeps {
@@ -64,6 +68,9 @@ export interface TableDataDeps {
   /** Stores rows where `fetchResultWindow` reads them; returns the result id. */
   storeRows(columns: readonly ColumnMeta[], rows: readonly (readonly Cell[])[]): number;
   freeResults(ids: readonly number[]): void;
+  /** Where applied change sets are recorded (F-090). */
+  journal: MockJournal;
+  connectionName(connectionId: string): string;
 }
 
 const MAX_PAGE_ROWS = 50_000;
@@ -896,7 +903,12 @@ export function createMockTableData(deps: TableDataDeps) {
 
   interface Planned {
     statement: PlannedStatement;
+    /** 0: no row matched (a conflict, F-089). */
     run: (rows: Cell[][], inserted: Cell[][]) => StatementFailure | number;
+    /** For an update: what it writes, and the values it was read with. */
+    written?: { values: Map<number, Value>; originals: Map<number, Value | null> };
+    /** For an update that ran: the row as stored after it. */
+    after?: readonly Cell[];
   }
 
   function editable(tab: MockTab, write: boolean): YadbeError | null {
@@ -916,11 +928,12 @@ export function createMockTableData(deps: TableDataDeps) {
     return null;
   }
 
-  function writableColumn(tab: MockTab, name: string): number | YadbeError {
+  /** `restore`: an identity value can be written back (reverting a change set, F-090). */
+  function writableColumn(tab: MockTab, name: string, restore = false): number | YadbeError {
     const index = tab.info.columns.findIndex((c) => c.name === name);
     const column = tab.info.columns[index];
     if (!column) return unknownColumn(name);
-    if (column.readOnlyReason) {
+    if (column.readOnlyReason && !(restore && column.readOnlyReason === 'identity')) {
       return mockErrors.invalidArgument(
         `The column "${name}" cannot be written.`,
         `La colonne « ${name} » ne peut pas être modifiée.`,
@@ -1070,7 +1083,29 @@ export function createMockTableData(deps: TableDataDeps) {
     });
   }
 
-  function plan(tab: MockTab, changes: ChangeSet): Planned[] | YadbeError {
+  /** ` AND "col" = value` per original value checked (F-089), as the backend writes them. */
+  function originalsWhere(tab: MockTab, originals: readonly [number, Value][]): string {
+    return originals
+      .map(([c, value]) => {
+        const name = quote(tab.engine, tab.info.columns[c]?.name ?? '');
+        return value.kind === 'null'
+          ? ` AND ${name} IS NULL`
+          : ` AND ${name} = ${mockLiteral(tab.engine, value)}`;
+      })
+      .join('');
+  }
+
+  /** The row still holds the values it was read with. */
+  function holds(tab: MockTab, row: readonly Cell[], originals: readonly [number, Value][]) {
+    return originals.every(([c, value]) => {
+      const cell = row[c] ?? null;
+      const want = mockValueText(value);
+      if (cell === null || want === null) return cell === null && want === null;
+      return compare(tab.info.columns[c]?.kind ?? 'text', cell[1], want) === 0;
+    });
+  }
+
+  function plan(tab: MockTab, changes: ChangeSet, restore = false): Planned[] | YadbeError {
     const identity = tab.info.rowIdentity ?? [];
     const from = qualified(tab.engine, tab.details.table);
     const checkKey = (key: Value[]) =>
@@ -1085,26 +1120,50 @@ export function createMockTableData(deps: TableDataDeps) {
     }
     const planned: Planned[] = [];
     const deleted = new Set<string>();
-    changes.deletes.forEach((key, index) => {
+    for (const [index, { key, values = [] }] of changes.deletes.entries()) {
       deleted.add(JSON.stringify(keyText(key)));
+      const originals: [number, Value][] = [];
+      for (const { column, value } of values) {
+        const c = tab.info.columns.findIndex((col) => col.name === column);
+        if (c < 0) return unknownColumn(column);
+        if (!identity.includes(column)) originals.push([c, value]);
+      }
       const change: PlannedChange = { kind: 'delete', key, delete: index };
-      const statement = { change, sql: `DELETE FROM ${from} WHERE ${keyWhere(tab, key)}` };
+      const statement = {
+        change,
+        sql: `DELETE FROM ${from} WHERE ${keyWhere(tab, key)}${originalsWhere(tab, originals)}`,
+      };
+      const position = planned.length;
       planned.push({
         statement,
         run: (rows) => {
-          const found = findRows(tab, rows, key);
-          if (found.length !== 1) return oneRow(tab, planned.length, statement, key, found.length);
+          const found = findRows(tab, rows, key).filter((r) =>
+            holds(tab, rows[r] ?? [], originals),
+          );
+          if (found.length > 1) return oneRow(tab, position, statement, key, found.length);
+          if (found.length === 0) return 0;
           rows.splice(found[0] ?? 0, 1);
           return 1;
         },
       });
-    });
-    for (const key of [...changes.deletes, ...changes.updates.map((u) => u.key)]) {
+    }
+    for (const key of [
+      ...changes.deletes.map((d) => d.key),
+      ...changes.updates.map((u) => u.key),
+    ]) {
       const bad = checkKey(key);
       if (bad) return bad;
     }
     // Updates, merged per row in the order rows first appear.
-    const rows = new Map<string, { key: Value[]; updates: number[]; values: Map<number, Value> }>();
+    const rows = new Map<
+      string,
+      {
+        key: Value[];
+        updates: number[];
+        values: Map<number, Value>;
+        originals: Map<number, Value | null>;
+      }
+    >();
     for (const [index, update] of changes.updates.entries()) {
       const id = JSON.stringify(keyText(update.key));
       if (deleted.has(id)) continue;
@@ -1114,9 +1173,11 @@ export function createMockTableData(deps: TableDataDeps) {
         key: update.key,
         updates: [],
         values: new Map<number, Value>(),
+        originals: new Map<number, Value | null>(),
       };
       entry.updates.push(index);
       entry.values.set(col, update.value);
+      if (!entry.originals.get(col)) entry.originals.set(col, update.original ?? null);
       rows.set(id, entry);
     }
     for (const entry of rows.values()) {
@@ -1124,17 +1185,24 @@ export function createMockTableData(deps: TableDataDeps) {
         ([c, v]) =>
           `${quote(tab.engine, tab.info.columns[c]?.name ?? '')} = ${mockLiteral(tab.engine, v)}`,
       );
+      const originals = [...entry.originals].flatMap(([c, value]): [number, Value][] =>
+        value && !identity.includes(tab.info.columns[c]?.name ?? '') ? [[c, value]] : [],
+      );
       const change: PlannedChange = { kind: 'update', key: entry.key, updates: entry.updates };
       const statement = {
         change,
-        sql: `UPDATE ${from} SET ${sets.join(', ')} WHERE ${keyWhere(tab, entry.key)}`,
+        sql: `UPDATE ${from} SET ${sets.join(', ')} WHERE ${keyWhere(tab, entry.key)}${originalsWhere(tab, originals)}`,
       };
       const position = planned.length;
       planned.push({
         statement,
+        written: entry,
         run: (data) => {
-          const found = findRows(tab, data, entry.key);
-          if (found.length !== 1) return oneRow(tab, position, statement, entry.key, found.length);
+          const found = findRows(tab, data, entry.key).filter((r) =>
+            holds(tab, data[r] ?? [], originals),
+          );
+          if (found.length > 1) return oneRow(tab, position, statement, entry.key, found.length);
+          if (found.length === 0) return 0;
           const r = found[0] ?? 0;
           const row = [...(data[r] ?? [])];
           for (const [c, value] of entry.values) {
@@ -1149,6 +1217,8 @@ export function createMockTableData(deps: TableDataDeps) {
               violation,
             });
           data[r] = row;
+          const self = planned[position];
+          if (self) self.after = row;
           return 1;
         },
       });
@@ -1157,7 +1227,7 @@ export function createMockTableData(deps: TableDataDeps) {
     for (const [index, insert] of changes.inserts.entries()) {
       const values = new Map<number, Value>();
       for (const { column, value } of insert.values) {
-        const col = writableColumn(tab, column);
+        const col = writableColumn(tab, column, restore);
         if (isError(col)) return col;
         values.set(col, value);
       }
@@ -1406,56 +1476,250 @@ export function createMockTableData(deps: TableDataDeps) {
       if (refused) return fail(refused);
       const planned = plan(tab, changes);
       if (isError(planned)) return fail(planned);
-      const started = performance.now();
-      if (!(await serverTime(tab))) return fail(mockErrors.cancelled());
-      const table = rowsOf(tab);
-      const working = table.rows.map((row) => [...row]);
-      const inserted: Cell[][] = [];
-      const applied: AppliedStatement[] = [];
-      deps.logStatement(tab.connectionId, tab.engine === 'mssql' ? 'BEGIN TRANSACTION' : 'BEGIN');
-      for (const [index, step] of planned.entries()) {
-        const outcome = step.run(working, inserted);
-        if (typeof outcome !== 'number') {
-          const failed = { ...outcome, statementIndex: index };
-          deps.logStatement(tab.connectionId, step.statement.sql, failed.error);
-          deps.logStatement(tab.connectionId, 'ROLLBACK');
-          const result: ApplyOutcome = { status: 'rolledBack', failure: failed };
-          return ok(structuredClone(result));
-        }
-        deps.logStatement(tab.connectionId, step.statement.sql);
-        applied.push({ change: step.statement.change, rowsAffected: outcome, durationMs: 0.4 });
-      }
-      deps.logStatement(tab.connectionId, 'COMMIT');
-      table.rows = working;
-      const rows: Cell[][] = [];
-      const positions = changes.inserts.map((_, i) => {
-        const row = inserted[i];
-        if (!row) return null;
-        rows.push(row);
-        return rows.length - 1;
-      });
-      const resultId = store(tab, rows);
-      const outcome: ApplyOutcome = {
-        status: 'applied',
-        statements: applied,
-        inserted: { window: pageWindow(tab, resultId, rows), positions },
-        durationMs: Math.round((performance.now() - started) * 10) / 10,
-      };
-      const counts = { updated: 0, inserted: 0, deleted: 0 };
-      for (const s of applied) {
-        if (s.change.kind === 'update') counts.updated++;
-        else if (s.change.kind === 'insert') counts.inserted++;
-        else counts.deleted++;
-      }
-      deps.events.emit('tableDataChanged', {
-        connectionId: tab.connectionId,
-        table: structuredClone(tab.details.table),
-        tabId,
-        ...counts,
-      });
-      return ok(structuredClone(outcome));
+      return applyPlanned(tabId, tab, changes, planned, null);
+    },
+
+    previewChangeSetRevert: (tabId, entryId) => {
+      const tab = tabOf(tabId);
+      if (isError(tab)) return fail(tab);
+      const refused = editable(tab, false);
+      if (refused) return fail(refused);
+      const inverse = deps.journal.inverseFor(entryId, tab.connectionId, tab.details.table);
+      if (isError(inverse)) return fail(inverse);
+      const planned = plan(tab, inverse, true);
+      if (isError(planned)) return fail(planned);
+      const statements = planned.map((p) => p.statement);
+      const preview: EditPreview = { statements, script: script(tab, statements) };
+      return ok(structuredClone(preview));
+    },
+
+    applyChangeSetRevert: async (tabId, entryId) => {
+      const tab = tabOf(tabId);
+      if (isError(tab)) return fail(tab);
+      const refused = editable(tab, true);
+      if (refused) return fail(refused);
+      const inverse = deps.journal.inverseFor(entryId, tab.connectionId, tab.details.table);
+      if (isError(inverse)) return fail(inverse);
+      const planned = plan(tab, inverse, true);
+      if (isError(planned)) return fail(planned);
+      return applyPlanned(tabId, tab, inverse, planned, entryId);
     },
   };
+
+  /**
+   * Runs a plan in one simulated transaction (F-085). A statement matching no row is a
+   * conflict (F-089): the rest still runs, then everything is rolled back and the conflicting
+   * rows are sent as stored. Applied change sets go to the journal (F-090).
+   */
+  async function applyPlanned(
+    tabId: string,
+    tab: MockTab,
+    changes: ChangeSet,
+    planned: Planned[],
+    reverts: number | null,
+  ): Result<ApplyOutcome> {
+    const started = performance.now();
+    if (!(await serverTime(tab))) return fail(mockErrors.cancelled());
+    const table = rowsOf(tab);
+    const working = table.rows.map((row) => [...row]);
+    const inserted: Cell[][] = [];
+    const applied: AppliedStatement[] = [];
+    const conflicts: number[] = [];
+    deps.logStatement(tab.connectionId, tab.engine === 'mssql' ? 'BEGIN TRANSACTION' : 'BEGIN');
+    for (const [index, step] of planned.entries()) {
+      const outcome = step.run(working, inserted);
+      if (typeof outcome !== 'number') {
+        const failed = { ...outcome, statementIndex: index };
+        deps.logStatement(tab.connectionId, step.statement.sql, failed.error);
+        deps.logStatement(tab.connectionId, 'ROLLBACK');
+        const result: ApplyOutcome = conflicts.length
+          ? conflicted(tab, planned, conflicts, started)
+          : { status: 'rolledBack', failure: failed };
+        return ok(structuredClone(result));
+      }
+      deps.logStatement(tab.connectionId, step.statement.sql);
+      if (outcome === 0 && step.statement.change.kind !== 'insert') {
+        conflicts.push(index);
+        continue;
+      }
+      applied.push({ change: step.statement.change, rowsAffected: outcome, durationMs: 0.4 });
+    }
+    if (conflicts.length) {
+      deps.logStatement(tab.connectionId, 'ROLLBACK');
+      return ok(structuredClone(conflicted(tab, planned, conflicts, started)));
+    }
+    deps.logStatement(tab.connectionId, 'COMMIT');
+    table.rows = working;
+    const rows: Cell[][] = [];
+    const positions = changes.inserts.map((_, i) => {
+      const row = inserted[i];
+      if (!row) return null;
+      rows.push(row);
+      return rows.length - 1;
+    });
+    const resultId = store(tab, rows);
+    const durationMs = Math.round((performance.now() - started) * 10) / 10;
+    const counts = { updated: 0, inserted: 0, deleted: 0 };
+    for (const s of applied) {
+      if (s.change.kind === 'update') counts.updated++;
+      else if (s.change.kind === 'insert') counts.inserted++;
+      else counts.deleted++;
+    }
+    const journalId = deps.journal.record(
+      journalRecord(tab, changes, planned, applied, inserted, durationMs, counts, reverts),
+    );
+    const outcome: ApplyOutcome = {
+      status: 'applied',
+      statements: applied,
+      inserted: { window: pageWindow(tab, resultId, rows), positions },
+      durationMs,
+      journalId,
+    };
+    deps.events.emit('tableDataChanged', {
+      connectionId: tab.connectionId,
+      table: structuredClone(tab.details.table),
+      tabId,
+      ...counts,
+    });
+    return ok(structuredClone(outcome));
+  }
+
+  /** The conflicting statements and their rows as stored (the transaction was rolled back). */
+  function conflicted(
+    tab: MockTab,
+    planned: Planned[],
+    conflicts: number[],
+    started: number,
+  ): ApplyOutcome {
+    const data = rowsOf(tab).rows;
+    const found: Cell[][] = [];
+    const rows = conflicts.map((index) => {
+      const statement = planned[index]?.statement;
+      const change = statement?.change;
+      const key = change && change.kind !== 'insert' ? change.key : [];
+      const [r] = findRows(tab, data, key);
+      const row = r === undefined ? undefined : data[r];
+      let position: number | null = null;
+      if (row) {
+        found.push(row);
+        position = found.length - 1;
+      }
+      return {
+        conflict: {
+          statementIndex: index,
+          change: change ?? { kind: 'insert' as const, insert: 0 },
+          sql: statement?.sql ?? '',
+          row: describeKey(tab, key),
+        },
+        position,
+      };
+    });
+    return {
+      status: 'conflicted',
+      conflicts: rows.map((r) => r.conflict),
+      current: {
+        window: pageWindow(tab, store(tab, found), found),
+        positions: rows.map((r) => r.position),
+      },
+      durationMs: Math.round((performance.now() - started) * 10) / 10,
+    };
+  }
+
+  /** The journal entry of an applied change set, with its inverse (or why there is none). */
+  function journalRecord(
+    tab: MockTab,
+    changes: ChangeSet,
+    planned: Planned[],
+    applied: AppliedStatement[],
+    inserted: Cell[][],
+    durationMs: number,
+    counts: { updated: number; inserted: number; deleted: number },
+    reverts: number | null,
+  ): MockJournalRecord {
+    const columns = tab.info.columns;
+    const identity = (tab.info.rowIdentity ?? []).map((name) =>
+      columns.findIndex((c) => c.name === name),
+    );
+    const keyOf = (row: readonly Cell[]) => identity.map((c) => cellValue(row[c] ?? null));
+    const inverse: ChangeSet = { updates: [], inserts: [], deletes: [] };
+    let blocker: RevertBlocker | null = null;
+    for (const step of planned) {
+      const change = step.statement.change;
+      if (change.kind === 'update') {
+        const { after, written } = step;
+        if (!after || !written) {
+          blocker ??= { kind: 'updatedRowUnknown' };
+          continue;
+        }
+        for (const c of written.values.keys()) {
+          const column = columns[c]?.name ?? '';
+          const original = written.originals.get(c) ?? null;
+          if (!original) {
+            blocker ??= { kind: 'originalUnknown', column };
+            continue;
+          }
+          inverse.updates.push({
+            key: keyOf(after),
+            column,
+            value: original,
+            original: cellValue(after[c] ?? null),
+          });
+        }
+      } else if (change.kind === 'insert') {
+        const row = inserted[change.insert];
+        if (!row) {
+          blocker ??= { kind: 'insertedRowUnknown' };
+          continue;
+        }
+        inverse.deletes.push({
+          key: keyOf(row),
+          values: columns.map((column, c) => ({
+            column: column.name,
+            value: cellValue(row[c] ?? null),
+          })),
+        });
+      } else {
+        const values = changes.deletes[change.delete]?.values ?? [];
+        if (!values.length) {
+          blocker ??= { kind: 'deletedRowUnknown' };
+          continue;
+        }
+        const kept = [];
+        for (const value of values) {
+          const reason = columns.find((c) => c.name === value.column)?.readOnlyReason ?? null;
+          if (reason === 'generated' || reason === 'rowVersion') continue;
+          if (reason === 'unsupportedType') {
+            if (value.value.kind === 'null') continue;
+            blocker ??= { kind: 'unwritableColumn', column: value.column };
+          }
+          kept.push(value);
+        }
+        inverse.inserts.push({ values: kept });
+      }
+    }
+    let inverseStatements: string[] = [];
+    if (!blocker) {
+      const undo = plan(tab, inverse, true);
+      if (isError(undo)) blocker = { kind: 'notPlannable' };
+      else inverseStatements = undo.map((p) => p.statement.sql);
+    }
+    return {
+      connectionId: tab.connectionId,
+      connectionName: deps.connectionName(tab.connectionId),
+      engine: tab.engine,
+      table: structuredClone(tab.details.table),
+      durationMs,
+      counts,
+      statements: planned.map((p, i) => ({
+        sql: p.statement.sql,
+        rowsAffected: applied[i]?.rowsAffected ?? null,
+      })),
+      inverse: blocker ? null : inverse,
+      inverseStatements,
+      blocker,
+      reverts,
+    };
+  }
 
   return {
     commands,
@@ -1516,6 +1780,34 @@ export function createMockTableData(deps: TableDataDeps) {
         readOnly: tab.readOnly,
         table: tab.details.table,
       };
+    },
+    /**
+     * Changes a cell "behind the app's back" (another session), so that the next update or
+     * delete of the row conflicts (F-089). Returns whether the row existed.
+     */
+    changeRowElsewhere(
+      connectionId: string,
+      table: ObjectRef,
+      key: Value[],
+      column: string,
+      value: Value,
+    ): boolean {
+      const tab = [...tabs.values()].find(
+        (t) => tableKey(t.connectionId, t.details.table) === tableKey(connectionId, table),
+      );
+      if (!tab) return false;
+      const data = rowsOf(tab);
+      const [r] = findRows(tab, data.rows, key);
+      const c = tab.info.columns.findIndex((col) => col.name === column);
+      const row = r === undefined ? undefined : data.rows[r];
+      if (!row || c < 0) return false;
+      const cell = convert(tab, c, value);
+      if (isError(cell)) return false;
+      const changed = [...row];
+      changed[c] = cell;
+      compute(tab, changed);
+      data.rows[r ?? 0] = changed;
+      return true;
     },
     deleteRowElsewhere(connectionId: string, table: ObjectRef, key: Value[]): boolean {
       const tab = [...tabs.values()].find(

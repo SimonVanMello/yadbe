@@ -118,6 +118,12 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::ssh::list_known_hosts,
             commands::ssh::trust_host_key,
             commands::ssh::forget_host_key,
+            commands::journal::search_change_journal,
+            commands::journal::get_change_journal_entry,
+            commands::journal::list_change_journal_tables,
+            commands::journal::clear_change_journal,
+            commands::journal::preview_change_set_revert,
+            commands::journal::apply_change_set_revert,
         ])
         .events(collect_events![
             events::AppReady,
@@ -132,6 +138,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             export::model::ExportFinished,
             events::TableDataChanged,
             events::SavedQueriesChanged,
+            events::ChangeJournalChanged,
         ])
 }
 
