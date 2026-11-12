@@ -11,7 +11,8 @@ use tokio::time::Instant;
 use super::MssqlConnection;
 use super::decode::{self, Decoder};
 use crate::db::driver::{
-    Connection, ErrorLocation, ExecError, ExecEvent, ExecSender, ExecSummary, Explained, recorded,
+    BoundStatement, ColumnOrigin, Connection, ErrorLocation, ExecError, ExecEvent, ExecSender,
+    ExecSummary, Explained, recorded,
 };
 use crate::db::errors::{YadbeError, from_mssql_query_error};
 use crate::db::params::ParamStatement;
@@ -81,7 +82,103 @@ struct Outcome {
     cancelled: bool,
 }
 
+/// Where the columns of a batch's first result set come from (F-087): the server describes
+/// the batch without running it; browse mode names the base table of each column.
+const DESCRIBE_SQL: &str = "EXEC sys.sp_describe_first_result_set @tsql = @P1, @params = @P2, @browse_information_mode = 1";
+
+/// The declared type of a query parameter, as the batch is described with it.
+fn declared_type(value: &Value) -> String {
+    match value {
+        Value::Bool(_) => "bit".to_owned(),
+        Value::Int(_) => "bigint".to_owned(),
+        Value::Float(_) => "float".to_owned(),
+        Value::Decimal(s) => {
+            let scale = s.split_once('.').map_or(0, |(_, f)| f.len()).min(38);
+            format!("decimal(38, {scale})")
+        }
+        _ => "nvarchar(max)".to_owned(),
+    }
+}
+
 impl MssqlConnection {
+    /// Where each column of `statement`'s first result set comes from, as
+    /// `sp_describe_first_result_set` says; the hidden key columns browse mode adds are left
+    /// out. Recorded in the statement log like any metadata query.
+    pub(super) async fn column_origins(
+        &self,
+        statement: &ParamStatement,
+    ) -> Result<Vec<Option<ColumnOrigin>>, YadbeError> {
+        let declared = statement
+            .params
+            .iter()
+            .map(|p| format!("{} {}", p.name, declared_type(&p.value)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let params = vec![
+            Value::Text(statement.sql.clone()),
+            if declared.is_empty() {
+                Value::Null
+            } else {
+                Value::Text(declared)
+            },
+        ];
+        let dialect = crate::db::dialect::Engine::Mssql.dialect();
+        let display = DESCRIBE_SQL
+            .replace("@P1", &dialect.literal(&params[0]))
+            .replace("@P2", &dialect.literal(&params[1]));
+        let described = self
+            .query_bound(
+                &BoundStatement {
+                    sql: DESCRIBE_SQL.to_owned(),
+                    params,
+                    display,
+                    returns_rows: true,
+                },
+                usize::MAX,
+            )
+            .await
+            .map_err(|f| f.error)?;
+        let at = |name: &str| described.columns.iter().position(|c| c.name == name);
+        let (Some(hidden), Some(ordinal), Some(database), Some(schema), Some(table), Some(column)) = (
+            at("is_hidden"),
+            at("column_ordinal"),
+            at("source_database"),
+            at("source_schema"),
+            at("source_table"),
+            at("source_column"),
+        ) else {
+            return Err(YadbeError::internal(
+                "unexpected sp_describe_first_result_set columns",
+            ));
+        };
+        let text = |row: &[Value], i: usize| match row.get(i) {
+            Some(Value::Text(s)) if !s.is_empty() => Some(s.clone()),
+            _ => None,
+        };
+        let mut columns: Vec<(i64, Option<ColumnOrigin>)> = described
+            .rows
+            .iter()
+            .filter(|row| !matches!(row.get(hidden), Some(Value::Bool(true))))
+            .map(|row| {
+                let position = match row.get(ordinal) {
+                    Some(Value::Int(n)) => n.parse().unwrap_or(i64::MAX),
+                    _ => i64::MAX,
+                };
+                let origin = (|| {
+                    Some(ColumnOrigin {
+                        database: text(row, database),
+                        schema: Some(text(row, schema)?),
+                        table: text(row, table)?,
+                        column: text(row, column)?,
+                    })
+                })();
+                (position, origin)
+            })
+            .collect();
+        columns.sort_by_key(|(position, _)| *position);
+        Ok(columns.into_iter().map(|(_, origin)| origin).collect())
+    }
+
     /// Runs a user batch. With query parameters (F-048), the batch goes through
     /// `sp_executesql` as written, each parameter declared under its own `@name`.
     pub(super) async fn execute_streaming(
