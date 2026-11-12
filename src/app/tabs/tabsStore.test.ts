@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CLOSED_TABS_KEPT,
   createTabsStore,
+  isQueryTab,
   setCloseGuard,
   selectActiveTab,
   toSavedTabs,
@@ -305,5 +306,36 @@ describe('DDL tabs', () => {
     expect(tab(ddl)?.ddl).toMatchObject({ object: { name: 'purchases' }, id: 'purchases' });
     expect(tab(trigger)?.ddl).toMatchObject({ table: { name: 'purchases' }, name: 'touch' });
     expect(tab(elsewhere)?.table?.name).toBe('orders');
+  });
+});
+
+describe('tool tabs', () => {
+  const HISTORY = { database: 'shop', schema: 'public', name: '__EFMigrationsHistory' };
+
+  it('open once per tool and connection, and open again from the same one', () => {
+    const activity = state().openToolTab('c1', { type: 'activity' });
+    state().openQueryTab('c1');
+    expect(state().openToolTab('c1', { type: 'activity' })).toBe(activity);
+    expect(state().activeTabId).toBe(activity);
+    expect(state().openToolTab('c2', { type: 'activity' })).not.toBe(activity);
+    const migrations = state().openToolTab('c1', { type: 'migrations', table: HISTORY });
+    expect(migrations).not.toBe(activity);
+    expect(state().openToolTab('c1', { type: 'migrations', table: { ...HISTORY } })).toBe(
+      migrations,
+    );
+    expect(
+      state().openToolTab('c1', { type: 'migrations', table: { ...HISTORY, schema: 'app' } }),
+    ).not.toBe(migrations);
+  });
+
+  it('are not query tabs, are not saved and are not brought back', () => {
+    const tool = state().openToolTab('c1', { type: 'activity' });
+    const query = state().openQueryTab('c1');
+    const opened = state().tabs.find((tab) => tab.id === tool);
+    expect(opened && isQueryTab(opened)).toBe(false);
+    expect(toSavedTabs(state()).tabs.map((tab) => tab.id)).toEqual([state().tabs[0]?.id, query]);
+    state().closeTab(tool);
+    expect(state().closedTabs).toEqual([]);
+    expect(state().reopenClosedTab()).toBeNull();
   });
 });

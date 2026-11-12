@@ -1,0 +1,211 @@
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-app);
+  color: var(--fg-primary);
+}
+
+.strip {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--control-height-md);
+  padding: 0 var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--bg-panel);
+  font-size: var(--text-sm);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.table {
+  color: var(--fg-secondary);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+}
+
+.summary {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.note {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--accent-soft);
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+}
+
+.state {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-4);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.state p {
+  margin: 0;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+}
+
+.scroll:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+.rows {
+  position: relative;
+  width: 100%;
+  max-width: var(--migration-content-width);
+  margin: 0 auto;
+}
+
+.row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.month {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-4) 0 var(--space-2) var(--migration-rail-width);
+}
+
+.monthName {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  text-transform: capitalize;
+}
+
+.monthCount {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--bg-hover);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.entry {
+  display: grid;
+  grid-template-columns: var(--migration-rail-width) var(--migration-time-width) minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  min-height: var(--control-height-md);
+  padding: var(--space-2) 0;
+  font-size: var(--text-sm);
+}
+
+.entry:hover {
+  background: var(--bg-hover);
+}
+
+/* The rail is a line through the dots, drawn by each entry so a virtualized list keeps it whole. */
+.rail {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rail::before {
+  position: absolute;
+  top: calc(var(--space-2) * -1);
+  bottom: calc(var(--space-2) * -1);
+  left: 50%;
+  width: var(--border-width);
+  background: var(--border-strong);
+  content: '';
+}
+
+.dot {
+  position: relative;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border: var(--focus-ring-width) solid var(--accent);
+  border-radius: var(--radius-full);
+  background: var(--bg-app);
+}
+
+.time {
+  color: var(--fg-muted);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.name {
+  overflow: hidden;
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.id {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  color: var(--fg-secondary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.version[data-known='false'] {
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.truncated {
+  margin: var(--space-4) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-align: center;
+}

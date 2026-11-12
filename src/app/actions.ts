@@ -114,6 +114,12 @@ export const UNBOUND_ACTIONS = [
   'connection.export',
   'query.runSameParameters',
   'query.openDefinitionData',
+  // Tools (F-140, F-143): the activity monitor, the EF Core migrations timeline, and the
+  // connection of the active tab as a .NET connection string (without its password).
+  'activity.open',
+  'migrations.open',
+  'connection.copyAdoNet',
+  'connection.copyEfCore',
 ] as const;
 
 export type BoundActionId = keyof typeof DEFAULT_BINDINGS;
@@ -204,6 +210,10 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'query.goToDefinition': 'action.query.goToDefinition',
   'query.runSameParameters': 'action.query.runSameParameters',
   'query.openDefinitionData': 'action.query.openDefinitionData',
+  'activity.open': 'action.activity.open',
+  'migrations.open': 'action.migrations.open',
+  'connection.copyAdoNet': 'action.connection.copyAdoNet',
+  'connection.copyEfCore': 'action.connection.copyEfCore',
 };
 
 /** Shortcut of an action that has one, as written in `DEFAULT_BINDINGS` (`Mod+T`). */

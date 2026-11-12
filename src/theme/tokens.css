@@ -127,6 +127,21 @@
   --plan-facts-width: 320px;
   --hover-card-max-width: 420px;
 
+  /* Activity monitor and migrations timeline (F-140, F-143). */
+  --activity-id-width: 64px;
+  --activity-user-width: 120px;
+  --activity-database-width: 120px;
+  --activity-client-width: 150px;
+  --activity-state-width: 168px;
+  --activity-duration-width: 84px;
+  --activity-lock-type-width: 130px;
+  --activity-lock-mode-width: 190px;
+  --activity-lock-status-width: 96px;
+  --activity-detail-height: 300px;
+  --migration-time-width: 168px;
+  --migration-rail-width: 28px;
+  --migration-content-width: 720px;
+
   /* Motion: transitions only signal a state change, ≤ 150 ms (spec §6.7). */
   --duration-fast: 100ms;
   --duration-normal: 150ms;

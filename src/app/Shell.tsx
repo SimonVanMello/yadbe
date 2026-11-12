@@ -28,6 +28,7 @@ import { usePaletteActions } from '../features/palette/usePaletteActions';
 import { useSidebarView } from '../features/sidebar/sidebarViewStore';
 import { useQueryActions } from '../features/query/useQueryActions';
 import { useTableActions } from '../features/table-data/useTableActions';
+import { useToolActions } from '../features/tools/useToolActions';
 import { SidebarViews } from '../features/sidebar/SidebarViews';
 import { StatementLogPanel } from '../features/statement-log/StatementLogPanel';
 import { StatusBar } from '../features/statusbar/StatusBar';
@@ -172,6 +173,7 @@ export function Shell() {
   useExportActions();
   useImportActions();
   useConnectionTransferActions();
+  useToolActions();
   useHistoryActions();
   useLibraryActions();
   useJournalActions();

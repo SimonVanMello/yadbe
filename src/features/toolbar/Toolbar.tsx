@@ -7,6 +7,7 @@ import type { ConnectionSummary } from '../connections/model';
 import { QueryControls } from '../query/QueryControls';
 import { DdlControls } from '../objects/DdlControls';
 import { TableControls } from '../table-data/TableControls';
+import { ToolControls } from '../tools/ToolControls';
 import styles from './Toolbar.module.css';
 
 /**
@@ -25,6 +26,7 @@ export function Toolbar({
   const bottomCollapsed = useLayoutStore((store) => store.panels.bottom.collapsed);
   const table = useTabsStore((store) => store.tabs.some((tab) => tab.id === tabId && !!tab.table));
   const ddl = useTabsStore((store) => store.tabs.find((tab) => tab.id === tabId)?.ddl);
+  const tool = useTabsStore((store) => store.tabs.find((tab) => tab.id === tabId)?.tool);
 
   return (
     <div className={styles.toolbar} role="toolbar" aria-label={t('toolbar.label')}>
@@ -42,6 +44,8 @@ export function Toolbar({
         <TableControls tabId={tabId} connection={connection} />
       ) : connection && ddl ? (
         <DdlControls target={ddl} connection={connection} />
+      ) : connection && tool ? (
+        <ToolControls connection={connection} />
       ) : connection ? (
         <QueryControls tabId={tabId} connection={connection} />
       ) : (

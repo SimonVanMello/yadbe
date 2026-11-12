@@ -1,0 +1,107 @@
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-app);
+  color: var(--fg-primary);
+}
+
+.strip {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--control-height-md);
+  padding: 0 var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--bg-panel);
+  font-size: var(--text-sm);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.summary,
+.updated {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.intervalLabel {
+  display: inline-flex;
+  align-items: center;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.controls {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+
+.search {
+  position: relative;
+  flex: 1;
+  min-width: var(--activity-client-width);
+  max-width: var(--dialog-width);
+}
+
+.searchIcon {
+  position: absolute;
+  top: calc((var(--control-height-md) - var(--icon-size-sm)) / 2);
+  left: var(--space-3);
+  color: var(--fg-muted);
+  pointer-events: none;
+}
+
+.search .searchInput {
+  padding-left: var(--space-7);
+}
+
+.note {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--accent-soft);
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+}
+
+.failure {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-6) var(--space-4);
+  overflow: auto;
+}
+
+.failure > * {
+  max-width: var(--dialog-width-wide);
+}

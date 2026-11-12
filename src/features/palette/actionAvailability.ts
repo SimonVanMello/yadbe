@@ -17,6 +17,10 @@ export interface ActionContext {
   closedTabCount: number;
   /** Actions something is registered for. */
   registered: ReadonlySet<ActionId>;
+  /** The active tab is bound to a saved connection. */
+  hasConnection?: boolean;
+  /** The active connection's engine has sessions to watch (F-140). */
+  activityMonitor?: boolean;
 }
 
 const NEEDS_QUERY_TAB: ReadonlySet<ActionId> = new Set([
@@ -56,6 +60,14 @@ export function disabledReason(id: ActionId, context: ActionContext): MessageKey
       return context.tabCount > 1 ? null : 'palette.disabled.oneTab';
     case 'explorer.refresh':
       return context.connected ? null : 'palette.disabled.notConnected';
+    case 'activity.open':
+      if (context.activityMonitor === false) return 'palette.disabled.noSessions';
+      return context.connected ? null : 'palette.disabled.notConnected';
+    case 'migrations.open':
+      return context.connected ? null : 'palette.disabled.notConnected';
+    case 'connection.copyAdoNet':
+    case 'connection.copyEfCore':
+      return context.hasConnection === true ? null : 'palette.disabled.noConnection';
     default:
       return null;
   }

@@ -7,6 +7,7 @@ import { ContextMenu } from '../../ui/ContextMenu';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
 import { ContextMenuSeparator } from '../../ui/ContextMenuSeparator';
 import { ContextMenuSub } from '../../ui/ContextMenuSub';
+import { openActivity } from '../activity/activityActions';
 import { refreshNode } from '../explorer/explorerActions';
 import {
   connectTo,
@@ -17,7 +18,8 @@ import {
   openQuery,
   toggleFavorite,
 } from './connectionActions';
-import { useConnectionList, useConnectionState } from './connectionStore';
+import { copyConnectionString } from './connectionStringActions';
+import { useConnectionList, useConnectionState, useEngineInfo } from './connectionStore';
 import type { ConnectionSummary } from './model';
 
 interface ConnectionContextMenuProps {
@@ -32,6 +34,10 @@ export function ConnectionContextMenu({ connection, children }: ConnectionContex
   const state = useConnectionState(connection.id);
   const groups = useConnectionList().data?.groups ?? [];
   const connected = state === 'connected' || state === 'connecting';
+  const engine = useEngineInfo(connection.engine);
+  const sessions = engine?.capabilities.activityMonitor ?? true;
+  // A file database has no password to copy.
+  const hasPassword = !(engine?.capabilities.usesFile ?? false);
 
   return (
     <ContextMenu
@@ -74,6 +80,17 @@ export function ConnectionContextMenu({ connection, children }: ConnectionContex
               {t('explorer.menu.refresh')}
             </ContextMenuItem>
           )}
+          <ContextMenuItem
+            icon="activity"
+            disabled={!sessions}
+            onSelect={() => {
+              openActivity(connection.id);
+            }}
+          >
+            {sessions
+              ? t('connection.menu.activity')
+              : t('connection.menu.activityDisabled', { engine: engine?.label ?? '' })}
+          </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
             icon="pencil"
@@ -99,6 +116,41 @@ export function ConnectionContextMenu({ connection, children }: ConnectionContex
           >
             {connection.favorite ? t('connection.menu.unfavorite') : t('connection.menu.favorite')}
           </ContextMenuItem>
+          <ContextMenuSub label={t('connection.menu.copyAs')} icon="copy">
+            <ContextMenuItem
+              onSelect={() => {
+                void copyConnectionString(connection, 'adoNet', false);
+              }}
+            >
+              {t('connection.menu.adoNet')}
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => {
+                void copyConnectionString(connection, 'efCore', false);
+              }}
+            >
+              {t('connection.menu.efCore')}
+            </ContextMenuItem>
+            {hasPassword && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onSelect={() => {
+                    void copyConnectionString(connection, 'adoNet', true);
+                  }}
+                >
+                  {t('connection.menu.adoNetPassword')}
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onSelect={() => {
+                    void copyConnectionString(connection, 'efCore', true);
+                  }}
+                >
+                  {t('connection.menu.efCorePassword')}
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuSub>
           <ContextMenuSub label={t('connection.menu.moveToGroup')} icon="folder">
             <ContextMenuItem
               disabled={connection.groupId === null}

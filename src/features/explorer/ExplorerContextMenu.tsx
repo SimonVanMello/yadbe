@@ -7,6 +7,8 @@ import { ContextMenuItem } from '../../ui/ContextMenuItem';
 import { ContextMenuSeparator } from '../../ui/ContextMenuSeparator';
 import { ContextMenuSub } from '../../ui/ContextMenuSub';
 import { useConnection, useEngineInfo } from '../connections/connectionStore';
+import { isEfHistoryTable } from '../migrations/historyTables';
+import { openMigrations } from '../migrations/migrationsActions';
 import { showDdl } from '../objects/ddlActions';
 import { requestObjectAction } from '../objects/objectActions';
 import { showProperties } from '../objects/propertiesStore';
@@ -158,6 +160,16 @@ export function ExplorerContextMenu({ row, children }: ExplorerContextMenuProps)
               }}
             >
               {t('explorer.menu.properties')}
+            </ContextMenuItem>
+          )}
+          {subject && subject.kind === 'table' && isEfHistoryTable(subject.object.name) && (
+            <ContextMenuItem
+              icon="timeline"
+              onSelect={() => {
+                openMigrations(connectionId, subject.object);
+              }}
+            >
+              {t('explorer.menu.migrations')}
             </ContextMenuItem>
           )}
           {pin && (
