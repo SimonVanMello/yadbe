@@ -359,16 +359,18 @@ for (const { name, colorScheme } of THEMES) {
         .getByRole('dialog', { name: 'Preview SQL' })
         .getByRole('button', { name: /^Apply/ })
         .click();
-      const failure = page.getByTestId('table-failure');
-      await expect(failure).toContainText('Nothing was applied');
-      await expect(failure).toContainText(/someone else|another session|no longer/i);
+      // A conflict (F-089): the row is gone, the change can only be dropped.
+      const conflict = page.getByRole('dialog', { name: /was changed by someone else/ });
+      await expect(conflict).toContainText('deleted by someone else');
+      await expect(conflict).toContainText('Your change is dropped');
       await expect(pending(page)).toHaveText('1 pending');
-      await expect(cell(page, 1, 3)).toHaveAttribute('data-state', 'failed');
-      await capture(page, name, 'rollback-row-not-found');
+      await capture(page, name, 'conflict-row-deleted');
+      await conflict.getByRole('button', { name: 'Resolve and apply' }).click();
+      await expect(conflict).toBeHidden();
+      await expect(pending(page)).toHaveText('No changes');
 
-      // Revert it, then duplicate row 1: its email is unique.
-      await failure.getByRole('button', { name: 'Revert this change' }).click();
-      await expect(failure).toBeHidden();
+      // Duplicate row 1: its email is unique.
+      const failure = page.getByTestId('table-failure');
       await cell(page, 0, 2).click();
       await page.keyboard.press('ControlOrMeta+d');
       await page.keyboard.press('ControlOrMeta+s');
