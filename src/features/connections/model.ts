@@ -82,6 +82,14 @@ function basename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 }
 
+/**
+ * A host field that already names its port(s): a MongoDB seed list (`a:27018,b`), where the port
+ * field only applies to hosts written without one.
+ */
+function hostHasPort(host: string): boolean {
+  return host.includes(',') || /^[^:[\]]+:\d+$/.test(host.trim()) || /\]:\d+$/.test(host.trim());
+}
+
 export function summarize(saved: SavedConnection): ConnectionSummary {
   const { definition } = saved;
   const environment = definition.environment.kind;
@@ -92,7 +100,7 @@ export function summarize(saved: SavedConnection): ConnectionSummary {
     family: saved.family,
     target:
       definition.host !== ''
-        ? `${definition.host}${definition.port === null ? '' : `:${String(definition.port)}`}`
+        ? `${definition.host}${definition.port === null || hostHasPort(definition.host) ? '' : `:${String(definition.port)}`}`
         : basename(definition.filePath),
     database: definition.host !== '' ? definition.database : '',
     groupId: definition.groupId,

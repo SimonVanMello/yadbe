@@ -144,10 +144,15 @@ function parseMongo(input: string): MockParsed | null {
   const [, srv, userinfo, hosts = '', database, query = ''] = match;
   const fields = empty('url', 'mongodb');
   const [user = '', pass = ''] = (userinfo ?? '').split(':');
-  fields.host = decodeURIComponent(hosts);
+  const seeds = decodeURIComponent(hosts);
+  // One host with its port fills host and port; a seed list stays whole in the host field.
+  const single = srv ? null : /^(\[[^\]]+\]|[^,:[\]]+):(\d+)$/.exec(seeds);
+  fields.host = single?.[1] ?? seeds;
+  fields.port = single?.[2] ? Number(single[2]) : null;
   fields.database = database ? decodeURIComponent(database) : null;
   fields.username = user ? decodeURIComponent(user) : null;
-  fields.tlsMode = srv ? 'verifyFull' : null;
+  // MongoDB's default: TLS only for `mongodb+srv://` or when the string asks for it.
+  fields.tlsMode = srv ? 'verifyFull' : 'disable';
   const mongo = {
     srv: Boolean(srv),
     replicaSet: null as string | null,
@@ -162,6 +167,8 @@ function parseMongo(input: string): MockParsed | null {
     else if (k === 'directconnection') mongo.directConnection = value === 'true';
     else if (k === 'tls' || k === 'ssl')
       fields.tlsMode = value === 'true' ? 'verifyFull' : 'disable';
+    else if ((k === 'tlsinsecure' || k === 'tlsallowinvalidcertificates') && value === 'true')
+      fields.tlsMode = 'require';
     else fields.options.push({ key, value });
   }
   fields.mongo = mongo;

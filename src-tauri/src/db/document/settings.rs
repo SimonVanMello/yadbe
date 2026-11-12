@@ -232,7 +232,12 @@ pub fn parse_uri(text: &str) -> Result<ParsedMongoUri, YadbeError> {
             srv,
             ..MongoSettings::default()
         },
-        tls_mode: srv.then_some(TlsMode::VerifyFull),
+        // The MongoDB default: TLS only for `mongodb+srv://` or when the string asks for it.
+        tls_mode: Some(if srv {
+            TlsMode::VerifyFull
+        } else {
+            TlsMode::Disable
+        }),
         ca_cert_path: None,
         options: Vec::new(),
         ignored_keys: Vec::new(),
@@ -288,6 +293,20 @@ mod tests {
         assert_eq!(parsed.settings.replica_set.as_deref(), Some("rs0"));
         assert_eq!(parsed.settings.auth_source.as_deref(), Some("admin"));
         assert_eq!(parsed.tls_mode, Some(TlsMode::VerifyFull));
+        let plain = parse_uri("mongodb://localhost:57017/?replicaSet=rs0").expect("parses");
+        assert_eq!(plain.tls_mode, Some(TlsMode::Disable), "no tls=…: TLS off");
+        assert_eq!(
+            parse_uri("mongodb://h/?tls=false")
+                .expect("parses")
+                .tls_mode,
+            Some(TlsMode::Disable)
+        );
+        assert_eq!(
+            parse_uri("mongodb://h/?tlsInsecure=true")
+                .expect("parses")
+                .tls_mode,
+            Some(TlsMode::Require)
+        );
         assert_eq!(
             parsed.options,
             vec![ConnectionOption {

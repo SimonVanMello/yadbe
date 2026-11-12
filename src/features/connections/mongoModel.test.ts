@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import type { ParsedConnectionString } from '../../ipc';
+import { mockParseConnectionString } from '../../ipc/mockConnectionString';
 import { MOCK_ENGINES } from '../../ipc/mockData';
-import { applyParsed, emptyDraft, toDefinition } from './model';
+import { applyParsed, emptyDraft, summarize, toDefinition } from './model';
 import { emptyMongoDraft, mongoTunnelIssue } from './mongoModel';
 
 const mongo = MOCK_ENGINES.find((info) => info.engine === 'mongodb');
@@ -77,5 +79,42 @@ describe('the MongoDB part of the connection form', () => {
     expect(
       mongoTunnelIssue({ ...plain, replicaSet: 'rs0', directConnection: true }, 'db1'),
     ).toBeNull();
+  });
+});
+
+describe('a pasted mongodb:// URL (M4-2 bug)', () => {
+  const pasted = (url: string) => {
+    if (!mongo) throw new Error('mock engine');
+    const parsed = mockParseConnectionString(url, null);
+    if (!parsed) throw new Error('parses');
+    const fields: ParsedConnectionString = { ...parsed.fields, passwordId: null };
+    const draft = applyParsed(emptyDraft(mongo), fields, MOCK_ENGINES);
+    return { draft, definition: toDefinition(draft, mongo) };
+  };
+  const summaryOf = (definition: ReturnType<typeof toDefinition>) =>
+    summarize({
+      id: 'c1',
+      definition,
+      family: 'document',
+      position: 0,
+      lastConnectedAt: null,
+      createdAt: 0,
+      updatedAt: 0,
+    }).target;
+
+  it('keeps TLS off without tls=… and splits the one host from its port', () => {
+    const { draft, definition } = pasted('mongodb://localhost:57017/?replicaSet=rs0');
+    expect(draft.tlsMode).toBe('disable');
+    expect(draft.host).toBe('localhost');
+    expect(draft.port).toBe('57017');
+    expect(definition.tlsMode).toBe('disable');
+    expect(summaryOf(definition)).toBe('localhost:57017');
+  });
+
+  it('keeps a seed list whole and shows it without the default port', () => {
+    const { draft, definition } = pasted('mongodb://a:27018,b/shop?tls=true');
+    expect(draft.host).toBe('a:27018,b');
+    expect(draft.tlsMode).toBe('verifyFull');
+    expect(summaryOf(definition)).toBe('a:27018,b');
   });
 });
