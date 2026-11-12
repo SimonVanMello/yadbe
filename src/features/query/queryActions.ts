@@ -1,3 +1,4 @@
+import { confirmRunOver } from '../result-edit/resultEdits';
 import { confirm } from '../../app/errors/confirmStore';
 import { showError, showYadbeError } from '../../app/errors/presentError';
 import { isQueryTab, selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
@@ -183,6 +184,8 @@ async function startRun(tabId: string, mode: RunMode, options: RunOptions): Prom
     });
     return;
   }
+  // Edits made to the results this run replaces (F-087).
+  if (!(await confirmRunOver(tabId))) return;
   if (!(await connectTo(connection))) return;
 
   const parameters = await parameterValuesFor(

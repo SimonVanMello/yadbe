@@ -430,7 +430,11 @@ impl ResultEditService {
         let edit = self.edit(meta, result_id).await?;
         Self::check(&edit, changes)?;
         self.open(meta, &edit).await?;
-        self.tables.preview(&edit.hidden_tab(), changes)
+        let hidden = edit.hidden_tab();
+        // As Apply will run them: deleted rows checked on every column (see `apply`).
+        let mut changes = changes.clone();
+        self.complete_deletes(&hidden, &mut changes).await?;
+        self.tables.preview(&hidden, &changes)
     }
 
     /// Applies `changes` like a table tab. Deleted rows are completed with the table columns

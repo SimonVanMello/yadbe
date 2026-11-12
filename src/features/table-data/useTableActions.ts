@@ -11,6 +11,7 @@ import { useFilterRequests } from './filterRequests';
 import { goToReference, moveInTrail, openReferencingPanel, peekReference } from './fkNavigation';
 import { openTableExport } from './tableExport';
 import {
+  activeEditId,
   activeTableTabId,
   countRows,
   deleteSelectedRows,
@@ -42,9 +43,10 @@ function typing(): boolean {
 }
 
 /**
- * Registers what the table tab actions do (F-080 to F-085), on the active table tab. Each
- * returns `false` elsewhere, so a query tab keeps `Mod+S` for Save and a text field keeps its
- * own editing keys.
+ * Registers what the table tab actions do (F-080 to F-085), on the active table tab; the editing
+ * ones also act on the editable query result whose grid has the focus (F-087). Each returns
+ * `false` elsewhere, so a query tab keeps `Mod+S` for Save and a text field keeps its own
+ * editing keys.
  */
 export function useTableActions(): void {
   useEffect(() => {
@@ -56,13 +58,21 @@ export function useTableActions(): void {
         act(tabId);
         return true;
       };
+    const onEdit =
+      (act: (id: string) => void, scope: 'tab' | 'grid' = 'tab') =>
+      () => {
+        const id = activeEditId();
+        if (id === null || (scope === 'grid' && typing())) return false;
+        act(id);
+        return true;
+      };
     return registerActions({
-      'table.apply': onTable((tabId) => {
+      'table.apply': onEdit((tabId) => {
         void flushEditor(tabId).then(() => {
           requestApply(tabId);
         });
       }),
-      'table.preview': onTable((tabId) => {
+      'table.preview': onEdit((tabId) => {
         void flushEditor(tabId).then(() => openPreview(tabId));
       }),
       'table.refresh': onTable((tabId) => {
@@ -97,21 +107,21 @@ export function useTableActions(): void {
       'table.countExact': onTable((tabId) => {
         void countRows(tabId, 'exact');
       }),
-      'table.revertAll': onTable((tabId) => {
+      'table.revertAll': onEdit((tabId) => {
         void revertAll(tabId);
       }),
-      'table.insertRow': onTable(insertRow, 'grid'),
-      'table.duplicateRows': onTable((tabId) => {
+      'table.insertRow': onEdit(insertRow, 'grid'),
+      'table.duplicateRows': onEdit((tabId) => {
         void duplicateRows(tabId);
       }, 'grid'),
-      'table.deleteRows': onTable((tabId) => {
+      'table.deleteRows': onEdit((tabId) => {
         void deleteSelectedRows(tabId);
       }, 'grid'),
-      'table.setNull': onTable((tabId) => {
+      'table.setNull': onEdit((tabId) => {
         void setNullOnSelection(tabId);
       }, 'grid'),
-      'table.revertCells': onTable(revertSelectedCells, 'grid'),
-      'table.revertRows': onTable(revertSelectedRows, 'grid'),
+      'table.revertCells': onEdit(revertSelectedCells, 'grid'),
+      'table.revertRows': onEdit(revertSelectedRows, 'grid'),
       'table.goToReference': onTable((tabId) => {
         void goToReference(tabId);
       }, 'grid'),
@@ -122,7 +132,7 @@ export function useTableActions(): void {
       // A text field keeps Alt+← / Alt+→ (a word left or right on macOS).
       'table.navigateBack': () => !typing() && moveInTrail(-1),
       'table.navigateForward': () => !typing() && moveInTrail(1),
-      'table.pasteRows': onTable((tabId) => {
+      'table.pasteRows': onEdit((tabId) => {
         navigator.clipboard
           .readText()
           .then((text) => pasteText(tabId, text, true))

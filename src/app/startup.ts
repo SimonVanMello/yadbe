@@ -8,6 +8,7 @@ import { useQueryTabStore } from '../features/query/queryTabStore';
 import { startStatementLogFeed } from '../features/statement-log/statementLogStore';
 import { startObjectsFeature } from '../features/objects/objectsFeature';
 import { startTableDataFeature } from '../features/table-data/tableFeature';
+import { startResultEditFeature } from '../features/result-edit/resultEdits';
 import { useTableTabStore } from '../features/table-data/tableTabStore';
 import { initI18n, translate, useI18nStore } from '../i18n/i18n';
 import { ipc, unwrap } from '../ipc';
@@ -149,6 +150,7 @@ export function startup(): Promise<void> {
     startMetaFeed();
     startQueryFeature();
     startTableDataFeature();
+    startResultEditFeature();
     startObjectsFeature();
     startExportFeed();
     await restorePreferences();

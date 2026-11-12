@@ -243,11 +243,13 @@ export interface ChangeTrace {
 /**
  * The change set Apply sends: updates of the rows not deleted (in row then column order), each
  * with the value it replaces, deletions with the row as read (F-089), new rows with the columns
- * they set. Values go as they are: lossless strings.
+ * they set. Values go as they are: lossless strings. `carried`: the columns a deleted row's
+ * values include (a query result leaves out the columns it computed, F-087); all by default.
  */
 export function toChangeSet(
   pending: Pending,
   columns: readonly Pick<TableColumn, 'name'>[],
+  carried: (dataCol: number) => boolean = () => true,
 ): { changes: ChangeSet; trace: ChangeTrace } {
   const updates: CellUpdate[] = [];
   const deletes: RowDelete[] = [];
@@ -260,7 +262,7 @@ export function toChangeSet(
         key: change.key,
         values: columns.flatMap((column, col) => {
           const value = values[col];
-          return value ? [{ column: column.name, value }] : [];
+          return value && carried(col) ? [{ column: column.name, value }] : [];
         }),
       });
       trace.deletes.push(row);

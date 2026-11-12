@@ -7,9 +7,13 @@ import {
   unwrap,
   YadbeIpcError,
   type ApplyOutcome,
+  type ChangeSet,
   type ColumnReadOnlyReason,
   type CountMode,
+  type EditPreview,
+  type IpcResult,
   type ObjectRef,
+  type RefreshedRows,
   type TableColumn,
   type TableDataInfo,
   type TableReadOnlyReason,
@@ -18,7 +22,7 @@ import {
 import { showJournalEntry } from '../journal/journalStore';
 import { toast } from '../../ui/toastStore';
 import type { DataGridApi } from '../grid/DataGrid';
-import type { GridColumn } from '../grid/rowSource';
+import { valueText, type GridColumn } from '../grid/rowSource';
 import { selectedRowIntervals, type Selection } from '../grid/selection';
 import { findConnection } from '../query/connectionLookup';
 import { cellValue, isEditableKind, valuesEqual } from './cellValues';
@@ -96,6 +100,95 @@ export function tableSource(tabId: string): TableRowSource | undefined {
   return sources.get(tabId);
 }
 
+// --- Edit targets (F-084, F-085, F-087) ------------------------------------------------------
+
+/**
+ * Where the edits of a session go. A table tab needs no registration: its target is built from
+ * the tab. An editable query result registers its own (`result-edit/`), with its rows' source:
+ * the session id is then not a shell tab id.
+ */
+export interface EditTarget {
+  connectionId: string;
+  /** The session still exists (its tab, its result). */
+  alive(): boolean;
+  preview(changes: ChangeSet): Promise<IpcResult<EditPreview>>;
+  apply(changes: ChangeSet): Promise<IpcResult<ApplyOutcome>>;
+  /** Rows read again by their identity after an apply; `rows`: their grid rows. */
+  refresh(rows: readonly number[], keys: Value[][]): Promise<IpcResult<RefreshedRows>>;
+  /** Some rows could not be read back after an apply: everything is read again. */
+  reload(): Promise<unknown>;
+  /** Data columns of the row identity, in its order (default: by name). */
+  identity?: readonly number[];
+  /**
+   * Whether a data column holds a table column as stored, which a change set can carry (the
+   * values of a deleted row, a conflict's comparison); default: every column.
+   */
+  sourced?(dataCol: number): boolean;
+  /** Why nothing can be changed right now, `null` when it can. */
+  block?(): string | null;
+  /** Why rows cannot be added, `null` when they can. */
+  insertBlock?: string | null;
+}
+
+const targets = new Map<string, EditTarget>();
+
+/** Registers (or, with `null`, forgets) the target and the rows of a session that is not a tab. */
+export function registerEditSession(
+  id: string,
+  session: { target: EditTarget; source: TableRowSource } | null,
+): void {
+  if (session) {
+    targets.set(id, session.target);
+    sources.set(id, session.source);
+    return;
+  }
+  targets.delete(id);
+  sources.get(id)?.dispose();
+  sources.delete(id);
+  grids.delete(id);
+  traces.delete(id);
+  editorFlushes.delete(id);
+  useTableSessionStore.getState().remove(id);
+}
+
+function tabTarget(tabId: string): EditTarget | null {
+  const tab = tableTabOf(tabId);
+  if (!tab) return null;
+  return {
+    connectionId: tab.connectionId,
+    alive: () => tableTabOf(tabId) !== null,
+    preview: (changes) => ipc.commands.previewTableChanges(tabId, changes),
+    apply: (changes) => ipc.commands.applyTableChanges(tabId, changes),
+    refresh: (_rows, keys) => ipc.commands.refreshTableRows(tabId, keys),
+    reload: () => loadPage(tabId, { offset: getTableSession(tabId).offset }),
+  };
+}
+
+/** The target of a session: registered, or the table tab of that id. */
+export function editTargetOf(id: string): EditTarget | null {
+  return targets.get(id) ?? tabTarget(id);
+}
+
+/** `true` unless the session's target says this column is the query's own. */
+function sourcedColumn(target: EditTarget | null, dataCol: number): boolean {
+  return target?.sourced?.(dataCol) ?? true;
+}
+
+let resultEditLocator: (() => string | null) | null = null;
+
+/**
+ * Lets the result editing find the edit session of the result grid that has the focus, so the
+ * editing shortcuts act on it in a query tab.
+ */
+export function setResultEditLocator(locate: (() => string | null) | null): void {
+  resultEditLocator = locate;
+}
+
+/** The session editing shortcuts act on: the active table tab, else the focused result. */
+export function activeEditId(): string | null {
+  return activeTableTabId() ?? resultEditLocator?.() ?? null;
+}
+
 /** The grid of a mounted table view registers itself, so actions can read its selection. */
 export function registerGrid(tabId: string, api: DataGridApi | null): void {
   if (api) grids.set(tabId, api);
@@ -153,6 +246,12 @@ function columnReason(column: TableColumn): ColumnReadOnlyReason | 'array' | nul
   return isEditableKind(column.kind) ? null : 'array';
 }
 
+/** Why a column of an editable session cannot be written, for its header; `null`: it can. */
+export function headerReason(column: TableColumn): string | null {
+  const reason = columnReason(column);
+  return reason ? columnReasonText(reason) : null;
+}
+
 function gridColumns(info: TableDataInfo): GridColumn[] {
   return info.columns.map((column) => {
     const reason = columnReason(column);
@@ -166,7 +265,8 @@ function gridColumns(info: TableDataInfo): GridColumn[] {
   });
 }
 
-function sourceLabels() {
+/** The hover texts of a session's rows, in the current language. */
+export function sourceLabels() {
   return {
     original: (text: string) => t('tableData.cell.original', { value: text }),
     defaultValue: (expression: string | null) =>
@@ -336,14 +436,14 @@ export function cancelTableWork(tabId: string): void {
 }
 
 export type DiscardReason =
-  'page' | 'filter' | 'sort' | 'refresh' | 'close' | 'pageSize' | 'navigate' | 'revert';
+  'page' | 'filter' | 'sort' | 'refresh' | 'close' | 'pageSize' | 'navigate' | 'revert' | 'run';
 
 /** Asks before pending changes are lost; `true` when there are none or the user agrees. */
 export function confirmDiscard(tabIds: readonly string[], reason: DiscardReason): Promise<boolean> {
   const count = tabIds.reduce((sum, id) => sum + getTableSession(id).pendingCount, 0);
   if (count === 0) return Promise.resolve(true);
-  const tab = tabIds.length === 1 ? tableTabOf(tabIds[0] ?? '') : null;
-  const connection = findConnection(tab?.connectionId ?? null);
+  const target = tabIds.length === 1 ? editTargetOf(tabIds[0] ?? '') : null;
+  const connection = findConnection(target?.connectionId ?? null);
   return confirm({
     ...(connection ? { connection } : {}),
     title: t('tableData.discard.title', { count }),
@@ -425,6 +525,8 @@ export function cellBlock(tabId: string, row: number, dataCol: number): string |
   if (!info || !source) return t('tableData.edit.notReady');
   const tableReason = info.readOnlyReasons[0];
   if (tableReason) return tableReasonText(tableReason);
+  const blocked = editTargetOf(tabId)?.block?.() ?? null;
+  if (blocked) return blocked;
   const column = info.columns[dataCol];
   if (!column) return t('tableData.edit.notReady');
   const reason = columnReason(column);
@@ -447,7 +549,12 @@ export function tableBlock(tabId: string): string | null {
   const { info } = getTableSession(tabId);
   if (!info || !sources.has(tabId)) return t('tableData.edit.notReady');
   const reason = info.readOnlyReasons[0];
-  return reason ? tableReasonText(reason) : null;
+  return reason ? tableReasonText(reason) : (editTargetOf(tabId)?.block?.() ?? null);
+}
+
+/** Why the session cannot take new rows, `null` when it can. */
+function insertBlock(tabId: string): string | null {
+  return tableBlock(tabId) ?? editTargetOf(tabId)?.insertBlock ?? null;
 }
 
 function setPending(tabId: string, pending: Pending): void {
@@ -460,7 +567,9 @@ function setPending(tabId: string, pending: Pending): void {
   if (session.failure) source?.setFailed(null);
 }
 
-function identityColumns(info: TableDataInfo): number[] {
+function identityColumns(tabId: string, info: TableDataInfo): number[] {
+  const own = editTargetOf(tabId)?.identity;
+  if (own) return [...own];
   return (info.rowIdentity ?? []).map((name) => info.columns.findIndex((c) => c.name === name));
 }
 
@@ -476,7 +585,7 @@ export async function writeCells(tabId: string, writes: readonly CellWrite[]): P
   const { info } = getTableSession(tabId);
   const source = sources.get(tabId);
   if (!info || !source || writes.length === 0) return;
-  const identity = identityColumns(info);
+  const identity = identityColumns(tabId, info);
   const rows = [...new Set(writes.map((w) => w.row))].filter(
     (row) => source.rowKind(row).kind === 'row',
   );
@@ -604,7 +713,7 @@ function addRows(tabId: string, rows: readonly ReadonlyMap<number, Value>[]): vo
 
 /** A new empty row (F-083): every column takes its default until edited. */
 export function insertRow(tabId: string): void {
-  const block = tableBlock(tabId);
+  const block = insertBlock(tabId);
   if (block) {
     explain(block);
     return;
@@ -614,7 +723,7 @@ export function insertRow(tabId: string): void {
 
 /** Copies of the selected rows, keys and generated columns left to the server. */
 export async function duplicateRows(tabId: string): Promise<void> {
-  const block = tableBlock(tabId);
+  const block = insertBlock(tabId);
   const selected = selectionOf(tabId);
   const { info } = getTableSession(tabId);
   const source = sources.get(tabId);
@@ -643,7 +752,7 @@ export async function deleteSelectedRows(tabId: string): Promise<void> {
     return;
   }
   if (!selected || !info || !source) return;
-  const identity = identityColumns(info);
+  const identity = identityColumns(tabId, info);
   const existing = selected.rows.filter((row) => source.rowKind(row).kind === 'row');
   const inserts = selected.rows.flatMap((row) => {
     const at = source.rowKind(row);
@@ -713,7 +822,7 @@ export async function pasteText(tabId: string, text: string, asRows: boolean): P
   const source = sources.get(tabId);
   const grid = grids.get(tabId);
   if (!info || !source || !grid) return;
-  const block = tableBlock(tabId);
+  const block = asRows ? insertBlock(tabId) : tableBlock(tabId);
   if (block) {
     explain(block);
     return;
@@ -794,8 +903,7 @@ export async function pasteText(tabId: string, text: string, asRows: boolean): P
 
 /** Production connections always show the SQL first; elsewhere the preference decides. */
 export function mustPreview(tabId: string): boolean {
-  const tab = tableTabOf(tabId);
-  const connection = findConnection(tab?.connectionId ?? null);
+  const connection = findConnection(editTargetOf(tabId)?.connectionId ?? null);
   return connection?.environment === 'prod' || getPreference('previewBeforeApply');
 }
 
@@ -803,8 +911,10 @@ export async function openPreview(tabId: string): Promise<void> {
   const { info, pending } = getTableSession(tabId);
   if (!info || isEmpty(pending)) return;
   patch(tabId, { preview: { status: 'loading', data: null, error: null } });
-  const { changes } = toChangeSet(pending, info.columns);
-  const result = await ipc.commands.previewTableChanges(tabId, changes);
+  const target = editTargetOf(tabId);
+  if (!target) return;
+  const { changes } = toChangeSet(pending, info.columns, (col) => sourcedColumn(target, col));
+  const result = await target.preview(changes);
   if (getTableSession(tabId).preview === null) return;
   patch(tabId, {
     preview:
@@ -866,22 +976,30 @@ export async function applyChanges(tabId: string): Promise<void> {
   const session = getTableSession(tabId);
   const { info, pending } = session;
   const source = sources.get(tabId);
-  if (!info || !source || isEmpty(pending) || session.applying) return;
+  const target = editTargetOf(tabId);
+  if (!info || !source || !target || isEmpty(pending) || session.applying) return;
   if (missingRequired(tabId)) {
     patch(tabId, { preview: null });
     return;
   }
+  const blocked = target.block?.() ?? null;
+  if (blocked) {
+    patch(tabId, { preview: null });
+    explain(blocked);
+    return;
+  }
   patch(tabId, { applying: true });
-  const { changes, trace } = toChangeSet(pending, info.columns);
+  const sourced = (col: number) => sourcedColumn(target, col);
+  const { changes, trace } = toChangeSet(pending, info.columns, sourced);
   traces.set(tabId, trace);
   let result;
   try {
-    result = await ipc.commands.applyTableChanges(tabId, changes);
+    result = await target.apply(changes);
   } catch (error) {
     patch(tabId, { applying: false });
     throw error;
   }
-  if (!tableTabOf(tabId)) return;
+  if (!target.alive()) return;
   if (result.status === 'error') {
     patch(tabId, { applying: false, preview: null });
     showYadbeError(result.error, {
@@ -909,13 +1027,13 @@ export async function applyChanges(tabId: string): Promise<void> {
     return;
   }
   if (outcome.status === 'conflicted') {
-    const rows = await conflictRows(info, source, pending, trace, outcome);
-    if (!tableTabOf(tabId)) return;
+    const rows = await conflictRows(info, source, pending, trace, outcome, sourced);
+    if (!target.alive()) return;
     patch(tabId, { applying: false, preview: null, conflict: { rows } });
     return;
   }
 
-  const identity = identityColumns(info);
+  const identity = identityColumns(tabId, info);
   const deleted = new Set(trace.deletes);
   const updated = [...pending.rows.entries()].filter(
     ([, change]) => !change.deleted && change.cells.size > 0,
@@ -924,7 +1042,10 @@ export async function applyChanges(tabId: string): Promise<void> {
   let reload = false;
   if (updated.length > 0) {
     const keys = updated.map(([, change]) => keyAfter(change.key, change.cells, identity));
-    const fresh = await ipc.commands.refreshTableRows(tabId, keys);
+    const fresh = await target.refresh(
+      updated.map(([row]) => row),
+      keys,
+    );
     if (fresh.status === 'ok') {
       const rows = looseRows(fresh.data.window, info.columns);
       updated.forEach(([row], i) => {
@@ -980,8 +1101,8 @@ export async function applyChanges(tabId: string): Promise<void> {
         }
       : {}),
   });
-  // Rows the server could not send back (triggers, no key to read them): read the page again.
-  if (reload) await loadPage(tabId, { offset: getTableSession(tabId).offset });
+  // Rows the server could not send back (triggers, no key to read them): read them again.
+  if (reload) await target.reload();
 }
 
 function revealTarget(tabId: string, target: ReturnType<typeof targetOf>): void {
@@ -1038,6 +1159,7 @@ async function conflictRows(
   pending: Pending,
   trace: ChangeTrace,
   outcome: Extract<ApplyOutcome, { status: 'conflicted' }>,
+  sourced: (dataCol: number) => boolean,
 ): Promise<ConflictRow[]> {
   const current = looseRows(outcome.current.window, info.columns);
   const columnOf = (name: string) => info.columns.findIndex((c) => c.name === name);
@@ -1048,14 +1170,17 @@ async function conflictRows(
       const change = pending.rows.get(target.row);
       if (!change) return null;
       const position = outcome.current.positions[i];
-      const currentRow = position === null || position === undefined ? null : current[position];
-      const theirs = currentRow
-        ? await Promise.all(info.columns.map((_, col) => looseValue(currentRow, col)))
-        : null;
       const asRead = await Promise.all(
         info.columns.map((_, col) => source.underlyingValue(target.row, col)),
       );
+      const found = position === null || position === undefined ? null : current[position];
+      // Columns the query computed are not read again: they keep what the row was read with.
+      const currentRow = found ? keepComputed(found, asRead, sourced) : null;
+      const theirs = currentRow
+        ? await Promise.all(info.columns.map((_, col) => looseValue(currentRow, col)))
+        : null;
       const cells = info.columns.flatMap((column, col) => {
+        if (!sourced(col)) return [];
         const edit = change.cells.get(col);
         const original = edit?.original ?? asRead[col] ?? NULL;
         const now = theirs ? (theirs[col] ?? NULL) : null;
@@ -1086,6 +1211,25 @@ async function conflictRows(
 }
 
 const NULL: Value = { kind: 'null' };
+
+/** A row read again, the columns a query computed taken from the row as read. */
+function keepComputed(
+  row: LooseRow,
+  asRead: readonly Value[],
+  sourced: (dataCol: number) => boolean,
+): LooseRow {
+  if (asRead.every((_, col) => sourced(col))) return row;
+  const texts = [...row.texts];
+  const kinds = [...row.kinds];
+  const truncated = new Set(row.truncated);
+  asRead.forEach((value, col) => {
+    if (sourced(col)) return;
+    texts[col] = valueText(value);
+    if (value.kind !== 'null') kinds[col] = value.kind;
+    truncated.delete(col);
+  });
+  return { ...row, texts, kinds, truncated };
+}
 
 export type ConflictChoice = 'mine' | 'theirs' | 'edit';
 

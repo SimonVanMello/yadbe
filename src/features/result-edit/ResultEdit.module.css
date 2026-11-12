@@ -1,0 +1,70 @@
+/* Editable query results (F-087): the footer's edit state, the pending changes and actions. */
+
+.view {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.view > [role='grid'],
+.grid {
+  flex: 1;
+  min-height: 0;
+}
+
+.readOnly,
+.editable {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.readOnly {
+  color: var(--fg-muted);
+}
+
+.editable {
+  color: var(--accent);
+}
+
+.editable strong,
+.readOnly strong {
+  font-weight: var(--weight-semibold);
+}
+
+.reason,
+.table {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.table {
+  color: var(--fg-secondary);
+  font-family: var(--font-code);
+}
+
+.pending {
+  display: inline-flex;
+  align-items: center;
+  height: var(--badge-size);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--cell-modified-bg);
+  color: var(--cell-modified);
+  font-weight: var(--weight-semibold);
+}
+
+.stale {
+  color: var(--warning);
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}

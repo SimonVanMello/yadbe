@@ -175,4 +175,29 @@ describe('TableRowSource', () => {
     expect(block?.columns[2]?.values).toEqual([null, 'fresh', 'n/a']);
     expect(block?.rowStates).toEqual([null, null, null]);
   });
+
+  it('reads a query result that grows, after an apply too (F-087)', () => {
+    const fetchWindow = vi.spyOn(ipc.commands, 'fetchResultWindow');
+    const s = new TableRowSource(
+      columns,
+      columns.map((c) => ({ name: c.name, typeName: c.typeName, kind: c.kind })),
+      labels,
+    );
+    s.setResult(7, 3);
+    expect(s.rowCount).toBe(3);
+    expect(fetchWindow).not.toHaveBeenCalled();
+    s.extend(5);
+    expect(s.rowCount).toBe(5);
+    expect(s.baseRow(4)).toBe(4);
+    // Row 0 deleted by an apply: the rows that arrive later follow the remaining ones.
+    s.applied({ deleted: new Set([0]), refreshed: new Map(), inserted: [] });
+    expect(s.rowCount).toBe(4);
+    expect(s.baseRow(0)).toBe(1);
+    s.extend(7);
+    expect(s.rowCount).toBe(6);
+    expect(s.baseRow(5)).toBe(6);
+    expect(s.baseRow(6)).toBeNull();
+    s.extend(6);
+    expect(s.rowCount).toBe(6);
+  });
 });

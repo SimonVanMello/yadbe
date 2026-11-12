@@ -397,6 +397,15 @@ async fn edits(b: &Bench, fx: &Fixture) {
         .expect("preview");
     assert_eq!(preview.statements.len(), 2, "{preview:?}");
     assert!(preview.script.contains("items"), "{}", preview.script);
+    // The deleted row is checked on the columns the result did not show too, as Apply runs it.
+    assert!(
+        preview
+            .statements
+            .iter()
+            .any(|p| p.sql.starts_with("DELETE") && p.sql.contains("note")),
+        "{}",
+        preview.script
+    );
     let journal_id = match b
         .edits
         .apply(&b.meta, result.result_id, &changes)

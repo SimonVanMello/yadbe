@@ -406,7 +406,10 @@ export function createMockResultEdit(deps: ResultEditDeps) {
       if ('code' in edit) return fail(edit);
       const problem = check(edit.sources, changes);
       if (problem) return fail(problem);
-      return deps.tables.previewTableChanges(hidden(resultId), changes);
+      // As Apply will run them: deleted rows checked on every column.
+      const completed = await completeDeletes(edit, resultId, changes);
+      if ('code' in completed) return fail(completed);
+      return deps.tables.previewTableChanges(hidden(resultId), completed);
     },
     applyResultChanges: async (resultId, changes) => {
       const edit = await editOf(resultId);

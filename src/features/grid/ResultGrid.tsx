@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import type { ResultSummary } from '../../ipc';
 import { ResultGridView } from './ResultGridView';
 
@@ -7,6 +9,8 @@ export interface ResultGridProps {
   summary: ResultSummary;
   /** Accessible name; defaults to "Result n" from the statement index. */
   label?: string;
+  /** Shown at the end of the footer (why the result cannot be edited, F-087). */
+  note?: ReactNode;
 }
 
 /**

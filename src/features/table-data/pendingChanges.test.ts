@@ -215,4 +215,22 @@ describe('required cells of new rows', () => {
     ]);
     expect(firstMissingRequired(addInserts(EMPTY_PENDING, [full]).pending, cols)).toBeNull();
   });
+
+  it("leaves out of a deleted row's values the columns a query result computed (F-087)", () => {
+    const pending = deleteRows(
+      EMPTY_PENDING,
+      [{ row: 0, key: [int('1')], values: [int('1'), text('A@X'), int('7')] }],
+      [],
+    );
+    const { changes } = toChangeSet(pending, columns, (col) => col !== 1);
+    expect(changes.deletes).toEqual([
+      {
+        key: [int('1')],
+        values: [
+          { column: 'id', value: int('1') },
+          { column: 'total', value: int('7') },
+        ],
+      },
+    ]);
+  });
 });
