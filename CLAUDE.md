@@ -66,22 +66,23 @@ e2e/                      Playwright specs (mocked backend); perf*.spec.ts run w
 scripts/                  check-case, P-01 startup and P-04 WebKitGTK measurements
 src-tauri/
   src/
+    cli.rs                Command-line arguments (`yadbe <file.sql>`, `yadbe <url>`) → launch requests the front takes at startup (src/app/launch.ts)
     commands/             Tauri handlers: thin, no logic (validation → service call → error mapping)
-    db/                   value.rs (Value model), driver.rs (traits), dialect.rs + edit_dialect.rs (paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), ddl.rs + object_ops.rs + object_model.rs (DDL text, object statements, properties), params.rs (query parameters: scanner, binding), activity.rs (sessions, locks, kill), ef.rs (EF Core migrations), dotnet.rs (ADO.NET / EF Core connection strings), result_source.rs (plain one-table SELECT check for editable results), plan/ (plan model, one parser per engine, fixtures of real plans), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
+    db/                   value.rs (Value model), driver.rs (traits), dialect.rs + edit_dialect.rs (paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), ddl.rs + object_ops.rs + object_model.rs (DDL text, object statements, properties), params.rs (query parameters: scanner, binding), activity.rs (sessions, locks, kill), ef.rs (EF Core migrations), dotnet.rs (ADO.NET / EF Core connection strings), result_source.rs (plain one-table SELECT check for editable results), tls_identity.rs (client certificate and key), plan/ (plan model, one parser per engine, fixtures of real plans), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
       drivers/<engine>/   postgres, mssql, sqlite, mysql: the only place a driver crate is used
-    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs, ReferenceService (references.rs: foreign key lookups), Library (library.rs: saved queries), journal.rs (change journal, reverts), result_edit.rs (editable query results), meta_objects.rs (DDL, properties, object actions), meta_activity.rs (activity, kill, migrations), connection_string.rs (copy as .NET connection string), tunnel.rs (SSH tunnel of a session)
+    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs, ReferenceService (references.rs: foreign key lookups), Library (library.rs: saved queries), journal.rs (change journal, reverts), result_edit.rs (editable query results), result_view.rs + result_agg.rs + decimal.rs (sort / filter view of a result, selection aggregates), meta_objects.rs (DDL, properties, object actions), meta_activity.rs (activity, kill, migrations), connection_string.rs (copy as .NET connection string), tunnel.rs (SSH tunnel of a session)
     tunnel/               SSH tunnels (russh): hops, authentication, host key checks, the loopback listener drivers dial
     edit/                 Change set → EditPlanner → parameterized DML with original-value checks, SQL preview, inverse.rs (what reverts a change set)
     secrets/              Keychain access, Secret type
     store/                SQLite: connections, tabs, history, preferences, saved queries, SSH known hosts, change journal, pinned objects
-    export/               Streaming exports: sources (result, table), CSV / JSON encoders, the background job manager
+    export/               Streaming exports: sources (result, table), CSV / JSON / SQL / Markdown / xlsx encoders, the background job manager
     import/               Data import: streaming text / CSV / JSON readers, type conversion, plan, run, rejects file, job manager
     conn_import/          Connections from other tools (Azure Data Studio, DBeaver, pgpass, pg_service, SSMS) and yadbe's own file, without secrets
   examples/               export_bindings.rs (`pnpm bindings`)
   tests/                  Integration tests (common/, query_common/, conformance/) + fixture schema scripts (fixtures/)
   vendor/tiberius/        tiberius 0.13.0, pristine commit then yadbe's patches (PATCHES.md says which and why)
   vendor/russh/           russh 0.65.1, same scheme (per-channel flow control; PATCHES.md)
-dev/                      compose.yml (test engines), tls-certs.sh, mssql.conf, mysql-init.sql, ssh-test.sh (throwaway sshd servers)
+dev/                      compose.yml (test engines), mtls.yml (throwaway servers that require a client certificate), tls-certs.sh, mssql.conf, mysql-init.sql, ssh-test.sh (throwaway sshd servers)
 docs/                     SPEC.md, PLAN.md, validation/Mx.md (manual checklists)
 ```
 
@@ -118,6 +119,8 @@ cd src-tauri && YADBE_TEST_MYSQL_URL=mysql://yadbe:yadbe-test-pw@localhost:53306
 cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… cargo test --test references   # foreign key lookups (SQLite always runs)
 cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… cargo test --test change_journal --test result_edit --test objects --test query_tools --test import --test activity --test ef_core   # optimistic concurrency and journal, editable query results, activity monitor and EF Core, object DDL and actions, parameters and plans, data import (SQLite always runs)
 cd src-tauri && YADBE_BENCH_ROWS=1000000 cargo test --release --test import throughput -- --ignored --nocapture   # import throughput per engine; `large_file` instead for the 1 GiB file (about 2.5 GB of disk)
+cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… cargo test --test result_tools --test export_formats --test timeouts   # result sort / filter / aggregates, SQL / Markdown / xlsx exports, statement timeout and keep-alive
+docker compose -p yadbe-mtls -f dev/mtls.yml up -d   # PostgreSQL 55433 and MySQL 53307 requiring a client certificate; then `cargo test --test tls_client_cert` with the variables of the file's header (unset: SKIPPED)
 dev/ssh-test.sh [dir]   # Throwaway OpenSSH servers (tunnel 2222, jump host 2223, no forwarding 2224) + ssh-agent; needs openssh-server and root; `dev/ssh-test.sh stop [dir]`
 cd src-tauri && YADBE_TEST_SSH_DIR=/tmp/yadbe-sshd YADBE_TEST_PG_URL=… YADBE_TEST_PG_CA=… [YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… YADBE_TEST_MYSQL_CA=…] cargo test --test ssh_tunnel   # SSH tunnels on every engine set (unset: SKIPPED; YADBE_TEST_SSH_PORT defaults to 2222)
 cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test table_data p_table_export -- --ignored --nocapture   # table export of 1M rows (keyset paging)
