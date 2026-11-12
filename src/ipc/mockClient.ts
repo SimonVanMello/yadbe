@@ -1,4 +1,5 @@
 import type {
+  ActivitySession,
   AppInfo,
   ConnectionDefinition,
   ConnectionGroup,
@@ -28,6 +29,8 @@ import {
 } from './mockData';
 import { mockErrors } from './mockErrors';
 import { createMockConnectionImport } from './mock/connectionImport';
+import { createMockActivity } from './mock/activity';
+import { createMockDotnet } from './mock/dotnet';
 import { createMockExport } from './mock/export';
 import { createMockImport } from './mock/import';
 import { createMockFiles } from './mockFiles';
@@ -166,6 +169,33 @@ function createMockBackend() {
   const objects = createMockObjects({
     meta,
     readOnly: (connectionId) => findConnection(connectionId)?.definition.readOnly ?? false,
+    logStatement: (connectionId, sql, error = null) => {
+      logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
+    },
+  });
+
+  const activity = createMockActivity({
+    session: (connectionId) => {
+      const conn = findConnection(connectionId);
+      if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
+      return { engine: conn.definition.engine, database: conn.definition.database };
+    },
+    readOnly: (connectionId) => findConnection(connectionId)?.definition.readOnly ?? false,
+    latency: () => meta.latency(),
+    logStatement: (connectionId, sql, error = null) => {
+      logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
+    },
+  });
+
+  const dotnet = createMockDotnet({
+    session: (connectionId) => {
+      const conn = findConnection(connectionId);
+      if (!conn || sessions.get(connectionId)?.state !== 'connected') return null;
+      return { engine: conn.definition.engine, database: conn.definition.database };
+    },
+    definition: (connectionId) => findConnection(connectionId)?.definition ?? null,
+    password: (connectionId) => secrets.get(secretKey(connectionId, 'password'))?.value ?? null,
+    latency: () => meta.latency(),
     logStatement: (connectionId, sql, error = null) => {
       logStatement(connectionId, findConnection(connectionId)?.definition.name ?? '', sql, error);
     },
@@ -630,6 +660,7 @@ function createMockBackend() {
       connections = connections.filter((c) => c.id !== connectionId);
       savedQueries.connectionDeleted(connectionId);
       objects.forgetConnection(connectionId);
+      activity.forgetConnection(connectionId);
       for (const kind of ['password', 'sshPassphrase', 'token'] as const) {
         secrets.delete(secretKey(connectionId, kind));
       }
@@ -883,6 +914,8 @@ function createMockBackend() {
     ...files.commands,
     ...exporter.commands,
     ...objects.commands,
+    ...activity.commands,
+    ...dotnet.commands,
     ...importer.commands,
     ...connectionImport.commands,
   };
@@ -904,6 +937,8 @@ function createMockBackend() {
     ssh.seed();
     meta.reset();
     objects.reset();
+    activity.reset();
+    dotnet.reset();
     query.reset();
     history.reset();
     savedQueries.reset();
@@ -985,6 +1020,17 @@ function createMockBackend() {
      */
     setMetaCatalog(kind: 'shop' | 'large', options?: LargeCatalogOptions): void {
       meta.setCatalog(kind, options);
+    },
+    /** Shows the activity monitor of a user who may not see other sessions (`null`: may). */
+    setActivityFault(connectionId: string, fault: 'insufficientPrivilege' | null): void {
+      activity.setFault(connectionId, fault);
+    },
+    /** A session starts a statement on the mock server, as another client would. */
+    startActivitySession(
+      connectionId: string,
+      session: Partial<ActivitySession> & { id: string },
+    ): void {
+      activity.startSession(connectionId, session);
     },
     /** Time between two streamed batches of a query result, in ms (0 in unit tests). */
     setQueryTick(ms: number): void {

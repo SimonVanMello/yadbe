@@ -18,7 +18,7 @@ use crate::db::errors::YadbeError;
 pub use keychain::{
     KeychainBackend, KeychainError, MemoryKeychain, NoKeychain, OsKeychain, SERVICE,
 };
-pub use secret::Secret;
+pub use secret::{RevealedText, Secret};
 
 /// How long a password extracted from a pasted connection string waits to be used.
 pub const PENDING_TTL: Duration = Duration::from_secs(15 * 60);

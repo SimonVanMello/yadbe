@@ -150,6 +150,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::objects::list_pinned_objects,
             commands::objects::pin_object,
             commands::objects::unpin_object,
+            commands::activity::get_activity,
+            commands::activity::kill_session,
+            commands::dotnet::get_ef_migrations,
+            commands::dotnet::copy_connection_string,
         ])
         .events(collect_events![
             events::AppReady,

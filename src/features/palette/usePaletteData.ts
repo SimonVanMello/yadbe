@@ -11,7 +11,9 @@ import {
   useSessions,
 } from '../connections/connectionStore';
 import { useCatalogs, type CatalogTarget } from '../explorer/catalogCache';
+import { useConnection, useEngineInfo } from '../connections/connectionStore';
 import { ddlTargetName } from '../objects/objectsModel';
+import { toolTabName } from '../tools/toolTabs';
 import { useSavedLibrary } from '../library/useLibrary';
 import { fetchDatabases } from '../explorer/metaApi';
 import { metaKeys } from '../explorer/metaKeys';
@@ -96,6 +98,8 @@ export function usePaletteData(raw: string) {
   const running = useTabRunning(activeTab.id);
   const transaction = useTabTransaction(activeTab.id);
   const activeState = useConnectionState(activeTab.connectionId);
+  const activeConnection = useConnection(activeTab.connectionId);
+  const activeEngine = useEngineInfo(activeConnection?.engine ?? null);
   const savedDiffers = useDiffersFromSaved(activeTab.id);
 
   const wantsObjects = mode === 'all' || mode === 'object';
@@ -135,6 +139,8 @@ export function usePaletteData(raw: string) {
     closedTabCount: closedTabs,
     registered: useMemo(() => registeredActions(), []),
     savedDiffers,
+    hasConnection: activeConnection !== undefined,
+    activityMonitor: activeEngine?.capabilities.activityMonitor ?? true,
   };
   const contextKey = [
     context.queryTab,
@@ -145,6 +151,8 @@ export function usePaletteData(raw: string) {
     context.tabCount,
     context.closedTabCount,
     context.savedDiffers,
+    context.hasConnection,
+    context.activityMonitor,
   ].join();
   const actions = useMemo(
     () => buildActionItems(t, context),
@@ -169,9 +177,11 @@ export function usePaletteData(raw: string) {
               ? tab.table.name
               : tab.ddl
                 ? ddlTargetName(tab.ddl)
-                : filePath
-                  ? fileNameOf(filePath)
-                  : t('tab.query', { number: tab.ordinal }),
+                : tab.tool
+                  ? toolTabName(tab.tool, t)
+                  : filePath
+                    ? fileNameOf(filePath)
+                    : t('tab.query', { number: tab.ordinal }),
         connectionName: connection?.name ?? null,
       };
     });

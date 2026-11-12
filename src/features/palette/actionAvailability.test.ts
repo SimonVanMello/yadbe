@@ -51,3 +51,25 @@ describe('disabledReason', () => {
     );
   });
 });
+
+describe('the tools', () => {
+  it('needs a connected tab and an engine with sessions for the activity monitor', () => {
+    expect(disabledReason('activity.open', idle)).toBe('palette.disabled.notConnected');
+    expect(disabledReason('activity.open', { ...idle, connected: true })).toBeNull();
+    expect(
+      disabledReason('activity.open', { ...idle, connected: true, activityMonitor: false }),
+    ).toBe('palette.disabled.noSessions');
+  });
+
+  it('needs a connected tab for the migrations', () => {
+    expect(disabledReason('migrations.open', idle)).toBe('palette.disabled.notConnected');
+    expect(disabledReason('migrations.open', { ...idle, connected: true })).toBeNull();
+  });
+
+  it('copies a connection string of any tab bound to a connection, connected or not', () => {
+    for (const id of ['connection.copyAdoNet', 'connection.copyEfCore'] as const) {
+      expect(disabledReason(id, idle)).toBe('palette.disabled.noConnection');
+      expect(disabledReason(id, { ...idle, hasConnection: true })).toBeNull();
+    }
+  });
+});

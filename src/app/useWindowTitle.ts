@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useConnection } from '../features/connections/connectionStore';
 import { ddlTargetName } from '../features/objects/objectsModel';
 import { useTabFileName } from '../features/query/queryTabStore';
+import { toolTabName } from '../features/tools/toolTabs';
 import { useT } from '../i18n/useT';
 import { nativeWindow } from '../ipc/nativeWindow';
 import { selectActiveTab, useTabsStore } from './tabs/tabsStore';
@@ -21,7 +22,9 @@ export function useWindowTitle(): void {
         ? tab.table.name
         : tab.ddl
           ? ddlTargetName(tab.ddl)
-          : (fileName ?? t('tab.query', { number: tab.ordinal }));
+          : tab.tool
+            ? toolTabName(tab.tool, t)
+            : (fileName ?? t('tab.query', { number: tab.ordinal }));
   const connectionName = connection?.name ?? null;
   useEffect(() => {
     void nativeWindow

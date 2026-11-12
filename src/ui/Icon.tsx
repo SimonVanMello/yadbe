@@ -81,6 +81,8 @@ const PATHS = {
   filter: 'M4 5h16l-6 7.5V19l-4 1v-7.5L4 5Z',
   download: 'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',
   bookmark: 'M6 4h12v17l-6-4-6 4V4Z',
+  activity: 'M3 12h4l3-8 4 16 3-8h4',
+  timeline: 'M12 3v18M12 7h6M12 12H6m6 5h6',
 } as const;
 
 export type IconName = keyof typeof PATHS;

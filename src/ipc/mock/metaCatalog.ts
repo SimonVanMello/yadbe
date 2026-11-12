@@ -155,6 +155,12 @@ const SHOP_SCHEMAS: SchemaDef[] = [
       table('schema_migrations', 48, [c('version', 'bigint'), createdAt()], {
         primaryKey: ['version'],
       }),
+      table(
+        '__EFMigrationsHistory',
+        10,
+        [c('MigrationId', 'character varying(150)'), c('ProductVersion', 'character varying(32)')],
+        { primaryKey: ['MigrationId'], comment: 'Applied EF Core migrations' },
+      ),
       table('feature_flags', 12, [
         id(),
         c('key', 'text'),

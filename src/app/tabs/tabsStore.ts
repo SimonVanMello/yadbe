@@ -18,6 +18,22 @@ export interface ShellTab {
    * is a view of the server as it is, opened again from the explorer.
    */
   ddl?: DdlTarget;
+  /**
+   * Set for a tool tab: the activity monitor of the connection (F-140) or its EF Core migrations
+   * timeline (F-143). Like a DDL tab it shows the server as it is now: never saved, opened again
+   * from the menus.
+   */
+  tool?: ToolTarget;
+}
+
+/** What a tool tab shows. */
+export type ToolTarget = { type: 'activity' } | { type: 'migrations'; table: ObjectRef };
+
+/** A tool tab: bound to a connection, showing the activity monitor or the migrations. */
+export function isToolTab(
+  tab: ShellTab,
+): tab is ShellTab & { connectionId: string; tool: ToolTarget } {
+  return tab.connectionId !== null && tab.tool !== undefined;
 }
 
 /** A table tab: bound to a connection and a table. */
@@ -36,7 +52,12 @@ export function isDdlTab(
 
 /** A query tab: bound to a connection, with a SQL editor. */
 export function isQueryTab(tab: ShellTab): tab is ShellTab & { connectionId: string } {
-  return tab.connectionId !== null && tab.table === undefined && tab.ddl === undefined;
+  return (
+    tab.connectionId !== null &&
+    tab.table === undefined &&
+    tab.ddl === undefined &&
+    tab.tool === undefined
+  );
 }
 
 /** Shape written to the store and read back at startup. */
@@ -131,6 +152,8 @@ interface TabsStore {
   openTableTab: (connectionId: string, table: ObjectRef) => string;
   /** Shows an object's definition: activates the DDL tab already showing it, else opens one. */
   openDdlTab: (connectionId: string, target: DdlTarget) => string;
+  /** Shows a tool: activates the tool tab already showing it, else opens one. */
+  openToolTab: (connectionId: string, tool: ToolTarget) => string;
   /** An object was renamed: its table tabs and DDL tabs follow it. Returns the table tabs' ids. */
   renameObject: (connectionId: string, from: ObjectRef, to: ObjectRef) => string[];
   closeTab: (id: string) => void;
@@ -191,7 +214,12 @@ function remember(
 ): ClosedTab[] {
   const closed: ClosedTab[] = [];
   tabs.forEach((tab, index) => {
-    if (ids.has(tab.id) && tab.connectionId !== null && tab.ddl === undefined) {
+    if (
+      ids.has(tab.id) &&
+      tab.connectionId !== null &&
+      tab.ddl === undefined &&
+      tab.tool === undefined
+    ) {
       closed.unshift({
         id: tab.id,
         connectionId: tab.connectionId,
@@ -303,6 +331,24 @@ export function createTabsStore() {
         pinned: false,
         ddl: target,
       };
+      set({ tabs: [...tabs, tab], activeTabId: tab.id });
+      return tab.id;
+    },
+
+    openToolTab: (connectionId, tool) => {
+      const { tabs } = get();
+      const key = JSON.stringify(tool);
+      const open = tabs.find(
+        (tab) =>
+          tab.connectionId === connectionId &&
+          tab.tool !== undefined &&
+          JSON.stringify(tab.tool) === key,
+      );
+      if (open) {
+        set({ activeTabId: open.id });
+        return open.id;
+      }
+      const tab: ShellTab = { id: newTabId(), connectionId, ordinal: 0, pinned: false, tool };
       set({ tabs: [...tabs, tab], activeTabId: tab.id });
       return tab.id;
     },
@@ -483,7 +529,7 @@ export const useTabsStore = createTabsStore();
 export function toSavedTabs(state: Pick<TabsStore, 'tabs' | 'activeTabId'>): SavedTabs {
   return {
     tabs: state.tabs
-      .filter((tab) => tab.ddl === undefined)
+      .filter((tab) => tab.ddl === undefined && tab.tool === undefined)
       .map((tab) => ({
         id: tab.id,
         connectionId: tab.connectionId,

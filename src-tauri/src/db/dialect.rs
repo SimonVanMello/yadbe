@@ -80,6 +80,11 @@ pub struct Capabilities {
     pub explain: bool,
     /// The engine runs a statement and shows its plan with actual rows and times.
     pub explain_analyze: bool,
+    /// The engine has sessions to watch: the activity monitor is offered (F-140).
+    pub activity_monitor: bool,
+    /// A running statement can be stopped while its session stays (`pg_cancel_backend`,
+    /// `KILL QUERY`); otherwise only the whole session can be ended.
+    pub activity_cancel_query: bool,
 }
 
 pub trait Dialect:
@@ -88,6 +93,7 @@ pub trait Dialect:
     + crate::db::meta::MetaDialect
     + crate::db::edit_dialect::EditDialect
     + crate::db::object_ops::ObjectDialect
+    + crate::db::dotnet::DotnetDialect
 {
     fn engine(&self) -> Engine;
 
@@ -166,6 +172,8 @@ impl Dialect for PostgresDialect {
             },
             explain: true,
             explain_analyze: true,
+            activity_monitor: true,
+            activity_cancel_query: true,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -228,6 +236,8 @@ impl Dialect for MssqlDialect {
             },
             explain: true,
             explain_analyze: true,
+            activity_monitor: true,
+            activity_cancel_query: false,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -290,6 +300,8 @@ impl Dialect for MysqlDialect {
             },
             explain: true,
             explain_analyze: true,
+            activity_monitor: true,
+            activity_cancel_query: true,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {
@@ -355,6 +367,8 @@ impl Dialect for SqliteDialect {
             },
             explain: true,
             explain_analyze: false,
+            activity_monitor: false,
+            activity_cancel_query: false,
         }
     }
     fn quote_identifier(&self, ident: &str) -> String {

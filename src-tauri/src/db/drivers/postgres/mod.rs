@@ -1,5 +1,6 @@
 //! PostgreSQL driver: `tokio-postgres` over rustls.
 
+mod activity;
 mod bound;
 mod decode;
 mod execute;
@@ -352,6 +353,10 @@ impl Connection for PgConnection {
     }
 
     fn introspector(&self) -> Option<&dyn crate::db::introspect::Introspector> {
+        Some(self)
+    }
+
+    fn activity(&self) -> Option<&dyn crate::db::activity::ActivityMonitor> {
         Some(self)
     }
 

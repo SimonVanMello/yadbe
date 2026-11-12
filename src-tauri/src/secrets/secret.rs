@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 use zeroize::Zeroize;
 
@@ -42,6 +42,37 @@ impl std::fmt::Debug for Secret {
 impl std::fmt::Display for Secret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("***")
+    }
+}
+
+/// Text that may hold a secret and is handed to the user on purpose, once (a connection
+/// string copied with its password). Serializable because the user asked for it; redacted in
+/// `Debug`, zeroized when dropped, and never kept: the caller writes it to the clipboard and
+/// lets it go.
+#[derive(Serialize, Type)]
+#[serde(transparent)]
+#[specta(transparent)]
+pub struct RevealedText(String);
+
+impl RevealedText {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Drop for RevealedText {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+impl std::fmt::Debug for RevealedText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RevealedText(***)")
     }
 }
 

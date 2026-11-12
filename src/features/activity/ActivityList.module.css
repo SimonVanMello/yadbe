@@ -1,0 +1,182 @@
+.list {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-app);
+}
+
+.list:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+.head,
+.row {
+  display: grid;
+  align-items: center;
+  column-gap: var(--space-3);
+  padding: 0 var(--space-4);
+}
+
+.sessions {
+  grid-template-columns:
+    var(--activity-id-width) var(--activity-user-width) var(--activity-database-width)
+    var(--activity-client-width) var(--activity-state-width) var(--activity-duration-width)
+    var(--activity-duration-width) minmax(var(--activity-client-width), 1fr);
+  min-width: calc(
+    var(--activity-id-width) + var(--activity-user-width) + var(--activity-database-width) +
+      var(--activity-client-width) * 2 + var(--activity-state-width) +
+      var(--activity-duration-width) * 2 + var(--space-4) * 2 + var(--space-3) * 7
+  );
+}
+
+.locks {
+  grid-template-columns:
+    var(--activity-id-width) var(--activity-lock-type-width) var(--activity-lock-mode-width)
+    var(--activity-lock-status-width) minmax(var(--activity-client-width), 1fr);
+}
+
+.head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: var(--grid-header-height);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+
+.rows {
+  position: relative;
+  width: 100%;
+}
+
+.row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--grid-row-height);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  color: var(--fg-primary);
+  font-size: var(--grid-font-size);
+  cursor: default;
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.row[aria-selected='true'] {
+  background: var(--bg-selected);
+}
+
+/* A session that blocks others, and one that waits for them, stand out in the margin. */
+.row[data-display='blocked'] {
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--danger);
+}
+
+.row[data-blocker='true'] {
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--warning);
+}
+
+.row[data-system='true'] {
+  color: var(--fg-muted);
+}
+
+.cell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--grid-font-family);
+}
+
+.muted {
+  color: var(--fg-muted);
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.dot {
+  flex: none;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--radius-full);
+  background: var(--fg-muted);
+}
+
+.dot[data-display='active'] {
+  background: var(--accent);
+}
+
+.dot[data-display='blocked'] {
+  background: var(--danger);
+}
+
+.dot[data-display='idleInTransaction'] {
+  background: var(--warning);
+}
+
+.stateText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tag {
+  flex: none;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+}
+
+.tag[data-kind='blocker'] {
+  background: var(--cell-modified-bg);
+  color: var(--cell-modified);
+}
+
+.statement {
+  color: var(--fg-secondary);
+}
+
+.waiting {
+  color: var(--danger);
+}
+
+.stateMessage,
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-4);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.empty p {
+  margin: 0;
+}
+
+.truncated {
+  padding: var(--space-3) var(--space-4);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
