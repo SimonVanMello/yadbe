@@ -7,6 +7,8 @@
 #   export YADBE_TEST_PG_CA=../dev/certs/ca.crt
 #   export YADBE_TEST_MYSQL_MTLS_URL=mysql://yadbe_x509:yadbe-x509-pw@localhost:53307/yadbe_test
 #   export YADBE_TEST_MYSQL_CA=../dev/certs/ca.crt
+#   export YADBE_TEST_MONGO_MTLS_URL=mongodb://localhost:57019/?directConnection=true
+#   export YADBE_TEST_MONGO_CA=../dev/certs/ca.crt
 #   cargo test --test tls_client_cert
 # The servers trust the throwaway client CA of src-tauri/tests/fixtures/tls (ca.crt), which
 # signed the client certificate there (CN=yadbe_client). Throwaway credentials: never reuse.
@@ -65,5 +67,29 @@ services:
         --ssl-cert=/certs/server.crt --ssl-key=/tmp/server.key --disable-log-bin
     healthcheck:
       test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uroot', '-pyadbe-test-root']
+      interval: 2s
+      retries: 30
+
+  # MongoDB requiring TLS and a client certificate signed by the client CA (M4-4: the driver
+  # reads the key from a file, which yadbe writes encrypted). No authentication: the
+  # certificate is the check. `up -d mongo` alone uses no new image (the one of compose.yml).
+  mongo:
+    image: mongo:7.0
+    ports:
+      - '57019:27017'
+    volumes:
+      - ./certs/server.crt:/certs/server.crt:ro
+      - ./certs/server.key:/certs/server.key.src:ro
+      - ../src-tauri/tests/fixtures/tls/ca.crt:/certs/client-ca.crt:ro
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        cat /certs/server.crt /certs/server.key.src > /tmp/server.pem &&
+        chown mongodb /tmp/server.pem && chmod 600 /tmp/server.pem &&
+        exec docker-entrypoint.sh mongod --bind_ip_all --tlsMode requireTLS
+        --tlsCertificateKeyFile /tmp/server.pem --tlsCAFile /certs/client-ca.crt
+    healthcheck:
+      test: ['CMD-SHELL', 'pgrep mongod']
       interval: 2s
       retries: 30

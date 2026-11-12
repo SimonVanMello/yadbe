@@ -118,6 +118,65 @@ impl TlsIdentity {
     pub fn key_pem(&self) -> &[u8] {
         &self.key_pem
     }
+
+    /// The key as an encrypted PKCS#8 PEM (`ENCRYPTED PRIVATE KEY`, PBES2: PBKDF2-SHA256 and
+    /// AES-256-CBC) under `password`, for a driver that only reads a key from a file: the file
+    /// then never holds the key in clear. `password` should be random and used once (the
+    /// iteration count is low for that reason: guessing it is not the threat).
+    pub fn encrypted_key_pem(&self, password: &[u8]) -> Result<Zeroizing<String>, YadbeError> {
+        use pkcs8::der::Encode as _;
+        use pkcs8::der::asn1::{AnyRef, OctetStringRef};
+        use pkcs8::{ObjectIdentifier, PrivateKeyInfoRef};
+
+        const RSA_ENCRYPTION: ObjectIdentifier =
+            ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
+        const EC_PUBLIC_KEY: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
+
+        let fail = |e: &dyn fmt::Display| invalid(format!("cannot wrap the client key: {e}"));
+        let key = self.private_key()?;
+        let pkcs8_der: Zeroizing<Vec<u8>> = match &key {
+            PrivateKeyDer::Pkcs8(der) => Zeroizing::new(der.secret_pkcs8_der().to_vec()),
+            PrivateKeyDer::Pkcs1(der) => {
+                let info = PrivateKeyInfoRef::new(
+                    pkcs8::AlgorithmIdentifierRef {
+                        oid: RSA_ENCRYPTION,
+                        parameters: Some(AnyRef::NULL),
+                    },
+                    OctetStringRef::new(der.secret_pkcs1_der()).map_err(|e| fail(&e))?,
+                );
+                Zeroizing::new(info.to_der().map_err(|e| fail(&e))?)
+            }
+            PrivateKeyDer::Sec1(der) => {
+                let ec =
+                    sec1::EcPrivateKey::try_from(der.secret_sec1_der()).map_err(|e| fail(&e))?;
+                let curve = ec
+                    .parameters
+                    .and_then(sec1::EcParameters::named_curve)
+                    .ok_or_else(|| invalid("the EC client key does not name its curve"))?;
+                let info = PrivateKeyInfoRef::new(
+                    pkcs8::AlgorithmIdentifierRef {
+                        oid: EC_PUBLIC_KEY,
+                        parameters: Some(AnyRef::from(&curve)),
+                    },
+                    OctetStringRef::new(der.secret_sec1_der()).map_err(|e| fail(&e))?,
+                );
+                Zeroizing::new(info.to_der().map_err(|e| fail(&e))?)
+            }
+            _ => return Err(invalid("unsupported private key format")),
+        };
+        let info = PrivateKeyInfoRef::try_from(pkcs8_der.as_slice()).map_err(|e| fail(&e))?;
+        let salt = *uuid::Uuid::new_v4().as_bytes();
+        let iv = *uuid::Uuid::new_v4().as_bytes();
+        let params =
+            pkcs8::pkcs5::pbes2::Parameters::generate_pbkdf2_sha256_aes256cbc(1_000, &salt, iv)
+                .map_err(|e| fail(&e))?;
+        let document = info
+            .encrypt_with_params(params, password)
+            .map_err(|e| fail(&e))?;
+        document
+            .to_pem("ENCRYPTED PRIVATE KEY", LineEnding::LF)
+            .map_err(|e| fail(&e))
+    }
 }
 
 /// The key as unencrypted PEM: as is when it is not encrypted, decrypted (PKCS#8,
@@ -179,6 +238,22 @@ mod tests {
             let identity = TlsIdentity::from_pem(CERT, key, None).expect("identity");
             assert_eq!(identity.cert_chain().len(), 1);
             identity.private_key().expect("key");
+        }
+    }
+
+    #[test]
+    fn re_encrypts_the_key_for_a_driver_that_reads_files() {
+        for key in [KEY_SEC1, KEY_PKCS8] {
+            let identity = TlsIdentity::from_pem(CERT, key, None).expect("loads");
+            let pem = identity.encrypted_key_pem(b"one-time").expect("wraps");
+            assert!(pem.starts_with("-----BEGIN ENCRYPTED PRIVATE KEY-----"));
+            assert!(!pem.contains("BEGIN PRIVATE KEY"));
+            // `from_pem` checks the decrypted key against the certificate.
+            TlsIdentity::from_pem(CERT, pem.as_bytes(), Some(&Secret::new("one-time")))
+                .expect("decrypts and matches the certificate");
+            assert!(
+                TlsIdentity::from_pem(CERT, pem.as_bytes(), Some(&Secret::new("other"))).is_err()
+            );
         }
     }
 

@@ -128,13 +128,28 @@ fn connection_uri(target: &ConnectTarget, settings: &MongoSettings) -> Result<St
     Ok(uri)
 }
 
-/// A PEM file holding the client certificate and its decrypted key, for as long as the client
-/// is being built: the driver reads TLS files only by path, when the client is created.
-struct IdentityFile(PathBuf);
+/// A PEM file holding the client certificate and its key, for as long as the client is being
+/// built: the driver reads TLS files only by path, when the client is created. The key in it is
+/// encrypted under a random one-time password the driver gets in memory
+/// (`tls_certificate_key_file_password`), so the key is never on disk in clear.
+struct IdentityFile {
+    path: PathBuf,
+    password: Zeroizing<Vec<u8>>,
+}
 
 impl IdentityFile {
     fn write(identity: &TlsIdentity) -> Result<Self, YadbeError> {
         let path = std::env::temp_dir().join(format!("yadbe-{}.pem", uuid::Uuid::new_v4()));
+        let password: Zeroizing<Vec<u8>> = Zeroizing::new(
+            uuid::Uuid::new_v4()
+                .simple()
+                .to_string()
+                .into_bytes()
+                .into_iter()
+                .chain(uuid::Uuid::new_v4().simple().to_string().into_bytes())
+                .collect(),
+        );
+        let key = identity.encrypted_key_pem(&password)?;
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -142,12 +157,12 @@ impl IdentityFile {
             use std::os::unix::fs::OpenOptionsExt as _;
             options.mode(0o600);
         }
-        let mut pem = Zeroizing::new(identity.cert_pem().to_vec());
+        let mut pem = identity.cert_pem().to_vec();
         pem.push(b'\n');
-        pem.extend_from_slice(identity.key_pem());
-        let file = Self(path);
+        pem.extend_from_slice(key.as_bytes());
+        let file = Self { path, password };
         options
-            .open(&file.0)
+            .open(&file.path)
             .and_then(|mut f| f.write_all(&pem))
             .map_err(|e| {
                 YadbeError::tls_client_cert_invalid(format!(
@@ -160,7 +175,7 @@ impl IdentityFile {
 
 impl Drop for IdentityFile {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        let _ = std::fs::remove_file(&self.path);
     }
 }
 
@@ -234,7 +249,10 @@ async fn connect(request: ConnectRequest<'_>) -> Result<Backend, YadbeError> {
         mode => Tls::Enabled(
             TlsOptions::builder()
                 .ca_file_path(target.ca_cert_path.clone())
-                .cert_key_file_path(identity_file.as_ref().map(|f| f.0.clone()))
+                .cert_key_file_path(identity_file.as_ref().map(|f| f.path.clone()))
+                .tls_certificate_key_file_password(
+                    identity_file.as_ref().map(|f| f.password.to_vec()),
+                )
                 // `require` checks the chain only against a given CA (and then, with rustls,
                 // the host name too): without one it only encrypts.
                 .allow_invalid_certificates(
