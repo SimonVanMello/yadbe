@@ -323,8 +323,10 @@ export function toDefinition(draft: ConnectionDraft, info: EngineInfo): Connecti
   const passwordless =
     document && (draft.username.trim() === '' || draft.mongo.authMechanism === 'x509');
   const environment = draft.environment;
+  // MongoDB has no opportunistic TLS: `prefer` is none.
+  const tlsMode = document && draft.tlsMode === 'prefer' ? 'disable' : draft.tlsMode;
   const clientCert =
-    info.capabilities.clientCertificate && draft.tlsMode !== 'disable'
+    info.capabilities.clientCertificate && tlsMode !== 'disable'
       ? textOrNull(draft.tlsClientCert)
       : null;
   return {
@@ -336,8 +338,7 @@ export function toDefinition(draft: ConnectionDraft, info: EngineInfo): Connecti
     username: file ? '' : draft.username.trim(),
     filePath: file ? draft.filePath.trim() : '',
     auth: file || passwordless ? 'none' : 'password',
-    // MongoDB has no opportunistic TLS: `prefer` is none.
-    tlsMode: document && draft.tlsMode === 'prefer' ? 'disable' : draft.tlsMode,
+    tlsMode,
     caCertPath: draft.caCertPath,
     tlsClientCertPath: clientCert,
     tlsClientKeyPath: clientCert === null ? null : textOrNull(draft.tlsClientKey),

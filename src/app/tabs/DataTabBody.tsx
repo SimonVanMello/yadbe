@@ -1,7 +1,7 @@
 import type { ObjectRef } from '../../ipc';
 import { useConnection } from '../../features/connections/connectionStore';
-import { CollectionTabBody } from '../../features/document/CollectionTabBody';
 import { TableTabBody } from '../../features/table-data/TableTabBody';
+import { LazyCollectionTabBody } from '../lazyViews';
 import type { ShellTab } from './tabsStore';
 
 /**
@@ -14,7 +14,7 @@ export function DataTabBody({ tab, table }: { tab: ShellTab; table: ObjectRef })
   const connection = useConnection(tab.connectionId);
   switch (connection?.family) {
     case 'document':
-      return <CollectionTabBody tab={tab} table={table} />;
+      return <LazyCollectionTabBody tab={tab} table={table} />;
     default:
       return <TableTabBody tab={tab} table={table} />;
   }

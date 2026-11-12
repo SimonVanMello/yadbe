@@ -36,11 +36,13 @@ Do not add a dependency outside this list without justifying it in the commit me
 src/                      Frontend
   app/                    Shell: window, title bar and tabs, layout, actions and shortcuts, errors, startup and restore
   features/<feature>/     One feature = components + hooks + styles + tests:
-    connections/          Connection list model, dialog and forms (EngineFields: the fields of each engine family; SSH tunnel section), password / SSH secret / host key prompts, connection chip, import (other tools' files) and export dialogs
+    connections/          Connection list model, dialog and forms (EngineFields: the fields of each engine family, DocumentConnectionFields + mongoModel.ts for MongoDB; SSH tunnel section), password / SSH secret / host key prompts, connection chip, import (other tools' files) and export dialogs
     sidebar/              Sidebar views (Connections / History / Saved / Journal), the virtualized tree of connections + explorer (rows dispatched by engine family)
-    explorer/             Explorer rows (pure tree building and filter), metadata queries, context menu, Script as, the shared catalog cache (catalogCache.ts: palette + autocomplete)
+    explorer/             Explorer rows (pure tree building and filter; documentRows.ts: the document family's tree), metadata queries, context menu, Script as, the shared catalog cache (catalogCache.ts: palette + autocomplete)
     query/                Query tab: SQL editor (CodeMirror), run / cancel, transactions, results area, files, danger guard, parameter prompt, formatter, hover cards and go to definition, plan tree
     grid/                 Data grid (results and table tabs), selection and copy formats, cell viewer
+    documents/            Documents view: a virtualized, foldable tree of plain values (DocNode), copy value / path / document; reused by every document-like store
+    document/             The document family (MongoDB): collection tab (filter, projection, sort, pages, counts), the JSON console (query tab of the family), grid / documents switch, dangerous-command confirmation, Extended JSON → documents view (ejsonView.ts)
     table-data/           Table tab: pages, count, filter bar, sort, cell editors, pending changes, SQL preview, apply, conflict and revert dialogs, table export, foreign key navigation (peek, jump, referencing rows, lookup editor, back / forward trail)
     completion/           Editor autocomplete: SQL context analysis, suggestions, quoting, index over the shared catalog
     palette/              Command palette: fuzzy matcher, sources (actions, connections, objects, tabs, history)
@@ -58,7 +60,7 @@ src/                      Frontend
     statement-log/        Statement log panel
     statusbar/, toolbar/, welcome/   Bottom bar (run status, Ln/Col), query toolbar (QueryTabControls: per engine family, like app/tabs/QueryTabBody), welcome screen
     demo/                 The /#primitives page
-  ipc/                    Backend access: generated bindings + Tauri client + mock client (mock/ per domain)
+  ipc/                    Backend access: generated bindings + Tauri client + mock client (mock/ per domain); sqlEngine.ts (SqlEngine: what SQL-only tables are keyed by)
   ui/                     Reusable primitives (Button, Menu, Dialog, Toast…)
   theme/                  tokens.css, graphite.css, paper.css
   i18n/                   fr.json, en.json
@@ -69,9 +71,9 @@ src-tauri/
   src/
     cli.rs                Command-line arguments (`yadbe <file.sql>`, `yadbe <url>`) → launch requests the front takes at startup (src/app/launch.ts)
     commands/             Tauri handlers: thin, no logic (validation → service call → error mapping)
-    db/                   value.rs (Value model), engine.rs (engines, families, capabilities: one profile per engine), driver.rs (Driver, Backend by family, Link + SqlConnection), dialect.rs + edit_dialect.rs (SQL family only: quoting, paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), ddl.rs + object_ops.rs + object_model.rs (DDL text, object statements, properties), params.rs (query parameters: scanner, binding), activity.rs (sessions, locks, kill), ef.rs (EF Core migrations), dotnet.rs (ADO.NET / EF Core connection strings), result_source.rs (plain one-table SELECT check for editable results), tls_identity.rs (client certificate and key), plan/ (plan model, one parser per engine, fixtures of real plans), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
-      drivers/<engine>/   postgres, mssql, sqlite, mysql: the only place a driver crate is used
-    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs, ReferenceService (references.rs: foreign key lookups), Library (library.rs: saved queries), journal.rs (change journal, reverts), result_edit.rs (editable query results), result_view.rs + result_agg.rs + decimal.rs (sort / filter view of a result, selection aggregates), meta_objects.rs (DDL, properties, object actions), meta_activity.rs (activity, kill, migrations), connection_string.rs (copy as .NET connection string), tunnel.rs (SSH tunnel of a session)
+    db/                   value.rs (Value model), engine.rs (engines, families, capabilities: one profile per engine), driver.rs (Driver, Backend by family, Link + SqlConnection + DocumentConnection), document/ (the document family above its driver: order-keeping Json, typed operations DocOp, read-only allow-list and danger detection, canonical Extended JSON ↔ cells, explorer model and field sampling, MongoDB settings and URIs), dialect.rs + edit_dialect.rs (SQL family only: quoting, paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), ddl.rs + object_ops.rs + object_model.rs (DDL text, object statements, properties), params.rs (query parameters: scanner, binding), activity.rs (sessions, locks, kill), ef.rs (EF Core migrations), dotnet.rs (ADO.NET / EF Core connection strings), result_source.rs (plain one-table SELECT check for editable results), tls_identity.rs (client certificate and key), plan/ (plan model, one parser per engine, fixtures of real plans), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
+      drivers/<engine>/   postgres, mssql, sqlite, mysql, mongodb: the only place a driver crate is used
+    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs, ReferenceService (references.rs: foreign key lookups), Library (library.rs: saved queries), journal.rs (change journal, reverts), result_edit.rs (editable query results), result_view.rs + result_agg.rs + decimal.rs (sort / filter view of a result, selection aggregates), meta_objects.rs (DDL, properties, object actions), meta_activity.rs (activity, kill, migrations), connection_string.rs (copy as .NET connection string), tunnel.rs (SSH tunnel of a session), document/ (the command gate every document operation goes through: read-only, danger, timeout, statement log; DocumentService: explorer, collection pages, counts, console; documents into the ResultStore)
     tunnel/               SSH tunnels (russh): hops, authentication, host key checks, the loopback listener drivers dial
     edit/                 Change set → EditPlanner → parameterized DML with original-value checks, SQL preview, inverse.rs (what reverts a change set)
     secrets/              Keychain access, Secret type
@@ -100,7 +102,7 @@ pnpm test:ui        # Playwright on `pnpm dev` (mocked backend), captures in tes
 pnpm bindings       # Regenerates src/ipc/bindings.ts from Rust
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 dev/tls-certs.sh    # Throwaway CA + `localhost` server certificate in dev/certs/ (git-ignored), for the TLS tests and compose
-docker compose -f dev/compose.yml up -d   # PostgreSQL (TLS on), SQL Server, MySQL for integration tests; URLs to export in the file's header
+docker compose -f dev/compose.yml up -d   # PostgreSQL (TLS on), SQL Server, MySQL, MongoDB (replica set 57017, standalone 57018) for integration tests; URLs to export in the file's header
 cd src-tauri && YADBE_TEST_PG_URL=postgres://user:pw@localhost:5432/db YADBE_TEST_PG_CA=../dev/certs/ca.crt cargo test --test postgres   # unset: tests print SKIPPED
 cd src-tauri && YADBE_TEST_MSSQL_URL='sqlserver://localhost:51433;database=master;user=sa;password=Yadbe-test-pw1;trustServerCertificate=true' YADBE_TEST_MSSQL_CA=../dev/certs/ca.crt cargo test --test query_mssql --test introspection   # SQL Server (compose service); the CA test needs the compose TLS certificate, unset: SKIPPED
 YADBE_CONFIG_DIR=<dir> pnpm tauri dev   # App database (yadbe.db) in another folder than the OS config one
@@ -121,6 +123,8 @@ cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_
 cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… cargo test --test change_journal --test result_edit --test objects --test query_tools --test import --test activity --test ef_core   # optimistic concurrency and journal, editable query results, activity monitor and EF Core, object DDL and actions, parameters and plans, data import (SQLite always runs)
 cd src-tauri && YADBE_BENCH_ROWS=1000000 cargo test --release --test import throughput -- --ignored --nocapture   # import throughput per engine; `large_file` instead for the 1 GiB file (about 2.5 GB of disk)
 cd src-tauri && YADBE_TEST_PG_URL=… YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… cargo test --test result_tools --test export_formats --test timeouts   # result sort / filter / aggregates, SQL / Markdown / xlsx exports, statement timeout and keep-alive
+docker compose -f dev/compose.yml up -d mongo mongo-standalone   # MongoDB only: a single-node replica set (57017, initiated by its healthcheck) and a standalone server with auth and TLS allowed (57018)
+cd src-tauri && YADBE_TEST_MONGO_URL='mongodb://localhost:57017/?replicaSet=rs0' YADBE_TEST_MONGO_STANDALONE_URL='mongodb://yadbe:yadbe-test-pw@localhost:57018/?authSource=admin' YADBE_TEST_MONGO_CA=../dev/certs/ca.crt cargo test --test document   # document family conformance (types, paging, sampling, gate, cancel, timeout, TLS; unset: SKIPPED)
 docker compose -p yadbe-mtls -f dev/mtls.yml up -d   # PostgreSQL 55433 and MySQL 53307 requiring a client certificate; then `cargo test --test tls_client_cert` with the variables of the file's header (unset: SKIPPED)
 dev/ssh-test.sh [dir]   # Throwaway OpenSSH servers (tunnel 2222, jump host 2223, no forwarding 2224) + ssh-agent; needs openssh-server and root; `dev/ssh-test.sh stop [dir]`
 cd src-tauri && YADBE_TEST_SSH_DIR=/tmp/yadbe-sshd YADBE_TEST_PG_URL=… YADBE_TEST_PG_CA=… [YADBE_TEST_MSSQL_URL=… YADBE_TEST_MYSQL_URL=… YADBE_TEST_MYSQL_CA=…] cargo test --test ssh_tunnel   # SSH tunnels on every engine set (unset: SKIPPED; YADBE_TEST_SSH_PORT defaults to 2222)
@@ -160,7 +164,7 @@ Driving the real app (WebKitGTK) on Linux, e.g. to check a change end to end: `a
 ## Tests
 
 - Every driver passes the shared conformance suite (types, scripts, cancellation, error positions, introspection, edit plans) against a real engine.
-- Integration tests read `YADBE_TEST_PG_URL`, `YADBE_TEST_MSSQL_URL`, `YADBE_TEST_MYSQL_URL`; SQLite always runs. A missing engine skips the test with a printed notice.
+- Integration tests read `YADBE_TEST_PG_URL`, `YADBE_TEST_MSSQL_URL`, `YADBE_TEST_MYSQL_URL`, `YADBE_TEST_MONGO_URL`, `YADBE_TEST_MONGO_STANDALONE_URL`; SQLite always runs. A missing engine skips the test with a printed notice.
 - Every generated-DML path has a test that checks the resulting database state.
 - Fixture schemas are created by script (`src-tauri/tests/fixtures/`), never committed as database files.
 - Non-trivial front logic (stores, statement splitting, connection-string parsing, grid math): Vitest. Screens: at least one Playwright capture per new screen or visual state, in both themes.

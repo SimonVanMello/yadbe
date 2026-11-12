@@ -166,7 +166,7 @@ export function DocumentConnectionFields({
             }))}
             onChange={(authMechanism) => {
               // X.509 is a TLS client certificate: it needs TLS.
-              const tls = authMechanism === 'x509' && draft.tlsMode === 'disable';
+              const tls = authMechanism === 'x509' && tlsMode === 'disable';
               onChange({
                 mongo: { ...mongo, authMechanism },
                 ...(tls ? { tlsMode: 'verifyFull' as const } : {}),

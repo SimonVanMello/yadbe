@@ -3,8 +3,8 @@ import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
 import { Spinner } from '../../ui/Spinner';
 import { useConnection, useConnectionList } from '../../features/connections/connectionStore';
-import { DocumentConsole } from '../../features/document/DocumentConsole';
 import { QueryView } from '../../features/query/QueryView';
+import { LazyDocumentConsole } from '../lazyViews';
 import styles from './QueryTabBody.module.css';
 import { useTabsStore, type ShellTab } from './tabsStore';
 
@@ -47,7 +47,7 @@ export function QueryTabBody({ tab }: { tab: ShellTab }) {
     case 'sql':
       return <QueryView tab={tab} connection={connection} />;
     case 'document':
-      return <DocumentConsole tab={tab} connection={connection} />;
+      return <LazyDocumentConsole tab={tab} connection={connection} />;
     default:
       return null;
   }

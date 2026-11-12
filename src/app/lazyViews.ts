@@ -72,3 +72,10 @@ export const LazyGridDemo = lazyComponent(
   () => import('../features/demo/GridDemo').then((m) => m.GridDemo),
   { preload: false },
 );
+// The document family's tabs (M4-2): only a MongoDB connection needs them.
+export const LazyCollectionTabBody = lazyComponent(() =>
+  import('../features/document/CollectionTabBody').then((m) => m.CollectionTabBody),
+);
+export const LazyDocumentConsole = lazyComponent(() =>
+  import('../features/document/DocumentConsole').then((m) => m.DocumentConsole),
+);
