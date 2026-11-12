@@ -18,7 +18,7 @@ import { useNow } from '../../ui/useNow';
 import { qualifierOf, useConnections, useEngines } from '../connections/connectionStore';
 import { JournalDetail } from './JournalDetail';
 import styles from './JournalPanel.module.css';
-import { isJournalFiltered, tableKey, tableText } from './journalModel';
+import { entryTarget, isJournalFiltered, tableKey } from './journalModel';
 import { useJournalUi } from './journalStore';
 import { JournalRow } from './JournalRow';
 import { JOURNAL_LOAD_MORE_MARGIN, useJournalList, useJournalTables } from './useJournal';
@@ -114,8 +114,9 @@ export function JournalPanel() {
       )
       .map((item) => ({
         value: tableKey(item.table),
-        label: tableText(
-          item.table,
+        // A key-value entry names a database index and a key, not a schema and a table.
+        label: entryTarget(
+          { family: byId.get(item.connectionId)?.family ?? 'sql', table: item.table },
           qualifierOf(engines, byId.get(item.connectionId)?.engine ?? null),
         ),
       })),

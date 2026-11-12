@@ -77,7 +77,7 @@ for (const { name, colorScheme } of THEMES) {
       await dialog(page).getByLabel('Delimiter').selectOption('semicolon');
       await expect(preview).toContainText(';');
       await dialog(page).getByRole('switch', { name: 'Header row' }).click();
-      await dialog(page).getByRole('radio', { name: 'JSON' }).click();
+      await dialog(page).getByRole('radio', { name: 'JSON', exact: true }).click();
       await expect(preview).toContainText('[');
       await expect(preview).toContainText('{"id":');
       await capture(page, name, 'dialog-json');
