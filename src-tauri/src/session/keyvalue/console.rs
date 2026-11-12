@@ -311,13 +311,10 @@ pub fn reply_view(reply: KvReply, store: &ResultStore) -> (KvReplyView, Option<u
             (KvReplyView::Empty, None)
         }
         KvReply::Array(items) | KvReply::Set(items) => {
+            // The grid numbers its rows: the elements need no index column.
             if items.iter().all(KvReply::is_scalar) {
-                let rows = items
-                    .iter()
-                    .enumerate()
-                    .map(|(i, item)| vec![Value::int(i + 1), scalar_value(item)])
-                    .collect();
-                return grid(store, &["#".to_owned(), "value".to_owned()], rows);
+                let rows = items.iter().map(|item| vec![scalar_value(item)]).collect();
+                return grid(store, &["value".to_owned()], rows);
             }
             let width = items.first().and_then(KvReply::items).map(<[KvReply]>::len);
             let tuples = width.is_some_and(|w| w >= 2)
@@ -382,7 +379,7 @@ mod tests {
                 row_count,
                 result_id,
             } => {
-                assert_eq!(columns[1].name, "value");
+                assert_eq!(columns[0].name, "value");
                 assert_eq!(row_count, 2);
                 assert_eq!(Some(result_id), list.1);
             }

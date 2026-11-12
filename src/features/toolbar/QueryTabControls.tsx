@@ -1,4 +1,5 @@
 import type { ConnectionSummary } from '../connections/model';
+import { KvConsoleControls } from '../keyvalue/KvConsoleControls';
 import { QueryControls } from '../query/QueryControls';
 
 /**
@@ -15,6 +16,8 @@ export function QueryTabControls({
   switch (connection.family) {
     case 'sql':
       return <QueryControls tabId={tabId} connection={connection} />;
+    case 'keyValue':
+      return <KvConsoleControls tabId={tabId} connection={connection} />;
     default:
       return null;
   }

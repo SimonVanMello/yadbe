@@ -68,6 +68,7 @@ describe('the sidebar rows', () => {
       'connection:shop · prod',
       'connection:shop · staging',
       'connection:reporting',
+      'connection:sessions · prod',
       'group:Local',
       'connection:local postgres',
       'connection:wordpress',

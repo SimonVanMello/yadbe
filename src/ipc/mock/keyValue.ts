@@ -714,8 +714,8 @@ export function createMockKeyValue(deps: KeyValueDeps) {
       if (reply.length === 0) return { kind: 'empty' };
       if (reply.every(isScalar))
         return grid(
-          ['#', 'value'],
-          reply.map((item, i) => [['int', String(i + 1)], scalarCell(item)]),
+          ['value'],
+          reply.map((item) => [scalarCell(item)]),
         );
       const width = Array.isArray(reply[0]) ? reply[0].length : 0;
       if (

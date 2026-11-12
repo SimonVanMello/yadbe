@@ -350,6 +350,18 @@ export const MOCK_CONNECTIONS: SavedConnection[] = [
     groupId: 'group-local',
     environment: { kind: 'dev', label: null, color: null },
   }),
+  saved('conn-sessions-prod', 3, {
+    ...blankDefinition('redis', 'sessions · prod'),
+    host: 'redis-eu.example.com',
+    port: 6380,
+    database: '2',
+    username: 'reader',
+    tlsMode: 'verifyFull',
+    groupId: 'group-acme',
+    environment: { kind: 'prod', label: null, color: null },
+    readOnly: true,
+    keyValue: { keyDelimiter: null },
+  }),
   saved('conn-cache', 2, {
     ...blankDefinition('redis', 'cache'),
     host: 'localhost',
@@ -378,6 +390,7 @@ export const MOCK_REMEMBERED_PASSWORDS = [
   'conn-local-pg',
   'conn-wordpress',
   'conn-cache',
+  'conn-sessions-prod',
 ];
 
 export const MOCK_SERVER_VERSIONS: Record<Engine, string> = {

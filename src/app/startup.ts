@@ -2,6 +2,7 @@ import { restoreAndPersistExportPrefs } from '../features/export/exportStore';
 import { startExportFeed } from '../features/export/runExport';
 import { startConnectionFeed } from '../features/connections/connectionStore';
 import { startMetaFeed } from '../features/explorer/metaFeed';
+import { startKeyValueFeed } from '../features/keyvalue/kvScanFeed';
 import { restoreAndPersistPreferences } from '../features/preferences/preferenceStore';
 import { restoreAndPersistQueryUi, startQueryFeature } from '../features/query/queryFeature';
 import { useQueryTabStore } from '../features/query/queryTabStore';
@@ -150,6 +151,7 @@ export function startup(): Promise<void> {
     void startConnectionFeed();
     void startStatementLogFeed();
     startMetaFeed();
+    startKeyValueFeed();
     startQueryFeature();
     startTableDataFeature();
     startResultEditFeature();

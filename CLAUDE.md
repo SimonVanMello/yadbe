@@ -22,7 +22,7 @@ When this file and the spec disagree, this file wins for conventions and the spe
 | SQL editor | CodeMirror 6 (`@codemirror/lang-sql`) |
 | Grid, lists | In-house grid and lists on TanStack Virtual |
 | Backend | Stable Rust (2024 edition), `tokio` |
-| Drivers | `tokio-postgres` (+ `rustls`), `tiberius`, `mysql_async`, `rusqlite` |
+| Drivers | `tokio-postgres` (+ `rustls`), `tiberius`, `mysql_async`, `rusqlite`, `redis` (Redis / Valkey, `tokio-comp` only) |
 | Secrets | `keyring` (OS keychain) |
 | Bindings | `tauri-specta`: TS types and commands **generated** from Rust, never written by hand |
 | Persistence | SQLite (`rusqlite`) in the OS config folder |
@@ -50,6 +50,7 @@ src/                      Frontend
     result-edit/          Editable query results: edit session over a result (table-tab machinery), footer status and read-only reasons
     activity/             Activity monitor tab: sessions and locks lists, who blocks whom, kill confirmation
     migrations/           EF Core migrations timeline (`__EFMigrationsHistory`)
+    keyvalue/             Key-value family (Redis, Valkey): explorer rows (databases, MATCH pattern, key tree of the backend's SCAN index by delimiter, scan state, lazy key summaries), key tabs (header, string / collection / RedisJSON viewers), console (editor, replies, danger confirmation)
     tools/                Tool tabs (never saved): guard, toolbar controls, palette actions
     journal/              Change journal view: search and filters, change set detail, revert entry point
     objects/              DDL tab, properties dialog, drop / truncate / rename confirmation, pins, inline rename
@@ -70,8 +71,9 @@ src-tauri/
     cli.rs                Command-line arguments (`yadbe <file.sql>`, `yadbe <url>`) → launch requests the front takes at startup (src/app/launch.ts)
     commands/             Tauri handlers: thin, no logic (validation → service call → error mapping)
     db/                   value.rs (Value model), engine.rs (engines, families, capabilities: one profile per engine), driver.rs (Driver, Backend by family, Link + SqlConnection), dialect.rs + edit_dialect.rs (SQL family only: quoting, paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), ddl.rs + object_ops.rs + object_model.rs (DDL text, object statements, properties), params.rs (query parameters: scanner, binding), activity.rs (sessions, locks, kill), ef.rs (EF Core migrations), dotnet.rs (ADO.NET / EF Core connection strings), result_source.rs (plain one-table SELECT check for editable results), tls_identity.rs (client certificate and key), plan/ (plan model, one parser per engine, fixtures of real plans), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
-      drivers/<engine>/   postgres, mssql, sqlite, mysql: the only place a driver crate is used
-    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs, ReferenceService (references.rs: foreign key lookups), Library (library.rs: saved queries), journal.rs (change journal, reverts), result_edit.rs (editable query results), result_view.rs + result_agg.rs + decimal.rs (sort / filter view of a result, selection aggregates), meta_objects.rs (DDL, properties, object actions), meta_activity.rs (activity, kill, migrations), connection_string.rs (copy as .NET connection string), tunnel.rs (SSH tunnel of a session)
+      keyvalue/           Key-value family without a driver crate: reply model, redis-cli tokenizer, command display (secrets redacted), COMMAND INFO specs and the gate's verdicts (read-only, unsupported, dangerous)
+      drivers/<engine>/   postgres, mssql, sqlite, mysql, redis: the only place a driver crate is used
+    session/              ConnectionManager, ConnectionSession, QueryRunner, ResultStore, MetaCache, statement log, history recording, TableDataService (table tabs: pages, counts, apply) + table_sql.rs / table_shape.rs, ReferenceService (references.rs: foreign key lookups), Library (library.rs: saved queries), journal.rs (change journal, reverts), result_edit.rs (editable query results), result_view.rs + result_agg.rs + decimal.rs (sort / filter view of a result, selection aggregates), meta_objects.rs (DDL, properties, object actions), meta_activity.rs (activity, kill, migrations), connection_string.rs (copy as .NET connection string), tunnel.rs (SSH tunnel of a session), keyvalue/ (KeyValueService: the command gate every key-value command goes through, key scans and their sorted index, key reads into the result store, consoles)
     tunnel/               SSH tunnels (russh): hops, authentication, host key checks, the loopback listener drivers dial
     edit/                 Change set → EditPlanner → parameterized DML with original-value checks, SQL preview, inverse.rs (what reverts a change set)
     secrets/              Keychain access, Secret type
@@ -83,7 +85,7 @@ src-tauri/
   tests/                  Integration tests (common/, query_common/, conformance/) + fixture schema scripts (fixtures/)
   vendor/tiberius/        tiberius 0.13.0, pristine commit then yadbe's patches (PATCHES.md says which and why)
   vendor/russh/           russh 0.65.1, same scheme (per-channel flow control; PATCHES.md)
-dev/                      compose.yml (test engines), mtls.yml (throwaway servers that require a client certificate), tls-certs.sh, mssql.conf, mysql-init.sql, ssh-test.sh (throwaway sshd servers)
+dev/                      compose.yml (test engines; redis and valkey for the key-value family), mtls.yml (throwaway servers that require a client certificate), tls-certs.sh, mssql.conf, mysql-init.sql, ssh-test.sh (throwaway sshd servers)
 docs/                     SPEC.md, PLAN.md, validation/Mx.md (manual checklists), analysis/ (studies that precede a milestone)
 ```
 
@@ -128,6 +130,8 @@ cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test table_data p_t
 pnpm screenshots    # README screenshots (docs/assets/*.png) on the mocked backend; quantize the PNGs afterwards (ImageMagick, 128 colours)
 pnpm perf:explorer  # Explorer tree on the mock: first level with 500 tables, scroll, filter (at once and a key at a time) on 10k objects (YADBE_PERF_PORT / YADBE_MOCK_PORT when the default port is taken)
 cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test query_postgres p03 -- --ignored --nocapture   # P-03: query sent → first 500-row window readable, 1M rows
+docker compose -f dev/compose.yml up -d redis valkey   # Redis 8 (RedisJSON, TLS on 56380) and Valkey 8 with an ACL user; URLs in the file's header
+cd src-tauri && YADBE_TEST_REDIS_URL=redis://yadbe:yadbe-test-pw@localhost:56379/0 YADBE_TEST_VALKEY_URL=redis://yadbe:yadbe-test-pw@localhost:56381/0 YADBE_TEST_REDIS_TLS_URL=rediss://yadbe:yadbe-test-pw@localhost:56380/0 YADBE_TEST_REDIS_CA=../dev/certs/ca.crt cargo test --test keyvalue   # key-value conformance on Redis and Valkey (unset: SKIPPED); `p_keyvalue_1m -- --ignored --nocapture`: explorer on 1M keys
 ```
 
 `cargo build` / `cargo test` (debug or `--release`) rewrite `src-tauri/target/<profile>/yadbe` without the bundled frontend (it then loads `http://localhost:1420`): run `pnpm tauri build [--debug] --no-bundle` again before launching or measuring that binary.
@@ -160,7 +164,7 @@ Driving the real app (WebKitGTK) on Linux, e.g. to check a change end to end: `a
 ## Tests
 
 - Every driver passes the shared conformance suite (types, scripts, cancellation, error positions, introspection, edit plans) against a real engine.
-- Integration tests read `YADBE_TEST_PG_URL`, `YADBE_TEST_MSSQL_URL`, `YADBE_TEST_MYSQL_URL`; SQLite always runs. A missing engine skips the test with a printed notice.
+- Integration tests read `YADBE_TEST_PG_URL`, `YADBE_TEST_MSSQL_URL`, `YADBE_TEST_MYSQL_URL`, `YADBE_TEST_REDIS_URL`, `YADBE_TEST_VALKEY_URL`; SQLite always runs. A missing engine skips the test with a printed notice.
 - Every generated-DML path has a test that checks the resulting database state.
 - Fixture schemas are created by script (`src-tauri/tests/fixtures/`), never committed as database files.
 - Non-trivial front logic (stores, statement splitting, connection-string parsing, grid math): Vitest. Screens: at least one Playwright capture per new screen or visual state, in both themes.

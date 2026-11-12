@@ -1,6 +1,7 @@
 import { setCloseGuard, useTabsStore } from '../../app/tabs/tabsStore';
 import { addWindowCloseGuard } from '../../app/windowCloseGuards';
 import { ipc } from '../../ipc';
+import { forgetConsole } from '../keyvalue/kvConsoleActions';
 import { forgetEditorState } from './SqlEditor';
 import { confirmAbandonTransaction, hasOpenTransaction } from './queryActions';
 import { useExecutionStore, startQueryFeed } from './executionStore';
@@ -32,6 +33,7 @@ function forgetTab(tabId: string): void {
   useParameterStore.getState().forget(tabId);
   // Frees the tab's server connection and results; an open transaction is rolled back.
   void ipc.commands.closeQueryTab(tabId);
+  forgetConsole(tabId);
 }
 
 let started = false;

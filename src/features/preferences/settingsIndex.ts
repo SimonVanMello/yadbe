@@ -123,6 +123,7 @@ export type SettingId =
   | 'journalMaxEntries'
   | 'journalMaxAgeDays'
   | 'connectTimeoutSecs'
+  | 'keyValueDelimiter'
   | 'tlsRule'
   | 'keychain'
   | 'sshKnownHosts'
@@ -387,6 +388,13 @@ export const SETTINGS: readonly SettingSpec[] = [
     key: 'connectTimeoutSecs',
     control: number('preferences.unit.seconds'),
     keywords: 'timeout',
+  },
+  {
+    id: 'keyValueDelimiter',
+    section: 'connections',
+    key: 'keyValueDelimiter',
+    control: { type: 'text' },
+    keywords: 'redis valkey namespace separator keys',
   },
   {
     id: 'tlsRule',

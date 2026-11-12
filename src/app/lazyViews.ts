@@ -58,6 +58,9 @@ export const LazyActivityTabBody = lazyComponent(() =>
 export const LazyMigrationsTabBody = lazyComponent(() =>
   import('../features/migrations/MigrationsTabBody').then((m) => m.MigrationsTabBody),
 );
+export const LazyKeyTabBody = lazyComponent(() =>
+  import('../features/keyvalue/KeyTabBody').then((m) => m.KeyTabBody),
+);
 export const LazyDdlTabBody = lazyComponent(() =>
   import('../features/objects/DdlTabBody').then((m) => m.DdlTabBody),
 );

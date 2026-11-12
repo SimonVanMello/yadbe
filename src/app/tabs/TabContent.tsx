@@ -1,6 +1,11 @@
 import { TableTabBody } from '../../features/table-data/TableTabBody';
 import { WelcomeScreen } from '../../features/welcome/WelcomeScreen';
-import { LazyActivityTabBody, LazyDdlTabBody, LazyMigrationsTabBody } from '../lazyViews';
+import {
+  LazyActivityTabBody,
+  LazyDdlTabBody,
+  LazyKeyTabBody,
+  LazyMigrationsTabBody,
+} from '../lazyViews';
 import { QueryTabBody } from './QueryTabBody';
 import styles from './TabContent.module.css';
 import { selectActiveTab, useTabsStore } from './tabsStore';
@@ -20,6 +25,8 @@ export function TabContent() {
         <LazyActivityTabBody key={tab.id} tab={tab} />
       ) : tab.tool?.type === 'migrations' ? (
         <LazyMigrationsTabBody key={tab.id} tab={tab} table={tab.tool.table} />
+      ) : tab.tool?.type === 'kvKey' ? (
+        <LazyKeyTabBody key={tab.id} tab={tab} target={tab.tool} />
       ) : (
         <QueryTabBody tab={tab} />
       )}

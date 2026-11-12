@@ -1,6 +1,7 @@
 import type { InvalidateQueryFilters } from '@tanstack/react-query';
 
-import type { MetaNode, ObjectKind, ObjectRef } from '../../ipc';
+import type { KvBytes, MetaNode, ObjectKind, ObjectRef } from '../../ipc';
+import { kvKeys } from '../keyvalue/kvKeys';
 
 /** What the explorer asks the backend, one request per node that lists its children. */
 export type MetaRequest =
@@ -8,9 +9,13 @@ export type MetaRequest =
   | { type: 'schemas'; database: string }
   | { type: 'counts'; database: string; schema: string | null }
   | { type: 'objects'; database: string; schema: string | null; kind: ObjectKind }
-  | { type: 'table'; table: ObjectRef; kind: ObjectKind };
+  | { type: 'table'; table: ObjectRef; kind: ObjectKind }
+  // The key-value family's explorer (`keyvalue/kvExplorerRows.ts`).
+  | { type: 'kvDatabases' }
+  | { type: 'kvScan'; database: number; pattern: string | null }
+  | { type: 'kvLevel'; database: number; prefix: KvBytes; delimiter: string; limit: number };
 
-type Key = readonly (string | null)[];
+type Key = readonly (string | number | null)[];
 
 /**
  * Query keys nest like the backend's `MetaCache`, so that a `meta-refreshed` node maps to one
@@ -59,6 +64,18 @@ export function requestKey(connectionId: string, request: MetaRequest): Key {
       return metaKeys.objects(connectionId, request.database, request.schema, request.kind);
     case 'table':
       return metaKeys.table(connectionId, request.table, request.kind);
+    case 'kvDatabases':
+      return kvKeys.databases(connectionId);
+    case 'kvScan':
+      return kvKeys.scan(connectionId, request.database, request.pattern);
+    case 'kvLevel':
+      return kvKeys.level(
+        connectionId,
+        request.database,
+        request.prefix,
+        request.delimiter,
+        request.limit,
+      );
   }
 }
 

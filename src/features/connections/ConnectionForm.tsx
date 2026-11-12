@@ -194,9 +194,11 @@ export function ConnectionForm({
         }}
         label={t('connection.readOnly')}
         hint={
-          info && !info.capabilities.readOnlySession
-            ? t('connection.readOnly.hintClassifierOnly', { engine: info.label })
-            : t('connection.readOnly.hint')
+          info?.capabilities.family === 'keyValue'
+            ? t('keyValue.form.readOnlyHint')
+            : info && !info.capabilities.readOnlySession
+              ? t('connection.readOnly.hintClassifierOnly', { engine: info.label })
+              : t('connection.readOnly.hint')
         }
       />
       <Switch
