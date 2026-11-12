@@ -78,12 +78,9 @@ function quotedEnd(text: string, i: number, close: string, backslash: boolean): 
   return text.length;
 }
 
-function lex(text: string, engine: Engine): Token[] {
+function lex(text: string, lexicon: Lexicon): Token[] {
   const tokens: Token[] = [];
-  const pg = engine === 'postgres';
-  const mysql = engine === 'mysql';
-  const mssql = engine === 'mssql';
-  const opChars = pg ? `${OP_BASE}@#?` : OP_BASE;
+  const opChars = lexicon.symbolOperators ? `${OP_BASE}@#?` : OP_BASE;
   let breaks = 0;
   let spaced = false;
   let i = 0;
@@ -105,11 +102,11 @@ function lex(text: string, engine: Engine): Token[] {
   };
   while (i < text.length) {
     const atLineStart = i === 0 || text.charAt(i - 1) === '\n';
-    if (atLineStart && (mssql || mysql)) {
+    if (atLineStart && (lexicon.goBatches || lexicon.delimiterCommand)) {
       const end = lineEnd(text, i);
       const line = text.slice(i, end).replace(/\r$/, '');
-      const go = mssql && /^\s*go(\s+\d+)?\s*(--.*)?$/i.test(line);
-      const delimiter = mysql ? /^\s*delimiter\s+(\S+)/i.exec(line) : null;
+      const go = lexicon.goBatches && /^\s*go(\s+\d+)?\s*(--.*)?$/i.test(line);
+      const delimiter = lexicon.delimiterCommand ? /^\s*delimiter\s+(\S+)/i.exec(line) : null;
       if (go || delimiter?.[1]) {
         const lead = /^\s*/.exec(line)?.[0].length ?? 0;
         add('verbatim', i + lead, i + line.trimEnd().length, 1);
@@ -139,21 +136,21 @@ function lex(text: string, engine: Engine): Token[] {
     }
     if (c === '-' && next === '-') {
       const third = text.charAt(i + 2);
-      if (!mysql || third === '' || /\s/.test(third)) {
+      if (!lexicon.dashCommentNeedsSpace || third === '' || /\s/.test(third)) {
         let end = lineEnd(text, i);
         if (text.charAt(end - 1) === '\r') end--;
         push('lineComment', end);
         continue;
       }
     }
-    if (c === '#' && mysql) {
+    if (c === '#' && lexicon.hashComments) {
       let end = lineEnd(text, i);
       if (text.charAt(end - 1) === '\r') end--;
       push('lineComment', end);
       continue;
     }
     if (c === '/' && next === '*') {
-      const nested = pg || mssql;
+      const nested = lexicon.nestedComments;
       let depth = 1;
       let j = i + 2;
       while (j < text.length && depth > 0) {
@@ -177,7 +174,9 @@ function lex(text: string, engine: Engine): Token[] {
         /^([nexb]|_\w+)$/i.test(prev.text)
           ? prev
           : undefined;
-      const backslash = mysql || (pg && prefix !== undefined && /^e$/i.test(prefix.text));
+      const backslash =
+        lexicon.backslashStrings ||
+        (lexicon.eStrings && prefix !== undefined && /^e$/i.test(prefix.text));
       const end = quotedEnd(text, i, "'", backslash);
       if (prefix) {
         // `N'…'`, `E'…'`, `X'…'`: the prefix belongs to the string.
@@ -192,19 +191,23 @@ function lex(text: string, engine: Engine): Token[] {
       continue;
     }
     if (c === '"') {
-      push(mysql ? 'string' : 'quoted', quotedEnd(text, i, '"', mysql));
+      const string = lexicon.doubleQuotedStrings;
+      push(
+        string ? 'string' : 'quoted',
+        quotedEnd(text, i, '"', string && lexicon.backslashStrings),
+      );
       continue;
     }
-    if (c === '`' && (mysql || engine === 'sqlite')) {
+    if (c === '`' && lexicon.backtickIdentifiers) {
       push('quoted', quotedEnd(text, i, '`', false));
       continue;
     }
-    if (c === '[' && (mssql || engine === 'sqlite')) {
+    if (c === '[' && lexicon.bracketIdentifiers) {
       push('quoted', quotedEnd(text, i, ']', false));
       continue;
     }
     if (c === '$') {
-      if (pg && !WORD_PART.test(text.charAt(i - 1))) {
+      if (lexicon.dollarQuotes && !WORD_PART.test(text.charAt(i - 1))) {
         const tag = /^\$([\p{L}_][\p{L}\p{N}_]*)?\$/u.exec(text.slice(i, i + 128));
         if (tag) {
           const close = text.indexOf(tag[0], i + tag[0].length);
@@ -212,7 +215,7 @@ function lex(text: string, engine: Engine): Token[] {
           continue;
         }
       }
-      if (DIGIT.test(next) || (engine === 'sqlite' && WORD_START.test(next))) {
+      if (DIGIT.test(next) || (lexicon.dollarNames && WORD_START.test(next))) {
         let j = i + 1;
         while (j < text.length && WORD_PART.test(text.charAt(j))) j++;
         push('param', j);
@@ -233,7 +236,7 @@ function lex(text: string, engine: Engine): Token[] {
       push('param', j);
       continue;
     }
-    if (c === '@' && !pg) {
+    if (c === '@' && !lexicon.symbolOperators) {
       let j = i + 1;
       while (text.charAt(j) === '@') j++;
       while (j < text.length && (WORD_PART.test(text.charAt(j)) || text.charAt(j) === '#')) j++;
@@ -241,7 +244,7 @@ function lex(text: string, engine: Engine): Token[] {
       push(j > i + 1 ? 'param' : 'punct', j);
       continue;
     }
-    if (c === '?' && !pg) {
+    if (c === '?' && !lexicon.symbolOperators) {
       let j = i + 1;
       while (DIGIT.test(text.charAt(j))) j++;
       push('param', j);
@@ -257,11 +260,11 @@ function lex(text: string, engine: Engine): Token[] {
       push('number', j);
       continue;
     }
-    if (WORD_START.test(c) || (mssql && c === '#')) {
+    if (WORD_START.test(c) || (lexicon.hashInNames && c === '#')) {
       let j = i + 1;
       while (
         j < text.length &&
-        (WORD_PART.test(text.charAt(j)) || (mssql && text.charAt(j) === '#'))
+        (WORD_PART.test(text.charAt(j)) || (lexicon.hashInNames && text.charAt(j) === '#'))
       )
         j++;
       push('word', j);
@@ -326,6 +329,100 @@ const KEYWORDS: Record<Engine, ReadonlySet<string>> = {
       revoke to declare exec execute return procedure proc function trigger merge view
       escape open close of`),
   ]),
+};
+
+/** How an engine's SQL reads, as far as the formatter cares: its formatter dialect. */
+interface Lexicon {
+  /** `@`, `#` and `?` are operator characters, never parameters (PostgreSQL). */
+  symbolOperators: boolean;
+  /** A `GO` line ends a batch. */
+  goBatches: boolean;
+  /** `DELIMITER x` lines change the statement delimiter. */
+  delimiterCommand: boolean;
+  /** `--` opens a comment only when a space follows. */
+  dashCommentNeedsSpace: boolean;
+  /** `#` opens a line comment. */
+  hashComments: boolean;
+  /** Block comments nest. */
+  nestedComments: boolean;
+  /** Strings take backslash escapes. */
+  backslashStrings: boolean;
+  /** `E'…'` strings take backslash escapes. */
+  eStrings: boolean;
+  /** `"…"` is a string, not a quoted name. */
+  doubleQuotedStrings: boolean;
+  backtickIdentifiers: boolean;
+  bracketIdentifiers: boolean;
+  /** `$tag$ … $tag$` bodies. */
+  dollarQuotes: boolean;
+  /** `$name` is a parameter. */
+  dollarNames: boolean;
+  /** `#` belongs to names (`#temp`). */
+  hashInNames: boolean;
+  /** Procedural blocks (`IF … BEGIN … END`) outside routines are kept as written. */
+  proceduralBlocks: boolean;
+  /** A `;` inside a routine body does not end the routine. */
+  routineSemicolons: boolean;
+  keywords: ReadonlySet<string>;
+}
+
+const PLAIN: Omit<Lexicon, 'keywords'> = {
+  symbolOperators: false,
+  goBatches: false,
+  delimiterCommand: false,
+  dashCommentNeedsSpace: false,
+  hashComments: false,
+  nestedComments: false,
+  backslashStrings: false,
+  eStrings: false,
+  doubleQuotedStrings: false,
+  backtickIdentifiers: false,
+  bracketIdentifiers: false,
+  dollarQuotes: false,
+  dollarNames: false,
+  hashInNames: false,
+  proceduralBlocks: false,
+  routineSemicolons: false,
+};
+
+/** The formatter dialect of each engine. */
+const LEXICONS: Record<Engine, Lexicon> = {
+  postgres: {
+    ...PLAIN,
+    symbolOperators: true,
+    nestedComments: true,
+    eStrings: true,
+    dollarQuotes: true,
+    keywords: KEYWORDS.postgres,
+  },
+  mssql: {
+    ...PLAIN,
+    goBatches: true,
+    nestedComments: true,
+    bracketIdentifiers: true,
+    hashInNames: true,
+    proceduralBlocks: true,
+    routineSemicolons: true,
+    keywords: KEYWORDS.mssql,
+  },
+  mysql: {
+    ...PLAIN,
+    delimiterCommand: true,
+    dashCommentNeedsSpace: true,
+    hashComments: true,
+    backslashStrings: true,
+    doubleQuotedStrings: true,
+    backtickIdentifiers: true,
+    proceduralBlocks: true,
+    keywords: KEYWORDS.mysql,
+  },
+  sqlite: {
+    ...PLAIN,
+    backtickIdentifiers: true,
+    bracketIdentifiers: true,
+    dollarNames: true,
+    keywords: KEYWORDS.sqlite,
+  },
 };
 
 /** Keywords followed by `(` with a space: what follows is not a call. */
@@ -449,7 +546,7 @@ function caseOf(
 ): string {
   if (options.keywordCase === 'preserve' || token.kind !== 'word') return token.text;
   const lower = token.text.toLowerCase();
-  if (!KEYWORDS[options.engine].has(lower)) return token.text;
+  if (!LEXICONS[options.engine].keywords.has(lower)) return token.text;
   // Part of a qualified name, or a function call (`left(…)`, `replace(…)`): a name.
   if (isPunct(prev, '.') || isPunct(next, '.')) return token.text;
   if (isPunct(next, '(') && next?.spaced === false && !SPACED_BEFORE_PAREN.has(lower)) {
@@ -494,7 +591,7 @@ function spaceBetween(prev: Token | undefined, token: Token, afterUnary: boolean
 
 /** Formats one statement (its tokens, without the `;` that ends it). */
 function formatStatement(tokens: Token[], options: FormatOptions, w: Writer): void {
-  const keywords = KEYWORDS[options.engine];
+  const keywords = LEXICONS[options.engine].keywords;
   const root: Ctx = {
     kind: 'root',
     level: 0,
@@ -781,7 +878,7 @@ function procedural(code: Token[]): boolean {
   });
 }
 
-function pieces(tokens: Token[], engine: Engine): Piece[] {
+function pieces(tokens: Token[], lexicon: Lexicon): Piece[] {
   const out: Piece[] = [];
   let current: Token[] = [];
   let block = 0;
@@ -794,10 +891,7 @@ function pieces(tokens: Token[], engine: Engine): Piece[] {
         tokens: current,
         terminated,
         breaks: current[0]?.breaks ?? breaksAtSemicolon,
-        verbatim:
-          routine ||
-          code.length === 0 ||
-          ((engine === 'mssql' || engine === 'mysql') && procedural(code)),
+        verbatim: routine || code.length === 0 || (lexicon.proceduralBlocks && procedural(code)),
       });
     }
     current = [];
@@ -810,7 +904,7 @@ function pieces(tokens: Token[], engine: Engine): Piece[] {
       out.push({ tokens: [token], terminated: false, breaks: token.breaks, verbatim: true });
       continue;
     }
-    if (isPunct(token, ';') && block === 0 && !(routine && engine === 'mssql')) {
+    if (isPunct(token, ';') && block === 0 && !(routine && lexicon.routineSemicolons)) {
       breaksAtSemicolon = token.breaks;
       flush(true);
       continue;
@@ -832,7 +926,8 @@ function pieces(tokens: Token[], engine: Engine): Piece[] {
 
 /** Formats a script (or a selection of one). */
 export function formatSql(text: string, options: FormatOptions): string {
-  const parts = pieces(lex(text, options.engine), options.engine);
+  const lexicon = LEXICONS[options.engine];
+  const parts = pieces(lex(text, lexicon), lexicon);
   let out = '';
   parts.forEach((piece, n) => {
     const head = piece.tokens[0];
@@ -858,5 +953,7 @@ export function formatSql(text: string, options: FormatOptions): string {
 
 /** Every token of `text` but whitespace, keywords lower-cased: what formatting must keep. */
 export function significantTokens(text: string, engine: Engine): string[] {
-  return lex(text, engine).map((t) => (t.kind === 'word' ? t.text.toLowerCase() : t.text));
+  return lex(text, LEXICONS[engine]).map((t) =>
+    t.kind === 'word' ? t.text.toLowerCase() : t.text,
+  );
 }

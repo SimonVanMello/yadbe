@@ -43,7 +43,8 @@ const SAVED_MIN_CHARS = 2;
 
 /**
  * The databases whose objects the palette searches: the one each connected connection was opened
- * on, and any other a query tab of it works in.
+ * on, and any other a query tab of it works in. The objects come from the SQL catalog, so only
+ * connections of the SQL family are searched.
  */
 function useCatalogTargets(enabled: boolean): { targets: CatalogTarget[]; loading: boolean } {
   const connections = useConnections();
@@ -51,7 +52,11 @@ function useCatalogTargets(enabled: boolean): { targets: CatalogTarget[]; loadin
   const tabs = useTabsStore((store) => store.tabs);
   const tabStates = useQueryTabStore((store) => store.tabs);
   const connected = useMemo(
-    () => connections.filter((connection) => stateOf(sessions[connection.id]) === 'connected'),
+    () =>
+      connections.filter(
+        (connection) =>
+          connection.family === 'sql' && stateOf(sessions[connection.id]) === 'connected',
+      ),
     [connections, sessions],
   );
   // Shares its cache with the explorer's root level.
@@ -141,6 +146,9 @@ export function usePaletteData(raw: string) {
     savedDiffers,
     hasConnection: activeConnection !== undefined,
     activityMonitor: activeEngine?.capabilities.activityMonitor ?? true,
+    formatter: activeEngine?.capabilities.formatter ?? true,
+    efMigrations: activeEngine?.capabilities.efMigrations ?? true,
+    dotnetConnectionString: activeEngine?.capabilities.dotnetConnectionString ?? true,
   };
   const contextKey = [
     context.queryTab,
@@ -153,6 +161,9 @@ export function usePaletteData(raw: string) {
     context.savedDiffers,
     context.hasConnection,
     context.activityMonitor,
+    context.formatter,
+    context.efMigrations,
+    context.dotnetConnectionString,
   ].join();
   const actions = useMemo(
     () => buildActionItems(t, context),

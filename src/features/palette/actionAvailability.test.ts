@@ -72,4 +72,20 @@ describe('the tools', () => {
       expect(disabledReason(id, { ...idle, hasConnection: true })).toBeNull();
     }
   });
+
+  it('leaves off the SQL features an engine does not have', () => {
+    const tab = { ...idle, queryTab: true, connected: true, hasConnection: true };
+    expect(disabledReason('query.format', tab)).toBeNull();
+    expect(disabledReason('query.format', { ...tab, formatter: false })).toBe(
+      'palette.disabled.unavailable',
+    );
+    expect(disabledReason('migrations.open', { ...tab, efMigrations: false })).toBe(
+      'palette.disabled.unavailable',
+    );
+    for (const id of ['connection.copyAdoNet', 'connection.copyEfCore'] as const) {
+      expect(disabledReason(id, { ...tab, dotnetConnectionString: false })).toBe(
+        'palette.disabled.unavailable',
+      );
+    }
+  });
 });

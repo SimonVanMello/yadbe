@@ -91,6 +91,24 @@ describe('the sidebar rows', () => {
     expect(rows[at + 3]?.level).toBe(4);
   });
 
+  it('builds no SQL explorer under a connection of another engine family', () => {
+    const fresh = catalogSource('postgres', postgresServer('app_dev', null));
+    const rows = composeSidebarRows({
+      connections: connections.map((connection) =>
+        connection.id === PG ? { ...connection, family: 'document' as const } : connection,
+      ),
+      groups: MOCK_GROUPS,
+      query: '',
+      capabilities: new Map([['postgres', POSTGRES]]),
+      stateOf: (id) => (id === PG ? 'connected' : 'disconnected'),
+      expanded: { [PG]: new Set([ROOT_NODE]) },
+      showSystem: false,
+      sourceFor: () => fresh.source,
+    });
+    expect(rows.every((row) => row.type === 'group' || row.type === 'connection')).toBe(true);
+    expect(fresh.requested).toEqual([]);
+  });
+
   it('shows the kinds directly under a SQLite connection', () => {
     const rows = compose({
       states: { [LITE]: 'connected' },

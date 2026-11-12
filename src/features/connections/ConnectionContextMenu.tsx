@@ -38,6 +38,7 @@ export function ConnectionContextMenu({ connection, children }: ConnectionContex
   const sessions = engine?.capabilities.activityMonitor ?? true;
   // A file database has no password to copy.
   const hasPassword = !(engine?.capabilities.usesFile ?? false);
+  const dotnet = engine?.capabilities.dotnetConnectionString ?? true;
 
   return (
     <ContextMenu
@@ -116,41 +117,43 @@ export function ConnectionContextMenu({ connection, children }: ConnectionContex
           >
             {connection.favorite ? t('connection.menu.unfavorite') : t('connection.menu.favorite')}
           </ContextMenuItem>
-          <ContextMenuSub label={t('connection.menu.copyAs')} icon="copy">
-            <ContextMenuItem
-              onSelect={() => {
-                void copyConnectionString(connection, 'adoNet', false);
-              }}
-            >
-              {t('connection.menu.adoNet')}
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => {
-                void copyConnectionString(connection, 'efCore', false);
-              }}
-            >
-              {t('connection.menu.efCore')}
-            </ContextMenuItem>
-            {hasPassword && (
-              <>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  onSelect={() => {
-                    void copyConnectionString(connection, 'adoNet', true);
-                  }}
-                >
-                  {t('connection.menu.adoNetPassword')}
-                </ContextMenuItem>
-                <ContextMenuItem
-                  onSelect={() => {
-                    void copyConnectionString(connection, 'efCore', true);
-                  }}
-                >
-                  {t('connection.menu.efCorePassword')}
-                </ContextMenuItem>
-              </>
-            )}
-          </ContextMenuSub>
+          {dotnet && (
+            <ContextMenuSub label={t('connection.menu.copyAs')} icon="copy">
+              <ContextMenuItem
+                onSelect={() => {
+                  void copyConnectionString(connection, 'adoNet', false);
+                }}
+              >
+                {t('connection.menu.adoNet')}
+              </ContextMenuItem>
+              <ContextMenuItem
+                onSelect={() => {
+                  void copyConnectionString(connection, 'efCore', false);
+                }}
+              >
+                {t('connection.menu.efCore')}
+              </ContextMenuItem>
+              {hasPassword && (
+                <>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    onSelect={() => {
+                      void copyConnectionString(connection, 'adoNet', true);
+                    }}
+                  >
+                    {t('connection.menu.adoNetPassword')}
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    onSelect={() => {
+                      void copyConnectionString(connection, 'efCore', true);
+                    }}
+                  >
+                    {t('connection.menu.efCorePassword')}
+                  </ContextMenuItem>
+                </>
+              )}
+            </ContextMenuSub>
+          )}
           <ContextMenuSub label={t('connection.menu.moveToGroup')} icon="folder">
             <ContextMenuItem
               disabled={connection.groupId === null}

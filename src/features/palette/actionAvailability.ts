@@ -21,6 +21,12 @@ export interface ActionContext {
   hasConnection?: boolean;
   /** The active connection's engine has sessions to watch (F-140). */
   activityMonitor?: boolean;
+  /** The active connection's engine has the SQL formatter (F-049). */
+  formatter?: boolean;
+  /** The active connection's engine can list EF Core migrations (F-143). */
+  efMigrations?: boolean;
+  /** The active connection can be copied as a .NET connection string (F-143). */
+  dotnetConnectionString?: boolean;
 }
 
 const NEEDS_QUERY_TAB: ReadonlySet<ActionId> = new Set([
@@ -47,6 +53,8 @@ export function disabledReason(id: ActionId, context: ActionContext): MessageKey
   if (NEEDS_QUERY_TAB.has(id) && !context.queryTab) return 'palette.disabled.noQueryTab';
   if (id.startsWith('table.') && context.tableTab !== true) return 'palette.disabled.noTableTab';
   switch (id) {
+    case 'query.format':
+      return context.formatter === false ? 'palette.disabled.unavailable' : null;
     case 'query.updateSavedQuery':
       return context.savedDiffers === true ? null : 'palette.disabled.noSavedQuery';
     case 'query.cancel':
@@ -65,9 +73,11 @@ export function disabledReason(id: ActionId, context: ActionContext): MessageKey
       if (context.activityMonitor === false) return 'palette.disabled.noSessions';
       return context.connected ? null : 'palette.disabled.notConnected';
     case 'migrations.open':
+      if (context.efMigrations === false) return 'palette.disabled.unavailable';
       return context.connected ? null : 'palette.disabled.notConnected';
     case 'connection.copyAdoNet':
     case 'connection.copyEfCore':
+      if (context.dotnetConnectionString === false) return 'palette.disabled.unavailable';
       return context.hasConnection === true ? null : 'palette.disabled.noConnection';
     default:
       return null;

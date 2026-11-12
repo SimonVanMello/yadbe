@@ -99,7 +99,8 @@ export const EXPORT_FORMATS: readonly ExportFormatKind[] = [
   'markdown',
   'excel',
 ];
-const ENGINES: readonly Engine[] = ['postgres', 'mssql', 'mysql', 'sqlite'];
+/** The engines a saved SQL export may name (engines of the SQL family: they have a dialect). */
+const SQL_ENGINES: readonly Engine[] = ['postgres', 'mssql', 'mysql', 'sqlite'];
 
 export const CSV_DELIMITERS: readonly CsvDelimiter[] = ['comma', 'semicolon', 'tab'];
 export const CSV_QUOTES: readonly CsvQuote[] = ['minimal', 'all', 'nonNumeric'];
@@ -146,7 +147,7 @@ export function parseExportPrefs(value: unknown): ExportPrefs {
       binary: pick(json.binary, BINARY_ENCODINGS, DEFAULT_JSON_OPTIONS.binary),
     },
     sql: {
-      engine: ENGINES.find((engine) => engine === sql.engine) ?? null,
+      engine: SQL_ENGINES.find((engine) => engine === sql.engine) ?? null,
       rowsPerStatement: clampRows(sql.rowsPerStatement),
       lineEnding: pick(sql.lineEnding, LINE_ENDINGS, DEFAULT_SQL_PREFS.lineEnding),
     },

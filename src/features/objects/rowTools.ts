@@ -1,6 +1,5 @@
-import { queryClient } from '../../app/queryClient';
 import type { DdlTarget, EngineInfo, ObjectKind, ObjectRef, PinnedObject } from '../../ipc';
-import { connectionKeys } from '../connections/connectionStore';
+import { cachedEngineInfo } from '../connections/connectionStore';
 import type { ConnectionSummary } from '../connections/model';
 import type { ExplorerRow } from '../explorer/explorerRows';
 import { findConnection } from '../query/connectionLookup';
@@ -88,7 +87,5 @@ export function toolsFor(
 /** The same, read from the caches: for the keyboard, outside React. */
 export function toolsOfSubject(subject: ObjectSubject): RowTools {
   const connection = findConnection(subject.connectionId);
-  const engines = queryClient.getQueryData<EngineInfo[]>(connectionKeys.engines);
-  const engine = engines?.find((info) => info.engine === connection?.engine);
-  return toolsFor(connection, engine, subject.kind);
+  return toolsFor(connection, cachedEngineInfo(connection?.engine), subject.kind);
 }

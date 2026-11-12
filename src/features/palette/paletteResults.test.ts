@@ -20,6 +20,7 @@ function summarize(id: string, name: string): ConnectionSummary {
     id,
     name,
     engine: 'postgres',
+    family: 'sql',
     target: 'localhost:5432',
     database: '',
     groupId: null,

@@ -13,6 +13,7 @@ import { TextInput } from '../../ui/TextInput';
 import { useDebouncedValue } from '../../ui/useDebouncedValue';
 import { ConnectionBanner } from '../connections/ConnectionBanner';
 import { useConnection, useEngines } from '../connections/connectionStore';
+import { engineInfoOf } from '../connections/model';
 import {
   BINARY_ENCODINGS,
   CSV_DELIMITERS,
@@ -335,12 +336,13 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
                   {
                     value: 'source',
                     label: t('export.sql.engine.source', {
-                      engine:
-                        engines.find((info) => info.engine === context.engine)?.label ??
-                        context.engine,
+                      engine: engineInfoOf(engines, context.engine)?.label ?? context.engine,
                     }),
                   },
-                  ...engines.map((info) => ({ value: info.engine, label: info.label })),
+                  // A script is written for an engine of the SQL family: it needs a dialect.
+                  ...engines
+                    .filter((info) => info.capabilities.family === 'sql')
+                    .map((info) => ({ value: info.engine, label: info.label })),
                 ]}
                 onChange={(value) => {
                   setSql({ engine: value === 'source' ? null : value });

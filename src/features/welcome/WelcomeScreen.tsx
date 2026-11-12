@@ -12,7 +12,7 @@ import { Spinner } from '../../ui/Spinner';
 import { useNow } from '../../ui/useNow';
 import { openQuery } from '../connections/connectionActions';
 import { byRecency, searchConnections } from '../connections/connectionRows';
-import { refreshConnections, useConnectionList } from '../connections/connectionStore';
+import { fileEngine, refreshConnections, useConnectionList } from '../connections/connectionStore';
 import { useConnectionTransfer } from '../connections/connectionTransferStore';
 import { pickDatabaseFile } from '../connections/pickDatabaseFile';
 import type { ConnectionSummary } from '../connections/model';
@@ -90,10 +90,10 @@ export function WelcomeScreen() {
     useShellStore.getState().openConnectionDialog({ connectionId: null });
   };
   const openFile = () => {
-    void pickDatabaseFile().then((filePath) => {
+    void Promise.all([pickDatabaseFile(), fileEngine()]).then(([filePath, engine]) => {
       useShellStore.getState().openConnectionDialog({
         connectionId: null,
-        engine: 'sqlite',
+        ...(engine ? { engine } : {}),
         ...(filePath ? { filePath } : {}),
       });
     });

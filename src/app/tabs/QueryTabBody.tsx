@@ -8,8 +8,9 @@ import styles from './QueryTabBody.module.css';
 import { useTabsStore, type ShellTab } from './tabsStore';
 
 /**
- * Body of a query tab: the SQL editor and its results (`QueryView`), or what is left to say when
- * the connection of the tab is still loading or was deleted behind its back.
+ * Body of a query tab: the editor and results of the connection's engine family (`QueryView`
+ * for SQL), or what is left to say when the connection of the tab is still loading or was
+ * deleted behind its back. Its toolbar follows the same family (`QueryTabControls`).
  */
 export function QueryTabBody({ tab }: { tab: ShellTab }) {
   const t = useT();
@@ -40,5 +41,11 @@ export function QueryTabBody({ tab }: { tab: ShellTab }) {
     );
   }
 
-  return <QueryView tab={tab} connection={connection} />;
+  // A family gets its query tab (editor language, run action, results) by adding its case here.
+  switch (connection.family) {
+    case 'sql':
+      return <QueryView tab={tab} connection={connection} />;
+    default:
+      return null;
+  }
 }

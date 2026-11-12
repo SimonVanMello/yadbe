@@ -1,6 +1,6 @@
 import { connectTo, openQuery } from '../features/connections/connectionActions';
 import { connectionsApi } from '../features/connections/connectionsApi';
-import { summarize, type EngineInfo } from '../features/connections/model';
+import { engineInfoOf, summarize, type EngineInfo } from '../features/connections/model';
 import { openScriptPath } from '../features/query/queryActions';
 import { translate, useI18nStore, type MessageKey, type MessageParams } from '../i18n/i18n';
 import {
@@ -33,7 +33,7 @@ export function findSavedMatch(
 ): SavedConnection | null {
   const engine = parsed.engine;
   if (engine === null) return null;
-  const defaultPort = engines.find((info) => info.engine === engine)?.capabilities.defaultPort;
+  const defaultPort = engineInfoOf(engines, engine)?.capabilities.defaultPort;
   const same = (a: string | null | undefined, b: string | null) =>
     b === null || a?.toLowerCase() === b.toLowerCase();
   return (

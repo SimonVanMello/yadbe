@@ -27,6 +27,7 @@ import {
   applyParsed,
   draftFromSaved,
   emptyDraft,
+  engineInfoOf,
   isTlsKeyError,
   summarize,
   validateDraft,
@@ -71,8 +72,7 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
   const [ignoredKeys, setIgnoredKeys] = useState<string[]>([]);
   const [parsing, setParsing] = useState(false);
   const editing = initial.id !== null;
-  const infoOf = (value: ConnectionDraft) =>
-    engines.find((candidate) => candidate.engine === value.engine);
+  const infoOf = (value: ConnectionDraft) => engineInfoOf(engines, value.engine);
   const info = infoOf(draft);
   // Request id of the test in flight, to cancel it; a finished or replaced test is ignored.
   const testRequest = useRef<string | null>(null);
@@ -477,7 +477,7 @@ function LoadedDialog({
   } else {
     const first = engines.find((candidate) => candidate.available) ?? engines[0];
     if (!first) return null;
-    const wanted = engines.find((candidate) => candidate.engine === request.engine) ?? first;
+    const wanted = engineInfoOf(engines, request.engine) ?? first;
     const blank: ConnectionDraft = {
       ...withEngine(emptyDraft(first), wanted, first),
       groupId: request.groupId ?? null,

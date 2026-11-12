@@ -9,14 +9,13 @@ import { Switch } from '../../ui/Switch';
 import { TextInput } from '../../ui/TextInput';
 import { ColorPicker } from './ColorPicker';
 import styles from './ConnectionForm.module.css';
-import { ServerFields } from './ServerFields';
-import { SshFields } from './SshFields';
+import { EngineFields } from './EngineFields';
 import { TimeoutFields } from './TimeoutFields';
 import type { SshHopName, SshSecretLocations } from './sshModel';
 import { defaultTagColor } from './tagColors';
-import { SqliteFields } from './SqliteFields';
 import {
   ENVIRONMENTS,
+  engineInfoOf,
   suggestedName,
   patchDraft,
   withEngine,
@@ -45,7 +44,10 @@ interface ConnectionFormProps {
   onPickTlsFile?: (file: 'cert' | 'key') => void;
 }
 
-/** The connection form (F-001, F-005 to F-009): engine, engine-specific fields, identity. */
+/**
+ * The connection form (F-001, F-005 to F-009): engine, the fields of its family
+ * (`engineFields`), timeouts, identity.
+ */
 export function ConnectionForm({
   draft,
   engines,
@@ -65,7 +67,7 @@ export function ConnectionForm({
   const patch = (changes: Partial<ConnectionDraft>) => {
     onChange(patchDraft(draft, changes));
   };
-  const info = engines.find((candidate) => candidate.engine === draft.engine);
+  const info = engineInfoOf(engines, draft.engine);
 
   return (
     <div className={styles.form}>
@@ -75,7 +77,7 @@ export function ConnectionForm({
           value={draft.engine}
           options={engines.map((engine) => ({ value: engine.engine, label: engine.label }))}
           onChange={(engine) => {
-            const next = engines.find((candidate) => candidate.engine === engine);
+            const next = engineInfoOf(engines, engine);
             if (next) onChange(withEngine(draft, next, info));
           }}
         />
@@ -86,34 +88,20 @@ export function ConnectionForm({
         </p>
       )}
 
-      {info?.capabilities.usesFile ? (
-        <SqliteFields draft={draft} errors={errors} onChange={patch} onPickFile={onPickFile} />
-      ) : (
-        info && (
-          <>
-            <ServerFields
-              draft={draft}
-              info={info}
-              errors={errors}
-              passwordLocation={passwordLocation}
-              keychainAvailable={keychainAvailable}
-              tlsKeyLocation={sshSecretLocations.tlsKeyPassphrase ?? null}
-              onPickTlsFile={onPickTlsFile}
-              onChange={patch}
-              onPasteConnectionString={onPasteConnectionString}
-            />
-            <SshFields
-              ssh={draft.ssh}
-              errors={errors.ssh ?? {}}
-              secretLocations={sshSecretLocations}
-              keychainAvailable={keychainAvailable}
-              onChange={(ssh) => {
-                patch({ ssh });
-              }}
-              onPickKey={onPickKey}
-            />
-          </>
-        )
+      {info && (
+        <EngineFields
+          draft={draft}
+          info={info}
+          errors={errors}
+          passwordLocation={passwordLocation}
+          keychainAvailable={keychainAvailable}
+          sshSecretLocations={sshSecretLocations}
+          onChange={patch}
+          onPasteConnectionString={onPasteConnectionString}
+          onPickFile={onPickFile}
+          onPickKey={onPickKey}
+          onPickTlsFile={onPickTlsFile}
+        />
       )}
 
       {info && (

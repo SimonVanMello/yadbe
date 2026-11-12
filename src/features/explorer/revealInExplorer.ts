@@ -1,7 +1,5 @@
 import { useLayoutStore } from '../../app/layout/layoutStore';
-import { queryClient } from '../../app/queryClient';
-import type { EngineInfo } from '../../ipc';
-import { connectionKeys } from '../connections/connectionStore';
+import { cachedEngineInfo } from '../connections/connectionStore';
 import { findConnection } from '../query/connectionLookup';
 import { useSidebarView } from '../sidebar/sidebarViewStore';
 import { nodeKeys } from './explorerRows';
@@ -14,9 +12,7 @@ import { useRevealStore, type RevealTarget } from './revealStore';
  * (`useRevealRow`, in the sidebar tree, does the last two once the row is listed).
  */
 export function revealInExplorer(connectionId: string, target: RevealTarget): void {
-  const engine = findConnection(connectionId)?.engine;
-  const engines = queryClient.getQueryData<EngineInfo[]>(connectionKeys.engines);
-  const capabilities = engines?.find((info) => info.engine === engine)?.capabilities;
+  const capabilities = cachedEngineInfo(findConnection(connectionId)?.engine)?.capabilities;
   const levels = {
     databases: capabilities?.multipleDatabases ?? true,
     schemas: capabilities?.schemas ?? target.schema !== null,

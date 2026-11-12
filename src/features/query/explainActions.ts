@@ -1,10 +1,9 @@
 import { confirm } from '../../app/errors/confirmStore';
-import { queryClient } from '../../app/queryClient';
 import { translate, useI18nStore, type MessageKey, type MessageParams } from '../../i18n/i18n';
-import { ipc, type EngineInfo, type ExecuteScope } from '../../ipc';
+import { ipc, type ExecuteScope } from '../../ipc';
 import { toast } from '../../ui/toastStore';
 import { connectTo } from '../connections/connectionActions';
-import { connectionKeys } from '../connections/connectionStore';
+import { cachedEngineInfo } from '../connections/connectionStore';
 import { tokenize } from '../completion/sqlTokens';
 import { findConnection } from './connectionLookup';
 import { dangerKindKey } from './dangerGuard';
@@ -54,12 +53,6 @@ export function mayWrite(sql: string): boolean {
   return words.some((word) => WRITE_WORDS.has(word));
 }
 
-function engineInfo(engine: string): EngineInfo | undefined {
-  return queryClient
-    .getQueryData<EngineInfo[]>(connectionKeys.engines)
-    ?.find((info) => info.engine === engine);
-}
-
 /** The statement to explain: the selection when there is one, else the one under the cursor. */
 function explainScope(
   tabId: string,
@@ -85,7 +78,7 @@ export async function explainQuery(tabId: string, analyze: boolean): Promise<voi
     toast({ variant: 'info', title: t('query.plan.busy') });
     return;
   }
-  const capabilities = engineInfo(connection.engine)?.capabilities;
+  const capabilities = cachedEngineInfo(connection.engine)?.capabilities;
   if (analyze && capabilities?.explainAnalyze === false) {
     toast({ variant: 'info', title: t('query.plan.noAnalyze') });
     return;

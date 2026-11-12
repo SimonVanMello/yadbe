@@ -12,6 +12,7 @@ import {
 } from '../../ipc';
 import { connectionsApi } from './connectionsApi';
 import {
+  engineInfoOf,
   summarize,
   type ConnectionGroup,
   type ConnectionState,
@@ -78,12 +79,31 @@ export function useEngines() {
 }
 
 export function useEngineInfo(engine: Engine | null): EngineInfo | undefined {
-  return useEngines().engines.find((info) => info.engine === engine);
+  return engineInfoOf(useEngines().engines, engine);
+}
+
+/** [`engineInfoOf`] on the loaded engine list, for code outside React. */
+export function cachedEngineInfo(engine: Engine | null | undefined): EngineInfo | undefined {
+  return engineInfoOf(queryClient.getQueryData<EngineInfo[]>(connectionKeys.engines), engine);
+}
+
+/** The engine whose database is a local file (`usesFile`); `undefined` if the list fails. */
+export async function fileEngine(): Promise<Engine | undefined> {
+  try {
+    const engines = await queryClient.query({
+      queryKey: connectionKeys.engines,
+      queryFn: () => connectionsApi.engines(),
+      staleTime: Infinity,
+    });
+    return engines.find((info) => info.capabilities.usesFile)?.engine;
+  } catch {
+    return undefined;
+  }
 }
 
 /** How an engine names a table besides its name (`tableQualifier`); `schema` until known. */
 export function qualifierOf(engines: readonly EngineInfo[], engine: Engine | null): Qualifier {
-  return engines.find((info) => info.engine === engine)?.capabilities.tableQualifier ?? 'schema';
+  return engineInfoOf(engines, engine)?.capabilities.tableQualifier ?? 'schema';
 }
 
 export function useTableQualifier(engine: Engine | null): Qualifier {

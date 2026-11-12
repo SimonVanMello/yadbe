@@ -4,10 +4,10 @@ import { useTabsStore } from '../../app/tabs/tabsStore';
 import { useT } from '../../i18n/useT';
 import { IconButton } from '../../ui/IconButton';
 import type { ConnectionSummary } from '../connections/model';
-import { QueryControls } from '../query/QueryControls';
 import { DdlControls } from '../objects/DdlControls';
 import { TableControls } from '../table-data/TableControls';
 import { ToolControls } from '../tools/ToolControls';
+import { QueryTabControls } from './QueryTabControls';
 import styles from './Toolbar.module.css';
 
 /**
@@ -48,7 +48,7 @@ export function Toolbar({
       ) : connection && tool ? (
         <ToolControls connection={connection} />
       ) : connection ? (
-        <QueryControls tabId={tabId} connection={connection} />
+        <QueryTabControls tabId={tabId} connection={connection} />
       ) : (
         <span className={styles.noConnection}>{t('toolbar.noConnection')}</span>
       )}

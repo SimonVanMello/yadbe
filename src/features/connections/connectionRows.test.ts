@@ -9,6 +9,7 @@ function connection(name: string, patch: Partial<ConnectionSummary> = {}): Conne
     id: name,
     name,
     engine: 'postgres',
+    family: 'sql',
     target: 'localhost:5432',
     database: '',
     groupId: null,

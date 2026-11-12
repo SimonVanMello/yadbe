@@ -80,6 +80,29 @@ function explorerRows(
     const connecting = statusNode(nodeKeys.root, 'loading', 'connecting', { level: 'connection' });
     return flattenNodes([connecting], { ...options, expanded, open: false });
   }
+  // A family gets its explorer (its row model and what it loads) by adding its case here.
+  switch (connection.family) {
+    case 'sql':
+      return sqlExplorerRows(input, connection, capabilities, state, filter, {
+        expanded,
+        open,
+        level,
+      });
+    default:
+      return [];
+  }
+}
+
+/** The explorer of a SQL connection: databases, schemas, kinds of objects, objects, details. */
+function sqlExplorerRows(
+  input: SidebarInput,
+  connection: ConnectionSummary,
+  capabilities: Capabilities,
+  state: ConnectionState,
+  filter: string,
+  { expanded, open, level }: { expanded: ReadonlySet<string>; open: boolean; level: number },
+): ExplorerRow[] {
+  const options = { connectionId: connection.id, level };
   const context = {
     levels: { databases: capabilities.multipleDatabases, schemas: capabilities.schemas },
     showSystem: input.showSystem,

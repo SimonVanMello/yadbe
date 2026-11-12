@@ -52,9 +52,15 @@ export function ExplorerContextMenu({ row, children }: ExplorerContextMenuProps)
   const subject = objectSubject(row);
   const table = subject && isRelationKind(subject.kind) ? subject.object : null;
   const scripts = subject?.kind === 'table';
+  // SQL features, off for engines whose family has none (loading: as before, offered).
+  const caps = engine?.capabilities;
+  const scriptAsOn = caps?.scriptAs ?? true;
+  const ddlOn = caps?.ddl ?? true;
+  const importOn = caps?.dataImport ?? true;
+  const migrationsOn = caps?.efMigrations ?? true;
   const name = explorerRowLabel(row, t);
   const copyable = row.type !== 'kind' && row.type !== 'detailGroup';
-  const ddlTarget = ddlTargetForRow(row);
+  const ddlTarget = ddlOn ? ddlTargetForRow(row) : null;
   const pin = pinForRow(row);
   const pinned = pin !== null && isPinned(pins, pin);
   const tools = subject ? toolsFor(connection, engine, subject.kind) : null;
@@ -95,7 +101,7 @@ export function ExplorerContextMenu({ row, children }: ExplorerContextMenuProps)
               >
                 {t('explorer.menu.openData')}
               </ContextMenuItem>
-              {scripts && (
+              {scripts && importOn && (
                 <ContextMenuItem
                   icon="arrowUp"
                   onSelect={() => {
@@ -105,40 +111,42 @@ export function ExplorerContextMenu({ row, children }: ExplorerContextMenuProps)
                   {t('explorer.menu.import')}
                 </ContextMenuItem>
               )}
-              <ContextMenuSub label={t('explorer.menu.scriptAs')} icon="terminal">
-                <ContextMenuItem
-                  onSelect={() => {
-                    void scriptAs(connectionId, table, 'select');
-                  }}
-                >
-                  {t('explorer.menu.script.select')}
-                </ContextMenuItem>
-                {scripts && (
-                  <>
-                    <ContextMenuItem
-                      onSelect={() => {
-                        void scriptAs(connectionId, table, 'insert');
-                      }}
-                    >
-                      {t('explorer.menu.script.insert')}
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      onSelect={() => {
-                        void scriptAs(connectionId, table, 'update');
-                      }}
-                    >
-                      {t('explorer.menu.script.update')}
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      onSelect={() => {
-                        void scriptAs(connectionId, table, 'delete');
-                      }}
-                    >
-                      {t('explorer.menu.script.delete')}
-                    </ContextMenuItem>
-                  </>
-                )}
-              </ContextMenuSub>
+              {scriptAsOn && (
+                <ContextMenuSub label={t('explorer.menu.scriptAs')} icon="terminal">
+                  <ContextMenuItem
+                    onSelect={() => {
+                      void scriptAs(connectionId, table, 'select');
+                    }}
+                  >
+                    {t('explorer.menu.script.select')}
+                  </ContextMenuItem>
+                  {scripts && (
+                    <>
+                      <ContextMenuItem
+                        onSelect={() => {
+                          void scriptAs(connectionId, table, 'insert');
+                        }}
+                      >
+                        {t('explorer.menu.script.insert')}
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onSelect={() => {
+                          void scriptAs(connectionId, table, 'update');
+                        }}
+                      >
+                        {t('explorer.menu.script.update')}
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onSelect={() => {
+                          void scriptAs(connectionId, table, 'delete');
+                        }}
+                      >
+                        {t('explorer.menu.script.delete')}
+                      </ContextMenuItem>
+                    </>
+                  )}
+                </ContextMenuSub>
+              )}
             </>
           )}
           {(ddlTarget || table || pin) && <ContextMenuSeparator />}
@@ -152,7 +160,7 @@ export function ExplorerContextMenu({ row, children }: ExplorerContextMenuProps)
               {t('explorer.menu.showDdl')}
             </ContextMenuItem>
           )}
-          {subject && table && (
+          {subject && table && ddlOn && (
             <ContextMenuItem
               icon="info"
               onSelect={() => {
@@ -162,16 +170,19 @@ export function ExplorerContextMenu({ row, children }: ExplorerContextMenuProps)
               {t('explorer.menu.properties')}
             </ContextMenuItem>
           )}
-          {subject && subject.kind === 'table' && isEfHistoryTable(subject.object.name) && (
-            <ContextMenuItem
-              icon="timeline"
-              onSelect={() => {
-                openMigrations(connectionId, subject.object);
-              }}
-            >
-              {t('explorer.menu.migrations')}
-            </ContextMenuItem>
-          )}
+          {migrationsOn &&
+            subject &&
+            subject.kind === 'table' &&
+            isEfHistoryTable(subject.object.name) && (
+              <ContextMenuItem
+                icon="timeline"
+                onSelect={() => {
+                  openMigrations(connectionId, subject.object);
+                }}
+              >
+                {t('explorer.menu.migrations')}
+              </ContextMenuItem>
+            )}
           {pin && (
             <ContextMenuItem
               icon="pin"

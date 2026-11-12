@@ -5,6 +5,7 @@ import type {
   ConnectionState as BackendConnectionState,
   EngineInfo,
   Engine,
+  EngineFamily,
   EnvironmentKind,
   ParsedConnectionString,
   SavedConnection,
@@ -22,6 +23,18 @@ import {
 } from './sshModel';
 
 export type { ConnectionGroup, Engine, EngineInfo, EnvironmentKind, TlsMode };
+
+/**
+ * What the backend says of `engine` in `engines` (its label, family and capabilities); `undefined`
+ * for no engine, or while the list is not loaded. The one place an engine is looked up: the rest
+ * of the front branches on what this returns, never on the engine itself.
+ */
+export function engineInfoOf(
+  engines: readonly EngineInfo[] | undefined,
+  engine: Engine | null | undefined,
+): EngineInfo | undefined {
+  return engine == null ? undefined : engines?.find((info) => info.engine === engine);
+}
 
 /** What the user sees of a connection: the backend's states, plus "no session" (`disconnected`). */
 export type ConnectionState = Exclude<BackendConnectionState, 'closed'> | 'disconnected';
@@ -42,6 +55,8 @@ export interface ConnectionSummary {
   id: string;
   name: string;
   engine: Engine;
+  /** The engine's family: which query tab, explorer and toolbar the connection gets. */
+  family: EngineFamily;
   /** `host:port` or the file name, shown under the name. */
   target: string;
   database: string;
@@ -73,6 +88,7 @@ export function summarize(saved: SavedConnection): ConnectionSummary {
     id: saved.id,
     name: definition.name,
     engine: definition.engine,
+    family: saved.family,
     target:
       definition.host !== ''
         ? `${definition.host}${definition.port === null ? '' : `:${String(definition.port)}`}`
@@ -403,8 +419,8 @@ export function applyParsed(
   parsed: ParsedConnectionString,
   engines: readonly EngineInfo[],
 ): ConnectionDraft {
-  const previous = engines.find((info) => info.engine === draft.engine);
-  const next = engines.find((info) => info.engine === (parsed.engine ?? draft.engine));
+  const previous = engineInfoOf(engines, draft.engine);
+  const next = engineInfoOf(engines, parsed.engine ?? draft.engine);
   const base = next ? withEngine(draft, next, previous) : draft;
   const file = next?.capabilities.usesFile ?? false;
   const host = parsed.host ?? base.host;
