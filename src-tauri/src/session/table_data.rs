@@ -991,6 +991,7 @@ impl TableDataService {
             connection_id: tab.connection_id.clone(),
             connection_name: journal.connection_name(&tab.connection_id),
             engine: tab.dialect.engine(),
+            target_kind: crate::store::JournalTargetKind::Table,
             table: tab.shape.details.table.clone(),
             applied_at_ms: applied_at
                 .duration_since(std::time::UNIX_EPOCH)

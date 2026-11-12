@@ -189,6 +189,12 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::keyvalue::kv_console_run,
             commands::keyvalue::kv_console_stop,
             commands::keyvalue::kv_console_close,
+            commands::keyvalue::kv_preview_changes,
+            commands::keyvalue::kv_apply_changes,
+            commands::keyvalue::kv_preview_revert,
+            commands::keyvalue::kv_apply_revert,
+            commands::keyvalue::kv_namespace_count,
+            commands::keyvalue::kv_delete_namespace,
         ])
         .events(collect_events![
             events::AppReady,

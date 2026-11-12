@@ -64,6 +64,7 @@ pub async fn key_info(pool: &Pool, db: u32, key: &KvBytes) -> Result<KvKeyInfo, 
                 KvCommand::of([b"PTTL".as_slice(), k]),
                 KvCommand::of([b"OBJECT".as_slice(), b"ENCODING", k]),
                 KvCommand::of([b"MEMORY".as_slice(), b"USAGE", k]),
+                KvCommand::of([b"PEXPIRETIME".as_slice(), k]),
             ],
         )
         .await?;
@@ -76,6 +77,7 @@ pub async fn key_info(pool: &Pool, db: u32, key: &KvBytes) -> Result<KvKeyInfo, 
     let ttl = replies.next().and_then(Result::ok).and_then(|r| r.int());
     let encoding = replies.next().and_then(Result::ok).and_then(|r| r.text());
     let memory = replies.next().and_then(Result::ok).and_then(|r| r.int());
+    let expire_at = replies.next().and_then(Result::ok).and_then(|r| r.int());
     let conn = pool.conn(db).await?;
     let json_module = pool
         .gate(&crate::session::history_hook::NoHistory)
@@ -101,6 +103,7 @@ pub async fn key_info(pool: &Pool, db: u32, key: &KvBytes) -> Result<KvKeyInfo, 
         kind,
         type_name,
         ttl_ms: ttl_of(ttl),
+        expire_at_ms: ttl_of(expire_at),
         encoding,
         memory: memory.filter(|m| *m >= 0).map(|m| m as f64),
         length,

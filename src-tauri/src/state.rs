@@ -92,12 +92,15 @@ impl AppState {
             Arc::clone(&tables),
         ));
         // Key collections and console replies live in the query results' store as well.
-        let key_values = Arc::new(KeyValueService::new(
-            Arc::clone(&connections),
-            queries.shared_store(),
-            Arc::clone(&sink),
-            history.clone(),
-        ));
+        let key_values = Arc::new(
+            KeyValueService::new(
+                Arc::clone(&connections),
+                queries.shared_store(),
+                Arc::clone(&sink),
+                history.clone(),
+            )
+            .with_journal(Arc::clone(&journal)),
+        );
         let exports = Arc::new(ExportManager::new(
             Arc::clone(&queries),
             Arc::clone(&tables),

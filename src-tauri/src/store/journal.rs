@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use super::Store;
-use crate::db::engine::Engine;
+use crate::db::engine::{Engine, EngineFamily};
 use crate::db::errors::YadbeError;
 use crate::db::meta::ObjectRef;
 
@@ -50,6 +50,64 @@ pub enum RevertBlocker {
     NotPlannable,
 }
 
+/// What an entry changed: what its `table` names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum JournalTargetKind {
+    /// A table (SQL family): database, schema, name.
+    Table,
+    /// One key (key-value family): the database index and the key.
+    Key,
+    /// Several keys: the database index and the keys' names, joined.
+    Keys,
+    /// Every key under a prefix: the database index and the pattern.
+    Namespace,
+    /// A collection (document family): database and name.
+    Collection,
+}
+
+impl JournalTargetKind {
+    fn id(self) -> &'static str {
+        match self {
+            JournalTargetKind::Table => "table",
+            JournalTargetKind::Key => "key",
+            JournalTargetKind::Keys => "keys",
+            JournalTargetKind::Namespace => "namespace",
+            JournalTargetKind::Collection => "collection",
+        }
+    }
+
+    fn from_id(id: &str) -> Option<Self> {
+        Some(match id {
+            "table" => JournalTargetKind::Table,
+            "key" => JournalTargetKind::Key,
+            "keys" => JournalTargetKind::Keys,
+            "namespace" => JournalTargetKind::Namespace,
+            "collection" => JournalTargetKind::Collection,
+            _ => return None,
+        })
+    }
+}
+
+fn family_id(family: EngineFamily) -> &'static str {
+    match family {
+        EngineFamily::Sql => "sql",
+        EngineFamily::Document => "document",
+        EngineFamily::Search => "search",
+        EngineFamily::KeyValue => "keyValue",
+    }
+}
+
+fn family_from_id(id: &str) -> Option<EngineFamily> {
+    Some(match id {
+        "sql" => EngineFamily::Sql,
+        "document" => EngineFamily::Document,
+        "search" => EngineFamily::Search,
+        "keyValue" => EngineFamily::KeyValue,
+        _ => return None,
+    })
+}
+
 /// A statement of a change set, as run (values written as literals, like the SQL preview).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -59,12 +117,16 @@ pub struct JournalStatement {
     pub rows_affected: Option<f64>,
 }
 
-/// A change set to record.
+/// A change set to record. The family of its engine says how `inverse` is written: an SQL
+/// change set, a key-value change set (`db::keyvalue::edit::KvChangeSet`)…; `statements` are
+/// the operations as run, in the family's own syntax (SQL, `redis-cli` commands…).
 #[derive(Debug, Clone)]
 pub struct NewJournalEntry {
     pub connection_id: String,
     pub connection_name: String,
     pub engine: Engine,
+    /// What `table` names.
+    pub target_kind: JournalTargetKind,
     pub table: ObjectRef,
     /// Unix time in milliseconds.
     pub applied_at_ms: i64,
@@ -91,6 +153,11 @@ pub struct JournalEntry {
     /// The connection's name when the change set was applied.
     pub connection_name: String,
     pub engine: Engine,
+    /// The engine's family: which service reverts the entry.
+    pub family: EngineFamily,
+    pub target_kind: JournalTargetKind,
+    /// The table; for a key-value entry, the database index (`database`) and the key, keys
+    /// or pattern (`name`).
     pub table: ObjectRef,
     /// Unix time in milliseconds.
     pub applied_at: f64,
@@ -184,7 +251,7 @@ pub fn kept_statement(sql: &str) -> String {
 
 const ENTRY_COLUMNS: &str = "id, connection_id, connection_name, engine, database_name, \
     schema_name, table_name, applied_at, duration_ms, updated, inserted, deleted, statements, \
-    revert_blocker, reverts, reverted_by";
+    revert_blocker, reverts, reverted_by, family, target_kind";
 
 fn corrupt(index: usize, what: &str) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(
@@ -218,6 +285,9 @@ fn row_to_entry(row: &Row<'_>) -> rusqlite::Result<(JournalEntry, Vec<JournalSta
         connection_id: row.get(1)?,
         connection_name: row.get(2)?,
         engine: Engine::from_id(&engine).ok_or_else(|| corrupt(3, "engine"))?,
+        family: family_from_id(&row.get::<_, String>(16)?).ok_or_else(|| corrupt(16, "family"))?,
+        target_kind: JournalTargetKind::from_id(&row.get::<_, String>(17)?)
+            .ok_or_else(|| corrupt(17, "target kind"))?,
         table: ObjectRef {
             database: row.get(4)?,
             schema: row.get(5)?,
@@ -309,8 +379,10 @@ impl Store {
         conn.execute(
             "INSERT INTO change_journal (connection_id, connection_name, engine, database_name,
                 schema_name, table_name, applied_at, duration_ms, updated, inserted, deleted,
-                statements, inverse, inverse_statements, revert_blocker, reverts)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                statements, inverse, inverse_statements, revert_blocker, reverts, family,
+                target_kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                ?18)",
             params![
                 entry.connection_id,
                 entry.connection_name,
@@ -328,6 +400,8 @@ impl Store {
                 serde_json::to_string(&inverse_statements)?,
                 blocker,
                 entry.reverts,
+                family_id(entry.engine.family()),
+                entry.target_kind.id(),
             ],
         )?;
         Ok(conn.last_insert_rowid())
@@ -380,7 +454,7 @@ impl Store {
                 [i64::from(id)],
                 |row| {
                     let (entry, statements) = row_to_entry(row)?;
-                    let inverse: String = row.get(16)?;
+                    let inverse: String = row.get(18)?;
                     Ok((entry, statements, inverse))
                 },
             )
@@ -406,7 +480,7 @@ impl Store {
                     let (entry, _) = row_to_entry(row)?;
                     Ok(StoredInverse {
                         entry,
-                        inverse: row.get(16)?,
+                        inverse: row.get(18)?,
                     })
                 },
             )
@@ -477,6 +551,7 @@ mod tests {
             connection_id: "c1".into(),
             connection_name: "Local".into(),
             engine: Engine::Postgres,
+            target_kind: JournalTargetKind::Table,
             table: ObjectRef {
                 database: "shop".into(),
                 schema: Some("public".into()),

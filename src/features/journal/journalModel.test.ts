@@ -17,6 +17,8 @@ const entry: JournalEntry = {
   connectionId: 'c1',
   connectionName: 'Local',
   engine: 'postgres',
+  family: 'sql',
+  targetKind: 'table',
   table: { database: 'shop', schema: 'public', name: 'orders' },
   appliedAt: 1_700_000_000_000,
   durationMs: 4.2,

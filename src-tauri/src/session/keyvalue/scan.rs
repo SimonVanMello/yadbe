@@ -37,6 +37,20 @@ impl LevelSummary {
             None => self.leaves += 1,
         }
     }
+
+    fn remove(&mut self, rest: &[u8], delimiter: &[u8]) {
+        match segment(rest, delimiter) {
+            Some(name) => {
+                if let Some(count) = self.namespaces.get_mut(name) {
+                    *count = count.saturating_sub(1);
+                    if *count == 0 {
+                        self.namespaces.remove(name);
+                    }
+                }
+            }
+            None => self.leaves = self.leaves.saturating_sub(1),
+        }
+    }
 }
 
 /// A level: its prefix and the delimiter it groups by.
@@ -85,6 +99,23 @@ impl KeyIndex {
             added += 1;
         }
         added
+    }
+
+    /// Removes keys (deleted or renamed by an edit); returns how many were there.
+    pub fn remove<'a>(&mut self, keys: impl IntoIterator<Item = &'a [u8]>) -> usize {
+        let mut removed = 0;
+        for key in keys {
+            if !self.keys.remove(key) {
+                continue;
+            }
+            for ((prefix, delimiter), summary) in &mut self.levels {
+                if key.starts_with(prefix) {
+                    summary.remove(&key[prefix.len()..], delimiter);
+                }
+            }
+            removed += 1;
+        }
+        removed
     }
 
     pub fn len(&self) -> usize {
@@ -373,6 +404,29 @@ impl KeyScan {
             total: u32::try_from(total).unwrap_or(u32::MAX),
             version: inner.version,
         }
+    }
+
+    /// Keys an edit created and deleted, so the tree shows them without a rescan. A key
+    /// created outside the scan's pattern stays out.
+    pub fn apply_change(&self, added: &[Vec<u8>], removed: &[Vec<u8>]) -> bool {
+        let mut inner = self.lock();
+        let gone = inner.index.remove(removed.iter().map(Vec::as_slice));
+        let pattern = self.pattern.clone();
+        let new = inner.index.extend(
+            added
+                .iter()
+                .filter(|key| {
+                    pattern
+                        .as_deref()
+                        .is_none_or(|p| crate::db::keyvalue::edit::glob_match(p, key))
+                })
+                .cloned(),
+        );
+        let changed = gone + new > 0;
+        if changed {
+            inner.version = inner.version.wrapping_add(1);
+        }
+        changed
     }
 
     /// The `SCAN` call that reads the next batch.

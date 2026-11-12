@@ -8,6 +8,10 @@ use tauri::State;
 
 use crate::db::errors::YadbeError;
 use crate::db::keyvalue::KvBytes;
+use crate::db::keyvalue::edit::KvChangeSet;
+use crate::session::keyvalue::edit::{
+    KvApplyOutcome, KvNamespaceCount, KvNamespaceDeleted, KvPreview,
+};
 use crate::session::keyvalue::model::{
     KvCollection, KvConsoleOutcome, KvDatabase, KvKeyInfo, KvKeySummary, KvLevel, KvScanStatus,
     KvStringChunk,
@@ -229,4 +233,96 @@ pub async fn kv_console_close(
 ) -> Result<(), YadbeError> {
     state.key_values.console_close(&tab_id).await;
     Ok(())
+}
+
+// --- Edits (M4-6) ---------------------------------------------------------------------------
+
+/// The commands Apply would run for a change set, in order (`WATCH`, the checks, `MULTI`, the
+/// commands, `EXEC`), and the dangers to confirm with their measured effect.
+#[tauri::command]
+#[specta::specta]
+pub async fn kv_preview_changes(
+    state: State<'_, AppState>,
+    connection_id: String,
+    changes: KvChangeSet,
+) -> Result<KvPreview, YadbeError> {
+    state
+        .key_values
+        .preview_changes(&connection_id, &changes)
+        .await
+}
+
+/// Applies a change set in one transaction, checked against what the user saw (`WATCH`):
+/// `conflicted` when the server holds something else (nothing applied), `needsConfirmation`
+/// for dangerous changes not `confirmed`. Journaled. Refused on a read-only connection.
+#[tauri::command]
+#[specta::specta]
+pub async fn kv_apply_changes(
+    state: State<'_, AppState>,
+    connection_id: String,
+    changes: KvChangeSet,
+    confirmed: bool,
+) -> Result<KvApplyOutcome, YadbeError> {
+    state
+        .key_values
+        .apply_changes(&connection_id, &changes, confirmed)
+        .await
+}
+
+/// What reverting a key-value journal entry would run.
+#[tauri::command]
+#[specta::specta]
+pub async fn kv_preview_revert(
+    state: State<'_, AppState>,
+    connection_id: String,
+    entry_id: u32,
+) -> Result<KvPreview, YadbeError> {
+    state
+        .key_values
+        .preview_revert(&connection_id, entry_id)
+        .await
+}
+
+/// Reverts a key-value journal entry: its inverse, applied with the same checks.
+#[tauri::command]
+#[specta::specta]
+pub async fn kv_apply_revert(
+    state: State<'_, AppState>,
+    connection_id: String,
+    entry_id: u32,
+) -> Result<KvApplyOutcome, YadbeError> {
+    state
+        .key_values
+        .apply_revert(&connection_id, entry_id)
+        .await
+}
+
+/// The keys under `prefix` (a full `SCAN … MATCH prefix*`), before deleting the namespace.
+#[tauri::command]
+#[specta::specta]
+pub async fn kv_namespace_count(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: u32,
+    prefix: KvBytes,
+) -> Result<KvNamespaceCount, YadbeError> {
+    state
+        .key_values
+        .namespace_count(&connection_id, database, &prefix)
+        .await
+}
+
+/// Deletes every key under `prefix`, by atomic batches of 500 (`UNLINK`), journaled.
+#[tauri::command]
+#[specta::specta]
+pub async fn kv_delete_namespace(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: u32,
+    prefix: KvBytes,
+) -> Result<KvNamespaceDeleted, YadbeError> {
+    state
+        .key_values
+        .delete_namespace(&connection_id, database, &prefix)
+        .await
 }

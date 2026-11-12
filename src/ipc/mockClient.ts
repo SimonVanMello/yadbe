@@ -734,6 +734,9 @@ function createMockBackend() {
       query.freeResults(ids);
     },
     latency: () => meta.latency(),
+    journal,
+    connectionName: (connectionId) => findConnection(connectionId)?.definition.name ?? connectionId,
+    engine: (connectionId) => findConnection(connectionId)?.definition.engine ?? 'redis',
   });
 
   const commands: YadbeClient['commands'] = {

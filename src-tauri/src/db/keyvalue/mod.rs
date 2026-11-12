@@ -5,11 +5,14 @@
 //! - [`tokenize`]: a console line split into arguments with `redis-cli`'s quoting rules.
 //! - [`command`]: a command's display form for the history and the statement log, secrets
 //!   redacted.
+//! - [`edit`]: edits of keys (M4-6) planned as one checked `WATCH` / `MULTI` / `EXEC`
+//!   transaction, their preview, conflicts and inverse (the journal's revert).
 //! - [`spec`]: what the server says of a command (`COMMAND INFO`) and the gate's verdict
 //!   (read-only refusal, unsupported command, dangerous command).
 
 pub mod bytes;
 pub mod command;
+pub mod edit;
 pub mod reply;
 pub mod spec;
 pub mod tokenize;

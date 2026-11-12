@@ -151,6 +151,9 @@ pub struct KvKeyInfo {
     pub kind: KvKeyKind,
     pub type_name: String,
     pub ttl_ms: Option<f64>,
+    /// When the key expires (`PEXPIRETIME`, Unix milliseconds); `null`: never. What a time to
+    /// live edit compares on the server.
+    pub expire_at_ms: Option<f64>,
     /// `OBJECT ENCODING` (`listpack`, `hashtable`, `embstr`…).
     pub encoding: Option<String>,
     pub memory: Option<f64>,
