@@ -9,7 +9,7 @@ use std::future::Future;
 use tokio::sync::mpsc;
 
 use super::model::ExportScope;
-use crate::db::errors::YadbeError;
+use crate::db::errors::{ErrorCode, YadbeError};
 use crate::db::value::{ColumnMeta, Value};
 use crate::session::QueryRunner;
 use crate::session::result_store::StoredResult;
@@ -116,7 +116,22 @@ impl QueryResultSource {
         scope: ExportScope,
     ) -> Result<Self, YadbeError> {
         let stream = match scope {
-            ExportScope::All => runner.open_result_stream(result_id)?,
+            ExportScope::All => match runner.open_result_stream(result_id) {
+                Ok(stream) => stream,
+                // The other engine families' services (documents, hits, replies, keys) store
+                // a whole result outside any statement: the store holds every row of it.
+                Err(err) if err.code == ErrorCode::ResultNotFound => {
+                    let stored = runner.store().get(result_id)?;
+                    let stored_rows = stored.row_count();
+                    ResultStream {
+                        stored,
+                        stored_rows,
+                        tail: None,
+                        truncated: false,
+                    }
+                }
+                Err(err) => return Err(err),
+            },
             ExportScope::Range { .. } => {
                 let stored = runner.store().get(result_id)?;
                 let stored_rows = stored.display_row_count();

@@ -11,14 +11,16 @@ use std::time::Duration;
 
 use common::{blank, pg_definition, pg_url};
 use query_common::{Bench, bench};
+use yadbe_lib::db::document::json::Json;
 use yadbe_lib::db::engine::Engine;
 use yadbe_lib::db::errors::ErrorCode;
 use yadbe_lib::events::{BackendEvent, EventSink};
 use yadbe_lib::export::ExportManager;
 use yadbe_lib::export::model::{
-    CsvOptions, ExportFinished, ExportFormat, ExportRequest, ExportScope, ExportSourceSpec,
-    ExportStatus, JsonLayout, JsonOptions,
+    CsvOptions, DocumentLines, ExportFinished, ExportFormat, ExportRequest, ExportScope,
+    ExportSourceSpec, ExportStatus, ExtendedJsonMode, JsonLayout, JsonLinesOptions, JsonOptions,
 };
+use yadbe_lib::session::document::results::store_documents;
 use yadbe_lib::session::query_model::{ExecutionStatus, ResultLimits, ResultStatus};
 use yadbe_lib::session::table_data::TableDataService;
 
@@ -292,6 +294,82 @@ async fn cancelling_removes_the_partial_file(b: &Bench, sql: &str) {
         let run = b.wait(execution).await;
         assert_eq!(run.status, ExecutionStatus::Cancelled, "{run:?}");
     }
+}
+
+/// The other engine families' services store a whole result outside any statement (a
+/// collection page, a script's documents, hits, a key's value): exported whole from the app,
+/// grid rows and documents alike are read from the store. They were refused as gone (M4-10).
+#[tokio::test]
+async fn a_result_stored_outside_a_statement_exports_whole() {
+    let (_dir, b) = sqlite_bench().await;
+    let exports = manager(&b);
+    let documents: Vec<Json> = (1..=3)
+        .map(|n| Json::parse(&format!(r#"{{"_id": {n}, "name": "doc {n}"}}"#)).expect("json"))
+        .collect();
+    let stored = store_documents(&b.runner.shared_store(), &documents);
+    let out = tempfile::tempdir().expect("tempdir");
+
+    let grid = out.path().join("grid.csv");
+    let started = exports
+        .start(request(
+            stored.result.result_id,
+            ExportScope::All,
+            csv(),
+            &grid,
+        ))
+        .await
+        .expect("start the grid export");
+    let done = finished(&b, started.export_id).await;
+    assert_eq!(done.status, ExportStatus::Done, "{done:?}");
+    assert_eq!(done.rows, 3);
+    let text = std::fs::read_to_string(&grid).expect("read");
+    assert_eq!(text.lines().count(), 4, "{text}");
+    assert!(
+        text.lines().nth(3).is_some_and(|l| l.contains("doc 3")),
+        "{text}"
+    );
+
+    let lines = out.path().join("documents.jsonl");
+    let format = ExportFormat::JsonLines {
+        options: JsonLinesOptions {
+            documents: Some(DocumentLines::Mongo {
+                extended_json: ExtendedJsonMode::Relaxed,
+            }),
+            ..JsonLinesOptions::default()
+        },
+    };
+    let started = exports
+        .start(request(
+            stored.documents_id,
+            ExportScope::All,
+            format,
+            &lines,
+        ))
+        .await
+        .expect("start the documents export");
+    let done = finished(&b, started.export_id).await;
+    assert_eq!(done.status, ExportStatus::Done, "{done:?}");
+    let text = std::fs::read_to_string(&lines).expect("read");
+    let read: Vec<Json> = text
+        .lines()
+        .map(|line| Json::parse(line).expect("a JSON line"))
+        .collect();
+    assert_eq!(read, documents);
+
+    // A result nobody holds any more is still reported as gone.
+    b.runner
+        .shared_store()
+        .remove(vec![stored.result.result_id]);
+    let err = exports
+        .start(request(
+            stored.result.result_id,
+            ExportScope::All,
+            csv(),
+            &grid,
+        ))
+        .await
+        .expect_err("gone");
+    assert_eq!(err.code, ErrorCode::ResultNotFound);
 }
 
 #[tokio::test]
