@@ -17,7 +17,7 @@ import { useEffect, useRef } from 'react';
 import { matchesAction, runAction, type ActionId } from '../../app/actions';
 import { useT } from '../../i18n/useT';
 import type { TextRange } from '../../ipc';
-import { styleNonce } from '../../ui/cspNonce';
+import { cspSafeEditor } from '../../ui/editorCsp';
 import { consoleCompletionExtension } from '../completion/consoleCompletion';
 import { searchProvider } from '../completion/consoleProviders';
 import { errorRange } from '../query/errorMarks';
@@ -131,7 +131,6 @@ export function SearchConsoleEditor({ tabId }: { tabId: string }) {
     const parent = host.current;
     if (!parent) return;
     const stored = getQueryTabState(tabId);
-    const nonce = styleNonce();
     const view = new EditorView({
       parent,
       state: EditorState.create({
@@ -141,7 +140,7 @@ export function SearchConsoleEditor({ tabId }: { tabId: string }) {
           head: Math.min(stored.selection.head, stored.content.length),
         },
         extensions: [
-          nonce === null ? [] : EditorView.cspNonce.of(nonce),
+          cspSafeEditor(),
           actionKeys(),
           lineNumbers(),
           highlightActiveLineGutter(),

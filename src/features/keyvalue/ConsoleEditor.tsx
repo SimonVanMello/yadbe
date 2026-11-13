@@ -14,7 +14,7 @@ import { useEffect, useRef } from 'react';
 
 import { matchesAction, runAction, type ActionId } from '../../app/actions';
 import { useT } from '../../i18n/useT';
-import { styleNonce } from '../../ui/cspNonce';
+import { cspSafeEditor } from '../../ui/editorCsp';
 import { consoleCompletionExtension } from '../completion/consoleCompletion';
 import { redisProvider } from '../completion/consoleProviders';
 import { sqlEditorTheme } from '../query/editorTheme';
@@ -87,7 +87,6 @@ export function ConsoleEditor({ tabId }: { tabId: string }) {
     const parent = host.current;
     if (!parent) return;
     const stored = getQueryTabState(tabId);
-    const nonce = styleNonce();
     const view = new EditorView({
       parent,
       state: EditorState.create({
@@ -97,7 +96,7 @@ export function ConsoleEditor({ tabId }: { tabId: string }) {
           head: Math.min(stored.selection.head, stored.content.length),
         },
         extensions: [
-          nonce === null ? [] : EditorView.cspNonce.of(nonce),
+          cspSafeEditor(),
           actionKeys(),
           lineNumbers(),
           highlightActiveLineGutter(),

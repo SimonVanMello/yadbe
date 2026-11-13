@@ -3,7 +3,7 @@ import { EditorView, lineNumbers } from '@codemirror/view';
 import { useEffect, useRef } from 'react';
 
 import type { Engine } from '../../ipc';
-import { styleNonce } from '../../ui/cspNonce';
+import { cspSafeEditor } from '../../ui/editorCsp';
 import { sqlEditorTheme } from '../query/editorTheme';
 import { sqlLanguage } from '../query/sqlLanguage';
 import styles from './SqlView.module.css';
@@ -26,14 +26,12 @@ export function SqlView({
   useEffect(() => {
     const parent = parentRef.current;
     if (!parent) return;
-    const nonce = styleNonce();
     const view = new EditorView({
       parent,
       state: EditorState.create({
         doc: sql,
         extensions: [
-          // CodeMirror injects `<style>` tags: they need the page's nonce outside `tauri dev`.
-          nonce === null ? [] : EditorView.cspNonce.of(nonce),
+          cspSafeEditor(),
           lineNumbers(),
           sqlLanguage(engine),
           sqlEditorTheme,

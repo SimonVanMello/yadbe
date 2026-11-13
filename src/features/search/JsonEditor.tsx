@@ -12,7 +12,7 @@ import {
 } from '@codemirror/view';
 import { useEffect, useRef } from 'react';
 
-import { styleNonce } from '../../ui/cspNonce';
+import { cspSafeEditor } from '../../ui/editorCsp';
 import { sqlEditorTheme } from '../query/editorTheme';
 import styles from './SearchEdit.module.css';
 
@@ -81,13 +81,12 @@ export function JsonEditor({ initial, onChange, label, error }: JsonEditorProps)
   useEffect(() => {
     const parent = host.current;
     if (!parent) return;
-    const nonce = styleNonce();
     const view = new EditorView({
       parent,
       state: EditorState.create({
         doc: start.current,
         extensions: [
-          nonce === null ? [] : EditorView.cspNonce.of(nonce),
+          cspSafeEditor(),
           lineNumbers(),
           history(),
           drawSelection(),

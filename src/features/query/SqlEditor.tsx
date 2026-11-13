@@ -23,7 +23,7 @@ import { matchesAction, runAction, type ActionId } from '../../app/actions';
 import { useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import type { Engine, TextRange } from '../../ipc';
-import { styleNonce } from '../../ui/cspNonce';
+import { cspSafeEditor } from '../../ui/editorCsp';
 import { useCatalogLoading } from '../completion/catalogStore';
 import { completionExtension } from '../completion/completionExtension';
 import { createCompletionHost } from '../completion/completionHost';
@@ -132,11 +132,8 @@ function editorExtensions(
 ): Extension {
   const { tabId } = options;
   let scrollTimer: ReturnType<typeof setTimeout> | undefined;
-  const nonce = styleNonce();
   return [
-    // Outside `tauri dev` the CSP only accepts styles with the page's nonce: CodeMirror injects
-    // `<style>` tags of its own.
-    nonce === null ? [] : EditorView.cspNonce.of(nonce),
+    cspSafeEditor(),
     editorActionKeys(),
     highlightSpecialChars(),
     history(),
