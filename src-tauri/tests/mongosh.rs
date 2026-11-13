@@ -972,6 +972,44 @@ async fn printed_lines_reach_the_front_while_the_script_runs() {
     assert_eq!(streamed[..], all[..streamed.len()]);
 }
 
+/// The statement log lists each operation a script makes: what the user wrote in it is masked
+/// there as in the history (rule 4).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_script_s_secrets_stay_out_of_the_statement_log() {
+    let Some(url) = env(RS_ENV, "a_script_s_secrets_stay_out_of_the_statement_log") else {
+        return;
+    };
+    let mongo = Mongo::open(&url, |_| {}).await;
+    checked(
+        &mongo,
+        "db.accounts.insertOne({ name: 'a', password: 'hunter2-in-a-field' });\ndb.accounts.updateOne({ name: 'a' }, { $set: { pwd: 'hunter2-in-a-set' } })",
+    )
+    .await;
+    let logged: Vec<String> = mongo.log.entries().iter().map(|e| e.sql.clone()).collect();
+    let writes: Vec<&String> = logged
+        .iter()
+        .filter(|sql| sql.contains("accounts"))
+        .collect();
+    assert_eq!(writes.len(), 2, "{logged:#?}");
+    assert!(writes.iter().all(|sql| sql.contains("***")), "{writes:#?}");
+    assert!(
+        logged.iter().all(|sql| !sql.contains("hunter2")),
+        "{logged:#?}"
+    );
+    // The values themselves reached the server as written.
+    let stored = text(
+        &checked(
+            &mongo,
+            "JSON.stringify(db.accounts.findOne({}, { _id: 0 }))",
+        )
+        .await,
+    );
+    assert!(
+        stored.contains("hunter2-in-a-field") && stored.contains("hunter2-in-a-set"),
+        "{stored}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_result_cursor_is_cancelled_while_drained() {
     let Some(url) = env(RS_ENV, "a_result_cursor_is_cancelled_while_drained") else {

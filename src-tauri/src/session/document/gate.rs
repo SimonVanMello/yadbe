@@ -98,12 +98,19 @@ impl GateContext {
 fn record(
     ctx: &GateContext,
     op: &DocOp,
+    origin: Origin,
     started_at: SystemTime,
     start: Instant,
     outcome: &Result<DocReply, YadbeError>,
 ) {
+    let display = op.display();
     ctx.recorder.record(RecordedStatement {
-        sql: op.display(),
+        // A script's operations carry what the user wrote (a `createUser`'s `pwd`, a
+        // `password` field): masked as the history masks the script itself (rule 4).
+        sql: match origin {
+            Origin::Script => crate::db::redact::script(&display),
+            Origin::Yadbe | Origin::User => display,
+        },
         started_at,
         duration: start.elapsed(),
         outcome: match outcome {
@@ -166,7 +173,7 @@ pub async fn run_in(
         None => work.await,
     };
     if matches!(request.origin, Origin::Yadbe | Origin::Script) {
-        record(ctx, request.op, started_at, start, &result);
+        record(ctx, request.op, request.origin, started_at, start, &result);
     }
     result.map(GateOutcome::Done)
 }
@@ -301,7 +308,7 @@ async fn read_own(
     let started_at = SystemTime::now();
     let start = Instant::now();
     let result = conn.execute(op, &options, events).await;
-    record(ctx, op, started_at, start, &result);
+    record(ctx, op, Origin::Yadbe, started_at, start, &result);
     result
 }
 
