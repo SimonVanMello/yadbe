@@ -128,6 +128,8 @@ export const UNBOUND_ACTIONS = [
   'migrations.open',
   'connection.copyAdoNet',
   'connection.copyEfCore',
+  // The opt-in update check (F-127), on demand.
+  'app.checkUpdates',
 ] as const;
 
 export type BoundActionId = keyof typeof DEFAULT_BINDINGS;
@@ -225,6 +227,7 @@ export const ACTION_LABELS: Record<ActionId, MessageKey> = {
   'migrations.open': 'action.migrations.open',
   'connection.copyAdoNet': 'action.connection.copyAdoNet',
   'connection.copyEfCore': 'action.connection.copyEfCore',
+  'app.checkUpdates': 'action.app.checkUpdates',
 };
 
 /** The default shortcut of an action, `null` when it has none. */

@@ -19,6 +19,7 @@ import { useSidebarView } from '../features/sidebar/sidebarViewStore';
 import { useQueryActions } from '../features/query/useQueryActions';
 import { useTableActions } from '../features/table-data/useTableActions';
 import { useToolActions } from '../features/tools/useToolActions';
+import { checkForUpdatesNow } from '../features/updates/updates';
 import { SidebarViews } from '../features/sidebar/SidebarViews';
 import { StatementLogPanel } from '../features/statement-log/StatementLogPanel';
 import { StatusBar } from '../features/statusbar/StatusBar';
@@ -44,6 +45,7 @@ import {
   LazyPreferencesDialog,
   LazyPropertiesDialog,
   LazySaveQueryDialog,
+  LazyUpdateDialog,
 } from './lazyViews';
 import { preloadLazyModules } from './lazyModule';
 import { useLayoutStore } from './layout/layoutStore';
@@ -162,6 +164,9 @@ function useShellActions(): void {
         'language.fr': () => {
           useI18nStore.getState().setLocale('fr');
         },
+        'app.checkUpdates': () => {
+          void checkForUpdatesNow();
+        },
       }),
     [],
   );
@@ -257,6 +262,7 @@ export function Shell() {
       <LazyDocFormDialog />
       <CommandPalette />
       <LazyPreferencesDialog />
+      <LazyUpdateDialog />
     </div>
   );
 }

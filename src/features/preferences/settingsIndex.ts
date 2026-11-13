@@ -128,6 +128,7 @@ export type SettingId =
   | 'keychain'
   | 'sshKnownHosts'
   | 'version'
+  | 'checkUpdates'
   | 'platform'
   | 'license';
 
@@ -419,6 +420,13 @@ export const SETTINGS: readonly SettingSpec[] = [
   },
 
   { id: 'version', section: 'about', key: null, control: custom },
+  {
+    id: 'checkUpdates',
+    section: 'about',
+    key: 'checkUpdates',
+    control: custom,
+    keywords: 'update upgrade new version release github network',
+  },
   { id: 'platform', section: 'about', key: null, control: custom, keywords: 'os architecture' },
   { id: 'license', section: 'about', key: null, control: custom, keywords: 'gpl open source' },
 ];

@@ -119,6 +119,9 @@
   --fk-lookup-width: 420px;
   --fk-lookup-max-height: 240px;
 
+  /* Update dialog (F-127): release notes that are text, not a link. */
+  --update-notes-max-height: 240px;
+
   /* Query tools (F-048, F-052, F-053): the parameter prompt, the hover card, the plan tree. */
   --param-name-width: 140px;
   --param-kind-width: 120px;

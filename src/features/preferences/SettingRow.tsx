@@ -72,7 +72,7 @@ export function SettingRow({ spec }: { spec: SettingSpec }) {
   const label = t(`preferences.setting.${spec.id}`);
   const hint = t(`preferences.setting.${spec.id}.hint`);
 
-  if (spec.key === null) {
+  if (spec.key === null || spec.control.type === 'custom') {
     return (
       <Frame id={spec.id}>
         <CustomSetting id={spec.id} label={label} hint={hint} />

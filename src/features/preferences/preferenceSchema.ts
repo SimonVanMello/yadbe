@@ -6,6 +6,8 @@ export type Density = 'comfortable' | 'compact';
 export type NullStyle = 'italic' | 'plain';
 export type FormatKeywordCase = 'upper' | 'lower' | 'preserve';
 export type FormatIndent = 'two' | 'four' | 'tab';
+/** Update check at startup (F-127): opt-in; `ask` until the one-time question is answered. */
+export type CheckUpdates = 'ask' | 'on' | 'off';
 
 /** Every setting of the preferences screen, by key (F-125). */
 export interface PreferenceValues {
@@ -53,6 +55,8 @@ export interface PreferenceValues {
   connectTimeoutSecs: number;
   /** What separates the levels of the key tree of key-value connections (`:`). */
   keyValueDelimiter: string;
+  // About
+  checkUpdates: CheckUpdates;
 }
 
 export type PreferenceKey = keyof PreferenceValues;
@@ -157,6 +161,7 @@ export const DEFINITIONS = {
   journalMaxAgeDays: amount(90, 1, 3650),
   connectTimeoutSecs: amount(15, 1, 600),
   keyValueDelimiter: shortText(':', 8),
+  checkUpdates: oneOf<CheckUpdates>('ask', ['ask', 'on', 'off']),
 } satisfies { [K in PreferenceKey]: Definition<PreferenceValues[K]> };
 
 export const PREFERENCE_KEYS = Object.keys(DEFINITIONS) as PreferenceKey[];

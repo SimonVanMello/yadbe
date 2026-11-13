@@ -12,6 +12,7 @@ import { startTableDataFeature } from '../features/table-data/tableFeature';
 import { startDocumentFeature } from '../features/document/documentFeature';
 import { startSearchFeature } from '../features/search/searchFeature';
 import { startResultEditFeature } from '../features/result-edit/resultEdits';
+import { checkForUpdatesAtStartup } from '../features/updates/updates';
 import { useCollectionStore } from '../features/document/collectionStore';
 import { useIndexStore } from '../features/search/indexStore';
 import { useTableTabStore } from '../features/table-data/tableTabStore';
@@ -203,6 +204,8 @@ export function startup(): Promise<void> {
     persistTabs();
     // The command line (F-126), once the tabs it adds to are restored.
     void handleLaunchRequests();
+    // Opt-in (F-127): asks once, then checks only when the preference says so.
+    void checkForUpdatesAtStartup();
   })();
   return started;
 }

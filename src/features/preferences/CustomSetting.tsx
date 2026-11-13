@@ -7,9 +7,11 @@ import { Select } from '../../ui/Select';
 import { useKeychainAvailable } from '../connections/connectionStore';
 import { ClearHistoryDialog } from '../history/ClearHistoryDialog';
 import { KeybindingsSetting } from './KeybindingsSetting';
+import { checkForUpdatesNow } from '../updates/updates';
 import { KnownHostsSetting } from './KnownHostsSetting';
 import styles from './SettingRow.module.css';
 import type { SettingId } from './settingsIndex';
+import { UpdatesSetting } from './UpdatesSetting';
 
 interface CustomSettingProps {
   id: SettingId;
@@ -83,6 +85,7 @@ function AboutRow({
   label: string;
   hint: string;
 }) {
+  const t = useT();
   const info = useAppInfo();
   const value =
     id === 'version'
@@ -93,6 +96,11 @@ function AboutRow({
   return (
     <Info label={label} hint={hint}>
       <span className={styles.mono}>{value}</span>
+      {id === 'version' && (
+        <Button size="sm" onClick={() => void checkForUpdatesNow()}>
+          {t('preferences.checkUpdates.now')}
+        </Button>
+      )}
     </Info>
   );
 }
@@ -109,6 +117,8 @@ export function CustomSetting({ id, label, hint }: CustomSettingProps) {
       return <KeybindingsSetting label={label} hint={hint} />;
     case 'sshKnownHosts':
       return <KnownHostsSetting label={label} hint={hint} />;
+    case 'checkUpdates':
+      return <UpdatesSetting label={label} hint={hint} />;
     case 'version':
     case 'platform':
       return <AboutRow id={id} label={label} hint={hint} />;

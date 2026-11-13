@@ -76,6 +76,10 @@ export const LazyPreferencesDialog = lazyComponent(
   () => import('../features/preferences/PreferencesDialog').then((m) => m.PreferencesDialog),
   DIALOG,
 );
+export const LazyUpdateDialog = lazyComponent(
+  () => import('../features/updates/UpdateDialog').then((m) => m.UpdateDialog),
+  DIALOG,
+);
 export const LazyActivityTabBody = lazyComponent(() =>
   import('../features/activity/ActivityTabBody').then((m) => m.ActivityTabBody),
 );
