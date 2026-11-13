@@ -20,7 +20,7 @@ Guiding principles, in priority order when they conflict:
 5. **The engine's behavior is the behavior.** yadbe sends the SQL the user wrote, untouched. No hidden rewriting, except the documented row limit of table browsing.
 6. **Transparent.** Every statement yadbe runs on its own (metadata, edits, session setup) can be inspected in a log.
 
-**100% local**: no account, no telemetry, no network call other than the database connections themselves and, opt-in, update checks.
+**100% local**: no account, no telemetry, no network call other than the database connections themselves and, opt-in, update checks (F-127).
 
 ### Out of scope (v1)
 
@@ -51,6 +51,7 @@ Same shell and frontend stack as yaggui, so primitives, themes, i18n and tooling
 | SSH tunnels | `russh` | No dependency on a system `ssh`; V1. |
 | Bindings | `tauri-specta` | TS types and commands generated from Rust. |
 | App store | SQLite (`rusqlite`) in the OS config folder, versioned migrations | Connections (without secrets), tabs, history, saved queries, preferences. |
+| Updates | `tauri-plugin-updater` (`rustls-tls`) | Same as yaggui: signed bundles verified and installed per OS; the opt-in check and the package downloads use the same HTTP client. |
 | Tests | Vitest + Testing Library, Playwright on a mocked backend, `cargo test` against real engines | |
 
 ### 2.2 Architecture
@@ -247,6 +248,8 @@ Priorities: **MVP** (daily use), **V1** (public release), **V2** (after v1).
 | F-124 | Statement log panel (what yadbe ran on its own), toasts, typed errors with a suggested action. | MVP |
 | F-125 | Preferences: theme, density, fonts, default page size and result cap, null rendering, date / number formats, confirmations, history retention, keybindings. | MVP |
 | F-126 | CLI: `yadbe <file.sql>`, `yadbe <connection-url>` (password prompted, never taken from argv into any store). | V1 |
+| F-127 | Updates, **opt-in**: asked once at the first launch, then a preference (Preferences → About) and "Check for updates" on demand; nothing is sent while it is off. The check reads the newest published release's manifest; a dialog shows version, date and notes. Release installers (Windows `.exe` / `.msi`, macOS app and Homebrew cask, AppImage) update in place with the Tauri updater, which verifies the bundle's minisign signature, bound to the announced version, before installing, then restart; `.deb` / `.rpm` copies get the package downloaded and checked against the release checksums, and the package manager command to run; AUR copies the helper's command; other builds the release page. A build without the updater public key never checks. | V1 |
+| F-128 | Distribution: a `vX.Y.Z` tag builds macOS `.dmg` (Apple Silicon and Intel), Windows NSIS `.exe` and `.msi`, Linux `.deb`, `.rpm` and AppImage, the signed updater bundles and `latest.json`, into a draft GitHub release; publishing it updates the Homebrew cask (`SimonVanMello/homebrew-yadbe`) and the AUR package (`yadbe-bin`). Procedure and owner setup: `docs/RELEASING.md`. | V1 |
 
 ### 5.8 Tools
 
@@ -308,6 +311,7 @@ SQLite in the OS config folder (`yadbe.db`): `connections` (no secret column), `
 - TLS through `rustls`; `verify-full` is the default for non-local hosts; a downgrade is an explicit user choice.
 - Tauri: strict CSP, minimal capabilities, no remote content. File access only through explicit open / save dialogs.
 - Exported connection files never contain secrets.
+- Updates (F-127): no request unless the user opted in or asked; HTTPS only, to `github.com`, with no identifying data but the app version. An update is installed only once its minisign signature matches the public key built into the app and the version it was signed for; a downloaded `.deb` / `.rpm` must match the release's SHA-256 sums, and the command that installs it is shown to the user, never run by yadbe. The updater's private key lives in the repository secrets only.
 
 ## 10. Quality and tests
 

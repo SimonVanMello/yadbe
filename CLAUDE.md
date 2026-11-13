@@ -25,6 +25,7 @@ When this file and the spec disagree, this file wins for conventions and the spe
 | Drivers | `tokio-postgres` (+ `rustls`), `tiberius`, `mysql_async`, `rusqlite`, `mongodb` + `bson` (MongoDB, rustls), `redis` (Redis / Valkey, `tokio-comp` only), `hyper` + `hyper-util` (Elasticsearch / OpenSearch over HTTP/1.1, yadbe's own connector and TLS; no client crate) |
 | Scripts | `rquickjs` (QuickJS-ng): the embedded JavaScript engine of mongosh scripts (M4-3), sandboxed, never a driver |
 | Secrets | `keyring` (OS keychain) |
+| Updates | `tauri-plugin-updater` (`rustls-tls` only), opt-in; its `reqwest` client also reads the manifest and downloads `.deb` / `.rpm` packages (`semver`, `sha2`) |
 | Bindings | `tauri-specta`: TS types and commands **generated** from Rust, never written by hand |
 | Persistence | SQLite (`rusqlite`) in the OS config folder |
 | Tests | Vitest + Testing Library, Playwright (front on a mocked backend), `cargo test` against real engines |
@@ -56,6 +57,7 @@ src/                      Frontend
     keyvalue/             Key-value family (Redis, Valkey): explorer rows (databases, MATCH pattern, key tree of the backend's SCAN index by delimiter, scan state, lazy key summaries), key tabs (header, string / collection / RedisJSON viewers), console (editor, replies, danger confirmation); edits (M4-6): pending model and grid overlay (kvEditModel.ts, kvOverlaySource.ts), per-tab store and actions, value forms (kvFormStore.ts + KvFormDialog, kvEditForms.ts), apply / conflict / revert dialog (KvApplyDialog), explorer menus and Ctrl+click marks (KvEditMenuItems, kvMarkStore.ts)
     search/               Search family (Elasticsearch, OpenSearch): index tab (query string or Query DSL, _source, sort, pages, counts; indexStore + indexActions, IndexControls), hits as grid or documents (HitsResults, jsonView.ts: plain JSON → documents view with exact numbers), the request console (SearchConsoleEditor in Kibana's syntax, answers strip, ResponseBody: hits / table / JSON tree / raw / text, searchConsoleStore + Actions, consoleText.ts: which lines a run takes, the server's error marked in the editor), danger confirmation; document edits (M4-8): pending model, hit references and read-only reasons (searchEditModel.ts), per-tab store and actions (searchEditStore.ts, searchEditActions.ts), row and document menus (HitMenuItems), the `_source` editor (DocEditorDialog, JsonEditor), the edit strip (PendingDocsBar), apply / conflict / revert dialog (SearchApplyDialog)
     tools/                Tool tabs (never saved): guard, toolbar controls, palette actions
+    updates/              Opt-in update check (F-127): startup question and check, check on demand (palette, Preferences → About), the update dialog per install channel (updater progress and restart, .deb / .rpm command to copy, AUR command, release page), its store
     journal/              Change journal view (every engine family: SQL tables, key-value keys, document collections, search indices): search and filters, change set detail, revert entry point
     objects/              DDL tab, properties dialog, drop / truncate / rename confirmation, pins, inline rename
     import/               Data import wizard (file and format, column mapping, dry run and import)
@@ -69,10 +71,12 @@ src/                      Frontend
   i18n/                   fr.json, en.json
   test/                   Vitest setup
 e2e/                      Playwright specs (mocked backend); perf*.spec.ts run with playwright.perf.config.ts
-scripts/                  check-case, P-01 startup and P-04 WebKitGTK measurements
+scripts/                  check-case, P-01 startup and P-04 WebKitGTK measurements; release scripts (version.mjs, updater-manifest.mjs, updater-key.mjs, homebrew.mjs, aur.mjs; release.test.mjs runs them under Vitest)
+.github/workflows/        ci.yml; release.yml (tag → installers + latest.json in a draft release), homebrew.yml and aur.yml (on a published release); docs/RELEASING.md
 src-tauri/
   src/
     cli.rs                Command-line arguments (`yadbe <file.sql>`, `yadbe <url>`) → launch requests the front takes at startup (src/app/launch.ts)
+    updates.rs            Update check and install (F-127, ported from yaggui): "configured" only with the updater public key, install channel (updater / .deb / .rpm / AUR / manual), manifest, Tauri updater, package download + SHA256SUMS check, the package manager command (shown, never run)
     commands/             Tauri handlers: thin, no logic (validation → service call → error mapping)
     db/                   value.rs (Value model), engine.rs (engines, families, capabilities: one profile per engine), driver.rs (Driver, Backend by family, Link + SqlConnection + DocumentConnection + KeyValueConnection + SearchConnection), document/ (the document family above its driver: order-keeping Json, typed operations DocOp, read-only allow-list and danger detection, canonical Extended JSON ↔ cells, explorer model and field sampling, MongoDB settings and URIs, edit.rs: document edits planned as one guarded operation each ($expr guards, type-exact), conflicts, inverses; shell.rs: Extended JSON as mongosh literals for previews and the journal), dialect.rs + edit_dialect.rs (SQL family only: quoting, paging, DML syntax), bound.rs (SQL builder with bound values), meta.rs + introspect.rs (introspection model), split.rs (statement splitter), classify.rs (read-only classifier), script.rs (Script as), ddl.rs + object_ops.rs + object_model.rs (DDL text, object statements, properties), params.rs (query parameters: scanner, binding), activity.rs (sessions, locks, kill), ef.rs (EF Core migrations), dotnet.rs (ADO.NET / EF Core connection strings), result_source.rs (plain one-table SELECT check for editable results), tls_identity.rs (client certificate and key), plan/ (plan model, one parser per engine, fixtures of real plans), config.rs + connstring.rs (connection definitions and strings), errors.rs (catalog)
       keyvalue/           Key-value family without a driver crate: reply model, redis-cli tokenizer, command display (secrets redacted), COMMAND INFO specs and the gate's verdicts (read-only, unsupported, dangerous), edit.rs (key edits planned as a checked WATCH / MULTI / EXEC transaction, conflicts, inverse change sets)
@@ -92,7 +96,7 @@ src-tauri/
   vendor/tiberius/        tiberius 0.13.0, pristine commit then yadbe's patches (PATCHES.md says which and why)
   vendor/russh/           russh 0.65.1, same scheme (per-channel flow control; PATCHES.md)
 dev/                      compose.yml (test engines; redis and valkey for the key-value family; elasticsearch and opensearch for the search family, `search` profile), mtls.yml (throwaway servers that require a client certificate), tls-certs.sh, mssql.conf, mysql-init.sql, ssh-test.sh (throwaway sshd servers)
-docs/                     SPEC.md, PLAN.md, validation/Mx.md (manual checklists), analysis/ (studies that precede a milestone)
+docs/                     SPEC.md, PLAN.md, RELEASING.md (release procedure, owner setup: updater key, secrets, tap, AUR, signing), validation/Mx.md (manual checklists), analysis/ (studies that precede a milestone)
 ```
 
 ## Commands
@@ -106,6 +110,9 @@ pnpm build          # Typecheck + production build of the frontend
 pnpm check          # file name casing + ESLint + Prettier + typecheck + Vitest — must pass before any commit
 pnpm test:ui        # Playwright on `pnpm dev` (mocked backend), captures in test-results/ (set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to reuse a preinstalled Chromium)
 pnpm bindings       # Regenerates src/ipc/bindings.ts from Rust
+pnpm release:version <x.y.z>   # Sets the version in package.json, tauri.conf.json, Cargo.toml and Cargo.lock; then tag vX.Y.Z (docs/RELEASING.md)
+node scripts/updater-key.mjs src-tauri/tauri.conf.json   # Checks the updater public key (empty until the owner's setup, docs/RELEASING.md)
+pnpm tauri build    # Installers of this OS in src-tauri/target/release/bundle (Linux: deb, rpm, AppImage); add --config '{"bundle":{"createUpdaterArtifacts":true}}' with TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) set for the signed updater bundles
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 dev/tls-certs.sh    # Throwaway CA + `localhost` server certificate in dev/certs/ (git-ignored), for the TLS tests and compose
 docker compose -f dev/compose.yml up -d   # PostgreSQL (TLS on), SQL Server, MySQL, MongoDB (replica set 57017, standalone 57018) for integration tests; URLs to export in the file's header
