@@ -125,7 +125,7 @@ Analysis and decisions in `docs/analysis/NOSQL.md`: read it first (section 8 for
 | M4-7 ✅ | **Elasticsearch, read** (OpenSearch where the API is the same): HTTP client, authentication, explorer (indices, data streams, aliases, mappings), console syntax, hits grid + JSON (reusing the documents view of M4-2), ES\|QL / SQL results, index tab with `search_after`, read-only allow-list, cancel | M4-2 | opus · high |
 | M4-8 ✅ | **Elasticsearch, edit**: one document at a time with `if_seq_no` / `if_primary_term`, the non-atomic reason shown, journal, dangerous requests | M4-7 | opus · medium |
 | M4-9 ✅ | **Cross-cutting**: completion per family, JSON Lines export, palette objects, history and restore of the new tabs | M4-3, M4-4, M4-6, M4-8 | sonnet · medium |
-| M4-10 ⬜ | **Integration and validation**: every engine's suites again (SQL Server, MySQL, OpenSearch, mTLS, SSH), real-app scenarios on the three engines, the M4-9 leftovers below, the CodeMirror `style-src-attr` report, installer size, SPEC requirements of M4, `docs/validation/M4.md` | all of M4 | opus · high |
+| M4-10 🟦 | **Integration and validation**: every engine's suites again (SQL Server, MySQL, OpenSearch, mTLS, SSH), real-app scenarios on the three engines, the M4-9 leftovers below, the CodeMirror `style-src-attr` report, installer size, SPEC requirements of M4, `docs/validation/M4.md` | all of M4 | opus · high |
 
 Order: M4-1, then M4-2 ∥ M4-5, then M4-3 ∥ M4-6, then M4-4 ∥ M4-7 (two builds at a time: the disk does not hold more), then M4-8, M4-9, M4-10.
 
