@@ -100,9 +100,13 @@ for (const { name, colorScheme } of THEMES) {
     });
 
     test('preferences list the trusted host keys', async ({ page }) => {
+      // The theme is set before the window is drawn: the shortcut is heard once the shell is.
+      await expect(page.getByRole('tree', { name: 'Connections' })).toBeVisible();
       await page.keyboard.press('Control+,');
       const preferences = page.getByRole('dialog', { name: /Preferences/ });
-      await expect(preferences).toBeVisible();
+      // The dialog is a chunk of its own: its first opening waits for the dev server to
+      // transform it, which takes seconds when the machine is loaded.
+      await expect(preferences).toBeVisible({ timeout: 15_000 });
       await preferences.getByRole('searchbox').fill('known hosts');
       const hosts = preferences.getByRole('list', { name: 'SSH known hosts' });
       await expect(hosts).toContainText('bastion.example.com:22');

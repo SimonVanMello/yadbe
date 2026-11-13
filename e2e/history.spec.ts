@@ -81,10 +81,16 @@ for (const { name, colorScheme } of THEMES) {
 
     test('search: words match by prefix and are highlighted', async ({ page }) => {
       await openHistory(page);
-      const total = await rows(page).count();
+      // Some of the newest statements do not contain the word: the search must drop them.
+      await expect(
+        rows(page)
+          .filter({ hasNotText: /custom/i })
+          .first(),
+      ).toBeVisible();
       await panel(page).getByRole('textbox', { name: 'Search the history' }).fill('custom');
       await expect(panel(page).locator('mark').first()).toBeVisible();
-      await expect.poll(() => rows(page).count()).toBeLessThan(total);
+      // The list is virtualized: what it renders, not how many rows, says the search applied.
+      await expect(rows(page).filter({ hasNotText: /custom/i })).toHaveCount(0);
       for (const row of await rows(page).all()) {
         await expect(row.locator('mark').first()).toHaveText(/^custom/i);
       }

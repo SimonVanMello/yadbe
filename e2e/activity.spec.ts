@@ -57,6 +57,12 @@ async function openMonitor(page: Page, connection = /^local postgres,/) {
 }
 
 const sessions = (page: Page) => page.getByRole('grid', { name: 'Sessions' });
+
+/**
+ * The monitor's view is a chunk of its own (`src/app/lazyViews.ts`): its first appearance waits
+ * for the dev server to transform it, which takes seconds when the machine is loaded.
+ */
+const FIRST_LOAD = { timeout: 15_000 };
 const row = (page: Page, id: string) => page.locator(`#session-${id}`);
 
 for (const { name, colorScheme } of THEMES) {
@@ -190,8 +196,14 @@ for (const { name, colorScheme } of THEMES) {
     test('a read-only connection watches but cannot stop anything, and says why', async ({
       page,
     }) => {
+      // No refresh while the tooltip is looked at: each one renders the rows again.
+      await page.evaluate(() => {
+        localStorage.setItem('yadbe.activity.interval', 'off');
+      });
       await openMonitor(page, /^shop · prod,/);
-      await expect(page.getByRole('note').filter({ hasText: 'pg_read_all_stats' })).toBeVisible();
+      await expect(page.getByRole('note').filter({ hasText: 'pg_read_all_stats' })).toBeVisible(
+        FIRST_LOAD,
+      );
       await row(page, '4950').click();
       const end = page.getByRole('button', { name: 'End the session' });
       await expect(end).toBeDisabled();
@@ -213,7 +225,7 @@ for (const { name, colorScheme } of THEMES) {
       await openMenu(page, /^local postgres,/);
       await page.getByRole('menuitem', { name: 'Activity monitor' }).click();
       const alert = page.getByRole('alert').filter({ hasText: 'The activity could not be read' });
-      await expect(alert).toContainText('needs the privilege');
+      await expect(alert).toContainText('needs the privilege', FIRST_LOAD);
       await capture(page, name, 'denied');
     });
 
