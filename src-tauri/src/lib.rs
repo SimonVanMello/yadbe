@@ -239,6 +239,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             import::model::ImportFinished,
             session::keyvalue::model::KvScanProgress,
             session::document::model::MongoScriptConfirm,
+            session::document::model::MongoScriptOutput,
         ])
 }
 

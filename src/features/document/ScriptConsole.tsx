@@ -149,11 +149,12 @@ function Summary({ outcome }: { outcome: ScriptOutcome }) {
 function Output({ tabId }: { tabId: string }) {
   const t = useT();
   const run = useScriptTab(tabId);
-  const { outcome, error, running, pane, view } = run;
+  const { outcome, error, running, pane, view, live } = run;
   const failure = outcome?.failure ?? null;
   const exception = failure?.error.code === 'scriptError' ? failure.error.detail : null;
   const result = outcome?.result ?? null;
-  const messageCount = outcome?.messages.length ?? 0;
+  const messages = running ? live : (outcome?.messages ?? []);
+  const messageCount = messages.length;
 
   return (
     <>
@@ -220,8 +221,8 @@ function Output({ tabId }: { tabId: string }) {
       <div className={styles.paneBody}>
         {pane === 'messages' ? (
           <ScriptMessages
-            messages={outcome?.messages ?? []}
-            truncated={outcome?.messagesTruncated ?? false}
+            messages={messages}
+            truncated={!running && (outcome?.messagesTruncated ?? false)}
           />
         ) : result?.kind === 'documents' ? (
           <div className={styles.result}>

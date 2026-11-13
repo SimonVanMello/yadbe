@@ -39,10 +39,17 @@ const MAX_MESSAGES: usize = 10_000;
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 /// The gate's own timeout fires first (it kills the operation); this is the backstop.
 const WAIT_GRACE: Duration = Duration::from_secs(3);
+/// Printed lines go to the front at most this often while the script computes; a script
+/// about to wait on the server or the user hands them over first.
+const OUTPUT_EVERY: Duration = Duration::from_millis(100);
 
 /// Asks the front for a confirmation (an event); the answer comes back through
 /// [`ScriptControl::answer`].
 pub type ConfirmHook = Arc<dyn Fn(u32, DangerReport) + Send + Sync>;
+
+/// Hands the lines printed since the last call to the front while the script runs (an
+/// event); the outcome still carries every line.
+pub type OutputHook = Arc<dyn Fn(Vec<ScriptMessage>) + Send + Sync>;
 
 /// A cursor open on the server, read batch by batch. Dropping it closes the cursor: the
 /// driver's next batch finds no reader, stops (closing the server cursor) and the gate
@@ -59,6 +66,7 @@ pub struct Bridge {
     pub conn: Arc<dyn DocumentConnection>,
     pub control: Arc<ScriptControl>,
     pub confirm: ConfirmHook,
+    output: OutputHook,
     pub started: Instant,
     errors: RefCell<Vec<YadbeError>>,
     cursors: RefCell<HashMap<u32, OpenCursor>>,
@@ -66,6 +74,9 @@ pub struct Bridge {
     messages: RefCell<Vec<ScriptMessage>>,
     message_bytes: Cell<usize>,
     messages_truncated: Cell<bool>,
+    /// Messages already handed to [`Self::output`], and when.
+    streamed: Cell<usize>,
+    streamed_at: Cell<Instant>,
 }
 
 fn invalid(what: &str) -> YadbeError {
@@ -439,20 +450,25 @@ impl Bridge {
         conn: Arc<dyn DocumentConnection>,
         control: Arc<ScriptControl>,
         confirm: ConfirmHook,
+        output: OutputHook,
     ) -> Self {
+        let started = Instant::now();
         Self {
             handle,
             session,
             conn,
             control,
             confirm,
-            started: Instant::now(),
+            output,
+            started,
             errors: RefCell::new(Vec::new()),
             cursors: RefCell::new(HashMap::new()),
             next_cursor: Cell::new(1),
             messages: RefCell::new(Vec::new()),
             message_bytes: Cell::new(0),
             messages_truncated: Cell::new(false),
+            streamed: Cell::new(0),
+            streamed_at: Cell::new(started),
         }
     }
 
@@ -503,6 +519,21 @@ impl Bridge {
             text,
             at_ms: (self.started.elapsed().as_secs_f64() * 1000.0).round(),
         });
+        drop(messages);
+        if self.streamed_at.get().elapsed() >= OUTPUT_EVERY {
+            self.stream_messages();
+        }
+    }
+
+    /// Hands the lines printed since the last time to the front.
+    pub fn stream_messages(&self) {
+        let messages = self.messages.borrow();
+        let from = self.streamed.get();
+        if from < messages.len() {
+            (self.output)(messages[from..].to_vec());
+            self.streamed.set(messages.len());
+        }
+        self.streamed_at.set(Instant::now());
     }
 
     pub fn take_messages(&self) -> (Vec<ScriptMessage>, bool) {
@@ -517,6 +548,7 @@ impl Bridge {
     /// Blocks the script's thread on `work`, until it ends, the run is cancelled or its time
     /// is up.
     pub fn wait<F: std::future::Future>(&self, work: F) -> Result<F::Output, YadbeError> {
+        self.stream_messages();
         let control = &self.control;
         self.handle.block_on(async {
             let deadline = async {

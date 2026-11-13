@@ -12,7 +12,9 @@ use yadbe_lib::secrets::Secret;
 use yadbe_lib::session::ConnectionManager;
 use yadbe_lib::session::document::DocumentService;
 use yadbe_lib::session::document::gate::{self, GateContext, GateOutcome, GateRequest, Origin};
-use yadbe_lib::session::document::model::{MongoScriptConfirm, ScriptOutcome, ScriptRequest};
+use yadbe_lib::session::document::model::{
+    MongoScriptConfirm, MongoScriptOutput, ScriptOutcome, ScriptRequest,
+};
 use yadbe_lib::session::history_hook::NoHistory;
 use yadbe_lib::session::journal::ChangeJournal;
 use yadbe_lib::session::result_store::ResultStore;
@@ -22,11 +24,12 @@ use yadbe_lib::store::Store;
 use super::{from_url, harness, skip};
 
 /// The confirmations a script asked for; each is answered at once with `answer` (none: the
-/// script keeps waiting).
+/// script keeps waiting). Also keeps the lines streamed while scripts run.
 #[derive(Default)]
 pub struct AutoConfirm {
     pub answer: Mutex<Option<bool>>,
     pub asked: Mutex<Vec<MongoScriptConfirm>>,
+    pub output: Mutex<Vec<MongoScriptOutput>>,
     pub service: OnceLock<Weak<DocumentService>>,
 }
 
@@ -38,10 +41,25 @@ impl AutoConfirm {
     pub fn asked(&self) -> Vec<MongoScriptConfirm> {
         self.asked.lock().expect("lock").clone()
     }
+
+    /// The lines tab `tab_id` streamed so far, in order.
+    pub fn streamed(&self, tab_id: &str) -> Vec<String> {
+        self.output
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|event| event.tab_id == tab_id)
+            .flat_map(|event| event.messages.iter().map(|m| m.text.clone()))
+            .collect()
+    }
 }
 
 impl EventSink for AutoConfirm {
     fn emit(&self, event: BackendEvent) {
+        if let BackendEvent::MongoScriptOutput(output) = event {
+            self.output.lock().expect("lock").push(output);
+            return;
+        }
         if let BackendEvent::MongoScriptConfirm(request) = event {
             self.asked.lock().expect("lock").push(request.clone());
             let answer = *self.answer.lock().expect("lock");

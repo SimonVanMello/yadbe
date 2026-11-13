@@ -201,6 +201,22 @@ for (const { name, colorScheme } of THEMES) {
       await expect(page.getByText(/is not connected: connect to run the script/)).toBeVisible();
     });
 
+    test('what a running script prints shows while it runs', async ({ page }) => {
+      await openScript(page);
+      await setScript(page, "print('step 1')\nsleep(4000)\nprint('step 2')");
+      await page.keyboard.press('ControlOrMeta+Enter');
+      // The messages pane opens on the first line, before the script ends.
+      const messages = page.getByTestId('script-messages');
+      await expect(messages).toContainText('step 1');
+      await expect(page.getByTestId('script-running')).toBeVisible();
+      await expect(page.getByRole('radio', { name: 'Messages (1)' })).toBeChecked();
+      await expect(messages).not.toContainText('step 2');
+      await capture(page, name, 'script-streaming');
+      await expect(page.getByTestId('script-summary')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByRole('radio', { name: 'Messages (2)' })).toBeChecked();
+      await expect(messages).toContainText('step 2');
+    });
+
     test('a script stops at an error, marked in the editor', async ({ page }) => {
       await openScript(page);
       await setScript(page, "print('before')\nthrow new Error('boom')\nprint('after')");

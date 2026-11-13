@@ -26,7 +26,7 @@ use crate::session::document::gate::{
 };
 use crate::session::document::model::{
     CollectionInfo, CollectionPage, CollectionQuery, DocumentResult, MongoScriptConfirm,
-    ScriptOutcome, ScriptRequest,
+    MongoScriptOutput, ScriptOutcome, ScriptRequest,
 };
 use crate::session::document::results::{documents_window, store_documents};
 use crate::session::document::script::{self, ScriptControl, ScriptRun};
@@ -695,7 +695,9 @@ impl DocumentService {
             *running = Some(Running::Script(Arc::clone(&control)));
         }
         let events = Arc::clone(&self.events);
+        let output_events = Arc::clone(&self.events);
         let confirm_tab = tab_id.to_owned();
+        let output_tab = tab_id.to_owned();
         let run = ScriptRun {
             session,
             conn,
@@ -705,6 +707,12 @@ impl DocumentService {
                     tab_id: confirm_tab.clone(),
                     request_id,
                     danger,
+                }));
+            }),
+            output: Arc::new(move |messages| {
+                output_events.emit(BackendEvent::MongoScriptOutput(MongoScriptOutput {
+                    tab_id: output_tab.clone(),
+                    messages,
                 }));
             }),
             store: Arc::clone(&self.store),

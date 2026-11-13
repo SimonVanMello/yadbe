@@ -32,7 +32,7 @@ use crate::session::document::results::store_documents;
 use crate::session::query_model::{TextPosition, TextRange};
 use crate::session::result_store::ResultStore;
 
-use bridge::{Bridge, ConfirmHook, OpenCursor};
+use bridge::{Bridge, ConfirmHook, OpenCursor, OutputHook};
 use engine::ScriptValue;
 
 /// A result keeps at most this many documents of a cursor…
@@ -271,6 +271,8 @@ pub struct ScriptRun {
     pub conn: Arc<dyn DocumentConnection>,
     pub control: Arc<ScriptControl>,
     pub confirm: ConfirmHook,
+    /// Where printed lines go while the script runs.
+    pub output: OutputHook,
     pub store: Arc<ResultStore>,
 }
 
@@ -305,6 +307,7 @@ pub async fn execute(
     let session = Arc::clone(&run.session);
     let conn = Arc::clone(&run.conn);
     let confirm = Arc::clone(&run.confirm);
+    let output = Arc::clone(&run.output);
     let database = request.database.clone();
     let thread_code = code.clone();
     std::thread::Builder::new()
@@ -317,6 +320,7 @@ pub async fn execute(
                 conn,
                 Arc::clone(&thread_control),
                 confirm,
+                output,
             ));
             let end = engine::run(&bridge, &thread_control, &thread_code, &map, &database);
             bridge.close_all();

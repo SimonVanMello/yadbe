@@ -10,6 +10,7 @@ import type {
   FieldSample,
   FieldTypeCount,
   MongoScriptConfirm,
+  MongoScriptOutput,
   SampledField,
   ScriptFailure,
   ScriptMessage,
@@ -56,6 +57,8 @@ export interface MockDocumentHost {
   recordHistory(entry: MockHistoryRecord): void;
   /** Emits `mongo-script-confirm`. */
   confirm(request: MongoScriptConfirm): void;
+  /** Emits `mongo-script-output`. */
+  output(event: MongoScriptOutput): void;
   storeRows(columns: readonly ColumnMeta[], rows: readonly (readonly Cell[])[]): number;
   freeResults(ids: readonly number[]): void;
   /** Texts of the one column of a stored result, `null` when it is gone. */
@@ -506,6 +509,15 @@ export function createMockDocument(host: MockDocumentHost) {
       const say = (kind: ScriptMessage['kind'], message: string) => {
         messages.push({ kind, text: message, atMs: Math.round(performance.now() - started) });
       };
+      // What was printed goes to the front before the next statement, as the backend hands it
+      // over before each wait; the outcome carries every line again.
+      let streamed = 0;
+      const stream = () => {
+        if (streamed < messages.length) {
+          host.output({ tabId, messages: messages.slice(streamed) });
+          streamed = messages.length;
+        }
+      };
       // Assigned in the closures below: typed wide so that the checks after them hold.
       let result = null as ScriptResult | null;
       let failure = null as ScriptFailure | null;
@@ -530,6 +542,7 @@ export function createMockDocument(host: MockDocumentHost) {
           host.confirm({ tabId, requestId, danger });
         });
       for (const { statement, position } of statements) {
+        stream();
         const stop = (error: YadbeError) => {
           failure = { error, position };
         };

@@ -7,6 +7,7 @@ function backend(readOnly = false, onConfirm: (requestId: number) => void = () =
   const stored = new Map<number, string[][]>();
   let next = 1;
   const history: string[] = [];
+  const streamed: string[][] = [];
   const mock = createMockDocument({
     session: () => ({ readOnly, topology: 'replicaSet' as const }),
     latency: () => 0,
@@ -14,6 +15,9 @@ function backend(readOnly = false, onConfirm: (requestId: number) => void = () =
     recordHistory: (entry) => history.push(`${entry.outcome}:${entry.sql}`),
     confirm: (request) => {
       onConfirm(request.requestId);
+    },
+    output: (event) => {
+      streamed.push(event.messages.map((m) => m.text));
     },
     storeRows: (_columns, rows) => {
       const id = next++;
@@ -32,7 +36,7 @@ function backend(readOnly = false, onConfirm: (requestId: number) => void = () =
         ?.slice(offset, offset + limit)
         .map((row) => row[0] ?? '') ?? null,
   });
-  return { commands: mock.commands, history };
+  return { commands: mock.commands, history, streamed };
 }
 
 describe('the mock MongoDB server', () => {
@@ -75,6 +79,18 @@ describe('the mock MongoDB server', () => {
     if (found.status !== 'ok') throw new Error('script');
     expect(found.data.messages.map((m) => m.text)).toEqual(['hi']);
     expect(found.data.result).toMatchObject({ kind: 'documents', cursor: true });
+
+    // Printed lines are streamed before the statement that follows them; the last ones come
+    // with the outcome only.
+    const printing = backend();
+    const printed = await printing.commands.mongoRunScript(
+      't',
+      'c',
+      request("print('a')\nprint('b')\nsleep(1)\nprint('c')"),
+    );
+    if (printed.status !== 'ok') throw new Error('script');
+    expect(printing.streamed).toEqual([['a'], ['b']]);
+    expect(printed.data.messages.map((m) => m.text)).toEqual(['a', 'b', 'c']);
 
     const readOnly = backend(true);
     const refused = await readOnly.commands.mongoRunScript(

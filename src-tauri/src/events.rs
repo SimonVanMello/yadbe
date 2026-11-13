@@ -138,6 +138,7 @@ pub enum BackendEvent {
     ImportFinished(ImportFinished),
     KvScanProgress(crate::session::keyvalue::model::KvScanProgress),
     MongoScriptConfirm(crate::session::document::model::MongoScriptConfirm),
+    MongoScriptOutput(crate::session::document::model::MongoScriptOutput),
 }
 
 pub trait EventSink: Send + Sync {
@@ -199,6 +200,7 @@ impl EventSink for TauriSink {
             BackendEvent::ImportFinished(e) => e.emit(app),
             BackendEvent::KvScanProgress(e) => e.emit(app),
             BackendEvent::MongoScriptConfirm(e) => e.emit(app),
+            BackendEvent::MongoScriptOutput(e) => e.emit(app),
         };
         if let Err(err) = result {
             tracing::warn!(error = %err, "failed to emit event");

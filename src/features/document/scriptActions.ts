@@ -50,6 +50,7 @@ export async function runScript(tabId: string): Promise<void> {
   store.patch(tabId, {
     running: true,
     startedAt: performance.now(),
+    live: [],
     error: null,
     confirm: null,
     sourceText: content,
@@ -62,6 +63,7 @@ export async function runScript(tabId: string): Promise<void> {
     store.patch(tabId, {
       running: false,
       outcome,
+      live: [],
       confirm: null,
       // Nothing to show but what it printed: the messages.
       pane: outcome.result === null && outcome.messages.length > 0 ? 'messages' : 'result',
@@ -74,6 +76,7 @@ export async function runScript(tabId: string): Promise<void> {
   } catch (error) {
     store.patch(tabId, {
       running: false,
+      live: [],
       confirm: null,
       error: error instanceof YadbeIpcError ? error.error : null,
     });

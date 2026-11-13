@@ -165,6 +165,15 @@ pub struct ScriptOutcome {
     pub duration_ms: f64,
 }
 
+/// Lines a running script printed since the last such event (`print`, `console.*`, shell
+/// answers), so the messages pane fills while it runs. The outcome carries every line again.
+#[derive(Debug, Clone, Serialize, Type, tauri_specta::Event)]
+#[serde(rename_all = "camelCase")]
+pub struct MongoScriptOutput {
+    pub tab_id: String,
+    pub messages: Vec<ScriptMessage>,
+}
+
 /// A script reached a dangerous operation and waits for the user's word
 /// (`mongo_script_confirm`), with its effect as the server counts it. Nothing was sent.
 #[derive(Debug, Clone, Serialize, Type, tauri_specta::Event)]

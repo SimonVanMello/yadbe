@@ -817,6 +817,7 @@ export const events = {
 	kvScanProgress: makeEvent<KvScanProgress>("kv-scan-progress"),
 	metaRefreshed: makeEvent<MetaRefreshed>("meta-refreshed"),
 	mongoScriptConfirm: makeEvent<MongoScriptConfirm>("mongo-script-confirm"),
+	mongoScriptOutput: makeEvent<MongoScriptOutput>("mongo-script-output"),
 	queryFinished: makeEvent<QueryFinished>("query-finished"),
 	queryProgress: makeEvent<QueryProgress>("query-progress"),
 	savedQueriesChanged: makeEvent<SavedQueriesChanged>("saved-queries-changed"),
@@ -3618,6 +3619,15 @@ export type MongoScriptConfirm = {
 	tabId: string,
 	requestId: number,
 	danger: DangerReport,
+};
+
+/**
+ *  Lines a running script printed since the last such event (`print`, `console.*`, shell
+ *  answers), so the messages pane fills while it runs. The outcome carries every line again.
+ */
+export type MongoScriptOutput = {
+	tabId: string,
+	messages: ScriptMessage[],
 };
 
 /**

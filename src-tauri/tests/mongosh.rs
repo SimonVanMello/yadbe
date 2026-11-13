@@ -918,6 +918,61 @@ async fn a_long_find_is_cancelled_on_the_server() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn printed_lines_reach_the_front_while_the_script_runs() {
+    let Some(url) = env(
+        RS_ENV,
+        "printed_lines_reach_the_front_while_the_script_runs",
+    ) else {
+        return;
+    };
+    let mongo = Arc::new(Mongo::open(&url, |_| {}).await);
+    let runner = Arc::clone(&mongo);
+    // A line printed before a wait, then lines printed in a busy loop past the stream's pace.
+    let task = tokio::spawn(async move {
+        runner
+            .script(
+                "out",
+                "print('first'); sleep(1500);\nconst until = Date.now() + 400; let n = 0;\nwhile (Date.now() < until) { if (n++ % 1000 === 0) print('tick'); }\nsleep(1500); print('last')",
+            )
+            .await
+    });
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while mongo.confirms.streamed("out").is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "nothing streamed before the wait"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(!task.is_finished(), "streamed while the script runs");
+    assert_eq!(mongo.confirms.streamed("out"), ["first"]);
+    // The busy loop's lines arrive before the script's last wait ends.
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !mongo
+        .confirms
+        .streamed("out")
+        .iter()
+        .any(|line| line == "tick")
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the loop's lines were not streamed"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(!task.is_finished(), "streamed while the script runs");
+    let outcome = task.await.expect("task");
+    assert!(outcome.failure.is_none(), "{:?}", outcome.failure);
+    // The outcome carries every line again; the stream held a prefix of them, once each, in
+    // order (lines printed just before the end may come with the outcome only).
+    let all = messages(&outcome);
+    assert_eq!(all.first().map(String::as_str), Some("first"));
+    assert_eq!(all.last().map(String::as_str), Some("last"));
+    let streamed = mongo.confirms.streamed("out");
+    assert_eq!(streamed[..], all[..streamed.len()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_result_cursor_is_cancelled_while_drained() {
     let Some(url) = env(RS_ENV, "a_result_cursor_is_cancelled_while_drained") else {
         return;

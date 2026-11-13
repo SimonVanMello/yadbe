@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import type { DangerReport, ScriptOutcome, YadbeError } from '../../ipc';
+import type { DangerReport, ScriptMessage, ScriptOutcome, YadbeError } from '../../ipc';
 import type { DocumentViewMode } from './collectionStore';
 
 export type ScriptPane = 'result' | 'messages';
@@ -11,6 +11,8 @@ export interface ScriptTabState {
   /** `performance.now()` when the run started. */
   startedAt: number | null;
   outcome: ScriptOutcome | null;
+  /** Lines the running script printed so far (`mongo-script-output`); the outcome replaces them. */
+  live: readonly ScriptMessage[];
   /** The run could not start (not connected, already running…). */
   error: YadbeError | null;
   /** A dangerous operation the script waits on, with what it would do. */
@@ -25,6 +27,7 @@ const FRESH: ScriptTabState = {
   running: false,
   startedAt: null,
   outcome: null,
+  live: [],
   error: null,
   confirm: null,
   sourceText: null,
@@ -54,6 +57,19 @@ export const useScriptStore = create<ScriptStore>((set) => ({
     });
   },
 }));
+
+/**
+ * Lines a running script printed: appended to the tab's live messages, and the messages pane
+ * shown when the first ones arrive. Ignored once the run is over (the outcome has them all).
+ */
+export function appendLiveMessages(tabId: string, messages: readonly ScriptMessage[]): void {
+  const tab = useScriptStore.getState().tabs[tabId];
+  if (!tab?.running || messages.length === 0) return;
+  useScriptStore.getState().patch(tabId, {
+    live: [...tab.live, ...messages],
+    ...(tab.live.length === 0 ? { pane: 'messages' as const } : {}),
+  });
+}
 
 export function getScriptTab(tabId: string): ScriptTabState {
   return useScriptStore.getState().tabs[tabId] ?? FRESH;

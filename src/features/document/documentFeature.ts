@@ -2,20 +2,24 @@ import { isQueryTab, isTableTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { ipc } from '../../ipc';
 import { forgetCollectionTab } from './collectionActions';
 import { dropTabDocEdits } from './docEditStore';
-import { useScriptStore } from './scriptStore';
+import { appendLiveMessages, useScriptStore } from './scriptStore';
 
 let started = false;
 
 /**
  * Wires the document family's tabs into the shell, once per app launch: a closed collection or
  * query tab frees what the backend keeps for it (its results, a running operation or script),
- * and a script that meets a dangerous operation asks its tab for a confirmation.
+ * a script that meets a dangerous operation asks its tab for a confirmation, and what a running
+ * script prints reaches its messages pane.
  */
 export function startDocumentFeature(): void {
   if (started) return;
   started = true;
   ipc.events.subscribe('mongoScriptConfirm', ({ tabId, requestId, danger }) => {
     useScriptStore.getState().patch(tabId, { confirm: { requestId, danger } });
+  });
+  ipc.events.subscribe('mongoScriptOutput', ({ tabId, messages }) => {
+    appendLiveMessages(tabId, messages);
   });
   const tracked = (tabs: ReturnType<typeof useTabsStore.getState>['tabs']) =>
     new Set(tabs.filter((tab) => isTableTab(tab) || isQueryTab(tab)).map((tab) => tab.id));
