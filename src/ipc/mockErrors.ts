@@ -177,6 +177,28 @@ export const mockErrors = {
       null,
       exception,
     ),
+  updateCheckFailed: (detail: string) =>
+    error(
+      'updateCheckFailed',
+      'Could not check for updates.',
+      'Impossible de vérifier les mises à jour.',
+      'retry',
+      detail,
+    ),
+  updateInstallFailed: (detail: string) =>
+    error(
+      'updateInstallFailed',
+      'The update could not be installed.',
+      "La mise à jour n'a pas pu être installée.",
+      'retry',
+      detail,
+    ),
+  updatesNotConfigured: () =>
+    error(
+      'updatesNotConfigured',
+      'This build of yadbe cannot update itself: it was not built for a release. Download new versions from the release page.',
+      "Cette version de yadbe ne peut pas se mettre à jour : elle n'a pas été construite pour une release. Téléchargez les nouvelles versions sur la page des releases.",
+    ),
   mongoshUnsupported: (method: string) =>
     error(
       'notSupported',

@@ -11,6 +11,7 @@ pub mod session;
 pub mod state;
 pub mod store;
 pub mod tunnel;
+pub mod updates;
 
 use std::sync::Arc;
 
@@ -27,6 +28,12 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         .commands(collect_commands![
             commands::app::app_info,
             commands::app::take_launch_requests,
+            commands::updates::update_status,
+            commands::updates::check_for_update,
+            commands::updates::install_update,
+            commands::updates::prepare_package_upgrade,
+            commands::updates::open_release_page,
+            commands::updates::restart_app,
             commands::connections::list_engines,
             commands::connections::list_connections,
             commands::connections::create_connection,
@@ -240,6 +247,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             session::keyvalue::model::KvScanProgress,
             session::document::model::MongoScriptConfirm,
             session::document::model::MongoScriptOutput,
+            events::UpdateProgress,
         ])
 }
 
@@ -301,6 +309,8 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Used from Rust only (src/updates.rs): no updater permission for the webview.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);

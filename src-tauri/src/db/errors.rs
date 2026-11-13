@@ -158,6 +158,13 @@ pub enum ErrorCode {
     /// A mongosh script threw: a JavaScript exception (syntax, reference, type, a thrown
     /// value), or the script ran out of memory or stack. `detail` holds the exception.
     ScriptError,
+    /// The update manifest could not be read (offline, unexpected answer).
+    UpdateCheckFailed,
+    /// The update could not be downloaded, verified or installed.
+    UpdateInstallFailed,
+    /// This build has no updater public key (a build from source, not a release): it neither
+    /// checks for updates nor installs them.
+    UpdatesNotConfigured,
 }
 
 /// A message in every supported UI language.
@@ -595,6 +602,36 @@ impl YadbeError {
     }
 
     /// A JavaScript exception of a mongosh script; `exception`: its name and message.
+    pub fn update_check_failed(detail: impl AsRef<str>) -> Self {
+        Self::new(
+            ErrorCode::UpdateCheckFailed,
+            "Could not check for updates.",
+            "Impossible de vérifier les mises à jour.",
+        )
+        .with_detail(detail)
+        .with_action(ErrorAction::Retry)
+    }
+
+    pub fn update_install_failed(detail: impl AsRef<str>) -> Self {
+        Self::new(
+            ErrorCode::UpdateInstallFailed,
+            "The update could not be installed.",
+            "La mise à jour n'a pas pu être installée.",
+        )
+        .with_detail(detail)
+        .with_action(ErrorAction::Retry)
+    }
+
+    pub fn updates_not_configured() -> Self {
+        Self::new(
+            ErrorCode::UpdatesNotConfigured,
+            "This build of yadbe cannot update itself: it was not built for a release. \
+             Download new versions from the release page.",
+            "Cette version de yadbe ne peut pas se mettre à jour : elle n'a pas été construite \
+             pour une release. Téléchargez les nouvelles versions sur la page des releases.",
+        )
+    }
+
     pub fn script_error(exception: impl AsRef<str>) -> Self {
         Self::new(
             ErrorCode::ScriptError,

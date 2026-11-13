@@ -14,6 +14,37 @@ export const commands = {
 	 *  before this point.
 	 */
 	takeLaunchRequests: () => typedError<LaunchRequest[], YadbeError>(__TAURI_INVOKE("take_launch_requests")),
+	/**  Whether this build can update itself and how it was installed. No network call. */
+	updateStatus: () => typedError<UpdateStatus, YadbeError>(__TAURI_INVOKE("update_status")),
+	/**
+	 *  Newer published version, `None` when this one is the newest. The `checkUpdates` preference
+	 *  is the frontend's to honor: a check asked from the palette runs whatever it says. Refused
+	 *  (`updatesNotConfigured`, no request) by a build without the updater public key.
+	 */
+	checkForUpdate: () => typedError<{
+	currentVersion: string,
+	version: string,
+	/**  Release notes of the manifest: the release page address, or Markdown. */
+	notes: string | null,
+	/**  Publication date (RFC 3339), if any. */
+	date: string | null,
+	channel: InstallChannel,
+} | null, YadbeError>(__TAURI_INVOKE("check_for_update")),
+	/**
+	 *  Downloads, verifies and installs the newest version, then restarts the app (returns on
+	 *  failure, and on macOS while the app exits). Progress comes as `update-progress` events.
+	 */
+	installUpdate: () => typedError<null, YadbeError>(__TAURI_INVOKE("install_update")),
+	/**
+	 *  Gets the upgrade of a copy owned by a Linux package manager ready: downloads and checks the
+	 *  new `.deb` / `.rpm` (progress as `update-progress` events), then returns the command the user
+	 *  runs in a terminal. The command is chosen here, never by the frontend, and never run here.
+	 */
+	preparePackageUpgrade: () => typedError<PackageUpgrade, YadbeError>(__TAURI_INVOKE("prepare_package_upgrade")),
+	/**  Opens the page of the newest release, for the installs that are upgraded by hand. */
+	openReleasePage: () => typedError<null, YadbeError>(__TAURI_INVOKE("open_release_page")),
+	/**  Restarts the app, on the version a package manager just installed. */
+	restartApp: () => __TAURI_INVOKE<void>("restart_app"),
 	/**  Engines yadbe knows, with their capabilities and whether this build can connect. */
 	listEngines: () => typedError<EngineInfo[], YadbeError>(__TAURI_INVOKE("list_engines")),
 	/**  Every saved connection, by group then position. */
@@ -824,6 +855,7 @@ export const events = {
 	statementLogged: makeEvent<StatementLogged>("statement-logged"),
 	tableDataChanged: makeEvent<TableDataChanged>("table-data-changed"),
 	transactionStateChanged: makeEvent<TransactionStateChanged>("transaction-state-changed"),
+	updateProgress: makeEvent<UpdateProgress>("update-progress"),
 };
 
 /* Types */
@@ -2138,7 +2170,16 @@ export type ErrorCode =
  *  A mongosh script threw: a JavaScript exception (syntax, reference, type, a thrown
  *  value), or the script ran out of memory or stack. `detail` holds the exception.
  */
-"scriptError";
+"scriptError" | 
+/**  The update manifest could not be read (offline, unexpected answer). */
+"updateCheckFailed" | 
+/**  The update could not be downloaded, verified or installed. */
+"updateInstallFailed" | 
+/**
+ *  This build has no updater public key (a build from source, not a release): it neither
+ *  checks for updates nor installs them.
+ */
+"updatesNotConfigured";
 
 /**  An Excel workbook (`.xlsx`), streamed: one worksheet, a frozen bold header row. */
 export type ExcelOptions = {
@@ -2872,6 +2913,25 @@ export type InsertedRows = {
 	 */
 	positions: (number | null)[],
 };
+
+/**  How the running copy was installed, which decides how it is updated. */
+export type InstallChannel = 
+/**
+ *  Replaced by the Tauri updater: Windows installer, macOS app (from the `.dmg` or the
+ *  Homebrew cask), AppImage.
+ */
+"selfUpdate" | 
+/**  The `yadbe-bin` AUR package, upgraded with the user's AUR helper. */
+"aur" | 
+/**  The `.deb`: the new one is downloaded and checked, then installed with apt by the user. */
+"deb" | 
+/**  The `.rpm`: the new one is downloaded and checked, then installed with dnf or zypper. */
+"rpm" | 
+/**
+ *  A development build or an unknown layout: the user downloads the new version from the
+ *  release page.
+ */
+"manual";
 
 /**  An entry with its statements and the inverse statements. */
 export type JournalDetail = {
@@ -3791,6 +3851,14 @@ export type ObjectRef = {
 	/**  `null` on engines without schemas. */
 	schema: string | null,
 	name: string,
+};
+
+/**  The upgrade of a package-manager copy, ready for the user to run in a terminal. */
+export type PackageUpgrade = {
+	/**  Shell command line, shown and copied, never run by yadbe. */
+	command: string,
+	/**  The downloaded and checked package (`.deb` / `.rpm`); `None` for the AUR. */
+	package: string | null,
 };
 
 /**  The type a query parameter's value is given as (F-048). */
@@ -5489,6 +5557,33 @@ export type TypeSummary = {
 	baseType: string | null,
 	/**  Attributes of a composite type. */
 	attributes: TypeAttribute[],
+};
+
+/**  A newer published version. */
+export type UpdateInfo = {
+	currentVersion: string,
+	version: string,
+	/**  Release notes of the manifest: the release page address, or Markdown. */
+	notes: string | null,
+	/**  Publication date (RFC 3339), if any. */
+	date: string | null,
+	channel: InstallChannel,
+};
+
+/**
+ *  Download of an update (the installer bundle, or a `.deb` / `.rpm`): `percent` once the size
+ *  is known, at most once per percent.
+ */
+export type UpdateProgress = {
+	percent: number | null,
+};
+
+/**  What the app knows about its updates without asking the network. */
+export type UpdateStatus = {
+	/**  The build carries the updater public key: it may check for updates and install them. */
+	configured: boolean,
+	channel: InstallChannel,
+	currentVersion: string,
 };
 
 /**

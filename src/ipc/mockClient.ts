@@ -51,6 +51,7 @@ import { createMockDocument } from './mock/document';
 import { createMockDocumentEdit } from './mock/documentEdit';
 import { createMockKeyValue } from './mock/keyValue';
 import { createMockSearch } from './mock/search';
+import { createMockUpdates } from './mock/updates';
 
 /** Version reported by the mock backend: the one of the app it stands in for. */
 const MOCK_APP_INFO: AppInfo = { appVersion: '0.1.0', os: 'linux', arch: 'x86_64' };
@@ -781,6 +782,10 @@ function createMockBackend() {
     engine: (connectionId) => findConnection(connectionId)?.definition.engine ?? 'redis',
   });
 
+  const updates = createMockUpdates((payload) => {
+    events.emit('updateProgress', payload);
+  });
+
   const search = createMockSearch({
     journal,
     connectionName: (connectionId) => findConnection(connectionId)?.definition.name ?? connectionId,
@@ -1132,6 +1137,7 @@ function createMockBackend() {
     ...keyValue.commands,
     ...search.commands,
     ...documentEdit.commands,
+    ...updates.commands,
   };
 
   function reset(): void {
@@ -1167,6 +1173,7 @@ function createMockBackend() {
     files.reset();
     exporter.reset();
     importer.reset();
+    updates.reset();
     clearReloadState();
     seed();
   }
@@ -1298,6 +1305,15 @@ function createMockBackend() {
       column: string,
       value: Value,
     ): boolean => tableData.changeRowElsewhere(connectionId, table, key, column, value),
+    /**
+     * Update check and install (F-127): calls made, the next failure, the end of a download
+     * held by `__YADBE_MOCK_UPDATES__.holdDownloads`.
+     */
+    updates: {
+      counts: updates.counts,
+      failNext: updates.failNext,
+      finishDownload: updates.finishDownload,
+    },
     reset,
   };
 }

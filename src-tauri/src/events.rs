@@ -119,6 +119,14 @@ pub struct TableDataChanged {
 #[serde(rename_all = "camelCase")]
 pub struct ChangeJournalChanged {}
 
+/// Download of an update (the installer bundle, or a `.deb` / `.rpm`): `percent` once the size
+/// is known, at most once per percent.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProgress {
+    pub percent: Option<u8>,
+}
+
 /// Every event the services emit, so they can be tested without Tauri.
 #[derive(Debug, Clone)]
 pub enum BackendEvent {

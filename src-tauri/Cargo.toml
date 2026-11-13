@@ -112,6 +112,21 @@ http-body-util = "0.1"
 http = "1"
 bytes = "1"
 tower-service = "0.3"
+# Self-update of the release installers (opt-in update check, SPEC §10), as in yaggui: the
+# official plugin downloads the bundle, checks its minisign signature and installs it. Used
+# from Rust only (no updater permission for the webview). `rustls-tls` only: ring, like the
+# drivers (no aws-lc-rs, no OpenSSL); no `zip` (Tauri 2 updater bundles are not zipped), no
+# `system-proxy`. Writing our own would mean re-implementing signature checks and the
+# per-OS install steps (MSI / NSIS hand-off, .app swap, AppImage replace).
+tauri-plugin-updater = { version = "2.14", default-features = false, features = ["rustls-tls"] }
+# Already in the lockfile through the updater: the update check reads the manifest and
+# downloads a `.deb` / `.rpm` with the same client (no second HTTP stack).
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+# Already in the lockfile through Tauri: version comparison of the update check.
+semver = "1"
+# Already in the lockfile through Tauri: checks a downloaded `.deb` / `.rpm` against the
+# release's SHA256SUMS.txt before the user hands it to their package manager.
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = "3"

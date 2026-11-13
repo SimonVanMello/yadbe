@@ -25,6 +25,7 @@ pub mod sessions;
 pub mod ssh;
 pub mod store;
 pub mod table_data;
+pub mod updates;
 pub mod value_file;
 
 use crate::db::errors::YadbeError;
