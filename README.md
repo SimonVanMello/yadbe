@@ -1,92 +1,77 @@
-# yadbe
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-light.svg">
+    <img alt="yadbe, yet another database explorer" src="docs/assets/banner-dark.svg" width="100%">
+  </picture>
+</p>
 
-A local, cross-platform (Windows, macOS, Linux) SQL database explorer in the spirit of Azure Data Studio: ergonomics, safety and performance first. Built with Tauri 2, React and Rust. Sibling project of yaggui (same themes, primitives and tooling).
+**yadbe** is yet another database explorer: a fast, local, cross-platform client for SQL, document, key-value and search databases, built with Tauri and Rust, with safety on every change it makes.
 
-- **Local and private**: no account, no telemetry. Passwords live in the OS keychain (macOS Keychain, Windows Credential Manager, Secret Service on Linux), never in yadbe's own database.
-- **Transparent**: every statement yadbe runs on its own shows up in the statement log.
-- **Safe by default**: TLS with certificate verification for remote hosts, typed errors with a suggested action.
+![SQL editor with results, Graphite theme](docs/assets/editor-results-graphite.png)
 
-## Status
+<table>
+  <tr>
+    <td><img alt="Table editing with pending changes, Paper theme" src="docs/assets/table-pending-paper.png"></td>
+    <td><img alt="mongosh script editor, Graphite theme" src="docs/assets/mongo-script-graphite.png"></td>
+  </tr>
+  <tr>
+    <td><img alt="Redis hash key, Graphite theme" src="docs/assets/redis-key-graphite.png"></td>
+    <td><img alt="Elasticsearch index, Graphite theme" src="docs/assets/search-index-graphite.png"></td>
+  </tr>
+</table>
 
-Milestones **M0 (foundations)**, **M1 (explore and query)** and **M2 (editing, the MVP)** are done, on **PostgreSQL**, **SQL Server** and **SQLite**. MySQL / MariaDB connections can be saved but not opened yet (M3).
+## Features
 
-- **Connections**: create, edit, duplicate, group, favorite, environment tag (prod tints the window, tabs and every confirmation), paste a connection string (URL, ADO.NET, JDBC), test with typed errors, TLS (verify-full by default for a remote host), automatic reconnection, passwords in the keychain, read-only connections enforced by the backend.
-- **Schema explorer**: databases, schemas, tables, views, routines, sequences, types, columns, keys, indexes, constraints, triggers; lazy and virtualized, filter, refresh, Script as SELECT / INSERT / UPDATE / DELETE, open a table's data.
-- **Table data** (double-click a table): pages of 100 to 5 000 rows, estimate then exact count (cancellable), filter chips per column and a raw `WHERE`, multi-column sort; editing with a type-aware editor per cell (NULL and empty string kept apart), insert / duplicate / paste / delete rows, pending changes shown in the grid, **Preview SQL** (always on a prod connection), Apply in one transaction where every `UPDATE` / `DELETE` must touch exactly one row; a failure rolls everything back, keeps the changes and points at the row and the constraint. Views, keyless tables and read-only connections say why they cannot be edited.
-- **SQL editor** (CodeMirror): schema-aware autocomplete (keywords, schemas, tables, columns, aliases, functions, joins from foreign keys, quoting), run all, selection or the statement under the cursor (dialect-aware splitting, `GO` batches), cancel, auto-commit or manual transactions, dangerous-statement guard, open / save `.sql` files, database switcher, tabs restored with their text.
-- **Results**: streamed into a virtualized grid (a row cap, then Load more / Load all), several result sets and messages with error positions, copy as TSV / CSV / JSON / Markdown / INSERT, cell viewer (JSON, XML, binary) with save to file.
-- **Export** of a result or a whole table (under the tab's filter and sort) to CSV or JSON, streamed to disk with progress and cancellation, past the in-memory cap.
-- **Command palette** (`Ctrl/⌘ K`): actions, connections, objects (open data, Script as, reveal in the explorer), tabs, history.
-- **Preferences** (`Ctrl/⌘ ,`): theme, language, density, fonts and sizes, editor options, result caps, NULL text, preview before apply, history retention, connect timeout.
-- **History** of every statement run, with full-text search and filters; **statement log** of what yadbe runs on its own.
+- **Many engines**: PostgreSQL, SQL Server, MySQL / MariaDB and SQLite; MongoDB; Redis and Valkey; Elasticsearch and OpenSearch.
+- **Connections** with groups, favorites and environment tags (a prod connection tints the window and every confirmation), pasted connection strings (URL, ADO.NET, JDBC), TLS with client certificates, SSH tunnels with jump hosts, and import from Azure Data Studio, DBeaver, SSMS, pgpass and pg_service.
+- **Schema explorer** that stays fast on large schemas: lazy, virtualized, filterable, with Script as and object properties, DDL, rename and drop.
+- **SQL editor** on CodeMirror: schema-aware autocomplete, hover cards and go to definition, parameters, formatter, snippets, query plans, auto-commit or manual transactions, and a guard on dangerous statements.
+- **Results streamed into a virtualized grid**, with sort, filter, aggregates over a selection, a cell viewer for JSON, XML and binary, and copy as TSV, CSV, JSON, Markdown or INSERT.
+- **Safe data editing**: pending changes shown in the grid, a SQL preview, one transaction where every `UPDATE` and `DELETE` must touch exactly one row, conflict detection, and editable query results.
+- **Change journal with revert**: every applied change is recorded and can be undone, for tables, keys, documents and search documents.
+- **Foreign key navigation**: peek, jump, referencing rows and a lookup editor.
+- **MongoDB**: collection tabs with filter, projection and sort, a mongosh script editor with confirmation of dangerous operations, a documents tree view, and document edits.
+- **Redis and Valkey**: a key browser grouped by delimiter, a viewer per key type, a redis-cli style console and key edits.
+- **Elasticsearch and OpenSearch**: an index browser, query string or Query DSL, a console in Kibana syntax (hits, aggregations, ES|QL and SQL tables), and one-document edits.
+- **Import and export**: a data import wizard with column mapping and a dry run; export to CSV, JSON, JSON Lines, SQL, Markdown or Excel, streamed to disk.
+- **Operations**: an activity monitor (sessions, locks, who blocks whom, kill) and an EF Core migrations timeline.
+- **Command palette** (`Ctrl/⌘ K`), saved queries, history with full-text search, a statement log of everything yadbe runs on its own, Graphite (dark) and Paper (light) themes, English and French.
+- **Local and private**: no account, no telemetry; secrets stay in the OS keychain and read-only connections are enforced by the backend.
 
-See `docs/PLAN.md` for the roadmap, `docs/SPEC.md` for the requirements and `docs/validation/M2.md` (and `M0.md`, `M1.md`) for the manual validation checklists and the performance measurements.
+The requirements are in [`docs/SPEC.md`](docs/SPEC.md) and the task breakdown in [`docs/PLAN.md`](docs/PLAN.md).
 
-## Screenshots
+## Install
 
-Graphite (dark) and Paper (light), generated by `pnpm screenshots` on the mocked backend.
+Packaged releases are not published yet. Build from source in the meantime.
 
-**Welcome screen and connections**
+## Build from source
 
-![Welcome screen and connections, Graphite](docs/assets/welcome-graphite.png)
-![Welcome screen and connections, Paper](docs/assets/welcome-paper.png)
-
-**SQL editor with results**
-
-![SQL editor with results, Graphite](docs/assets/editor-results-graphite.png)
-![SQL editor with results, Paper](docs/assets/editor-results-paper.png)
-
-**Schema explorer**
-
-![Schema explorer, Graphite](docs/assets/explorer-graphite.png)
-![Schema explorer, Paper](docs/assets/explorer-paper.png)
-
-**Table editing with pending changes**
-
-![Table editing with pending changes, Graphite](docs/assets/table-pending-graphite.png)
-![Table editing with pending changes, Paper](docs/assets/table-pending-paper.png)
-
-**Preview SQL on a production connection**
-
-![Preview SQL on a production connection, Graphite](docs/assets/preview-sql-graphite.png)
-![Preview SQL on a production connection, Paper](docs/assets/preview-sql-paper.png)
-
-**Command palette**
-
-![Command palette, Graphite](docs/assets/palette-graphite.png)
-![Command palette, Paper](docs/assets/palette-paper.png)
-
-**Preferences**
-
-![Preferences, Graphite](docs/assets/preferences-graphite.png)
-![Preferences, Paper](docs/assets/preferences-paper.png)
-
-## Running it
-
-Requirements: Node 22, pnpm 10, stable Rust ≥ 1.93, and the [Tauri system libraries](https://v2.tauri.app/start/prerequisites/) (WebKitGTK on Linux, WebView2 on Windows). `mise install` sets up the toolchains.
+Prerequisites: [Rust](https://rustup.rs) 1.93+, [Node.js](https://nodejs.org) 22+, [pnpm](https://pnpm.io) 10 (`corepack enable`), and the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for your OS (WebView2 on Windows, Xcode Command Line Tools on macOS, WebKitGTK on Linux). `mise install` sets up the toolchains.
 
 ```bash
+git clone https://github.com/SimonVanMello/yadbe.git
+cd yadbe
 pnpm install
-pnpm tauri dev                    # full app
-pnpm tauri build --no-bundle      # release binary in src-tauri/target/release/
-pnpm dev                          # frontend only, in the browser, on a mocked backend: http://localhost:1430
+pnpm tauri dev                     # run in development mode
+pnpm tauri build                   # installers in src-tauri/target/release/bundle/
 ```
 
-The app keeps its connections, tabs and preferences in `yadbe.db` in the OS config folder (`dev.tropico.yadbe`); `YADBE_CONFIG_DIR=<folder>` uses another folder.
+`pnpm dev` runs the frontend alone in a browser on a mocked backend (http://localhost:1430), with sample data for every engine family.
+
+The app keeps its connections, tabs and preferences in `yadbe.db` in the OS config folder; `YADBE_CONFIG_DIR=<folder>` uses another one.
 
 ## Development
 
 ```bash
 pnpm check        # case check, lint, format, typecheck, unit tests
-pnpm test:ui      # Playwright on the mocked backend (captures in test-results/)
-pnpm screenshots  # README images in docs/assets/ (mocked backend, 1440×900 at 2×, both themes; compress the PNGs before committing)
-pnpm bindings     # regenerate src/ipc/bindings.ts from Rust
+pnpm test:ui      # Playwright on the mocked backend
+pnpm screenshots  # README images in docs/assets/
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-pnpm perf:tabs    # also perf:grid, perf:palette, perf:completion, perf:explorer, perf:startup (see CLAUDE.md)
 ```
 
-Integration tests run against real engines when `YADBE_TEST_PG_URL` / `YADBE_TEST_MSSQL_URL` are set (SQLite always runs); `docker compose -f dev/compose.yml up -d` starts PostgreSQL (TLS on, after `dev/tls-certs.sh`) and SQL Server, with the URLs to export in the file's header. The UI primitives are shown at `/#primitives` in `pnpm dev`. See `CLAUDE.md` for the conventions and the full command list.
+Integration tests run against real engines started with `docker compose -f dev/compose.yml up -d`. See [`CLAUDE.md`](CLAUDE.md) for the conventions and the full command list.
 
 ## License
 
-GPL-3.0-or-later, see `LICENSE`.
+[GPL-3.0-or-later](LICENSE)
