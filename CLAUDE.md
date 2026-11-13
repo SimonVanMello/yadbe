@@ -64,7 +64,7 @@ src/                      Frontend
     statusbar/, toolbar/, welcome/   Bottom bar (run status, Ln/Col), query toolbar (QueryTabControls: per engine family, like app/tabs/QueryTabBody), welcome screen
     demo/                 The /#primitives page
   ipc/                    Backend access: generated bindings + Tauri client + mock client (mock/ per domain; mock/mongoshScript.ts: the handful of mongosh statements the mock runs, not an interpreter; mock/search.ts + searchData.ts: a mock Elasticsearch cluster whose documents are computed from their number; mock/searchEdit.ts: its document edits, an overlay with versions, and a scripted concurrent change; mock/documentEdit.ts: document edits with a scripted conflict); sqlEngines.ts (SqlEngine, isSqlEngine, sqlEntry: what SQL-only tables are keyed by)
-  ui/                     Reusable primitives (Button, Menu, Dialog, Toast…)
+  ui/                     Reusable primitives (Button, Menu, Dialog, Toast…); cspNonce.ts + editorCsp.ts (what injected styles and every CodeMirror editor need under the built app's CSP: the page nonce, typing over a selection kept off WebKit's own editing)
   theme/                  tokens.css, graphite.css, paper.css
   i18n/                   fr.json, en.json
   test/                   Vitest setup
@@ -114,7 +114,7 @@ cd src-tauri && YADBE_TEST_MSSQL_URL='sqlserver://localhost:51433;database=maste
 YADBE_CONFIG_DIR=<dir> pnpm tauri dev   # App database (yadbe.db) in another folder than the OS config one
 cd src-tauri && YADBE_TEST_PG_URL=… cargo test --release --test introspection p02 -- --ignored --nocapture   # P-02: introspection on a 500-table and a 10k-object schema
 xvfb-run pnpm tauri dev   # Run the real app in a headless container
-pnpm tauri build --debug --no-bundle   # Built front + CSP with nonces (absent under `tauri dev`): check every new screen with this binary. A lib that injects <style> must receive the page nonce (src/ui/cspNonce.ts).
+pnpm tauri build --debug --no-bundle   # Built front + CSP with nonces (absent under `tauri dev`): check every new screen with this binary. A lib that injects <style> must receive the page nonce (src/ui/cspNonce.ts); a CodeMirror editor takes `cspSafeEditor()` (src/ui/editorCsp.ts).
 cd src-tauri && cargo test --release --test history_bench p08 -- --ignored --nocapture   # P-08: history search over 100k entries
 pnpm perf:startup   # P-01 on the release binary (`pnpm tauri build --no-bundle` first; headless Linux: xvfb-run -a pnpm perf:startup)
 pnpm perf:tabs      # P-07 on a production build of the front (mock): three query tabs and two table tabs, CPU ×1 and ×4
