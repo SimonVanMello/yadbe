@@ -1,0 +1,159 @@
+# Publishes the `yadbe` cask to the SimonVanMello/homebrew-yadbe tap from the .dmg files of a
+# published release. Pull requests that touch the packaging audit and install the cask from the
+# latest release without publishing it. See docs/RELEASING.md.
+name: Homebrew
+
+on:
+  release:
+    types: [published]
+  pull_request:
+    paths:
+      - .github/workflows/homebrew.yml
+      - scripts/homebrew.mjs
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (vX.Y.Z)
+        required: true
+
+concurrency:
+  group: homebrew-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  cask:
+    if: github.event_name != 'release' || !github.event.release.prerelease
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_ANALYTICS: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Pick the release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          if [ -z "$TAG" ]; then
+            TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          fi
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "not a release tag: $TAG" >&2; exit 1 ;;
+          esac
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS.txt --dir release
+
+      - name: Generate the cask
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          sum() { awk -v f="$1" '$2 == f { print $1 }' release/SHA256SUMS.txt; }
+          node scripts/homebrew.mjs "$VERSION" \
+            "$(sum "yadbe_${VERSION}_aarch64.dmg")" "$(sum "yadbe_${VERSION}_x64.dmg")" tap
+
+      # The cask is audited from a throwaway local tap, as Homebrew only audits casks of a tap.
+      # `--new` is left out: it rejects repositories younger than 30 days or with few stars,
+      # which only matters for the official homebrew/cask tap. `--online` queries the GitHub API,
+      # whose anonymous limit is shared by every job on the runner's IP, hence the token.
+      - name: Audit the cask
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
+        run: |
+          brew tap-new --no-git yadbe/ci
+          # Recent Homebrew refuses to load casks of a tap nobody trusted; older ones lack the command.
+          if brew commands --quiet | grep -qx trust; then brew trust yadbe/ci; fi
+          TAP_DIR="$(brew --repository yadbe/ci)"
+          mkdir -p "$TAP_DIR/Casks"
+          cp tap/Casks/yadbe.rb "$TAP_DIR/Casks/"
+          brew style --cask yadbe/ci/yadbe
+          brew audit --cask --strict --online --os=all --arch=all yadbe/ci/yadbe
+
+      # Downloads the .dmg of the runner's architecture and checks it against the sum.
+      - name: Install the cask
+        run: |
+          brew install --cask yadbe/ci/yadbe
+          test -d /Applications/yadbe.app
+          test -x /Applications/yadbe.app/Contents/MacOS/yadbe
+          brew uninstall --cask --zap yadbe/ci/yadbe
+          test ! -e /Applications/yadbe.app
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: homebrew
+          path: tap/Casks/yadbe.rb
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: cask
+    runs-on: ubuntu-latest
+    steps:
+      # Until the tap and its deploy key exist (docs/RELEASING.md), a release is audited and
+      # installed above but not published, with a warning rather than a failed run.
+      - name: Check the deploy key
+        id: key
+        env:
+          HOMEBREW_TAP_SSH_PRIVATE_KEY: ${{ secrets.HOMEBREW_TAP_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_SSH_PRIVATE_KEY" ]; then
+            echo '::warning::HOMEBREW_TAP_SSH_PRIVATE_KEY is not set: the cask is not published (docs/RELEASING.md).'
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.key.outputs.ready == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: homebrew
+          path: cask
+
+      # The host key is fetched, then checked against the fingerprint published on
+      # https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+      - name: Trust the GitHub host
+        if: steps.key.outputs.ready == 'true'
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -t ed25519 github.com > ~/.ssh/known_hosts
+          ssh-keygen -lf ~/.ssh/known_hosts | grep -q 'SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU ' || {
+            echo 'Unexpected host key for github.com' >&2
+            exit 1
+          }
+
+      # The tap may still be empty on the first run: the clone then has no commit, and the
+      # first push creates `main`.
+      - name: Push to the tap
+        if: steps.key.outputs.ready == 'true'
+        env:
+          HOMEBREW_TAP_SSH_PRIVATE_KEY: ${{ secrets.HOMEBREW_TAP_SSH_PRIVATE_KEY }}
+        run: |
+          install -m 600 /dev/null ~/.ssh/tap
+          printf '%s\n' "$HOMEBREW_TAP_SSH_PRIVATE_KEY" > ~/.ssh/tap
+          export GIT_SSH_COMMAND='ssh -i ~/.ssh/tap -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes'
+          git clone git@github.com:SimonVanMello/homebrew-yadbe.git repo
+          cd repo
+          git checkout -B main
+          mkdir -p Casks
+          cp ../cask/yadbe.rb Casks/yadbe.rb
+          git add Casks/yadbe.rb
+          if git diff --cached --quiet; then
+            echo 'The cask is already up to date.'
+            exit 0
+          fi
+          VERSION=$(sed -n 's/^  version "\(.*\)"$/\1/p' Casks/yadbe.rb)
+          git -c user.name='yadbe release' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "yadbe $VERSION"
+          git push origin HEAD:main

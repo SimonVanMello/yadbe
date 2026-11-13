@@ -43,7 +43,7 @@ export default defineConfig(({ mode }) => ({
     setupFiles: ['./src/test/setup.ts'],
     // Unit tests run against the in-memory mock backend.
     env: { VITE_MOCK: '1' },
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
     css: { modules: { classNameStrategy: 'non-scoped' } },
   },
 }));

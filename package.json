@@ -26,7 +26,8 @@
     "perf:completion": "playwright test --config playwright.perf.config.ts perf.completion",
     "perf:grid": "playwright test --config playwright.perf.config.ts perf-grid.spec",
     "perf:grid:webkit": "node scripts/perf-grid-webkit.mjs",
-    "bindings": "cargo run --manifest-path src-tauri/Cargo.toml --example export-bindings"
+    "bindings": "cargo run --manifest-path src-tauri/Cargo.toml --example export-bindings",
+    "release:version": "node scripts/version.mjs set"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",

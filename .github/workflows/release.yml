@@ -1,0 +1,200 @@
+# Builds the installers of every platform and, on a `vX.Y.Z` tag, attaches them to a draft
+# GitHub Release with the update manifest (`latest.json`). Pull requests that touch the
+# packaging only build, and keep the bundles as workflow artifacts; a pull request that only
+# changes the version (`pnpm release:version`) checks it without building. See docs/RELEASING.md.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/updater-key.mjs
+      - scripts/updater-manifest.mjs
+      - scripts/version.mjs
+      - src-tauri/tauri.conf.json
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      build: ${{ steps.scope.outputs.build || 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The pull request merge commit and its first parent, the base branch.
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - id: check
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: node scripts/version.mjs check "$TAG" >> "$GITHUB_OUTPUT"
+      # The tag builds the same bundles: a version bump alone has nothing to build here.
+      - id: scope
+        if: github.event_name == 'pull_request'
+        run: |
+          files=$(git diff --name-only 'HEAD^1' HEAD -- .github/workflows/release.yml \
+            scripts/updater-key.mjs scripts/updater-manifest.mjs scripts/version.mjs \
+            src-tauri/tauri.conf.json)
+          git show 'HEAD^1:src-tauri/tauri.conf.json' > "$RUNNER_TEMP/base.json"
+          if [ "$files" = src-tauri/tauri.conf.json ] && node -e '
+            const read = (f) => { const c = JSON.parse(require("fs").readFileSync(f, "utf8")); delete c.version; return JSON.stringify(c); };
+            process.exit(read(process.argv[1]) === read(process.argv[2]) ? 0 : 1);
+          ' "$RUNNER_TEMP/base.json" src-tauri/tauri.conf.json; then
+            echo 'Only the version changed: skipping the builds.'
+            echo 'build=false' >> "$GITHUB_OUTPUT"
+          fi
+      # Installed copies verify every update with this key: a release without it could never
+      # update itself, and one with another project's key would refuse every update.
+      - name: Check the updater public key
+        if: github.ref_type == 'tag'
+        run: node scripts/updater-key.mjs src-tauri/tauri.conf.json
+
+  build:
+    needs: version
+    if: needs.version.outputs.build == 'true'
+    name: build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            arch: aarch64
+          - name: macos-x64
+            runner: macos-latest
+            target: x86_64-apple-darwin
+            arch: x64
+          # The oldest supported Ubuntu, so that the .deb and the AppImage run on older glibc.
+          - name: linux-x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - name: windows-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --target "${{ matrix.target }}" --no-self-update
+          rustup default stable
+
+      - run: pnpm install --frozen-lockfile
+
+      # No build cache on purpose: release binaries are built from a clean state.
+      # With the signing key, the updater bundles (`.app.tar.gz` on macOS, the AppImage and the
+      # Windows installers themselves) get a `.sig`, bound to the version (`requireSignedVersion`).
+      # Without it (pull requests from forks), the installers are still built, unsigned; a tag
+      # cannot be released that way.
+      - name: Build
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          IS_TAG: ${{ github.ref_type == 'tag' }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          args=(--target "$TARGET")
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            args+=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
+          elif [ "$IS_TAG" = true ]; then
+            echo "::error::The TAURI_SIGNING_PRIVATE_KEY secret is required to release"
+            exit 1
+          fi
+          pnpm tauri build "${args[@]}"
+
+      - name: Collect bundles
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir out
+          find "src-tauri/target/${{ matrix.target }}/release/bundle" -maxdepth 2 -type f \
+            \( -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' \
+            -o -name '*.app.tar.gz' -o -name '*.sig' \) \
+            -exec cp {} out/ \;
+          # Both macOS builds name their updater bundle `yadbe.app.tar.gz`.
+          for file in out/yadbe.app.tar.gz*; do
+            [ -e "$file" ] && mv "$file" "out/yadbe_${VERSION}_${ARCH}.app.tar.gz${file#out/yadbe.app.tar.gz}"
+          done
+          ls -l out
+          test -n "$(ls out)"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundles-${{ matrix.name }}
+          path: out/
+          if-no-files-found: error
+
+  # Created only once every platform has built, so a release is never half-filled.
+  release:
+    if: github.ref_type == 'tag'
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: bundles-*
+          path: dist
+          merge-multiple: true
+
+      # The signatures go into the manifest; they are not release assets.
+      - name: Update manifest
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          node scripts/updater-manifest.mjs "$VERSION" dist "$GITHUB_REPOSITORY"
+          rm dist/*.sig
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: >
+          gh release create "$TAG" dist/*
+          --repo "$GITHUB_REPOSITORY"
+          --draft
+          --verify-tag
+          --title "yadbe $VERSION"
+          --generate-notes
