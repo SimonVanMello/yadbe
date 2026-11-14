@@ -43,7 +43,33 @@ The requirements are in [`docs/SPEC.md`](docs/SPEC.md) and the task breakdown in
 
 ## Install
 
-Packaged releases are not published yet. Build from source in the meantime.
+> No release has been published yet: until the first one, [build from source](#build-from-source). What follows describes the packaged installs as the release tooling produces them.
+
+Downloads are on the [latest release](https://github.com/SimonVanMello/yadbe/releases/latest). The installers are not code signed yet: macOS and Windows warn on the first launch (see below).
+
+### macOS (Apple Silicon and Intel)
+
+- With Homebrew: `brew install --cask simonvanmello/yadbe/yadbe`
+- Or download `yadbe_<version>_aarch64.dmg` (Apple Silicon) or `yadbe_<version>_x64.dmg` (Intel), open it and drag yadbe to Applications.
+
+On the first launch macOS says it cannot verify yadbe. Open System Settings → Privacy & Security, find "yadbe was blocked…" and click **Open Anyway** (on macOS 14 and older: Control-click yadbe in Applications → Open → Open). Or, in a terminal: `xattr -dr com.apple.quarantine /Applications/yadbe.app`.
+
+### Windows 10 / 11 (x64)
+
+Download `yadbe_<version>_x64-setup.exe` (or `yadbe_<version>_x64_en-US.msi`) and run it. SmartScreen shows "Windows protected your PC": click **More info** → **Run anyway**.
+
+### Linux (x86_64)
+
+- Debian, Ubuntu: `sudo apt install ./yadbe_<version>_amd64.deb`
+- Fedora: `sudo dnf install ./yadbe-<version>-1.x86_64.rpm` (openSUSE: `sudo zypper install --allow-unsigned-rpm ./yadbe-<version>-1.x86_64.rpm`)
+- Arch: `yay -S yadbe-bin` (AUR)
+- Any distribution: `chmod +x yadbe_<version>_amd64.AppImage && ./yadbe_<version>_amd64.AppImage` (NixOS: `appimage-run yadbe_<version>_amd64.AppImage`)
+
+Passwords are kept in the Secret Service (GNOME Keyring, KWallet, KeePassXC…); without one, yadbe keeps them for the session only.
+
+### Updates
+
+yadbe never goes online on its own: at the first launch it asks whether to check for updates at startup (Preferences → About to change it later; "Check for updates" in the command palette at any time). The macOS app, the Windows installers and the AppImage update themselves after verifying the update's signature, then restart; `.deb`, `.rpm` and AUR installs show the package manager command to run.
 
 ## Build from source
 
