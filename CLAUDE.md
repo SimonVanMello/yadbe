@@ -38,7 +38,7 @@ Do not add a dependency outside this list without justifying it in the commit me
 src/                      Frontend
   app/                    Shell: window, title bar and tabs, layout, actions and shortcuts, errors, startup and restore (tabs/familyTabState.ts: the query of a collection or index tab saved with it; a key tab is saved as a table tab named after its key)
   features/<feature>/     One feature = components + hooks + styles + tests:
-    connections/          Connection list model, dialog and forms (EngineFields: the fields of each engine family, DocumentConnectionFields + mongoModel.ts for MongoDB, SearchConnectionFields + searchModel.ts for Elasticsearch: one URL; SSH tunnel section), password / SSH secret / host key prompts, connection chip, import (other tools' files) and export dialogs
+    connections/          Connection list model, dialog and forms (EngineFields: the fields of each engine family, DocumentConnectionFields + mongoModel.ts for MongoDB, SearchConnectionFields + searchModel.ts for Elasticsearch: one URL; SSH tunnel section; FamilyLayout: what connecting needs open, then the Environment / TLS / SSH tunnel / Advanced sections closed by default, their headers summed up by connectionSections.ts), password / SSH secret / host key prompts, connection chip, import (other tools' files) and export dialogs
     sidebar/              Sidebar views (Connections / History / Saved / Journal), the virtualized tree of connections + explorer (rows dispatched by engine family)
     explorer/             Explorer rows (pure tree building and filter; documentRows.ts: the document family's tree; searchRows.ts: the search family's: indices, data streams, aliases, templates, fields, settings), metadata queries, context menu, Script as, the shared catalog cache (catalogCache.ts: palette + autocomplete)
     query/                Query tab: SQL editor (CodeMirror), run / cancel, transactions, results area, files, danger guard, parameter prompt, formatter, hover cards and go to definition, plan tree
@@ -66,11 +66,11 @@ src/                      Frontend
     statusbar/, toolbar/, welcome/   Bottom bar (run status, Ln/Col), query toolbar (QueryTabControls: per engine family, like app/tabs/QueryTabBody), welcome screen
     demo/                 The /#primitives page
   ipc/                    Backend access: generated bindings + Tauri client + mock client (mock/ per domain; mock/mongoshScript.ts: the handful of mongosh statements the mock runs, not an interpreter; mock/search.ts + searchData.ts: a mock Elasticsearch cluster whose documents are computed from their number; mock/searchEdit.ts: its document edits, an overlay with versions, and a scripted concurrent change; mock/documentEdit.ts: document edits with a scripted conflict); sqlEngines.ts (SqlEngine, isSqlEngine, sqlEntry: what SQL-only tables are keyed by)
-  ui/                     Reusable primitives (Button, Menu, Dialog, Toast…); cspNonce.ts + editorCsp.ts (what injected styles and every CodeMirror editor need under the built app's CSP: the page nonce, typing over a selection kept off WebKit's own editing)
+  ui/                     Reusable primitives (Button, Menu, Dialog, Disclosure, Toast…); reveal.ts (focusField opens the closed Disclosure that holds a field); cspNonce.ts + editorCsp.ts (what injected styles and every CodeMirror editor need under the built app's CSP: the page nonce, typing over a selection kept off WebKit's own editing)
   theme/                  tokens.css, graphite.css, paper.css
   i18n/                   fr.json, en.json
   test/                   Vitest setup
-e2e/                      Playwright specs (mocked backend); perf*.spec.ts run with playwright.perf.config.ts
+e2e/                      Playwright specs (mocked backend); overflow.ts + overflow.spec.ts: nothing leaves its box on any screen (YADBE_OVERFLOW_AUDIT=1: every size, report only); perf*.spec.ts run with playwright.perf.config.ts
 scripts/                  check-case, P-01 startup and P-04 WebKitGTK measurements; release scripts (version.mjs, updater-manifest.mjs, updater-key.mjs, homebrew.mjs, aur.mjs; release.test.mjs runs them under Vitest)
 .github/workflows/        ci.yml; release.yml (tag → installers + latest.json in a draft release), homebrew.yml and aur.yml (on a published release); docs/RELEASING.md
 src-tauri/

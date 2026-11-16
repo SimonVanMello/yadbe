@@ -213,10 +213,15 @@ describe('updater-key.mjs', () => {
     return { pubkey: Buffer.from(file).toString('base64'), id };
   }
 
-  it('refuses the empty key the repository ships with', () => {
-    const result = run('updater-key.mjs', [join(root, 'src-tauri/tauri.conf.json')]);
+  it('refuses an empty key', () => {
+    const result = run('updater-key.mjs', [config('')]);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('plugins.updater.pubkey is empty');
+  });
+
+  it('accepts the key the repository ships with', () => {
+    const result = run('updater-key.mjs', [join(root, 'src-tauri/tauri.conf.json')]);
+    expect(result.stdout.trim()).toBe('updater public key E68481A0083FFC42');
   });
 
   it('accepts a minisign public key and names it', () => {
