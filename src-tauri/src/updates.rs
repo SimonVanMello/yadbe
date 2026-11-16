@@ -699,8 +699,8 @@ mod tests {
 
     #[test]
     fn the_updater_section_is_complete() {
-        // The plugin refuses to start without `pubkey`: the repository ships it empty and the
-        // owner pastes the key of their release key pair there (docs/RELEASING.md). Only the
+        // The plugin refuses to start without `pubkey`: the owner's release key pair provides
+        // it (docs/RELEASING.md); an empty one makes a build "not configured". Only the
         // release workflow creates the signed bundles (`createUpdaterArtifacts`).
         let config: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();

@@ -111,7 +111,7 @@ pnpm check          # file name casing + ESLint + Prettier + typecheck + Vitest 
 pnpm test:ui        # Playwright on `pnpm dev` (mocked backend), captures in test-results/ (set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to reuse a preinstalled Chromium)
 pnpm bindings       # Regenerates src/ipc/bindings.ts from Rust
 pnpm release:version <x.y.z>   # Sets the version in package.json, tauri.conf.json, Cargo.toml and Cargo.lock; then tag vX.Y.Z (docs/RELEASING.md)
-node scripts/updater-key.mjs src-tauri/tauri.conf.json   # Checks the updater public key (empty until the owner's setup, docs/RELEASING.md)
+node scripts/updater-key.mjs src-tauri/tauri.conf.json   # Checks the updater public key (key ID E68481A0083FFC42; docs/RELEASING.md)
 pnpm tauri build    # Installers of this OS in src-tauri/target/release/bundle (Linux: deb, rpm, AppImage); add --config '{"bundle":{"createUpdaterArtifacts":true}}' with TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) set for the signed updater bundles
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 dev/tls-certs.sh    # Throwaway CA + `localhost` server certificate in dev/certs/ (git-ignored), for the TLS tests and compose

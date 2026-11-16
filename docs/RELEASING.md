@@ -51,7 +51,7 @@ What it offers depends on how the copy was installed ([`src-tauri/src/updates.rs
 
 Unlike yaggui, yadbe has no integrated terminal: the package manager command is shown and copied, never run by yadbe. The backend chooses it, the frontend never sends one.
 
-A build whose `plugins.updater.pubkey` is empty (any build from the repository before the setup below, a fork's build) is **not configured**: it never asks the question, the preference is disabled with the reason, and a check on demand answers "Updates are not available in this build" without any request.
+A build whose `plugins.updater.pubkey` is empty (a fork that removes yadbe's key, as it should before releasing under its own) is **not configured**: it never asks the question, the preference is disabled with the reason, and a check on demand answers "Updates are not available in this build" without any request.
 
 [`scripts/updater-manifest.mjs`](../scripts/updater-manifest.mjs) writes `latest.json` from the updater bundles and their `.sig` files; the release job fails rather than publish a manifest that leaves a platform out. The updater bundles are signed with a minisign key, unrelated to Apple or Windows code signing. `plugins.updater.requireSignedVersion` is `true`: an installed copy only accepts a bundle whose signature was made for the version the manifest announces (`tauri build` records it), so a tampered manifest cannot pair a new version number with an older, validly signed bundle. Keep it on: [`scripts/updater-key.mjs`](../scripts/updater-key.mjs) refuses a tag build without it.
 
@@ -105,7 +105,7 @@ In this order; none of it can be done from a session, and none of these values m
    pnpm tauri signer generate -w ~/.tauri/yadbe.key
    ```
    Choose a password when asked. This writes the private key `~/.tauri/yadbe.key` and the public key `~/.tauri/yadbe.key.pub`. It must be yadbe's own pair: never reuse yaggui's (its copies would accept yadbe's bundles, and yadbe's copies would refuse them).
-2. **Public key into the app**: paste the whole content of `~/.tauri/yadbe.key.pub` (one base64 line) as the value of `plugins.updater.pubkey` in [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json), leave `requireSignedVersion: true`, check it with `node scripts/updater-key.mjs src-tauri/tauri.conf.json` (prints the key ID), and commit it. From then on, release builds are "configured".
+2. **Public key into the app** (done: key ID `E68481A0083FFC42`): paste the whole content of `~/.tauri/yadbe.key.pub` (one base64 line) as the value of `plugins.updater.pubkey` in [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json), leave `requireSignedVersion: true`, check it with `node scripts/updater-key.mjs src-tauri/tauri.conf.json` (prints the key ID), and commit it. From then on, release builds are "configured".
 3. **Repository secrets** (GitHub → `SimonVanMello/yadbe` → Settings → Secrets and variables → Actions → New repository secret):
    - `TAURI_SIGNING_PRIVATE_KEY`: the content of `~/.tauri/yadbe.key`;
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: its password.
