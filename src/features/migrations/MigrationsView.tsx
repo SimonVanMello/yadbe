@@ -36,6 +36,13 @@ export function MigrationsView({
   const rows = useMemo(() => (migrations ? buildTimeline(migrations) : []), [migrations]);
   const span = useMemo(() => (migrations ? spanOf(migrations) : null), [migrations]);
   const failure = history.error instanceof YadbeIpcError ? history.error.error : null;
+  const summaryText = migrations
+    ? `${t('migrations.summary', { count: migrations.length })}${
+        span
+          ? ` · ${t('migrations.span', { from: dayLabel(span.from, locale), to: dayLabel(span.to, locale) })}`
+          : ''
+      }`
+    : '';
 
   // eslint-disable-next-line react-hooks/incompatible-library -- rows are plain props, nothing memoized reads the virtualizer
   const virtualizer = useVirtualizer({
@@ -50,12 +57,12 @@ export function MigrationsView({
       <header className={styles.strip}>
         <Icon name="timeline" />
         <h2 className={styles.title}>{t('migrations.title')}</h2>
-        <code className={styles.table}>{tableLabel(table)}</code>
+        <code className={styles.table} title={tableLabel(table)}>
+          {tableLabel(table)}
+        </code>
         {migrations && (
-          <span className={styles.summary} role="status">
-            {t('migrations.summary', { count: migrations.length })}
-            {span &&
-              ` · ${t('migrations.span', { from: dayLabel(span.from, locale), to: dayLabel(span.to, locale) })}`}
+          <span className={styles.summary} role="status" title={summaryText}>
+            {summaryText}
           </span>
         )}
         <span className={styles.spacer} />

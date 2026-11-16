@@ -22,7 +22,17 @@
 }
 
 .muted {
+  flex: none;
   color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+/* The connection's name gives way first: cut, the full text in its tooltip. */
+.connection {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .figures {
@@ -41,6 +51,7 @@
 }
 
 .badge {
+  flex: none;
   padding: 0 var(--space-2);
   border: var(--border-width) solid var(--border-strong);
   border-radius: var(--radius-full);
@@ -71,6 +82,8 @@
 
 .logButton {
   display: inline-flex;
+  flex: none;
+  white-space: nowrap;
   align-items: center;
   gap: var(--space-2);
   height: calc(var(--statusbar-height) - var(--space-2));

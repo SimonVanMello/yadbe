@@ -24,6 +24,8 @@
   box-shadow: var(--shadow-popover);
   transform: translateX(-50%);
   animation: fade-in var(--duration-normal) var(--easing-standard);
+  /* Names, paths and server messages have no space to break at: they wrap inside the dialog. */
+  overflow-wrap: anywhere;
 }
 
 .wide {

@@ -58,6 +58,8 @@
   flex-direction: column;
   gap: var(--space-0);
   min-width: 0;
+  /* A connection or file name has no space to break at: it wraps rather than leave the toast. */
+  overflow-wrap: anywhere;
 }
 
 .title {

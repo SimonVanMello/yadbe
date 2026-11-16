@@ -124,6 +124,14 @@ export function ActivityView({ connection }: { connection: ConnectionSummary }) 
     ? new Date(activity.dataUpdatedAt).toLocaleTimeString(locale)
     : null;
   const failure = activity.error instanceof YadbeIpcError ? activity.error.error : null;
+  const summaryText = summary
+    ? t('activity.summary', {
+        count: summary.sessions,
+        sessions: summary.sessions,
+        running: summary.running,
+        blocked: summary.blocked,
+      })
+    : '';
 
   return (
     <div className={styles.body}>
@@ -131,18 +139,15 @@ export function ActivityView({ connection }: { connection: ConnectionSummary }) 
         <Icon name="activity" />
         <h2 className={styles.title}>{t('activity.title')}</h2>
         {summary && (
-          <span className={styles.summary} role="status">
-            {t('activity.summary', {
-              count: summary.sessions,
-              sessions: summary.sessions,
-              running: summary.running,
-              blocked: summary.blocked,
-            })}
+          <span className={styles.summary} role="status" title={summaryText}>
+            {summaryText}
           </span>
         )}
         <span className={styles.spacer} />
         {updated && (
-          <span className={styles.updated}>{t('activity.updated', { time: updated })}</span>
+          <span className={styles.updated} title={t('activity.updated', { time: updated })}>
+            {t('activity.updated', { time: updated })}
+          </span>
         )}
         <label className={styles.intervalLabel}>
           <span className={styles.srOnly}>{t('activity.interval.label')}</span>

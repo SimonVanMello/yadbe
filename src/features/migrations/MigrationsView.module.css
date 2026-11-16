@@ -21,21 +21,33 @@
 }
 
 .title {
+  flex: none;
   margin: 0;
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+/* The table and the summary give way first in a narrow window: cut, the full text in a tooltip. */
+.table,
+.summary {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .table {
+  flex: 0 1 auto;
   color: var(--fg-secondary);
   font-family: var(--font-code);
   font-size: var(--text-xs);
 }
 
 .summary {
+  flex: 0 10 auto;
   color: var(--fg-muted);
   font-size: var(--text-xs);
-  white-space: nowrap;
 }
 
 .spacer {

@@ -1,8 +1,12 @@
+/* Takes the room left in the toolbar (before the toolbar's spacer does) up to its full width; in
+   the narrowest window the chip shrinks (its name cut with an ellipsis), never out of view. */
 .trigger {
   display: inline-flex;
+  flex: 100 1 auto;
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
+  max-width: max-content;
   padding: 0;
   border: 0;
   border-radius: var(--radius-md);

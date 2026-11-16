@@ -1,3 +1,5 @@
+/* A query container: the controls inside drop their secondary labels when it is narrow (a small
+   window, French labels), so that the connection chip keeps its room. */
 .toolbar {
   display: flex;
   align-items: center;
@@ -5,6 +7,7 @@
   gap: var(--space-2);
   height: var(--toolbar-height);
   padding: 0 var(--space-3);
+  container-type: inline-size;
   border-bottom: var(--border-width) solid var(--border-subtle);
   background: var(--bg-panel);
 }

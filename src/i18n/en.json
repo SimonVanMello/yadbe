@@ -2075,6 +2075,7 @@
   "connection.section.advanced": "Advanced options",
   "connection.section.modified": "Changed from the defaults",
   "connection.section.defaults": "Defaults",
+  "connection.section.on": "On",
   "connection.section.noEnvironment": "No environment",
   "connection.section.readOnly": "read-only",
   "connection.section.noHistory": "history off",

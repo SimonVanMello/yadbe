@@ -25,6 +25,10 @@ export function StatusBar() {
   const logOpen = useLayoutStore((store) => !store.panels.bottom.collapsed);
   const failed = failedCount(entries);
   const last = entries.at(-1);
+  const stateText =
+    session?.tunnel?.phase === 'opening' && (state === 'connecting' || state === 'reconnecting')
+      ? t('connection.state.openingTunnel')
+      : t(`connection.state.${state}`);
 
   return (
     <footer className={styles.statusbar}>
@@ -35,12 +39,8 @@ export function StatusBar() {
         {connection ? (
           <>
             <StateDot state={state} decorative />
-            <span>
-              {connection.name} ·{' '}
-              {session?.tunnel?.phase === 'opening' &&
-              (state === 'connecting' || state === 'reconnecting')
-                ? t('connection.state.openingTunnel')
-                : t(`connection.state.${state}`)}
+            <span className={styles.connection} title={`${connection.name} · ${stateText}`}>
+              {connection.name} · {stateText}
             </span>
             {state === 'connected' && session?.serverVersion && (
               <span className={styles.muted}>{session.serverVersion}</span>

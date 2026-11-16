@@ -73,7 +73,7 @@ export function QueryControls({ tabId, connection }: QueryControlsProps) {
             }}
           >
             <Icon name="play" />
-            {t(runLabelKey(selection))}
+            <span className={styles.runLabel}>{t(runLabelKey(selection))}</span>
           </Button>
         </Tooltip>
         <Menu
@@ -133,7 +133,7 @@ export function QueryControls({ tabId, connection }: QueryControlsProps) {
           }}
         >
           <Icon name="stop" />
-          {t('toolbar.cancel')}
+          <span className={styles.label}>{t('toolbar.cancel')}</span>
         </Button>
       </Tooltip>
       <span className={styles.group}>
@@ -147,7 +147,7 @@ export function QueryControls({ tabId, connection }: QueryControlsProps) {
             }}
           >
             <Icon name="tree" />
-            {t('toolbar.explain')}
+            <span className={styles.label}>{t('toolbar.explain')}</span>
           </Button>
         </Tooltip>
         <Menu
@@ -263,26 +263,30 @@ function TransactionControls({ tabId, running }: { tabId: string; running: boole
           void setTransactionMode(tabId, next);
         }}
       />
-      <Button
-        size="sm"
-        disabled={!open || running}
-        onClick={() => {
-          void commitTransaction(tabId);
-        }}
-      >
-        <Icon name="check" />
-        {t('query.transaction.commit')}
-      </Button>
-      <Button
-        size="sm"
-        disabled={!open || running}
-        onClick={() => {
-          void rollbackTransaction(tabId);
-        }}
-      >
-        <Icon name="undo" />
-        {t('query.transaction.rollback')}
-      </Button>
+      <Tooltip content={t('query.transaction.commit')}>
+        <Button
+          size="sm"
+          disabled={!open || running}
+          onClick={() => {
+            void commitTransaction(tabId);
+          }}
+        >
+          <Icon name="check" />
+          <span className={styles.label}>{t('query.transaction.commit')}</span>
+        </Button>
+      </Tooltip>
+      <Tooltip content={t('query.transaction.rollback')}>
+        <Button
+          size="sm"
+          disabled={!open || running}
+          onClick={() => {
+            void rollbackTransaction(tabId);
+          }}
+        >
+          <Icon name="undo" />
+          <span className={styles.label}>{t('query.transaction.rollback')}</span>
+        </Button>
+      </Tooltip>
       {open && (
         <span className={styles.badge} data-status={status} role="status">
           {t(status === 'failed' ? 'query.transaction.failed' : 'query.transaction.open')}

@@ -10,11 +10,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-3) var(--space-2) var(--space-4);
 }
 
+/* In a narrow sidebar the title gives way to the actions. */
 .title {
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--fg-muted);
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
@@ -24,6 +30,7 @@
 
 .actions {
   display: flex;
+  flex: none;
   gap: var(--space-0);
 }
 

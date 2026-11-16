@@ -43,9 +43,12 @@ export function SshFields({
 }: SshFieldsProps) {
   const t = useT();
   const id = useId();
-  const summary = ssh.enabled
-    ? (describeTunnel(toSshTunnel(ssh)) ?? t('connection.ssh.off'))
-    : t('connection.ssh.off');
+  // An endpoint still being typed (no host yet) reads "On" rather than "@:22".
+  const summary = !ssh.enabled
+    ? t('connection.ssh.off')
+    : ssh.server.host.trim() === ''
+      ? t('connection.section.on')
+      : (describeTunnel(toSshTunnel(ssh)) ?? t('connection.section.on'));
 
   const patchHop = (name: SshHopName) => (patch: Partial<SshHopDraft>) => {
     onChange({ ...ssh, [name]: { ...ssh[name], ...patch } });

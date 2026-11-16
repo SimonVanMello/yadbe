@@ -2075,6 +2075,7 @@
   "connection.section.advanced": "Options avancées",
   "connection.section.modified": "Modifié par rapport aux valeurs par défaut",
   "connection.section.defaults": "Valeurs par défaut",
+  "connection.section.on": "Activé",
   "connection.section.noEnvironment": "Aucun environnement",
   "connection.section.readOnly": "lecture seule",
   "connection.section.noHistory": "historique désactivé",
