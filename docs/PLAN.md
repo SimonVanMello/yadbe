@@ -88,6 +88,7 @@ Exit: MySQL / MariaDB is supported, data can be navigated through its relations 
 | M3-15 ✅ | **Integration and validation**: real-app scenarios on the four engines, measurements, `docs/validation/M3.md` | all of M3 | — | opus · medium |
 | M3-16 ✅ | **Validation fixes**: read-only (and other session settings) changed on an open connection, missing client certificate error, dropped table's tab, MySQL database in labels, history hint wording, import NULL wording, flaky highlight spec | M3-15 | F-safety | opus · medium |
 | M3-17 ✅ | **Performance after M3**: P-04 WebKitGTK scroll regression, P-01 (code splitting of the 2.0 MB chunk), P-07 at ×4 | M3-15 | P-01, P-04, P-07 | opus · high |
+| M3-18 🟦 | **UI pass after the first macOS run**: the connection dialog shows too many options at once (essentials first, the rest behind progressive disclosure, per engine family); content that overflows or leaves its box across the app (audit of every screen at several window sizes, both themes, FR and EN, fixed at the cause) | M3-14, M4 | F-001…F-0xx (connections), UX principles | opus · high |
 
 Order: wave 1 = M3-1 ∥ M3-2 ∥ M3-3 ∥ M3-4 ∥ M3-5; wave 2 = M3-6 ∥ M3-8 ∥ M3-9 ∥ M3-10; wave 3 = M3-7 ∥ M3-11 ∥ M3-12; then M3-15, then M3-16 ∥ M3-17 (validation follow-ups); M3-13 is blocked on external means; M3-14 came after M4.
 
