@@ -114,8 +114,8 @@ jobs:
       # No build cache on purpose: release binaries are built from a clean state.
       # With the signing key, the updater bundles (`.app.tar.gz` on macOS, the AppImage and the
       # Windows installers themselves) get a `.sig`, bound to the version (`requireSignedVersion`).
-      # Without it (pull requests from forks), the installers are still built, unsigned; a tag
-      # cannot be released that way.
+      # Without it (pull requests from forks), or while the configuration has no public key,
+      # the installers are still built, without updater bundles; a tag cannot be released that way.
       - name: Build
         shell: bash
         env:
@@ -125,11 +125,18 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           args=(--target "$TARGET")
-          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            args+=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
-          elif [ "$IS_TAG" = true ]; then
+          if [ "$IS_TAG" = true ] && [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             echo "::error::The TAURI_SIGNING_PRIVATE_KEY secret is required to release"
             exit 1
+          fi
+          # The bundler refuses to sign for a configuration without the public key: before
+          # the owner's setup is complete, the installers are built without updater bundles.
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo '::warning::No signing key: the installers are built without updater bundles.'
+          elif ! node scripts/updater-key.mjs src-tauri/tauri.conf.json; then
+            echo '::warning::plugins.updater.pubkey is not set: the installers are built without updater bundles (docs/RELEASING.md).'
+          else
+            args+=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
           fi
           pnpm tauri build "${args[@]}"
 
