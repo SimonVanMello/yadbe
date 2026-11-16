@@ -75,12 +75,18 @@ for (const { name, colorScheme } of THEMES) {
     test('the connection form of Redis shows its own fields', async ({ page }) => {
       await page.getByRole('button', { name: 'New connection' }).first().click();
       const dialog = page.getByRole('dialog', { name: 'New connection' });
-      await dialog.getByRole('radio', { name: 'Redis / Valkey' }).click();
+      await dialog.getByLabel('Engine').selectOption({ label: 'Redis / Valkey' });
       await expect(dialog.getByRole('textbox', { name: 'ACL user' })).toBeVisible();
       await expect(dialog.getByLabel('Database index')).toHaveAttribute('placeholder', '0');
+      await dialog.getByRole('button', { name: /^Advanced options/ }).click();
       await expect(dialog.getByLabel('Key delimiter')).toHaveAttribute('placeholder', ':');
+      await dialog.getByLabel('Key delimiter').fill('::');
+      await expect(dialog.getByRole('button', { name: /^Advanced options/ })).toContainText(
+        'delimiter ::',
+      );
       await dialog.getByLabel('Database index').fill('3');
       await dialog.getByLabel('Host').fill('cache.example.com');
+      await dialog.getByRole('button', { name: /^Environment and safeguards/ }).click();
       await dialog.getByRole('switch', { name: 'Read-only' }).click();
       await expect(dialog.getByText('ACL user limited to reads')).toBeVisible();
       await capture(page, name, 'form');

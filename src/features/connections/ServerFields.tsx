@@ -3,44 +3,28 @@ import { useId, type ClipboardEvent } from 'react';
 import { useT } from '../../i18n/useT';
 import type { SecretLocation } from '../../ipc';
 import { Field } from '../../ui/Field';
-import { Select } from '../../ui/Select';
 import { Switch } from '../../ui/Switch';
 import { TextInput } from '../../ui/TextInput';
 import styles from './ConnectionForm.module.css';
-import { TlsClientFields } from './TlsClientFields';
-import {
-  TLS_MODES,
-  looksLikeConnectionString,
-  type ConnectionDraft,
-  type DraftErrors,
-  type EngineInfo,
-} from './model';
+import { looksLikeConnectionString, type ConnectionDraft, type DraftErrors } from './model';
 
 interface ServerFieldsProps {
   draft: ConnectionDraft;
-  info: EngineInfo;
   errors: DraftErrors;
   /** Where the password of the connection being edited is kept, `null` when there is none. */
   passwordLocation: SecretLocation | null;
   keychainAvailable: boolean;
-  /** Where the passphrase of the TLS client key is kept, `null` when there is none. */
-  tlsKeyLocation: SecretLocation | null;
-  /** Picks the certificate or the key file with the native picker. */
-  onPickTlsFile: (file: 'cert' | 'key') => void;
   onChange: (patch: Partial<ConnectionDraft>) => void;
   /** Pasted text that looks like a connection string: the form fills itself from it. */
   onPasteConnectionString: (text: string) => void;
 }
 
-/** Fields of a server engine: address, login, TLS (F-001, F-005, F-009). */
+/** The essentials of a SQL server engine: address, database, login (F-001, F-005). */
 export function ServerFields({
   draft,
-  info,
   errors,
   passwordLocation,
   keychainAvailable,
-  tlsKeyLocation,
-  onPickTlsFile,
   onChange,
   onPasteConnectionString,
 }: ServerFieldsProps) {
@@ -164,39 +148,6 @@ export function ServerFields({
           </p>
         )}
       </div>
-      {info.capabilities.supportsTls && (
-        <Field
-          label={t('connection.tls')}
-          htmlFor={`${id}-tls`}
-          hint={
-            draft.tlsModeAuto && draft.tlsMode === 'verifyFull'
-              ? t('connection.tls.remoteDefault.hint')
-              : t(`connection.tls.${draft.tlsMode}.hint`)
-          }
-        >
-          <Select
-            id={`${id}-tls`}
-            data-field="tls"
-            value={draft.tlsMode}
-            options={TLS_MODES.map((mode) => ({
-              value: mode,
-              label: t(`connection.tls.${mode}`),
-            }))}
-            onChange={(tlsMode) => {
-              onChange({ tlsMode });
-            }}
-          />
-        </Field>
-      )}
-      {info.capabilities.clientCertificate && draft.tlsMode !== 'disable' && (
-        <TlsClientFields
-          draft={draft}
-          keyLocation={tlsKeyLocation}
-          keychainAvailable={keychainAvailable}
-          onChange={onChange}
-          onPick={onPickTlsFile}
-        />
-      )}
     </>
   );
 }

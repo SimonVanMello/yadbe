@@ -1,8 +1,8 @@
-import { useId, useState } from 'react';
+import { useId } from 'react';
 
 import { useT } from '../../i18n/useT';
 import { Field } from '../../ui/Field';
-import { Icon } from '../../ui/Icon';
+import { Disclosure } from '../../ui/Disclosure';
 import { Switch } from '../../ui/Switch';
 import { TextInput } from '../../ui/TextInput';
 import styles from './SshFields.module.css';
@@ -27,7 +27,12 @@ interface SshFieldsProps {
   onPickKey: (hop: SshHopName) => void;
 }
 
-/** The "SSH tunnel" section of the connection form (F-010), collapsed until opened. */
+/** The `data-field` names of the SSH section, to open it on demand. */
+const SSH_FIELDS = (['server', 'jump'] as const).flatMap((hop) =>
+  ['host', 'user', 'key', 'secret'].map((field) => `ssh-${hop}-${field}`),
+);
+
+/** The "SSH tunnel" section of the connection form (F-010), closed until opened. */
 export function SshFields({
   ssh,
   errors,
@@ -38,10 +43,6 @@ export function SshFields({
 }: SshFieldsProps) {
   const t = useT();
   const id = useId();
-  // Collapsed by default; a connection that has a tunnel shows it.
-  const [open, setOpen] = useState(ssh.enabled);
-  // A field to fix is never hidden.
-  const expanded = open || Object.keys(errors).length > 0;
   const summary = ssh.enabled
     ? (describeTunnel(toSshTunnel(ssh)) ?? t('connection.ssh.off'))
     : t('connection.ssh.off');
@@ -55,99 +56,85 @@ export function SshFields({
   };
 
   return (
-    <section className={styles.section} aria-labelledby={`${id}-title`}>
-      <button
-        type="button"
-        id={`${id}-title`}
-        className={styles.header}
-        aria-expanded={expanded}
-        aria-controls={`${id}-body`}
-        onClick={() => {
-          setOpen(!expanded);
+    <Disclosure
+      title={t('connection.ssh')}
+      icon="tunnel"
+      summary={<span className={styles.summary}>{summary}</span>}
+      summaryText={summary}
+      modified={ssh.enabled}
+      modifiedLabel={t('connection.section.modified')}
+      // A field to fix is never hidden.
+      forceOpen={Object.keys(errors).length > 0}
+      fields={SSH_FIELDS}
+      data-testid="ssh-section"
+    >
+      <Switch
+        checked={ssh.enabled}
+        onCheckedChange={(enabled) => {
+          onChange({ ...ssh, enabled });
         }}
-      >
-        <Icon name={expanded ? 'chevronDown' : 'chevronRight'} />
-        <Icon name="tunnel" />
-        <span className={styles.title}>{t('connection.ssh')}</span>
-        <span className={styles.summary} data-enabled={ssh.enabled || undefined}>
-          {summary}
-        </span>
-      </button>
-      {expanded && (
-        <div id={`${id}-body`} className={styles.body}>
-          <Switch
-            checked={ssh.enabled}
-            onCheckedChange={(enabled) => {
-              onChange({ ...ssh, enabled });
+        label={t('connection.ssh.enable')}
+        hint={t('connection.ssh.enable.hint')}
+      />
+      {ssh.enabled && (
+        <>
+          <SshHopFields
+            name="server"
+            hop={ssh.server}
+            errors={errors}
+            secretLocation={locationOf('server', ssh.server)}
+            keychainAvailable={keychainAvailable}
+            onChange={patchHop('server')}
+            onPickKey={() => {
+              onPickKey('server');
             }}
-            label={t('connection.ssh.enable')}
-            hint={t('connection.ssh.enable.hint')}
           />
-          {ssh.enabled && (
-            <>
-              <SshHopFields
-                name="server"
-                hop={ssh.server}
-                errors={errors}
-                secretLocation={locationOf('server', ssh.server)}
-                keychainAvailable={keychainAvailable}
-                onChange={patchHop('server')}
-                onPickKey={() => {
-                  onPickKey('server');
-                }}
-              />
-              <Field
-                label={t('connection.ssh.keepalive')}
-                htmlFor={`${id}-keepalive`}
-                hint={t('connection.ssh.keepalive.hint')}
-                error={errors.keepalive ? t('connection.ssh.error.keepaliveInvalid') : undefined}
-              >
-                <TextInput
-                  id={`${id}-keepalive`}
-                  className={styles.short}
-                  mono
-                  inputMode="numeric"
-                  placeholder="30"
-                  value={ssh.keepaliveSecs}
-                  invalid={errors.keepalive !== undefined}
-                  onChange={(event) => {
-                    onChange({ ...ssh, keepaliveSecs: event.target.value });
+          <Field
+            label={t('connection.ssh.keepalive')}
+            htmlFor={`${id}-keepalive`}
+            hint={t('connection.ssh.keepalive.hint')}
+            error={errors.keepalive ? t('connection.ssh.error.keepaliveInvalid') : undefined}
+          >
+            <TextInput
+              id={`${id}-keepalive`}
+              className={styles.short}
+              mono
+              inputMode="numeric"
+              placeholder="30"
+              value={ssh.keepaliveSecs}
+              invalid={errors.keepalive !== undefined}
+              onChange={(event) => {
+                onChange({ ...ssh, keepaliveSecs: event.target.value });
+              }}
+            />
+          </Field>
+          <div className={styles.jump}>
+            <Switch
+              checked={ssh.jumpEnabled}
+              onCheckedChange={(jumpEnabled) => {
+                onChange({ ...ssh, jumpEnabled });
+              }}
+              label={t('connection.ssh.jump.enable')}
+              hint={t('connection.ssh.jump.hint')}
+            />
+            {ssh.jumpEnabled && (
+              <div className={styles.jumpBody} role="group" aria-label={t('connection.ssh.jump')}>
+                <SshHopFields
+                  name="jump"
+                  hop={ssh.jump}
+                  errors={errors}
+                  secretLocation={locationOf('jump', ssh.jump)}
+                  keychainAvailable={keychainAvailable}
+                  onChange={patchHop('jump')}
+                  onPickKey={() => {
+                    onPickKey('jump');
                   }}
                 />
-              </Field>
-              <div className={styles.jump}>
-                <Switch
-                  checked={ssh.jumpEnabled}
-                  onCheckedChange={(jumpEnabled) => {
-                    onChange({ ...ssh, jumpEnabled });
-                  }}
-                  label={t('connection.ssh.jump.enable')}
-                  hint={t('connection.ssh.jump.hint')}
-                />
-                {ssh.jumpEnabled && (
-                  <div
-                    className={styles.jumpBody}
-                    role="group"
-                    aria-label={t('connection.ssh.jump')}
-                  >
-                    <SshHopFields
-                      name="jump"
-                      hop={ssh.jump}
-                      errors={errors}
-                      secretLocation={locationOf('jump', ssh.jump)}
-                      keychainAvailable={keychainAvailable}
-                      onChange={patchHop('jump')}
-                      onPickKey={() => {
-                        onPickKey('jump');
-                      }}
-                    />
-                  </div>
-                )}
               </div>
-            </>
-          )}
-        </div>
+            )}
+          </div>
+        </>
       )}
-    </section>
+    </Disclosure>
   );
 }

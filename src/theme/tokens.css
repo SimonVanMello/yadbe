@@ -110,6 +110,8 @@
   --grid-footer-height: 28px;
   --grid-filter-value-width: 220px;
   --timeout-field-min-width: 140px;
+  /* Connection dialog: the engine choice, beside the connection string. */
+  --connection-engine-width: 220px;
   --grid-shimmer-duration: 1.4s;
 
   /* Foreign key navigation (F-088): the peek, the referencing rows panel, the lookup editor. */

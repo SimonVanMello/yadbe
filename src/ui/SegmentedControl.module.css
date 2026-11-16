@@ -1,6 +1,10 @@
+/* Wraps rather than leave its box when the labels outgrow the line (long translations, a
+   narrow window, a wider system font). */
 .root {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: var(--space-0);
+  max-width: 100%;
   padding: var(--space-0);
   border: var(--border-width) solid var(--border-strong);
   border-radius: var(--radius-md);

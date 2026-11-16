@@ -64,6 +64,7 @@ async function setReadOnly(page: Page) {
   await item(page, SEARCH).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Edit…' }).click();
   const form = page.getByRole('dialog', { name: 'Edit connection' });
+  await form.getByRole('button', { name: /^Environment and safeguards/ }).click();
   await form.getByRole('switch', { name: /Read-only/ }).click();
   await form.getByRole('button', { name: 'Save' }).click();
   await expect(form).toBeHidden();
@@ -86,11 +87,16 @@ for (const { name, colorScheme } of THEMES) {
     test('the connection form takes one URL and the kind of authentication', async ({ page }) => {
       await page.getByRole('button', { name: 'New connection' }).first().click();
       const form = page.getByRole('dialog', { name: 'New connection' });
-      await form.getByRole('radio', { name: 'Elasticsearch / OpenSearch' }).click();
+      await form.getByLabel('Engine').selectOption({ label: 'Elasticsearch / OpenSearch' });
       const url = form.locator('[data-field="url"]');
       await expect(url).toHaveValue('http://localhost:9200');
+      // A plain http:// URL has no TLS to set.
+      const tls = form.getByRole('button', { name: /^Encryption \(TLS\)/ });
+      await expect(tls).toHaveCount(0);
       await url.fill('https://search.example.com:9243/es');
       // HTTPS brings the certificate checks.
+      await expect(tls).toContainText('Verify certificate');
+      await tls.click();
       await expect(form.locator('[data-field="caCertPath"]')).toBeVisible();
       await form.locator('[data-field="searchAuth"]').selectOption('apiKey');
       await expect(form.getByLabel('API key', { exact: true })).toBeVisible();

@@ -70,7 +70,10 @@ describe('App', () => {
     await screen.findByRole('tree', { name: 'Connections' });
     await user.click(screen.getAllByRole('button', { name: 'New connection' })[0] as HTMLElement);
     const dialog = await screen.findByRole('dialog', { name: 'New connection' });
-    await user.click(await within(dialog).findByRole('radio', { name: 'MySQL / MariaDB' }));
+    await user.selectOptions(
+      await within(dialog).findByRole('combobox', { name: 'Engine' }),
+      'MySQL / MariaDB',
+    );
     expect(within(dialog).queryByText(/is not available/)).toBeNull();
     expect(within(dialog).getByRole('textbox', { name: 'Port' })).toHaveValue('3306');
     expect(within(dialog).getByRole('textbox', { name: 'User' })).toHaveValue('root');

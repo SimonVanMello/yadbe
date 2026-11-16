@@ -1,20 +1,17 @@
-import { useId } from 'react';
+import { useId, type ReactNode } from 'react';
 
 import { useT } from '../../i18n/useT';
 import type { SecretLocation } from '../../ipc';
 import { Field } from '../../ui/Field';
-import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Select } from '../../ui/Select';
-import { Switch } from '../../ui/Switch';
 import { TextInput } from '../../ui/TextInput';
-import { ColorPicker } from './ColorPicker';
 import styles from './ConnectionForm.module.css';
 import { EngineFields } from './EngineFields';
+import { EnvironmentSection } from './EnvironmentSection';
+import type { FormFrame } from './FamilyLayout';
 import { TimeoutFields } from './TimeoutFields';
 import type { SshHopName, SshSecretLocations } from './sshModel';
-import { defaultTagColor } from './tagColors';
 import {
-  ENVIRONMENTS,
   engineInfoOf,
   suggestedName,
   patchDraft,
@@ -42,11 +39,16 @@ interface ConnectionFormProps {
   onPickKey?: (hop: SshHopName) => void;
   /** Picks the TLS client certificate or its key with the native picker. */
   onPickTlsFile?: (file: 'cert' | 'key') => void;
+  /** The connection string field, beside the engine: pasting one fills the form. */
+  connectionString?: ReactNode;
+  /** What reading the pasted string said (an error, the keys left out), under that row. */
+  connectionStringFeedback?: ReactNode;
 }
 
 /**
- * The connection form (F-001, F-005 to F-009): engine, the fields of its family
- * (`engineFields`), timeouts, identity.
+ * The connection form (F-001, F-005 to F-009, F-014): the engine, what connecting needs in the
+ * common case and the name, open; environment, TLS, SSH tunnel and advanced options in sections
+ * closed by default, whose headers say what they hold (`FamilyLayout`).
  */
 export function ConnectionForm({
   draft,
@@ -61,6 +63,8 @@ export function ConnectionForm({
   sshSecretLocations = {},
   onPickKey = () => undefined,
   onPickTlsFile = () => undefined,
+  connectionString,
+  connectionStringFeedback,
 }: ConnectionFormProps) {
   const t = useT();
   const id = useId();
@@ -69,47 +73,8 @@ export function ConnectionForm({
   };
   const info = engineInfoOf(engines, draft.engine);
 
-  return (
-    <div className={styles.form}>
-      <Field label={t('connection.engine')}>
-        <SegmentedControl
-          label={t('connection.engine')}
-          value={draft.engine}
-          options={engines.map((engine) => ({ value: engine.engine, label: engine.label }))}
-          onChange={(engine) => {
-            const next = engineInfoOf(engines, engine);
-            if (next) onChange(withEngine(draft, next, info));
-          }}
-        />
-      </Field>
-      {info && !info.available && (
-        <p className={styles.notice} role="note">
-          {t('connection.engine.unavailable', { engine: info.label })}
-        </p>
-      )}
-
-      {info && (
-        <EngineFields
-          draft={draft}
-          info={info}
-          errors={errors}
-          passwordLocation={passwordLocation}
-          keychainAvailable={keychainAvailable}
-          sshSecretLocations={sshSecretLocations}
-          onChange={patch}
-          onPasteConnectionString={onPasteConnectionString}
-          onPickFile={onPickFile}
-          onPickKey={onPickKey}
-          onPickTlsFile={onPickTlsFile}
-        />
-      )}
-
-      {info && (
-        <TimeoutFields draft={draft} fileEngine={info.capabilities.usesFile} onChange={patch} />
-      )}
-
-      <hr className={styles.separator} />
-
+  const frame: FormFrame = {
+    identity: (
       <div className={styles.row}>
         <Field label={t('connection.name')} htmlFor={`${id}-name`}>
           <TextInput
@@ -135,82 +100,58 @@ export function ConnectionForm({
           />
         </Field>
       </div>
+    ),
+    environment: <EnvironmentSection draft={draft} info={info} errors={errors} onChange={patch} />,
+    timeouts: info && (
+      <TimeoutFields draft={draft} fileEngine={info.capabilities.usesFile} onChange={patch} />
+    ),
+  };
 
-      <Field label={t('connection.environment')} hint={t('connection.environment.hint')}>
-        <SegmentedControl
-          label={t('connection.environment')}
-          value={draft.environment}
-          options={ENVIRONMENTS.map((environment) => ({
-            value: environment,
-            label: t(`environment.${environment}`),
-          }))}
-          onChange={(environment) => {
-            patch({
-              environment,
-              // A custom environment starts with a color, so it is never invisible.
-              ...(environment === 'custom' && draft.environmentColor === null
-                ? { environmentColor: defaultTagColor() }
-                : {}),
-            });
-          }}
-        />
-      </Field>
-      {draft.environment === 'custom' && (
-        <div className={styles.row}>
-          <Field
-            label={t('connection.environment.label')}
-            htmlFor={`${id}-env-label`}
-            error={
-              errors.environmentLabel ? t('connection.error.environmentLabelRequired') : undefined
-            }
-          >
-            <TextInput
-              id={`${id}-env-label`}
-              value={draft.environmentLabel}
-              maxLength={24}
-              invalid={errors.environmentLabel !== undefined}
-              placeholder="QA"
-              onChange={(event) => {
-                patch({ environmentLabel: event.target.value });
-              }}
-            />
-          </Field>
-          <Field label={t('connection.color')}>
-            <ColorPicker
-              label={t('connection.environment.color')}
-              value={draft.environmentColor}
-              onChange={(environmentColor) => {
-                patch({ environmentColor });
-              }}
-            />
-          </Field>
-        </div>
+  return (
+    <div className={styles.form}>
+      <div className={connectionString ? styles.topRow : undefined}>
+        <Field label={t('connection.engine')} htmlFor={`${id}-engine`}>
+          <Select
+            id={`${id}-engine`}
+            data-field="engine"
+            value={draft.engine}
+            options={engines.map((engine) => ({ value: engine.engine, label: engine.label }))}
+            onChange={(engine) => {
+              const next = engineInfoOf(engines, engine);
+              if (next) onChange(withEngine(draft, next, info));
+            }}
+          />
+        </Field>
+        {connectionString}
+      </div>
+      {connectionStringFeedback}
+      {info && !info.available && (
+        <p className={styles.notice} role="note">
+          {t('connection.engine.unavailable', { engine: info.label })}
+        </p>
       )}
 
-      <Switch
-        checked={draft.readOnly}
-        onCheckedChange={(readOnly) => {
-          patch({ readOnly });
-        }}
-        label={t('connection.readOnly')}
-        hint={
-          info?.capabilities.family === 'keyValue'
-            ? t('keyValue.form.readOnlyHint')
-            : info?.capabilities.family === 'search'
-              ? t('search.form.readOnlyHint')
-              : info && !info.capabilities.readOnlySession
-                ? t('connection.readOnly.hintClassifierOnly', { engine: info.label })
-                : t('connection.readOnly.hint')
-        }
-      />
-      <Switch
-        checked={draft.historyEnabled}
-        onCheckedChange={(historyEnabled) => {
-          patch({ historyEnabled });
-        }}
-        label={t('connection.history')}
-        hint={t('connection.history.hint')}
-      />
+      {info ? (
+        <EngineFields
+          frame={frame}
+          draft={draft}
+          info={info}
+          errors={errors}
+          passwordLocation={passwordLocation}
+          keychainAvailable={keychainAvailable}
+          sshSecretLocations={sshSecretLocations}
+          onChange={patch}
+          onPasteConnectionString={onPasteConnectionString}
+          onPickFile={onPickFile}
+          onPickKey={onPickKey}
+          onPickTlsFile={onPickTlsFile}
+        />
+      ) : (
+        <>
+          {frame.identity}
+          {frame.environment}
+        </>
+      )}
     </div>
   );
 }

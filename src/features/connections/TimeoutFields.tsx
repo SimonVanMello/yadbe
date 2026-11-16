@@ -28,6 +28,7 @@ export function TimeoutFields({ draft, fileEngine, onChange }: TimeoutFieldsProp
     <Field label={t(label)} htmlFor={`${id}-${key}`} hint={t(hint)}>
       <TextInput
         id={`${id}-${key}`}
+        data-field={key}
         type="number"
         inputMode="numeric"
         min={min}

@@ -66,6 +66,7 @@ async function setReadOnly(page: Page) {
   await item(page, MONGO).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Edit…' }).click();
   const form = page.getByRole('dialog', { name: 'Edit connection' });
+  await form.getByRole('button', { name: /^Environment and safeguards/ }).click();
   await form.getByRole('switch', { name: /Read-only/ }).click();
   await form.getByRole('button', { name: 'Save' }).click();
   await expect(form).toBeHidden();
@@ -86,7 +87,11 @@ for (const { name, colorScheme } of THEMES) {
     }) => {
       await page.getByRole('button', { name: 'New connection' }).first().click();
       const form = page.getByRole('dialog', { name: 'New connection' });
-      await form.getByRole('radio', { name: 'MongoDB' }).click();
+      await form.getByLabel('Engine').selectOption({ label: 'MongoDB' });
+      // Replica set, authentication and SRV wait in the advanced options.
+      const advanced = form.getByRole('button', { name: /^Advanced options/ });
+      await expect(advanced).toContainText('Defaults');
+      await advanced.click();
       await expect(form.getByText('Replica set', { exact: true })).toBeVisible();
       const hosts = form.locator('[data-field="host"]');
       await hosts.focus();
@@ -101,6 +106,7 @@ for (const { name, colorScheme } of THEMES) {
       });
       await expect(hosts).toHaveValue('db1:27017,db2:27017');
       await expect(form.locator('[data-field="replicaSet"]')).toHaveValue('rs0');
+      await expect(advanced).toContainText('replica set rs0 · authentication database admin');
       // The password stays in the backend: the field only says one came with the string.
       await expect(form.locator('[data-field="password"]')).toHaveValue('');
       await capture(page, name, 'form');

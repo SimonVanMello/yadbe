@@ -7,6 +7,7 @@ import { Button } from '../../ui/Button';
 import { ContextMenu } from '../../ui/ContextMenu';
 import { ContextMenuItem } from '../../ui/ContextMenuItem';
 import { Dialog } from '../../ui/Dialog';
+import { Disclosure } from '../../ui/Disclosure';
 import { Field } from '../../ui/Field';
 import { Icon } from '../../ui/Icon';
 import { IconButton } from '../../ui/IconButton';
@@ -96,6 +97,17 @@ export function PrimitivesDemo() {
             <TextInput id="demo-host" mono placeholder={t('demo.field.placeholder')} />
           </Field>
           <Switch label={t('demo.switch.label')} checked={readOnly} onCheckedChange={setReadOnly} />
+          <Disclosure
+            title={t('demo.disclosure.title')}
+            icon="settings"
+            summary={t('demo.disclosure.summary')}
+            summaryText={t('demo.disclosure.summary')}
+            modified
+          >
+            <Field label={t('demo.disclosure.field')} htmlFor="demo-timeout">
+              <TextInput id="demo-timeout" inputMode="numeric" placeholder="30" />
+            </Field>
+          </Disclosure>
           <span className={styles.spinner}>
             <Spinner />
             {t('demo.spinner.label')}

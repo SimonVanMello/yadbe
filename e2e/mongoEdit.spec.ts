@@ -59,6 +59,7 @@ async function setStandalone(page: Page) {
   await item(page, MONGO).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Edit…' }).click();
   const form = page.getByRole('dialog', { name: 'Edit connection' });
+  await form.getByRole('button', { name: /^Advanced options/ }).click();
   await form.locator('[data-field="replicaSet"]').fill('');
   await form.getByRole('button', { name: 'Save' }).click();
   await expect(form).toBeHidden();
@@ -194,6 +195,7 @@ for (const { name, colorScheme } of THEMES) {
       await item(page, MONGO).click({ button: 'right' });
       await page.getByRole('menuitem', { name: 'Edit…' }).click();
       const form = page.getByRole('dialog', { name: 'Edit connection' });
+      await form.getByRole('button', { name: /^Environment and safeguards/ }).click();
       await form.getByRole('switch', { name: /Read-only/ }).click();
       await form.getByRole('button', { name: 'Save' }).click();
       await expect(form).toBeHidden();

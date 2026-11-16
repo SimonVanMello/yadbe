@@ -10,17 +10,19 @@ import styles from './ConnectionForm.module.css';
 import type { EngineFieldsProps } from './EngineFields';
 import { looksLikeConnectionString } from './model';
 import { SEARCH_AUTHS, parseSearchUrl, searchTlsMode, type SearchDraft } from './searchModel';
+import { FamilyLayout } from './FamilyLayout';
 import { SshFields } from './SshFields';
 import { TlsClientFields } from './TlsClientFields';
 
 /**
  * The engine fields of the search family (Elasticsearch, OpenSearch): one URL (its scheme says
- * TLS, its path is where the API is served), the kind of authentication and its secret, the
- * certificate checks of an `https://` URL (CA file, or none on a trusted network), a client
- * certificate, and the SSH tunnel. A URL holding credentials goes to the backend, which keeps
+ * TLS, its path is where the API is served), the kind of authentication and its secret; the
+ * certificate checks of an `https://` URL (CA file, or none on a trusted network) and a client
+ * certificate in the TLS section, which only an `https://` URL has; the SSH tunnel. A URL holding credentials goes to the backend, which keeps
  * its password apart.
  */
 export function SearchConnectionFields({
+  frame,
   draft,
   info,
   errors,
@@ -35,8 +37,6 @@ export function SearchConnectionFields({
   const t = useT();
   const id = useId();
   const { search } = draft;
-  const url = parseSearchUrl(search.url);
-  const https = url?.https ?? false;
   const remember = keychainAvailable && draft.rememberPassword;
 
   const setSearch = (patch: Partial<SearchDraft>) => {
@@ -80,112 +80,119 @@ export function SearchConnectionFields({
         : t('connection.password');
 
   return (
-    <>
-      <Field
-        label={t('search.form.url')}
-        htmlFor={`${id}-url`}
-        error={errors.url ? t('search.form.urlInvalid') : undefined}
-        hint={t('search.form.urlHint')}
-      >
-        <TextInput
-          id={`${id}-url`}
-          data-field="url"
-          mono
-          value={search.url}
-          invalid={errors.url !== undefined}
-          placeholder="https://search.example.com:9200"
-          spellCheck={false}
-          onChange={(event) => {
-            onUrl(event.target.value);
-          }}
-          onPaste={onPasteUrl}
-        />
-      </Field>
-      <Field
-        label={t('search.form.auth')}
-        htmlFor={`${id}-auth`}
-        hint={t(`search.form.auth.${search.auth}.hint`)}
-      >
-        <Select<SearchAuth>
-          id={`${id}-auth`}
-          data-field="searchAuth"
-          value={search.auth}
-          options={SEARCH_AUTHS.map((auth) => ({
-            value: auth,
-            label: t(`search.form.auth.${auth}`),
-          }))}
-          onChange={(auth) => {
-            setSearch({ auth });
-          }}
-        />
-      </Field>
-      {search.auth !== 'none' && (
+    <FamilyLayout
+      frame={frame}
+      draft={draft}
+      info={info}
+      essentials={
         <>
-          <div className={styles.row}>
-            {search.auth === 'basic' && (
-              <Field label={t('connection.user')} htmlFor={`${id}-user`}>
-                <TextInput
-                  id={`${id}-user`}
-                  data-field="username"
-                  mono
-                  autoComplete="off"
-                  value={draft.username}
-                  placeholder="elastic"
-                  onChange={(event) => {
-                    onChange({ username: event.target.value });
-                  }}
-                />
-              </Field>
-            )}
-            <Field
-              label={secretLabel}
-              htmlFor={`${id}-password`}
-              hint={
-                passwordLocation === null
-                  ? undefined
-                  : t(`connection.password.stored.${passwordLocation}`)
-              }
-            >
-              {/* Write-only: the backend never sends a secret back, so this starts empty. */}
-              <TextInput
-                id={`${id}-password`}
-                data-field="password"
-                type="password"
-                mono
-                autoComplete="new-password"
-                value={draft.password}
-                placeholder={
-                  draft.pendingPasswordId !== null
-                    ? t('connection.password.fromString')
-                    : passwordLocation !== null
-                      ? t('connection.password.keep')
-                      : undefined
-                }
-                onChange={(event) => {
-                  onChange({ password: event.target.value });
-                }}
-              />
-            </Field>
-          </div>
-          <div className={styles.secret}>
-            <Switch
-              checked={remember}
-              disabled={!keychainAvailable}
-              onCheckedChange={(rememberPassword) => {
-                onChange({ rememberPassword });
+          <Field
+            label={t('search.form.url')}
+            htmlFor={`${id}-url`}
+            error={errors.url ? t('search.form.urlInvalid') : undefined}
+            hint={t('search.form.urlHint')}
+          >
+            <TextInput
+              id={`${id}-url`}
+              data-field="url"
+              mono
+              value={search.url}
+              invalid={errors.url !== undefined}
+              placeholder="https://search.example.com:9200"
+              spellCheck={false}
+              onChange={(event) => {
+                onUrl(event.target.value);
               }}
-              label={t('connection.remember')}
-              hint={remember ? t('connection.remember.keychain') : t('connection.remember.ask')}
+              onPaste={onPasteUrl}
             />
-            {!keychainAvailable && (
-              <p className={styles.notice} role="note">
-                {t('connection.keychainUnavailable')}
-              </p>
-            )}
-          </div>
+          </Field>
+          <Field
+            label={t('search.form.auth')}
+            htmlFor={`${id}-auth`}
+            hint={t(`search.form.auth.${search.auth}.hint`)}
+          >
+            <Select<SearchAuth>
+              id={`${id}-auth`}
+              data-field="searchAuth"
+              value={search.auth}
+              options={SEARCH_AUTHS.map((auth) => ({
+                value: auth,
+                label: t(`search.form.auth.${auth}`),
+              }))}
+              onChange={(auth) => {
+                setSearch({ auth });
+              }}
+            />
+          </Field>
+          {search.auth !== 'none' && (
+            <>
+              <div className={styles.row}>
+                {search.auth === 'basic' && (
+                  <Field label={t('connection.user')} htmlFor={`${id}-user`}>
+                    <TextInput
+                      id={`${id}-user`}
+                      data-field="username"
+                      mono
+                      autoComplete="off"
+                      value={draft.username}
+                      placeholder="elastic"
+                      onChange={(event) => {
+                        onChange({ username: event.target.value });
+                      }}
+                    />
+                  </Field>
+                )}
+                <Field
+                  label={secretLabel}
+                  htmlFor={`${id}-password`}
+                  hint={
+                    passwordLocation === null
+                      ? undefined
+                      : t(`connection.password.stored.${passwordLocation}`)
+                  }
+                >
+                  {/* Write-only: the backend never sends a secret back, so this starts empty. */}
+                  <TextInput
+                    id={`${id}-password`}
+                    data-field="password"
+                    type="password"
+                    mono
+                    autoComplete="new-password"
+                    value={draft.password}
+                    placeholder={
+                      draft.pendingPasswordId !== null
+                        ? t('connection.password.fromString')
+                        : passwordLocation !== null
+                          ? t('connection.password.keep')
+                          : undefined
+                    }
+                    onChange={(event) => {
+                      onChange({ password: event.target.value });
+                    }}
+                  />
+                </Field>
+              </div>
+              <div className={styles.secret}>
+                <Switch
+                  checked={remember}
+                  disabled={!keychainAvailable}
+                  onCheckedChange={(rememberPassword) => {
+                    onChange({ rememberPassword });
+                  }}
+                  label={t('connection.remember')}
+                  hint={remember ? t('connection.remember.keychain') : t('connection.remember.ask')}
+                />
+                {!keychainAvailable && (
+                  <p className={styles.notice} role="note">
+                    {t('connection.keychainUnavailable')}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
         </>
-      )}
-      {https && (
+      }
+      tls={
         <>
           <Field label={t('search.form.ca')} htmlFor={`${id}-ca`} hint={t('search.form.caHint')}>
             <TextInput
@@ -223,17 +230,19 @@ export function SearchConnectionFields({
             />
           )}
         </>
-      )}
-      <SshFields
-        ssh={draft.ssh}
-        errors={errors.ssh ?? {}}
-        secretLocations={sshSecretLocations}
-        keychainAvailable={keychainAvailable}
-        onChange={(ssh) => {
-          onChange({ ssh });
-        }}
-        onPickKey={onPickKey}
-      />
-    </>
+      }
+      ssh={
+        <SshFields
+          ssh={draft.ssh}
+          errors={errors.ssh ?? {}}
+          secretLocations={sshSecretLocations}
+          keychainAvailable={keychainAvailable}
+          onChange={(ssh) => {
+            onChange({ ssh });
+          }}
+          onPickKey={onPickKey}
+        />
+      }
+    />
   );
 }

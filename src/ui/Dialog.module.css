@@ -39,6 +39,19 @@
   margin: calc(var(--space-1) * -1);
   padding: var(--space-1);
   overflow-y: auto;
+  /* A shade at an edge says there is more to scroll to (covered once scrolled to that end). */
+  background:
+    linear-gradient(var(--bg-elevated) 30%, transparent) center top,
+    linear-gradient(transparent, var(--bg-elevated) 70%) center bottom,
+    radial-gradient(farthest-side at 50% 0, var(--bg-scrim), transparent) center top,
+    radial-gradient(farthest-side at 50% 100%, var(--bg-scrim), transparent) center bottom;
+  background-repeat: no-repeat;
+  background-size:
+    100% var(--space-7),
+    100% var(--space-7),
+    100% var(--space-3),
+    100% var(--space-3);
+  background-attachment: local, local, scroll, scroll;
 }
 
 .notice {

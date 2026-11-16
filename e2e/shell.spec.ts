@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const THEMES = [
   { name: 'graphite', colorScheme: 'dark' },
@@ -28,6 +28,17 @@ const tab = (page: Page, name: string | RegExp) => page.getByRole('tab', { name 
 const strip = (page: Page) => page.getByRole('tablist', { name: 'Tabs' }).getByRole('tab');
 const newConnection = (page: Page) =>
   page.getByRole('button', { name: 'New connection' }).first().click();
+// The connection dialog keeps its options in sections closed by default; a header names the
+// section, then sums up what it holds.
+const section = (dialog: Locator, title: string) =>
+  dialog.getByRole('button', { name: new RegExp(`^${title.replace(/[()]/g, '\\$&')}`) });
+async function openSection(dialog: Locator, title: string) {
+  const header = section(dialog, title);
+  if ((await header.getAttribute('aria-expanded')) !== 'true') await header.click();
+  await expect(header).toHaveAttribute('aria-expanded', 'true');
+}
+const chooseEngine = (dialog: Locator, engine: string) =>
+  dialog.getByLabel('Engine').selectOption({ label: engine });
 
 for (const { name, colorScheme } of THEMES) {
   test.describe(`${name} theme`, () => {
@@ -73,27 +84,44 @@ for (const { name, colorScheme } of THEMES) {
       await newConnection(page);
       const dialog = page.getByRole('dialog', { name: 'New connection' });
       await expect(dialog).toBeVisible();
-      await expect(dialog.getByLabel('TLS')).toHaveValue('prefer');
+      // What connecting needs is open; every option waits in a closed section.
+      for (const title of [
+        'Environment and safeguards',
+        'Encryption (TLS)',
+        'SSH tunnel',
+        'Advanced options',
+      ]) {
+        await expect(section(dialog, title)).toHaveAttribute('aria-expanded', 'false');
+      }
+      const tls = section(dialog, 'Encryption (TLS)');
+      await expect(tls).toContainText('Prefer');
       await dialog.getByLabel('Host').fill('db-eu.example.com');
-      // A remote host checks the certificate by default (SPEC §9).
-      await expect(dialog.getByLabel('TLS')).toHaveValue('verifyFull');
-      await expect(dialog).toContainText('the default for a remote host');
+      // A remote host checks the certificate by default (SPEC §9), which the closed section says.
+      await expect(tls).toContainText('Verify certificate');
       await dialog.getByLabel('Database', { exact: true }).fill('shop');
       await dialog.getByLabel('User').fill('shop_ro');
       await dialog.getByRole('textbox', { name: 'Password' }).fill('s3cret');
-      await dialog.getByRole('radio', { name: 'prod' }).click();
       await capture(page, name, 'dialog-postgres');
+      await openSection(dialog, 'Encryption (TLS)');
+      await expect(dialog.getByLabel('TLS', { exact: true })).toHaveValue('verifyFull');
+      await expect(dialog).toContainText('the default for a remote host');
+      await openSection(dialog, 'Environment and safeguards');
+      await dialog.getByRole('radio', { name: 'prod' }).click();
+      await expect(section(dialog, 'Environment and safeguards')).toContainText('prod');
+      await capture(page, name, 'dialog-postgres-sections');
     });
 
     test('connection dialog: SQL Server, read-only without an engine guard', async ({ page }) => {
       await newConnection(page);
       const dialog = page.getByRole('dialog', { name: 'New connection' });
-      await dialog.getByRole('radio', { name: 'SQL Server' }).click();
+      await chooseEngine(dialog, 'SQL Server');
       await expect(dialog.getByRole('note')).toHaveCount(0);
       await expect(dialog.getByLabel('Port')).toHaveValue('1433');
       await expect(dialog.getByLabel('User')).toHaveValue('sa');
       await dialog.getByLabel('Host').fill('sql.example.com');
+      await openSection(dialog, 'Environment and safeguards');
       await dialog.getByRole('switch', { name: 'Read-only' }).click();
+      await expect(section(dialog, 'Environment and safeguards')).toContainText('read-only');
       await expect(dialog.getByText('SQL Server has no read-only session')).toBeVisible();
       await capture(page, name, 'dialog-mssql-read-only');
     });
@@ -101,8 +129,14 @@ for (const { name, colorScheme } of THEMES) {
     test('connection dialog: SQLite', async ({ page }) => {
       await newConnection(page);
       const dialog = page.getByRole('dialog', { name: 'New connection' });
-      await dialog.getByRole('radio', { name: 'SQLite' }).click();
+      await chooseEngine(dialog, 'SQLite');
       await expect(dialog.getByLabel('Host')).toHaveCount(0);
+      // A file has no TLS and no tunnel: only the environment and the statement limit remain.
+      await expect(section(dialog, 'Encryption (TLS)')).toHaveCount(0);
+      await expect(section(dialog, 'SSH tunnel')).toHaveCount(0);
+      await openSection(dialog, 'Advanced options');
+      await expect(dialog.getByLabel('Statement timeout (s)')).toBeVisible();
+      await expect(dialog.getByLabel('Connect timeout (s)')).toHaveCount(0);
       await dialog.getByLabel('Database file').fill('/home/ana/data/app.sqlite');
       await capture(page, name, 'dialog-sqlite');
     });
@@ -110,10 +144,11 @@ for (const { name, colorScheme } of THEMES) {
     test('connection dialog: MySQL, a custom environment', async ({ page }) => {
       await newConnection(page);
       const dialog = page.getByRole('dialog', { name: 'New connection' });
-      await dialog.getByRole('radio', { name: 'MySQL / MariaDB' }).click();
+      await chooseEngine(dialog, 'MySQL / MariaDB');
       await expect(dialog.getByText(/is not available/)).toHaveCount(0);
       await expect(dialog.getByLabel('Port')).toHaveValue('3306');
       await expect(dialog.getByLabel('User')).toHaveValue('root');
+      await openSection(dialog, 'Environment and safeguards');
       await dialog.getByRole('radio', { name: 'Custom' }).click();
       await dialog.getByLabel('Environment name').fill('QA');
       await dialog.getByRole('radio', { name: 'Purple' }).click();
@@ -146,7 +181,9 @@ for (const { name, colorScheme } of THEMES) {
       await expect(dialog.getByLabel('Port')).toHaveValue('6543');
       await expect(dialog.getByLabel('Database', { exact: true })).toHaveValue('shop');
       await expect(dialog.getByLabel('User')).toHaveValue('ana');
-      await expect(dialog.getByLabel('TLS')).toHaveValue('verifyFull');
+      await expect(section(dialog, 'Encryption (TLS)')).toContainText('Verify certificate');
+      await openSection(dialog, 'Encryption (TLS)');
+      await expect(dialog.getByLabel('TLS', { exact: true })).toHaveValue('verifyFull');
       // The password stays with the backend: the field is empty and says where it comes from.
       await expect(dialog.getByRole('textbox', { name: 'Password' })).toHaveValue('');
       await expect(dialog.getByRole('textbox', { name: 'Password' })).toHaveAttribute(
@@ -224,6 +261,8 @@ for (const { name, colorScheme } of THEMES) {
       await dialog.getByLabel('Host').fill('slow.example.com');
       await dialog.getByLabel('Database', { exact: true }).fill('slow');
       await dialog.getByRole('textbox', { name: 'Password' }).fill('secret');
+      await expect(section(dialog, 'Advanced options')).toContainText('Defaults');
+      await openSection(dialog, 'Advanced options');
       const fields = dialog.getByTestId('timeout-fields');
       await expect(fields.getByLabel('Connect timeout (s)')).toHaveAttribute(
         'placeholder',
@@ -239,6 +278,11 @@ for (const { name, colorScheme } of THEMES) {
       await sidebarItem(page, 'slow@slow\\.example\\.com').click({ button: 'right' });
       await page.getByRole('menuitem', { name: 'Edit…' }).click();
       const edit = page.getByRole('dialog', { name: 'Edit connection' });
+      // Closed, the section says what was set.
+      await expect(section(edit, 'Advanced options')).toContainText(
+        'statements 1 s · keep-alive 30 s',
+      );
+      await openSection(edit, 'Advanced options');
       await expect(edit.getByLabel('Statement timeout (s)')).toHaveValue('1');
       await expect(edit.getByLabel('Keep-alive (s)')).toHaveValue('30');
       await edit.getByRole('button', { name: 'Cancel' }).click();
@@ -267,6 +311,7 @@ for (const { name, colorScheme } of THEMES) {
       await dialog.getByLabel('Host').fill('mtls.example.com');
       await dialog.getByLabel('Database', { exact: true }).fill('mtls');
       await dialog.getByRole('textbox', { name: 'Password' }).fill('secret');
+      await openSection(dialog, 'Encryption (TLS)');
       const fields = dialog.getByTestId('tls-client-fields');
       await expect(fields).toBeVisible();
       // The key, its passphrase and the "remember" switch follow the certificate.
@@ -294,6 +339,9 @@ for (const { name, colorScheme } of THEMES) {
       await fields.getByLabel('Certificate file').fill('/certs/missing.crt');
       await dialog.getByRole('button', { name: 'Test connection' }).click();
       await expect(alert).toContainText('could not be used');
+      // The field to fix is reached even from a closed section, which opens.
+      await section(dialog, 'Encryption (TLS)').click();
+      await expect(fields).toHaveCount(0);
       await alert.getByRole('button', { name: 'Edit the connection' }).click();
       await expect(fields.getByLabel('Certificate file')).toBeFocused();
       await fields.getByLabel('Certificate file').fill('/certs/client.crt');
@@ -304,6 +352,10 @@ for (const { name, colorScheme } of THEMES) {
       await sidebarItem(page, 'mtls@mtls\\.example\\.com').click({ button: 'right' });
       await page.getByRole('menuitem', { name: 'Edit…' }).click();
       const edit = page.getByRole('dialog', { name: 'Edit connection' });
+      await expect(section(edit, 'Encryption (TLS)')).toContainText(
+        'Verify certificate · client certificate',
+      );
+      await openSection(edit, 'Encryption (TLS)');
       await expect(edit.getByLabel('Certificate file')).toHaveValue('/certs/client.crt');
       await expect(edit.getByLabel('Private key file')).toHaveValue('/certs/client.encrypted.key');
       await expect(
@@ -318,6 +370,7 @@ for (const { name, colorScheme } of THEMES) {
       await dialog.getByLabel('Host').fill('keyed.example.com');
       await dialog.getByLabel('Database', { exact: true }).fill('keyed');
       await dialog.getByRole('textbox', { name: 'Password' }).fill('secret');
+      await openSection(dialog, 'Encryption (TLS)');
       const fields = dialog.getByTestId('tls-client-fields');
       await fields.getByLabel('Certificate file').fill('/certs/client.pem');
       await fields.getByLabel('Private key file').fill('/certs/client.encrypted.key');
@@ -339,8 +392,9 @@ for (const { name, colorScheme } of THEMES) {
     test('SQL Server has no TLS client certificate to set', async ({ page }) => {
       await newConnection(page);
       const dialog = page.getByRole('dialog', { name: 'New connection' });
+      await openSection(dialog, 'Encryption (TLS)');
       await expect(dialog.getByTestId('tls-client-fields')).toBeVisible();
-      await dialog.getByRole('radio', { name: 'SQL Server' }).click();
+      await chooseEngine(dialog, 'SQL Server');
       await expect(dialog.getByTestId('tls-client-fields')).toBeHidden();
     });
 
@@ -530,7 +584,9 @@ test.describe('french', () => {
     await page.getByRole('button', { name: 'Nouvelle connexion' }).first().click();
     const dialog = page.getByRole('dialog', { name: 'Nouvelle connexion' });
     await expect(dialog.getByLabel('Hôte')).toBeVisible();
-    await dialog.getByRole('radio', { name: 'SQLite' }).click();
+    await expect(dialog.getByRole('button', { name: /^Chiffrement \(TLS\)/ })).toBeVisible();
+    await capture(page, 'graphite', 'french-dialog-server');
+    await dialog.getByLabel('Moteur').selectOption({ label: 'SQLite' });
     await expect(dialog.getByLabel('Fichier de base de données')).toBeVisible();
     await dialog.getByLabel('Fichier de base de données').fill('/home/ana/data/app.sqlite');
     await capture(page, 'graphite', 'french-dialog');

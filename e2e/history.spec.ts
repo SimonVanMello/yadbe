@@ -242,6 +242,7 @@ for (const { name, colorScheme } of THEMES) {
       await sidebarItem(page, 'local postgres').click({ button: 'right' });
       await page.getByRole('menuitem', { name: 'Edit…' }).click();
       const dialog = page.getByRole('dialog', { name: /Edit/ });
+      await dialog.getByRole('button', { name: /^Environment and safeguards/ }).click();
       const toggle = dialog.getByRole('switch', { name: 'Record the history' });
       await expect(toggle).toBeChecked();
       await toggle.scrollIntoViewIfNeeded();

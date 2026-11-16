@@ -52,6 +52,7 @@ async function makeStagingProd(page: Page) {
   await item(page, /^shop · staging,/).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Edit…' }).click();
   const form = page.getByRole('dialog', { name: 'Edit connection' });
+  await form.getByRole('button', { name: /^Environment and safeguards/ }).click();
   await form.getByRole('radio', { name: 'prod' }).click();
   await form.getByRole('button', { name: 'Save' }).click();
   await expect(form).toBeHidden();

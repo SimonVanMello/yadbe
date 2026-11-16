@@ -6,11 +6,12 @@ import { showError } from '../../app/errors/presentError';
 import { useShellStore, type ConnectionDialogRequest } from '../../app/shellStore';
 import { translate, useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
-import { YadbeIpcError, type YadbeError } from '../../ipc';
+import { YadbeIpcError, type Engine, type YadbeError } from '../../ipc';
 import { Button } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { Field } from '../../ui/Field';
 import { Icon } from '../../ui/Icon';
+import { focusField } from '../../ui/reveal';
 import { Spinner } from '../../ui/Spinner';
 import { TextInput } from '../../ui/TextInput';
 import { toast } from '../../ui/toastStore';
@@ -43,14 +44,30 @@ import { pickKeyFile } from './pickKeyFile';
 import { activeHops, type SshHopName } from './sshModel';
 import { TestResultView, type TestState } from './TestResultView';
 
+/** What a connection string looks like for the chosen engine, as the field's placeholder. */
+function stringExample(engine: Engine): string {
+  switch (engine) {
+    case 'mssql':
+      return 'sqlserver://host:1433;database=db;user=sa';
+    case 'mysql':
+      return 'mysql://user:password@host:3306/database';
+    case 'mongodb':
+      return 'mongodb://user:password@host:27017/database';
+    case 'redis':
+      return 'redis://user:password@host:6379/0';
+    case 'elasticsearch':
+      return 'https://user:password@host:9200';
+    case 'sqlite':
+      return 'sqlite:///path/to/database.db';
+    default:
+      return 'postgres://user:password@host:5432/database';
+  }
+}
+
 function toYadbeError(error: unknown): YadbeError {
   if (error instanceof YadbeIpcError) return error.error;
   const message = error instanceof Error ? error.message : String(error);
   return { code: 'internal', message: { en: message, fr: message }, action: null, detail: null };
-}
-
-function focusField(name: string): void {
-  document.querySelector<HTMLElement>(`[data-field="${name}"]`)?.focus();
 }
 
 interface DialogBodyProps {
@@ -288,7 +305,6 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
         if (!open) close();
       }}
       title={editing ? t('connection.edit.title') : t('connection.new.title')}
-      description={editing ? undefined : t('connection.new.description')}
       notice={
         test.status === 'idle' ? undefined : (
           <TestResultView
@@ -354,54 +370,6 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
       }
     >
       <form id="connection-form" className={styles.body} onSubmit={submit} noValidate>
-        <Field
-          label={t('connection.string')}
-          htmlFor="connection-string"
-          hint={t('connection.string.hint')}
-        >
-          <div className={styles.pasteRow}>
-            <TextInput
-              id="connection-string"
-              mono
-              value={pasted}
-              placeholder="postgres://user:password@host:5432/database"
-              onChange={(event) => {
-                setPasted(event.target.value);
-                setPasteError(null);
-              }}
-              onPaste={(event) => {
-                // A pasted string fills the form at once, no extra click.
-                const text = event.clipboardData.getData('text');
-                if (text.trim() === '') return;
-                event.preventDefault();
-                setPasted(text);
-                fillFrom(text);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  fillFrom(pasted);
-                }
-              }}
-            />
-            <Button
-              disabled={pasted.trim() === '' || parsing}
-              onClick={() => {
-                fillFrom(pasted);
-              }}
-            >
-              {t('connection.string.fill')}
-            </Button>
-          </div>
-        </Field>
-        {pasteError && (
-          <ErrorPanel compact title={t('connection.string.failed')} error={pasteError} />
-        )}
-        {ignoredKeys.length > 0 && (
-          <p className={styles.ignored} role="note">
-            {t('connection.string.ignored', { keys: ignoredKeys.join(', ') })}
-          </p>
-        )}
         <ConnectionForm
           draft={draft}
           engines={engines}
@@ -415,6 +383,60 @@ function DialogBody({ initial, engines, onClose }: DialogBodyProps) {
           sshSecretLocations={sshSecretLocations}
           onPickKey={pickKey}
           onPickTlsFile={pickTlsFile}
+          connectionString={
+            <Field
+              label={t('connection.string')}
+              htmlFor="connection-string"
+              hint={t('connection.string.hint')}
+            >
+              <div className={styles.pasteRow}>
+                <TextInput
+                  id="connection-string"
+                  mono
+                  value={pasted}
+                  placeholder={stringExample(draft.engine)}
+                  onChange={(event) => {
+                    setPasted(event.target.value);
+                    setPasteError(null);
+                  }}
+                  onPaste={(event) => {
+                    // A pasted string fills the form at once, no extra click.
+                    const text = event.clipboardData.getData('text');
+                    if (text.trim() === '') return;
+                    event.preventDefault();
+                    setPasted(text);
+                    fillFrom(text);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      fillFrom(pasted);
+                    }
+                  }}
+                />
+                <Button
+                  disabled={pasted.trim() === '' || parsing}
+                  onClick={() => {
+                    fillFrom(pasted);
+                  }}
+                >
+                  {t('connection.string.fill')}
+                </Button>
+              </div>
+            </Field>
+          }
+          connectionStringFeedback={
+            <>
+              {pasteError && (
+                <ErrorPanel compact title={t('connection.string.failed')} error={pasteError} />
+              )}
+              {ignoredKeys.length > 0 && (
+                <p className={styles.ignored} role="note">
+                  {t('connection.string.ignored', { keys: ignoredKeys.join(', ') })}
+                </p>
+              )}
+            </>
+          }
         />
       </form>
     </Dialog>

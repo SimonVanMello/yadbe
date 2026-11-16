@@ -1,5 +1,6 @@
 import type { SecretLocation } from '../../ipc';
 import { DocumentConnectionFields } from './DocumentConnectionFields';
+import type { FormFrame } from './FamilyLayout';
 import type { ConnectionDraft, DraftErrors, EngineInfo } from './model';
 import { KeyValueConnectionFields } from './KeyValueConnectionFields';
 import { SearchConnectionFields } from './SearchConnectionFields';
@@ -8,6 +9,8 @@ import type { SshHopName, SshSecretLocations } from './sshModel';
 
 /** What the connection form gives the fields of an engine family. */
 export interface EngineFieldsProps {
+  /** The name, environment and timeouts every family places in its layout. */
+  frame: FormFrame;
   draft: ConnectionDraft;
   info: EngineInfo;
   errors: DraftErrors;
@@ -27,9 +30,9 @@ export interface EngineFieldsProps {
 }
 
 /**
- * The fields that say where and how to connect, chosen by the engine's family; the name, group,
- * environment and timeouts around them are common to every family. A family gets its
- * connection form by adding its case here.
+ * The fields that say where and how to connect, chosen by the engine's family, laid out by
+ * `FamilyLayout` with the name, group, environment and timeouts common to every family (`frame`).
+ * A family gets its connection form by adding its case here.
  */
 export function EngineFields(props: EngineFieldsProps) {
   switch (props.info.capabilities.family) {

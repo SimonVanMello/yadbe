@@ -276,6 +276,7 @@ for (const { name, colorScheme } of THEMES) {
       await item(page, /^cache,/).click({ button: 'right' });
       await page.getByRole('menuitem', { name: 'Edit…' }).click();
       const dialog = page.getByRole('dialog', { name: 'Edit connection' });
+      await dialog.getByRole('button', { name: /^Environment and safeguards/ }).click();
       await dialog.getByRole('switch', { name: /^Read-only/ }).click();
       await dialog.getByRole('button', { name: 'Save' }).click();
       await expect(dialog).toBeHidden();

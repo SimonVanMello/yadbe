@@ -1,0 +1,90 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: var(--control-height-md);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--fg-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.header:hover {
+  background: var(--bg-hover);
+}
+
+.header:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+.section[data-state='open'] > .header {
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.icon {
+  flex: none;
+  color: var(--fg-secondary);
+}
+
+.title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mark {
+  flex: none;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+
+/* One line whatever the window: cut with an ellipsis, the full text in its tooltip. */
+.summary {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-align: right;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.summary[data-modified] {
+  color: var(--fg-secondary);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+
+/* Radix keeps an empty content element while closed: `display: flex` must not show it. */
+.body[hidden] {
+  display: none;
+}

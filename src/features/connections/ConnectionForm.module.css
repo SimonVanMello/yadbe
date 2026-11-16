@@ -4,6 +4,13 @@
   gap: var(--space-4);
 }
 
+/* The engine and the connection string share the first line: both say what to connect to. */
+.topRow {
+  display: grid;
+  grid-template-columns: minmax(0, var(--connection-engine-width)) minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
 .row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -22,13 +29,22 @@
 .fileRow {
   display: flex;
   gap: var(--space-2);
+  min-width: 0;
 }
 
-.separator {
-  width: 100%;
-  margin: var(--space-1) 0;
-  border: 0;
-  border-top: var(--border-width) solid var(--border-subtle);
+/* The closed-by-default sections, one under the other. */
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.environmentSummary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  vertical-align: middle;
 }
 
 .secret {
@@ -59,6 +75,8 @@
 }
 
 .legend {
+  /* A legend is no flex item: the fieldset's gap does not part it from the first field. */
+  margin-bottom: var(--space-3);
   padding: 0;
   color: var(--fg-secondary);
   font-size: var(--text-xs);
