@@ -166,6 +166,18 @@ for (const { name, colorScheme } of THEMES) {
       await expect(page.getByTestId('index-count')).toHaveText('25,000 documents');
     });
 
+    test('⌘R runs the index query again, with what the fields hold', async ({ page }) => {
+      await connect(page);
+      await item(page, /^orders$/).dblclick();
+      await expect(page.getByTestId('index-range')).toHaveText('1–100');
+      await page.getByRole('button', { name: 'Next page' }).click();
+      await expect(page.getByTestId('index-range')).toHaveText('101–200');
+      await page.locator('[data-field="query"]').fill('status:paid');
+      await page.keyboard.press('ControlOrMeta+r');
+      await expect(page.getByTestId('index-count')).toHaveText('310 documents');
+      await expect(page.getByTestId('index-range')).toHaveText('1–100');
+    });
+
     test('the console shows hits, JSON answers, text and tables', async ({ page }) => {
       await openConsole(
         page,

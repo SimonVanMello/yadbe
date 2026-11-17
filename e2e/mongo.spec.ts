@@ -162,6 +162,22 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'collection-documents');
     });
 
+    test('⌘R runs the collection query again, with what the fields hold', async ({ page }) => {
+      await openOrders(page);
+      await page.getByRole('button', { name: 'Next page' }).click();
+      await expect(page.getByTestId('collection-range')).toHaveText('101–200');
+      await page.locator('[data-field="filter"]').fill('{ "status": "paid" }');
+      await page.keyboard.press('ControlOrMeta+r');
+      await expect(page.getByTestId('collection-range')).toHaveText('1–100');
+      await page.getByRole('button', { name: 'Count', exact: true }).click();
+      await expect(page.getByTestId('collection-count')).toHaveText(/documents match/);
+      // From the grid too, and F5 the same.
+      await page.getByRole('button', { name: 'Next page' }).click();
+      await page.getByRole('grid', { name: /^Documents of catalog\.orders/ }).click();
+      await page.keyboard.press('F5');
+      await expect(page.getByTestId('collection-range')).toHaveText('1–100');
+    });
+
     test('the mongosh editor runs a script: documents, messages, the status bar', async ({
       page,
     }) => {

@@ -85,6 +85,12 @@ export function applyIndexQuery(tabId: string): Promise<void> {
   return fetchIndexPage(tabId, 0);
 }
 
+/** `Mod+R` / F5 on the tab: the query the fields hold, unless the tab is still opening or reading. */
+export function refreshIndex(tabId: string): void {
+  const { phase, loading } = getIndexTab(tabId);
+  if (phase === 'ready' && !loading) void applyIndexQuery(tabId);
+}
+
 export function setIndexDraft(tabId: string, fields: Partial<IndexQueryFields>): void {
   patch(tabId, { draft: { ...getIndexTab(tabId).draft, ...fields } });
 }

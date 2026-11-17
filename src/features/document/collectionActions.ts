@@ -79,6 +79,12 @@ export function applyQuery(tabId: string): Promise<void> {
   return fetchPage(tabId, 0);
 }
 
+/** `Mod+R` / F5 on the tab: the query the fields hold, unless the tab is still opening or reading. */
+export function refreshCollection(tabId: string): void {
+  const { phase, loading } = getCollectionTab(tabId);
+  if (phase === 'ready' && !loading) void applyQuery(tabId);
+}
+
 export function setDraft(tabId: string, fields: Partial<QueryFields>): void {
   patch(tabId, { draft: { ...getCollectionTab(tabId).draft, ...fields } });
 }

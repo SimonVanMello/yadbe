@@ -3,7 +3,10 @@ import { useEffect } from 'react';
 import { registerActions } from '../../app/actions';
 import { showError } from '../../app/errors/presentError';
 import { translate, useI18nStore } from '../../i18n/i18n';
+import { refreshCollection } from '../document/collectionActions';
 import { showObjectDdl } from '../objects/ddlActions';
+import { findConnection } from '../query/connectionLookup';
+import { refreshIndex } from '../search/indexActions';
 import { pinOf } from '../objects/objectsModel';
 import { usePinStore } from '../objects/pinStore';
 import { showProperties } from '../objects/propertiesStore';
@@ -75,8 +78,18 @@ export function useTableActions(): void {
       'table.preview': onEdit((tabId) => {
         void flushEditor(tabId).then(() => openPreview(tabId));
       }),
+      // A collection or an index tab is a table tab of another family: it runs its query again.
       'table.refresh': onTable((tabId) => {
-        void refreshTable(tabId);
+        switch (findConnection(tableTabOf(tabId)?.connectionId ?? null)?.family) {
+          case 'document':
+            refreshCollection(tabId);
+            return;
+          case 'search':
+            refreshIndex(tabId);
+            return;
+          default:
+            void refreshTable(tabId);
+        }
       }),
       'table.filter': onTable((tabId) => {
         useFilterRequests.getState().request(tabId);
