@@ -91,3 +91,12 @@
   /* Elevation */
   --shadow-popover: 0 12px 40px rgb(0 0 0 / 0.5);
 }
+
+/* High contrast: stronger text and borders on the same surfaces. */
+[data-theme='graphite'][data-contrast='high'] {
+  --fg-primary: #f2f4f8;
+  --fg-secondary: #c4c9d4;
+  --fg-muted: #b2b6bd;
+  --border-subtle: #5f6674;
+  --border-strong: #7d8594;
+}

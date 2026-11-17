@@ -39,7 +39,7 @@ Same shell and frontend stack as yaggui, so primitives, themes, i18n and tooling
 | App shell | **Tauri 2** | Small binary, low idle RAM, native Rust backend. |
 | Frontend | React 19 + strict TypeScript + Vite + pnpm | Same as yaggui. |
 | Frontend state | Zustand (UI) + TanStack Query (server data) | Metadata and result windows are cached and invalidated precisely. |
-| Styles | CSS Modules + CSS variable tokens, Radix UI primitives | Graphite (dark) and Paper (light) themes taken from yaggui. |
+| Styles | CSS Modules + CSS variable tokens, Radix UI primitives | yaggui's color theme catalogue: Graphite (dark) and Paper (light) by default. |
 | SQL editor | **CodeMirror 6** (`@codemirror/lang-sql`, dialect per engine) | Light, extensible completion source fed by the cached schema. |
 | Result grid | In-house grid on TanStack Virtual (rows **and** columns) | Existing grids are heavy or licensed; only visible cells exist in the DOM. Falls back to canvas if P-04 is not met on WebKitGTK. |
 | Async runtime | `tokio` | Required by the drivers. |
@@ -298,7 +298,7 @@ Milestone M4, as built (decisions in `docs/analysis/NOSQL.md`, section 8). The r
 
 ## 7. UI style
 
-Themes **Graphite** (dark) and **Paper** (light), tokens copied from yaggui's `src/theme` (`tokens.css`, `graphite.css`, `paper.css`), fonts Inter and JetBrains Mono bundled. The grid and the editor use the mono font. Additions specific to yadbe: environment colors (`--env-dev`, `--env-staging`, `--env-prod`, custom), cell state colors (modified, inserted, deleted, null), SQL syntax colors.
+Themes: yaggui's catalogue, **Graphite** (dark) and **Paper** (light) by default, plus Terminal and the generated themes (Catppuccin, VS Code, JetBrains, GitHub, classics), one for the light mode and one for the dark mode, chosen in a gallery that previews them live (Preferences) or from the palette; a Terminal interface style and a high contrast mode go with any of them. Tokens copied from yaggui's `src/theme` (`tokens.css`, `graphite.css`, `paper.css`, `terminal.css`, the palettes and their generator), fonts Inter and JetBrains Mono bundled. The grid and the editor use the mono font. Additions specific to yadbe: environment colors (`--env-dev`, `--env-staging`, `--env-prod`, custom), cell state colors (modified, inserted, deleted, null), SQL syntax colors.
 
 ## 8. Persisted data
 

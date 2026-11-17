@@ -42,8 +42,9 @@ function patch(change: Partial<PreferenceValues>): void {
 }
 
 useThemeStore.subscribe((state) => {
-  if (usePreferenceStore.getState().values.theme !== state.preference) {
-    patch({ theme: state.preference });
+  const { values } = usePreferenceStore.getState();
+  if (values.theme !== state.preference || values.style !== state.style) {
+    patch({ theme: state.preference, style: state.style });
   }
 });
 useI18nStore.subscribe((state) => {
@@ -66,6 +67,7 @@ export function usePreference<K extends PreferenceKey>(key: K): PreferenceValues
 export function setPreference<K extends PreferenceKey>(key: K, value: PreferenceValues[K]): void {
   const next = normalize(key, value);
   if (key === 'theme') useThemeStore.getState().setPreference(normalize('theme', next));
+  else if (key === 'style') useThemeStore.getState().setStyle(normalize('style', next));
   else if (key === 'locale') useI18nStore.getState().setLocale(normalize('locale', next));
   patch({ [key]: next });
 }
@@ -99,6 +101,7 @@ export async function restoreAndPersistPreferences(): Promise<() => void> {
         ...backendValues(backend),
         ...readUiPreferences(saved, legacy),
         theme: useThemeStore.getState().preference,
+        style: useThemeStore.getState().style,
         locale: useI18nStore.getState().locale,
       },
     });

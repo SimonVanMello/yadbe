@@ -16,6 +16,7 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc -b",
     "test": "vitest run",
+    "themes": "vitest run src/theme/themeCss.test.ts --update",
     "check": "node scripts/check-case.mjs && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test",
     "screenshots": "playwright test --config playwright.screenshots.config.ts",
     "test:ui": "playwright test",

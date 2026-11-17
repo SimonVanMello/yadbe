@@ -169,7 +169,7 @@ async function restorePreferences(): Promise<void> {
   try {
     const preferences = await loadPreferences();
     applyStoredPreferences(preferences);
-    initTheme(preferences.theme);
+    initTheme(preferences);
     await loadI18n(preferences.locale);
   } catch (error) {
     console.warn('Saved preferences unavailable, keeping the local ones', error);

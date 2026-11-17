@@ -43,6 +43,33 @@ pub enum ThemePreference {
     System,
 }
 
+/// Interface style: `Terminal` is monospace with square corners and dense rows. It is the shape
+/// only: it goes with any color theme (the `terminal` color theme has the matching colors).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ThemeStyle {
+    #[default]
+    Standard,
+    Terminal,
+}
+
+/// Color theme of each mode when nothing was chosen: ids of the frontend catalogue.
+pub const DEFAULT_LIGHT_THEME: &str = "paper";
+pub const DEFAULT_DARK_THEME: &str = "graphite";
+const MAX_THEME_ID: usize = 64;
+
+/// A theme id ends up in a `data-theme` attribute and a CSS selector: lowercase words only.
+/// The backend does not know the catalogue: an unknown id falls back to the default theme of
+/// its mode in the frontend.
+pub fn is_theme_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_THEME_ID
+        && !id.starts_with('-')
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum Locale {
@@ -68,7 +95,16 @@ pub const JOURNAL_AGE_DAYS_RANGE: (u32, u32) = (1, 3650);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Preferences {
+    /// Light / dark mode: `System` follows the OS and switches between the two themes below.
     pub theme: ThemePreference,
+    /// Color theme of the light mode: an id of the frontend catalogue (`paper`, `latte`…).
+    pub light_theme: String,
+    /// Color theme of the dark mode (`graphite`, `mocha`…).
+    pub dark_theme: String,
+    /// Interface style.
+    pub style: ThemeStyle,
+    /// Stronger borders and text contrast.
+    pub high_contrast: bool,
     /// `null`: follow the OS language.
     pub locale: Option<Locale>,
     pub density: Density,
@@ -92,6 +128,10 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             theme: ThemePreference::System,
+            light_theme: DEFAULT_LIGHT_THEME.to_owned(),
+            dark_theme: DEFAULT_DARK_THEME.to_owned(),
+            style: ThemeStyle::Standard,
+            high_contrast: false,
             locale: None,
             density: Density::Comfortable,
             ui_state: None,

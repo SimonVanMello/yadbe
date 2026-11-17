@@ -4057,7 +4057,16 @@ export type PlannedStatement = {
 
 /**  App preferences (F-125). The settings only the frontend reads live in `ui_state`. */
 export type Preferences = {
+	/**  Light / dark mode: `System` follows the OS and switches between the two themes below. */
 	theme: ThemePreference,
+	/**  Color theme of the light mode: an id of the frontend catalogue (`paper`, `latte`…). */
+	lightTheme: string,
+	/**  Color theme of the dark mode (`graphite`, `mocha`…). */
+	darkTheme: string,
+	/**  Interface style. */
+	style: ThemeStyle,
+	/**  Stronger borders and text contrast. */
+	highContrast: boolean,
 	/**  `null`: follow the OS language. */
 	locale: Locale | null,
 	density: Density,
@@ -5428,6 +5437,12 @@ export type TextRange = {
 };
 
 export type ThemePreference = "light" | "dark" | "system";
+
+/**
+ *  Interface style: `Terminal` is monospace with square corners and dense rows. It is the shape
+ *  only: it goes with any color theme (the `terminal` color theme has the matching colors).
+ */
+export type ThemeStyle = "standard" | "terminal";
 
 /**  How the transport is protected. `verifyFull` is the default for non-local hosts. */
 export type TlsMode = 

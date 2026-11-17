@@ -185,6 +185,10 @@ fn preferences_default_and_round_trip() {
     assert_eq!(store.preferences().expect("prefs"), Preferences::default());
     let prefs = Preferences {
         theme: ThemePreference::Dark,
+        light_theme: "latte".into(),
+        dark_theme: "tokyo-night".into(),
+        style: ThemeStyle::Terminal,
+        high_contrast: true,
         locale: Some(Locale::Fr),
         density: Density::Compact,
         ui_state: Some("{\"sidebar\":280}".into()),
@@ -220,6 +224,14 @@ fn preferences_default_and_round_trip() {
             connect_timeout_secs: 601,
             ..Preferences::default()
         },
+        Preferences {
+            dark_theme: "x'] body{".into(),
+            ..Preferences::default()
+        },
+        Preferences {
+            light_theme: String::new(),
+            ..Preferences::default()
+        },
     ] {
         assert!(store.set_preferences(&bad).is_err());
     }
@@ -248,6 +260,27 @@ fn preferences_saved_before_the_backend_fields_existed_get_their_defaults() {
     assert_eq!(prefs.history_max_entries, 50_000);
     assert_eq!(prefs.history_max_age_days, 365);
     assert_eq!(prefs.connect_timeout_secs, 15);
+    assert_eq!(prefs.light_theme, DEFAULT_LIGHT_THEME);
+    assert_eq!(prefs.dark_theme, DEFAULT_DARK_THEME);
+    assert_eq!(prefs.style, ThemeStyle::Standard);
+    assert!(!prefs.high_contrast);
+}
+
+#[test]
+fn a_theme_id_edited_by_hand_falls_back_to_the_default() {
+    let store = store();
+    {
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO preferences (key, value) VALUES ('dark_theme', 'Not A Theme')",
+            [],
+        )
+        .expect("insert");
+    }
+    assert_eq!(
+        store.preferences().expect("prefs").dark_theme,
+        DEFAULT_DARK_THEME
+    );
 }
 
 #[test]

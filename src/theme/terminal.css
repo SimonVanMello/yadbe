@@ -1,0 +1,103 @@
+/* D · Terminal: the colors of yaggui's style D, accent green. The shape of the style (monospace,
+   square corners) is `data-style='terminal'` in tokens.css: it goes with any color theme. */
+[data-theme='terminal'] {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg-app: #0a0a0a;
+  --bg-panel: #0d0d0d;
+  --bg-elevated: #141414;
+  --bg-hover: #161616;
+  --bg-active: #1d1d1d;
+  --bg-selected: #15241a;
+  --bg-input: #000000;
+  --bg-titlebar: #000000;
+  --bg-scrim: rgb(0 0 0 / 0.5);
+
+  /* Text. The muted gray of the mockup (#6b6b6b) is 3.7:1 on the app background: lightened to AA. */
+  --fg-primary: #d4d4d4;
+  --fg-secondary: #a3a3a3;
+  --fg-muted: #8a8a8a;
+
+  /* Borders */
+  --border-subtle: #222222;
+  --border-strong: #333333;
+
+  /* Disabled controls: flat and clearly inert, never a dimmed accent. */
+  --bg-disabled: #141414;
+  --fg-disabled: #5a5a5a;
+
+  /* Accent and semantic colors */
+  --accent: #4ade80;
+  --accent-hover: #6ee7a0;
+  --accent-fg: #0a0a0a;
+  --accent-soft: rgb(74 222 128 / 0.12);
+  --success: #4ade80;
+  --warning: #facc15;
+  --danger: #f87171;
+  --danger-soft: rgb(248 113 113 / 0.14);
+  --info: #38bdf8;
+  --on-warning: #000000;
+
+  /* Connection environments (F-007): tag colors, readable as text and as a stripe. */
+  --env-dev: #4ade80;
+  --env-staging: #facc15;
+  --env-prod: #f87171;
+  --env-dev-soft: rgb(74 222 128 / 0.14);
+  --env-staging-soft: rgb(250 204 21 / 0.14);
+  --env-prod-soft: rgb(248 113 113 / 0.14);
+
+  /* Connection colors (F-007): user-picked tags for a connection, distinct from environments. */
+  --tag-1: #38bdf8;
+  --tag-2: #22d3ee;
+  --tag-3: #4ade80;
+  --tag-4: #a3e635;
+  --tag-5: #facc15;
+  --tag-6: #fb923c;
+  --tag-7: #f87171;
+  --tag-8: #f472b6;
+  --tag-9: #c084fc;
+
+  /* Data grid cell states (SPEC §7): text/marker color and a background tint of each. */
+  --cell-modified: #facc15;
+  --cell-inserted: #4ade80;
+  --cell-deleted: #f87171;
+  --cell-null: #8a8a8a;
+  --cell-modified-bg: rgb(250 204 21 / 0.14);
+  --cell-inserted-bg: rgb(74 222 128 / 0.14);
+  --cell-deleted-bg: rgb(248 113 113 / 0.14);
+
+  /* Data grid selection (F-063): opaque, so every text color keeps its contrast on it. */
+  --grid-selection-bg: #13281b;
+  --grid-selection-header-bg: #173422;
+
+  /* Syntax */
+  --syn-keyword: #f472b6;
+  --syn-string: #4ade80;
+  --syn-tag: #38bdf8;
+  --syn-function: #facc15;
+  --syn-number: #fb923c;
+  --syn-comment: #8a8a8a;
+  --syn-type: #22d3ee;
+  --syn-operator: #a3a3a3;
+  --syn-special: #c084fc;
+
+  /* SQL editor (F-040): selection, current line, statement about to run, matches. */
+  --editor-selection: rgb(74 222 128 / 0.26);
+  --editor-active-line: rgb(255 255 255 / 0.035);
+  --editor-statement: rgb(74 222 128 / 0.12);
+  --editor-bracket-match: rgb(74 222 128 / 0.3);
+  --editor-search-match: rgb(250 204 21 / 0.3);
+
+  /* Elevation */
+  --shadow-popover: 0 0 0 1px #333333, 0 12px 32px rgb(0 0 0 / 0.6);
+}
+
+/* High contrast: stronger text and borders on the same surfaces. */
+[data-theme='terminal'][data-contrast='high'] {
+  --fg-primary: #ffffff;
+  --fg-secondary: #e6e6e6;
+  --fg-muted: #bdbdbd;
+  --border-subtle: #6b6b6b;
+  --border-strong: #9a9a9a;
+}

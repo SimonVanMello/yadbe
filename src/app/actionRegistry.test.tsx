@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { useSessions } from '../features/connections/connectionStore';
 import { initI18n } from '../i18n/i18n';
 import { mockBackend } from '../ipc/mockClient';
+import { DEFAULT_PREFERENCES } from './preferences';
 import { initTheme } from '../theme/themeStore';
 import { ACTION_IDS, registeredActions } from './actions';
 import { App } from './App';
@@ -18,7 +19,7 @@ beforeEach(() => {
   mockBackend.setLatency(0);
   queryClient.clear();
   window.location.hash = '';
-  initTheme('dark');
+  initTheme({ ...DEFAULT_PREFERENCES, theme: 'dark' });
   initI18n('en');
   useSessions.setState({ sessions: {}, errors: {} });
 });

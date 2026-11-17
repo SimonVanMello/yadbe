@@ -35,6 +35,10 @@ pub const MAX_TAB_CONTENT_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_TABS: usize = 200;
 
 const PREF_THEME: &str = "theme";
+const PREF_LIGHT_THEME: &str = "light_theme";
+const PREF_DARK_THEME: &str = "dark_theme";
+const PREF_STYLE: &str = "style";
+const PREF_HIGH_CONTRAST: &str = "high_contrast";
 const PREF_LOCALE: &str = "locale";
 const PREF_DENSITY: &str = "density";
 const PREF_UI_STATE: &str = "ui_state";
@@ -708,6 +712,19 @@ impl Store {
             theme: parse(PREF_THEME)?
                 .and_then(|v| serde_json::from_str(&v).ok())
                 .unwrap_or(defaults.theme),
+            // A value edited by hand or written by a newer version must not break the app.
+            light_theme: Self::pref(&conn, PREF_LIGHT_THEME)?
+                .filter(|id| is_theme_id(id))
+                .unwrap_or(defaults.light_theme),
+            dark_theme: Self::pref(&conn, PREF_DARK_THEME)?
+                .filter(|id| is_theme_id(id))
+                .unwrap_or(defaults.dark_theme),
+            style: parse(PREF_STYLE)?
+                .and_then(|v| serde_json::from_str(&v).ok())
+                .unwrap_or(defaults.style),
+            high_contrast: Self::pref(&conn, PREF_HIGH_CONTRAST)?
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(defaults.high_contrast),
             locale: parse(PREF_LOCALE)?.and_then(|v| serde_json::from_str(&v).ok()),
             density: parse(PREF_DENSITY)?
                 .and_then(|v| serde_json::from_str(&v).ok())
@@ -751,6 +768,14 @@ impl Store {
 
     pub fn set_preferences(&self, preferences: &Preferences) -> Result<Preferences, YadbeError> {
         check_ui_state(preferences.ui_state.as_ref())?;
+        for id in [&preferences.light_theme, &preferences.dark_theme] {
+            if !is_theme_id(id) {
+                return Err(YadbeError::invalid_argument(
+                    format!("\"{id}\" is not a valid theme id."),
+                    format!("« {id} » n'est pas un identifiant de thème valide."),
+                ));
+            }
+        }
         check_range(
             preferences.history_max_entries,
             HISTORY_ENTRIES_RANGE,
@@ -796,6 +821,13 @@ impl Store {
                 Ok(())
             };
             set(PREF_THEME, Some(enum_text(&preferences.theme)?))?;
+            set(PREF_LIGHT_THEME, Some(preferences.light_theme.clone()))?;
+            set(PREF_DARK_THEME, Some(preferences.dark_theme.clone()))?;
+            set(PREF_STYLE, Some(enum_text(&preferences.style)?))?;
+            set(
+                PREF_HIGH_CONTRAST,
+                Some(preferences.high_contrast.to_string()),
+            )?;
             set(
                 PREF_LOCALE,
                 preferences.locale.as_ref().map(enum_text).transpose()?,

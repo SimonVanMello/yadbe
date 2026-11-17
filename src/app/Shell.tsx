@@ -25,6 +25,7 @@ import { StatementLogPanel } from '../features/statement-log/StatementLogPanel';
 import { StatusBar } from '../features/statusbar/StatusBar';
 import { useI18nStore } from '../i18n/i18n';
 import { nativeWindow } from '../ipc/nativeWindow';
+import { usePaletteStore } from '../features/palette/paletteStore';
 import { useThemeStore } from '../theme/themeStore';
 import { registerActions } from './actions';
 import {
@@ -148,6 +149,9 @@ function useShellActions(): void {
           const { activeTabId, tabs, setPinned } = useTabsStore.getState();
           const tab = tabs.find((candidate) => candidate.id === activeTabId);
           if (tab && tab.connectionId !== null) setPinned(tab.id, !tab.pinned);
+        },
+        'theme.pick': () => {
+          usePaletteStore.getState().showThemes();
         },
         'theme.light': () => {
           useThemeStore.getState().setPreference('light');

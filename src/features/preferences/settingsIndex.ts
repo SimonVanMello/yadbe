@@ -1,4 +1,5 @@
 import type { MessageKey } from '../../i18n/i18n';
+import { THEMES } from '../../theme/catalog';
 import type { IconName } from '../../ui/Icon';
 import { PAGE_SIZES, TAB_SIZES, type PreferenceKey } from './preferenceSchema';
 
@@ -90,7 +91,10 @@ export type ControlSpec =
   | { type: 'custom' };
 
 export type SettingId =
+  | 'followSystem'
   | 'theme'
+  | 'style'
+  | 'highContrast'
   | 'locale'
   | 'density'
   | 'uiFontSize'
@@ -147,20 +151,45 @@ const number = (unit?: MessageKey): ControlSpec =>
   unit ? { type: 'number', unit } : { type: 'number' };
 const custom: ControlSpec = { type: 'custom' };
 
-const themeOptions: readonly ChoiceOption[] = [
-  { value: 'light', label: 'settings.theme.light' },
-  { value: 'dark', label: 'settings.theme.dark' },
-  { value: 'system', label: 'settings.theme.system' },
-];
+/** The theme names, so that a search for "dracula" lands on the gallery. */
+const THEME_NAMES = THEMES.map((theme) => theme.name).join(' ');
 
 /** Every setting, in the order a section shows them. */
 export const SETTINGS: readonly SettingSpec[] = [
   {
+    id: 'followSystem',
+    section: 'appearance',
+    key: null,
+    control: custom,
+    keywords: 'dark light mode os system',
+  },
+  {
     id: 'theme',
     section: 'appearance',
+    // The gallery sets the mode with the theme of each mode.
     key: 'theme',
-    control: { type: 'segmented', options: themeOptions },
-    keywords: 'dark light graphite paper',
+    control: custom,
+    keywords: `dark light color colour palette ${THEME_NAMES} catppuccin vscode jetbrains github`,
+  },
+  {
+    id: 'style',
+    section: 'appearance',
+    key: 'style',
+    control: {
+      type: 'segmented',
+      options: [
+        { value: 'standard', label: 'preferences.style.standard' },
+        { value: 'terminal', label: 'preferences.style.terminal' },
+      ],
+    },
+    keywords: 'monospace square corners',
+  },
+  {
+    id: 'highContrast',
+    section: 'appearance',
+    key: 'highContrast',
+    control: toggle,
+    keywords: 'accessibility borders',
   },
   {
     id: 'locale',
@@ -437,7 +466,8 @@ export function settingsOf(section: SectionId): SettingSpec[] {
 
 type Translate = (key: MessageKey) => string;
 
-function fold(text: string): string {
+/** `text` without accents nor case, as the search compares it. */
+export function foldText(text: string): string {
   return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 }
 
@@ -451,7 +481,7 @@ function haystack(setting: SettingSpec, t: Translate): string {
   if (setting.control.type === 'segmented' || setting.control.type === 'select') {
     for (const option of setting.control.options) parts.push(optionLabel(option, t));
   }
-  return fold(parts.join(' '));
+  return foldText(parts.join(' '));
 }
 
 /**
@@ -459,7 +489,7 @@ function haystack(setting: SettingSpec, t: Translate): string {
  * not matter). `null` when the query is empty (nothing is filtered).
  */
 export function searchSettings(query: string, t: Translate): ReadonlySet<SettingId> | null {
-  const words = fold(query).split(/\s+/).filter(Boolean);
+  const words = foldText(query).split(/\s+/).filter(Boolean);
   if (words.length === 0) return null;
   const found = new Set<SettingId>();
   for (const setting of SETTINGS) {

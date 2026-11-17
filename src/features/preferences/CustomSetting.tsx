@@ -11,6 +11,8 @@ import { checkForUpdatesNow } from '../updates/updates';
 import { KnownHostsSetting } from './KnownHostsSetting';
 import styles from './SettingRow.module.css';
 import type { SettingId } from './settingsIndex';
+import { FollowSystemSetting } from './theme/FollowSystemSetting';
+import { ThemeSetting } from './theme/ThemeSetting';
 import { UpdatesSetting } from './UpdatesSetting';
 
 interface CustomSettingProps {
@@ -109,6 +111,10 @@ function AboutRow({
 export function CustomSetting({ id, label, hint }: CustomSettingProps) {
   const t = useT();
   switch (id) {
+    case 'followSystem':
+      return <FollowSystemSetting label={label} hint={hint} />;
+    case 'theme':
+      return <ThemeSetting label={label} hint={hint} />;
     case 'clearHistory':
       return <ClearHistoryRow label={label} hint={hint} />;
     case 'keychain':

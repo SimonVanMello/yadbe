@@ -58,6 +58,10 @@ const MOCK_APP_INFO: AppInfo = { appVersion: '0.1.0', os: 'linux', arch: 'x86_64
 
 const DEFAULT_PREFERENCES: Preferences = {
   theme: 'system',
+  lightTheme: 'paper',
+  darkTheme: 'graphite',
+  style: 'standard',
+  highContrast: false,
   locale: null,
   density: 'comfortable',
   uiState: null,
@@ -1084,6 +1088,17 @@ function createMockBackend() {
     getPreferences: () => ok(clone(preferences)),
 
     setPreferences: (prefs) => {
+      // The backend's `is_theme_id`: the id ends up in a `data-theme` selector.
+      for (const id of [prefs.lightTheme, prefs.darkTheme]) {
+        if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) {
+          return fail(
+            mockErrors.invalidArgument(
+              `"${id}" is not a valid theme id.`,
+              `« ${id} » n'est pas un identifiant de thème valide.`,
+            ),
+          );
+        }
+      }
       preferences = clone(prefs);
       journal.setMaxEntries(preferences.journalMaxEntries);
       persistForReload();
@@ -1197,7 +1212,8 @@ function createMockBackend() {
       if (!raw) return;
       const saved = JSON.parse(raw) as { tabs?: TabsState; preferences?: Preferences };
       if (saved.tabs) tabs = saved.tabs;
-      if (saved.preferences) preferences = saved.preferences;
+      // Saved by an older mock: the fields added since take their defaults.
+      if (saved.preferences) preferences = { ...DEFAULT_PREFERENCES, ...saved.preferences };
     } catch {
       // Unreadable: start from the defaults.
     }

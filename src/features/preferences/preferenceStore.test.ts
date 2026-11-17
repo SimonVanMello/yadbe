@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { loadUiSlice, resetBackendPreferences, saveUiSlice } from '../../app/backendPreferences';
 import { initI18n, useI18nStore } from '../../i18n/i18n';
 import { mockBackend } from '../../ipc/mockClient';
+import { DEFAULT_PREFERENCES } from '../../app/preferences';
 import { initTheme, useThemeStore } from '../../theme/themeStore';
 import { defaultValues } from './preferenceSchema';
 import {
@@ -28,7 +29,7 @@ beforeEach(() => {
   mockBackend.reset();
   resetBackendPreferences();
   localStorage.clear();
-  initTheme('system');
+  initTheme({ ...DEFAULT_PREFERENCES, theme: 'system' });
   initI18n('en');
   usePreferenceStore.setState({ values: defaultValues() });
   document.documentElement.removeAttribute('style');

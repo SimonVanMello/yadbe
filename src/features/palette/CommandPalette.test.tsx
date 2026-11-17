@@ -11,6 +11,7 @@ import { createTabsStore, useTabsStore } from '../../app/tabs/tabsStore';
 import { useSessions } from '../connections/connectionStore';
 import { initI18n } from '../../i18n/i18n';
 import { mockBackend } from '../../ipc/mockClient';
+import { DEFAULT_PREFERENCES } from '../../app/preferences';
 import { initTheme } from '../../theme/themeStore';
 import { usePaletteStore } from './paletteStore';
 import { loadLazyModules } from '../../app/lazyModule';
@@ -23,7 +24,7 @@ beforeEach(() => {
   mockBackend.setLatency(0);
   queryClient.clear();
   window.location.hash = '';
-  initTheme('dark');
+  initTheme({ ...DEFAULT_PREFERENCES, theme: 'dark' });
   initI18n('en');
   const { tabs, activeTabId, closedTabs, lastOrdinal } = createTabsStore().getState();
   useTabsStore.setState({ tabs, activeTabId, closedTabs, lastOrdinal });

@@ -21,6 +21,8 @@ describe('the defaults', () => {
     const defaults = defaultValues();
     expect(defaults).toMatchObject({
       theme: 'system',
+      style: 'standard',
+      highContrast: false,
       density: 'comfortable',
       confirmDangerous: true,
       completeAsYouType: true,
@@ -139,6 +141,10 @@ describe('the saved frontend slice', () => {
 describe('the backend record', () => {
   const backend = {
     theme: 'dark' as const,
+    lightTheme: 'latte',
+    darkTheme: 'nord',
+    style: 'terminal' as const,
+    highContrast: true,
     locale: 'fr' as const,
     density: 'compact' as const,
     uiState: '{}',
@@ -152,6 +158,7 @@ describe('the backend record', () => {
 
   it('feeds the settings the backend stores', () => {
     expect(backendValues(backend)).toEqual({
+      highContrast: true,
       density: 'compact',
       historyEnabled: false,
       historyMaxEntries: 1000,
@@ -167,6 +174,7 @@ describe('the backend record', () => {
     const values = { ...defaultValues(), historyMaxEntries: 200, connectTimeoutSecs: 5 };
     expect(toBackend(backend, values)).toEqual({
       ...backend,
+      highContrast: false,
       density: 'comfortable',
       historyEnabled: true,
       historyMaxEntries: 200,

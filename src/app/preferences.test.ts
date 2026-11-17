@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { mockBackend } from '../ipc/mockClient';
 import { loadUiSlice, resetBackendPreferences, saveUiSlice } from './backendPreferences';
-import { applyStoredPreferences, loadPreferences, savePreferences } from './preferences';
+import {
+  applyStoredPreferences,
+  DEFAULT_PREFERENCES,
+  loadPreferences,
+  savePreferences,
+} from './preferences';
 
 beforeEach(() => {
   mockBackend.reset();
@@ -18,15 +23,30 @@ const stored = async () => {
 
 describe('theme and language preferences', () => {
   it('keep a copy for the first paint and save to the backend', async () => {
-    savePreferences({ theme: 'light', locale: 'fr' });
-    expect(loadPreferences()).toEqual({ theme: 'light', locale: 'fr' });
+    savePreferences({ theme: 'light', lightTheme: 'latte', style: 'terminal', locale: 'fr' });
+    expect(loadPreferences()).toEqual({
+      ...DEFAULT_PREFERENCES,
+      theme: 'light',
+      lightTheme: 'latte',
+      style: 'terminal',
+      locale: 'fr',
+    });
     await expect.poll(async () => (await stored()).theme).toBe('light');
-    expect((await stored()).locale).toBe('fr');
+    expect(await stored()).toMatchObject({
+      locale: 'fr',
+      lightTheme: 'latte',
+      darkTheme: 'graphite',
+      style: 'terminal',
+    });
   });
 
   it('refresh the first-paint copy from the backend without writing back', () => {
     applyStoredPreferences({
       theme: 'dark',
+      lightTheme: 'paper',
+      darkTheme: 'dracula',
+      style: 'standard',
+      highContrast: true,
       locale: null,
       density: 'comfortable',
       uiState: null,
@@ -37,13 +57,20 @@ describe('theme and language preferences', () => {
       journalMaxEntries: 1000,
       journalMaxAgeDays: 90,
     });
-    expect(loadPreferences()).toEqual({ theme: 'dark', locale: null });
+    expect(loadPreferences()).toEqual({
+      ...DEFAULT_PREFERENCES,
+      theme: 'dark',
+      darkTheme: 'dracula',
+      highContrast: true,
+    });
   });
 
   it('fall back to the defaults when the copy is missing or unknown', () => {
     localStorage.setItem('yadbe.theme', 'neon');
     localStorage.setItem('yadbe.locale', 'de');
-    expect(loadPreferences()).toEqual({ theme: 'system', locale: null });
+    localStorage.setItem('yadbe.darkTheme', "x'] body {");
+    localStorage.setItem('yadbe.style', 'neon');
+    expect(loadPreferences()).toEqual(DEFAULT_PREFERENCES);
   });
 });
 
@@ -70,6 +97,10 @@ describe('frontend-owned ui state', () => {
   it('starts empty when the stored state is not JSON', async () => {
     await mockBackend.commands.setPreferences({
       theme: 'system',
+      lightTheme: 'paper',
+      darkTheme: 'graphite',
+      style: 'standard',
+      highContrast: false,
       locale: null,
       density: 'comfortable',
       uiState: '{oops',

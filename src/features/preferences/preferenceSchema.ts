@@ -1,5 +1,5 @@
 import type { Locale } from '../../i18n/i18n';
-import type { Preferences as BackendPreferences } from '../../ipc';
+import type { Preferences as BackendPreferences, ThemeStyle } from '../../ipc';
 
 export type ThemeChoice = 'light' | 'dark' | 'system';
 export type Density = 'comfortable' | 'compact';
@@ -13,6 +13,10 @@ export type CheckUpdates = 'ask' | 'on' | 'off';
 export interface PreferenceValues {
   // Appearance
   theme: ThemeChoice;
+  /** Interface style: monospace and square corners with `terminal`, over any color theme. */
+  style: ThemeStyle;
+  /** Stronger text and borders, on every theme. */
+  highContrast: boolean;
   locale: Locale;
   density: Density;
   /** Base text size of the UI, in px. */
@@ -131,6 +135,8 @@ export const TAB_SIZES = [2, 4, 8] as const;
 /** Defaults and validation of every key. */
 export const DEFINITIONS = {
   theme: oneOf<ThemeChoice>('system', ['light', 'dark', 'system']),
+  style: oneOf<ThemeStyle>('standard', ['standard', 'terminal']),
+  highContrast: flag(false),
   locale: oneOf<Locale>('en', ['en', 'fr']),
   density: oneOf<Density>('comfortable', ['comfortable', 'compact']),
   uiFontSize: amount(13, 11, 18),
@@ -182,6 +188,7 @@ export function defaultValues(): PreferenceValues {
 
 /** Keys the backend stores itself (its `Preferences` record); it needs them. */
 export const BACKEND_KEYS = [
+  'highContrast',
   'density',
   'historyEnabled',
   'historyMaxEntries',
@@ -190,8 +197,12 @@ export const BACKEND_KEYS = [
   'journalMaxAgeDays',
   'connectTimeoutSecs',
 ] as const satisfies readonly PreferenceKey[];
-/** Theme and language are owned by their stores (first paint, palette actions). */
-export const EXTERNAL_KEYS = ['theme', 'locale'] as const satisfies readonly PreferenceKey[];
+/** Theme, interface style and language are owned by their stores (first paint, palette actions). */
+export const EXTERNAL_KEYS = [
+  'theme',
+  'style',
+  'locale',
+] as const satisfies readonly PreferenceKey[];
 
 type BackendKey = (typeof BACKEND_KEYS)[number];
 type ExternalKey = (typeof EXTERNAL_KEYS)[number];
@@ -214,6 +225,7 @@ export function isExternalKey(key: PreferenceKey): key is ExternalKey {
 /** The backend's share of the settings, from its record (values it holds are already valid). */
 export function backendValues(backend: BackendPreferences): Pick<PreferenceValues, BackendKey> {
   return {
+    highContrast: backend.highContrast,
     density: normalize('density', backend.density),
     historyEnabled: backend.historyEnabled,
     historyMaxEntries: normalize('historyMaxEntries', backend.historyMaxEntries),
@@ -231,6 +243,7 @@ export function toBackend(
 ): BackendPreferences {
   return {
     ...backend,
+    highContrast: values.highContrast,
     density: values.density,
     historyEnabled: values.historyEnabled,
     historyMaxEntries: values.historyMaxEntries,

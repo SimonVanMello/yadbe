@@ -477,9 +477,11 @@ export function DataGrid({
       }
     };
     void document.fonts.ready.then(reread);
-    // The density and font preferences change the row height and font tokens.
+    // The density, the font preferences and the interface style change the row height and fonts.
     const observer = new MutationObserver(reread);
-    observer.observe(document.documentElement, { attributeFilter: ['data-density', 'style'] });
+    observer.observe(document.documentElement, {
+      attributeFilter: ['data-density', 'data-style', 'style'],
+    });
     return () => {
       live = false;
       observer.disconnect();

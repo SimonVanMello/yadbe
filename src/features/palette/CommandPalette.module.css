@@ -236,3 +236,38 @@
   color: var(--accent);
   vertical-align: text-bottom;
 }
+
+/* The color theme picker (ThemePicker): a short list, not virtualized. */
+.themeList {
+  margin: 0;
+  list-style: none;
+}
+
+.themeOption {
+  min-height: var(--palette-row-height);
+}
+
+.groupLabel {
+  padding: var(--space-3) var(--space-5) var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+
+.groupList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The theme's own background and accent: the dot reads its tokens through data-theme. */
+.themeDot {
+  flex: none;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--bg-app) 50%, var(--accent) 50%);
+}

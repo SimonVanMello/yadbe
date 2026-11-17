@@ -1,0 +1,145 @@
+.swatch {
+  display: grid;
+  grid-template-columns: 26% minmax(0, 1fr);
+  grid-template-rows: var(--space-3) minmax(0, 1fr) minmax(0, 1.3fr);
+  height: calc(var(--space-8) + var(--space-6));
+  overflow: hidden;
+  background: var(--bg-app);
+  pointer-events: none;
+}
+
+.swatch[data-size='sm'] {
+  width: calc(var(--space-8) + var(--space-6));
+  height: calc(var(--space-8) - var(--space-1));
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.titlebar {
+  grid-column: 1 / -1;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  background: var(--bg-titlebar);
+}
+
+.sidebar {
+  grid-row: 2 / span 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-right: var(--border-width) solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+
+.sidebar i {
+  height: var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--fg-muted);
+  opacity: 0.5;
+}
+
+.sidebar i[data-on] {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.sidebar i[data-short] {
+  width: 70%;
+  margin-left: var(--space-1);
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-input);
+}
+
+.line {
+  display: flex;
+  gap: var(--space-1);
+  width: 85%;
+}
+
+.line span {
+  height: var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+.line span[data-kind='keyword'] {
+  background: var(--syn-keyword);
+}
+
+.line span[data-kind='function'] {
+  background: var(--syn-function);
+}
+
+.line span[data-kind='string'] {
+  background: var(--syn-string);
+}
+
+.line span[data-kind='text'] {
+  background: var(--fg-secondary);
+  opacity: 0.6;
+}
+
+.grid {
+  display: flex;
+  flex-direction: column;
+  border-top: var(--border-width) solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+
+.header,
+.row {
+  display: grid;
+  flex: 1 1 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+  align-items: center;
+  padding: 0 var(--space-2);
+}
+
+.header {
+  background: var(--bg-elevated);
+}
+
+.header span,
+.row span {
+  height: var(--space-0);
+  border-radius: var(--radius-sm);
+  background: var(--fg-secondary);
+  opacity: 0.6;
+}
+
+.header span {
+  background: var(--fg-primary);
+}
+
+.row[data-selected] {
+  background: var(--grid-selection-bg);
+}
+
+.row[data-selected] span {
+  background: var(--fg-primary);
+  opacity: 0.8;
+}
+
+.row span[data-state='modified'] {
+  height: var(--space-1);
+  background: var(--cell-modified);
+  opacity: 1;
+}
+
+.row span[data-state='inserted'] {
+  height: var(--space-1);
+  background: var(--cell-inserted);
+  opacity: 1;
+}
+
+.swatch[data-size='sm'] .sidebar,
+.swatch[data-size='sm'] .editor {
+  gap: var(--space-0);
+}

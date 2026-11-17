@@ -10,7 +10,7 @@ function readHeight(): number {
 }
 
 // Read once and cached: `getComputedStyle` forces a style recalculation. Only the density and
-// the theme change it.
+// the interface style change it.
 let cached: number | null = null;
 const listeners = new Set<() => void>();
 let observer: MutationObserver | null = null;
@@ -24,7 +24,7 @@ function subscribe(listener: () => void): () => void {
     });
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['data-density', 'data-theme'],
+      attributeFilter: ['data-density', 'data-theme', 'data-style'],
     });
   }
   return () => {
@@ -37,7 +37,7 @@ function snapshot(): number {
   return cached;
 }
 
-/** `--row-height` in px; follows the comfortable / compact density switch and the theme. */
+/** `--row-height` in px; follows the density, the theme and the interface style. */
 export function useRowHeight(): number {
   return useSyncExternalStore(subscribe, snapshot);
 }

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useShellStore } from '../../app/shellStore';
 import { useT } from '../../i18n/useT';
+import { useThemeStore } from '../../theme/themeStore';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
 import { Kbd } from '../../ui/Kbd';
@@ -10,6 +11,7 @@ import { matchShortcut } from '../../ui/shortcuts';
 import type { PreferenceKey } from './preferenceSchema';
 import styles from './PreferencesDialog.module.css';
 import { SettingRow } from './SettingRow';
+import { SettingsQueryContext } from './settingsQuery';
 import {
   SECTIONS,
   SETTINGS,
@@ -91,6 +93,13 @@ function PreferencesContent({ requested }: { requested: string | null }) {
           // Escape cancels the shortcut being captured, not the screen.
           if (document.activeElement?.hasAttribute('data-capturing')) {
             event.preventDefault();
+            return;
+          }
+          // Then it ends a theme preview.
+          const theme = useThemeStore.getState();
+          if (theme.preview !== null) {
+            event.preventDefault();
+            theme.setPreview(null);
             return;
           }
           // Escape first clears the search, a second one closes the screen.
@@ -182,20 +191,22 @@ function PreferencesContent({ requested }: { requested: string | null }) {
             </Dialog.Close>
           </header>
           <div ref={bodyRef} className={styles.body}>
-            <div className={styles.inner}>
-              {found ? (
-                <SearchResults query={trimmed} found={found} />
-              ) : (
-                <>
-                  <p className={styles.description}>{t(info.description)}</p>
-                  <div className={styles.list}>
-                    {settingsOf(section).map((setting) => (
-                      <SettingRow key={setting.id} spec={setting} />
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
+            <SettingsQueryContext.Provider value={trimmed}>
+              <div className={styles.inner}>
+                {found ? (
+                  <SearchResults query={trimmed} found={found} />
+                ) : (
+                  <>
+                    <p className={styles.description}>{t(info.description)}</p>
+                    <div className={styles.list}>
+                      {settingsOf(section).map((setting) => (
+                        <SettingRow key={setting.id} spec={setting} />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </SettingsQueryContext.Provider>
           </div>
         </section>
       </Dialog.Content>

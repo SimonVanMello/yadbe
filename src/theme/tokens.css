@@ -185,6 +185,22 @@
   --grid-header-height: 26px;
 }
 
+/* Terminal interface style (yaggui's style D): monospace everywhere, square corners, dense rows;
+   it goes with any color theme. */
+:root[data-style='terminal'] {
+  --font-ui: var(--font-code);
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 2px;
+  --radius-xl: 2px;
+  --radius-full: 2px;
+  --row-height: 26px;
+}
+
+:root[data-style='terminal'][data-density='compact'] {
+  --row-height: 22px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --duration-fast: 0ms;

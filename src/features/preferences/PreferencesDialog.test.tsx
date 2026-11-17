@@ -11,6 +11,7 @@ import { queryClient } from '../../app/queryClient';
 import { useShellStore } from '../../app/shellStore';
 import { initI18n } from '../../i18n/i18n';
 import { mockBackend } from '../../ipc/mockClient';
+import { DEFAULT_PREFERENCES } from '../../app/preferences';
 import { initTheme } from '../../theme/themeStore';
 import { defaultValues } from './preferenceSchema';
 import { getPreference, usePreferenceStore } from './preferenceStore';
@@ -20,7 +21,7 @@ beforeEach(() => {
   mockBackend.reset();
   resetBackendPreferences();
   queryClient.clear();
-  initTheme('dark');
+  initTheme({ ...DEFAULT_PREFERENCES, theme: 'dark' });
   initI18n('en');
   usePreferenceStore.setState({ values: defaultValues() });
   useShellStore.setState({ preferences: null });

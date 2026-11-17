@@ -18,7 +18,7 @@ if (!root) throw new Error('Missing #root element');
 
 // Preferences are applied before the first render to avoid a theme or language flash.
 const preferences = loadPreferences();
-initTheme(preferences.theme);
+initTheme(preferences);
 await loadI18n(preferences.locale);
 
 createRoot(root).render(

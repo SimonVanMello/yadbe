@@ -27,8 +27,12 @@ export function pushRecentKey(recents: readonly string[], key: string): string[]
   return [key, ...recents.filter((existing) => existing !== key)].slice(0, MAX_RECENTS);
 }
 
+/** What the palette lists: its search, or the color themes (VS Code's theme picker). */
+export type PaletteView = 'search' | 'themes';
+
 interface PaletteStore {
   open: boolean;
+  view: PaletteView;
   /** What the input holds when the palette opens (`>` for the commands). */
   initialQuery: string;
   /** Item keys (`action:tab.new`, `connection:…`), most recent first. */
@@ -37,18 +41,24 @@ interface PaletteStore {
   toggle: (initialQuery?: string) => void;
   show: (initialQuery?: string) => void;
   hide: () => void;
+  /** Opens the palette on the color themes. */
+  showThemes: () => void;
   remember: (key: string) => void;
 }
 
 export const usePaletteStore = create<PaletteStore>()((set) => ({
   open: false,
+  view: 'search',
   initialQuery: '',
   recents: loadRecents(),
   toggle: (initialQuery = '') => {
-    set((state) => ({ open: !state.open, initialQuery }));
+    set((state) => ({ open: !state.open, view: 'search', initialQuery }));
   },
   show: (initialQuery = '') => {
-    set({ open: true, initialQuery });
+    set({ open: true, view: 'search', initialQuery });
+  },
+  showThemes: () => {
+    set({ open: true, view: 'themes', initialQuery: '' });
   },
   hide: () => {
     set({ open: false });

@@ -23,10 +23,28 @@ const read = (name: string) => readFileSync(join(THEME_DIR, name), 'utf8');
 const tokens = read('tokens.css');
 const graphite = read('graphite.css');
 const paper = read('paper.css');
+const terminal = read('terminal.css');
+const generated = read('themes.generated.css');
+
+/** Tokens of each `[data-theme='…']` block (high contrast overrides aside), by theme id. */
+function themeBlocks(css: string): Map<string, Set<string>> {
+  const blocks = new Map<string, Set<string>>();
+  for (const match of css.matchAll(/\[data-theme='([\w-]+)'\] \{([^}]*)\}/g)) {
+    blocks.set(match[1] ?? '', declaredVariables(match[2] ?? ''));
+  }
+  return blocks;
+}
 
 describe('themes', () => {
   it('graphite and paper define the same color tokens', () => {
     expect([...declaredVariables(paper)].sort()).toEqual([...declaredVariables(graphite)].sort());
+  });
+
+  it('every other theme defines the color tokens of graphite', () => {
+    const reference = [...(themeBlocks(graphite).get('graphite') ?? [])].sort();
+    const others = new Map([...themeBlocks(terminal), ...themeBlocks(generated)]);
+    expect(others.size).toBeGreaterThan(20);
+    for (const [id, names] of others) expect([...names].sort(), id).toEqual(reference);
   });
 
   it.each([

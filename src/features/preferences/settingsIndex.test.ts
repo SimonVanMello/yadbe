@@ -42,6 +42,8 @@ describe('searching the settings', () => {
     expect(searchSettings('keychain', en)).toContain('keychain');
     expect(searchSettings('italic', en)).toContain('nullStyle');
     expect(searchSettings('graphite', en)).toContain('theme');
+    expect(searchSettings('dracula', en)).toContain('theme');
+    expect(searchSettings('terminal', en)).toContain('style');
   });
 
   it('needs every word, in any order, and ignores case and accents', () => {

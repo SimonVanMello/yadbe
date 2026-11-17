@@ -5,6 +5,7 @@ import { useT } from '../../i18n/useT';
 import styles from './CommandPalette.module.css';
 import { PaletteBody } from './PaletteBody';
 import { usePaletteStore } from './paletteStore';
+import { ThemePicker } from './ThemePicker';
 
 /**
  * The command palette (F-120): one field to run an action, open a connection, jump to a
@@ -14,6 +15,7 @@ import { usePaletteStore } from './paletteStore';
 export function CommandPalette() {
   const t = useT();
   const open = usePaletteStore((state) => state.open);
+  const view = usePaletteStore((state) => state.view);
   // Closing hands the focus back to where it was, except when the chosen item moves it itself
   // (reveal in the explorer, a tab, an editor).
   const restoreFocus = useRef(true);
@@ -21,8 +23,9 @@ export function CommandPalette() {
     <Dialog.Root
       open={open}
       onOpenChange={(next) => {
-        if (next) usePaletteStore.getState().show();
-        else usePaletteStore.getState().hide();
+        if (next) {
+          if (!usePaletteStore.getState().open) usePaletteStore.getState().show();
+        } else usePaletteStore.getState().hide();
       }}
     >
       <Dialog.Portal>
@@ -37,13 +40,19 @@ export function CommandPalette() {
           }}
         >
           <VisuallyHidden.Root asChild>
-            <Dialog.Title>{t('palette.title')}</Dialog.Title>
+            <Dialog.Title>
+              {t(view === 'themes' ? 'palette.theme.title' : 'palette.title')}
+            </Dialog.Title>
           </VisuallyHidden.Root>
-          <PaletteBody
-            onChosen={(item) => {
-              restoreFocus.current = item.kind === 'action';
-            }}
-          />
+          {view === 'themes' ? (
+            <ThemePicker />
+          ) : (
+            <PaletteBody
+              onChosen={(item) => {
+                restoreFocus.current = item.kind === 'action';
+              }}
+            />
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

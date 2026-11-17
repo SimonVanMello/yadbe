@@ -85,18 +85,16 @@ for (const { name, colorScheme } of THEMES) {
 
     test('theme, density and font size apply live; reset puts them back', async ({ page }) => {
       await page.keyboard.press('Control+,');
-      const other = name === 'graphite' ? 'Light' : 'Dark';
-      await dialog(page).getByRole('radio', { name: other }).click();
-      await expect(page.locator('html')).toHaveAttribute(
-        'data-theme',
-        name === 'graphite' ? 'paper' : 'graphite',
-      );
+      const other = name === 'graphite' ? 'paper' : 'graphite';
+      await dialog(page).locator(`[data-theme-id="${other}"]`).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', other);
+      await page.mouse.move(0, 0);
       await capture(page, name, 'theme-switched');
-      await dialog(page).getByRole('button', { name: 'Reset “Theme” to default' }).click();
-      await expect(dialog(page).getByRole('radio', { name: 'System' })).toHaveAttribute(
-        'aria-checked',
-        'true',
-      );
+      // Following the system again puts the theme of the OS mode back.
+      await dialog(page)
+        .getByRole('switch', { name: /Follow the system theme/ })
+        .click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', name);
 
       await dialog(page).getByRole('radio', { name: 'Compact' }).click();
       await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');

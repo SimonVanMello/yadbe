@@ -1,4 +1,5 @@
 import { defaultOf, type PreferenceValues } from '../features/preferences/preferenceSchema';
+import { mirrorPreferences } from './preferences';
 
 type AppearanceValues = Pick<
   PreferenceValues,
@@ -9,6 +10,7 @@ type AppearanceValues = Pick<
   | 'gridFontFamily'
   | 'gridFontSize'
   | 'nullStyle'
+  | 'highContrast'
 >;
 
 /** Base size of the text tokens (`--text-md`), the one `--font-scale` is relative to. */
@@ -32,13 +34,18 @@ function pixelsUnlessDefault(
 }
 
 /**
- * Puts the look preferences on `<html>`: density as an attribute, the rest as the CSS variables
- * of `tokens.css`. A value left at its default removes the override, so the theme's tokens apply.
+ * Puts the look preferences on `<html>`: density and contrast as attributes, the rest as the CSS
+ * variables of `tokens.css`. A value left at its default removes the override, so the theme's
+ * tokens apply.
  */
 export function applyAppearance(values: AppearanceValues): void {
   const root = document.documentElement;
   const { style } = root;
   root.dataset.density = values.density;
+  if (values.highContrast) root.dataset.contrast = 'high';
+  else delete root.dataset.contrast;
+  // public/boot-theme.js sets it before the first paint of the next launch.
+  mirrorPreferences({ highContrast: values.highContrast });
   setOrClear(
     style,
     '--font-scale',
