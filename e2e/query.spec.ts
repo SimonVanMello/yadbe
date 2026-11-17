@@ -158,6 +158,26 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'messages-completed');
     });
 
+    test('⌘R runs the query again, from the editor or the results, never reloading', async ({
+      page,
+    }) => {
+      await openQueryTab(page, 'local postgres');
+      await setScript(page, 'SELECT 1 as a;');
+      await page.keyboard.press('ControlOrMeta+r');
+      const grid = results(page).getByRole('grid');
+      await expect(grid.getByRole('columnheader', { name: /^a\b/ })).toBeVisible();
+      await page.evaluate(() => {
+        (window as unknown as { __notReloaded?: boolean }).__notReloaded = true;
+      });
+      await setScript(page, 'SELECT 1 as b;');
+      await grid.locator('[aria-rowindex="2"] [aria-colindex="1"]').click();
+      await page.keyboard.press('ControlOrMeta+r');
+      await expect(grid.getByRole('columnheader', { name: /^b\b/ })).toBeVisible();
+      expect(
+        await page.evaluate(() => (window as unknown as { __notReloaded?: boolean }).__notReloaded),
+      ).toBe(true);
+    });
+
     test('a result paused at its limit offers Load more once, in the grid footer', async ({
       page,
     }) => {

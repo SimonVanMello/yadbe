@@ -8,6 +8,7 @@ import {
   DEFAULT_BINDINGS,
   findAction,
   findActions,
+  isReloadKey,
   matchesAction,
   registerActions,
   runAction,
@@ -28,7 +29,6 @@ const RESERVED = [
   'Mod+M', // minimize (macOS)
   'Mod+Space', // Spotlight (macOS)
   'Mod+Tab', // app switcher (macOS); `Ctrl+Tab` is ours on purpose
-  'Mod+R', // reload the webview
   'Mod+F4', // close the window (Windows)
   'Alt+F4',
 ];
@@ -69,6 +69,14 @@ describe('shortcut table', () => {
     for (const { id, shortcut } of bound) {
       expect(RESERVED, `${id} uses ${shortcut}`).not.toContain(shortcut);
     }
+  });
+
+  it('runs the query or reloads the table tab again with ⌘R, and keeps it from the webview', () => {
+    const event = key({ key: 'r', code: 'KeyR', ctrlKey: true });
+    expect(findActions(event)).toEqual(['query.run', 'table.refresh']);
+    expect(isReloadKey(event)).toBe(true);
+    expect(isReloadKey(key({ key: 'F5', code: 'F5' }))).toBe(true);
+    expect(isReloadKey(key({ key: 'r', code: 'KeyR' }))).toBe(false);
   });
 
   it('opens the palette with ⌘K and ⌘P, its actions with ⌘⇧P', () => {

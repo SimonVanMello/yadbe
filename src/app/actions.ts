@@ -88,7 +88,22 @@ export const TAB_SCOPES = ['query.', 'table.'] as const;
 /** Other shortcuts of an action, besides its own in `DEFAULT_BINDINGS`. */
 export const ALIAS_BINDINGS: Partial<Record<keyof typeof DEFAULT_BINDINGS, readonly string[]>> = {
   'palette.open': ['Mod+P'],
+  // `Mod+R` runs the query again, as a browser reloads its page: the query of a query tab, the
+  // rows of a table tab. `useShortcuts` keeps it from ever reloading the webview.
+  'query.run': ['Mod+R'],
+  'table.refresh': ['Mod+R'],
 };
+
+/**
+ * Keys a webview takes as "reload the page" (WebView2 does unless the page prevents them):
+ * reloading would drop every open tab, so they never reach it, even where no action applies.
+ */
+export const RELOAD_SHORTCUTS = ['Mod+R', 'Mod+Shift+R', 'F5', 'Shift+F5', 'Ctrl+F5'] as const;
+
+/** Whether a key press would reload the webview. */
+export function isReloadKey(event: Parameters<typeof matchShortcut>[0]): boolean {
+  return RELOAD_SHORTCUTS.some((shortcut) => matchShortcut(event, shortcut));
+}
 
 /** Actions with no default shortcut: menus, buttons and the palette reach them. */
 export const UNBOUND_ACTIONS = [
