@@ -72,8 +72,8 @@ impl KvCommand {
                 }
             }
             "acl" if lower(1) == "setuser" => {
-                for i in 3..len {
-                    if matches!(self.args[i].first(), Some(b'>' | b'<' | b'#' | b'!')) {
+                for (i, arg) in self.args.iter().enumerate().skip(3) {
+                    if matches!(arg.first(), Some(b'>' | b'<' | b'#' | b'!')) {
                         secrets.push(i);
                     }
                 }

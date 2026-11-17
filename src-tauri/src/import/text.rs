@@ -33,9 +33,13 @@ pub fn sniff_encoding(head: &[u8]) -> ImportEncoding {
     }
     let sample = &head[..head.len().min(4096)];
     if sample.len() >= 4 {
-        let (even, odd) = sample.chunks_exact(2).fold((0, 0), |(e, o), pair| {
-            (e + usize::from(pair[0] == 0), o + usize::from(pair[1] == 0))
-        });
+        let (even, odd) = sample
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .fold((0, 0), |(e, o), pair| {
+                (e + usize::from(pair[0] == 0), o + usize::from(pair[1] == 0))
+            });
         let pairs = sample.len() / 2;
         if odd * 10 >= pairs * 9 && even == 0 {
             return ImportEncoding::Utf16le;
@@ -172,7 +176,9 @@ impl<R: Read> TextReader<R> {
     fn decode_utf16(&mut self, bytes: &[u8]) {
         let big = self.encoding == ImportEncoding::Utf16be;
         let units: Vec<u16> = bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| {
                 if big {
                     u16::from_be_bytes([pair[0], pair[1]])

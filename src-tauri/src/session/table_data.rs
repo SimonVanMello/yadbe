@@ -138,7 +138,7 @@ type RowsByKey = Vec<Option<Vec<Value>>>;
 
 /// A read that failed, with the statement as shown.
 struct ReadFailure {
-    failure: BoundFailure,
+    failure: Box<BoundFailure>,
     sql: String,
 }
 
@@ -526,7 +526,7 @@ impl TableDataService {
                 .run(tab, conn, &statement, usize::MAX)
                 .await
                 .map_err(|failure| ReadFailure {
-                    failure,
+                    failure: Box::new(failure),
                     sql: statement.display.clone(),
                 })?;
             found.extend(result.rows);

@@ -183,8 +183,8 @@ impl<'a> Parsed<'a> {
         let mut items = Vec::new();
         let mut depth = 0usize;
         let mut start = open + 1;
-        for index in open + 1..close {
-            match self.tokens[index].kind {
+        for (index, token) in self.tokens.iter().enumerate().take(close).skip(open + 1) {
+            match token.kind {
                 Kind::Open => depth += 1,
                 Kind::Close => depth = depth.saturating_sub(1),
                 Kind::Comma if depth == 0 => {

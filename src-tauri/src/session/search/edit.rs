@@ -470,7 +470,9 @@ impl super::SearchService {
                     applied.push(done.applied);
                 }
                 Err(Stopped::Conflict(conflict)) => {
-                    stopped = Some(stop(SearchStopReason::Conflict { conflict }));
+                    stopped = Some(stop(SearchStopReason::Conflict {
+                        conflict: *conflict,
+                    }));
                     break;
                 }
                 Err(Stopped::Failed(error)) => {
@@ -573,10 +575,10 @@ impl super::SearchService {
                     .await
                     .map_err(Stopped::Failed)?;
                 let conflict = |kind| {
-                    Stopped::Conflict(SearchConflict {
+                    Stopped::Conflict(Box::new(SearchConflict {
                         kind,
                         current: Some(read.version.clone()),
-                    })
+                    }))
                 };
                 if !read.version.found {
                     return Err(conflict(SearchConflictKind::Missing));
@@ -616,7 +618,10 @@ impl super::SearchService {
                     .map(|r| r.version),
                 None => None,
             };
-            return Err(Stopped::Conflict(SearchConflict { kind, current }));
+            return Err(Stopped::Conflict(Box::new(SearchConflict {
+                kind,
+                current,
+            })));
         }
         let response = response.into_result().map_err(Stopped::Failed)?;
         let answer = exact_answer(&response).unwrap_or(ExactJson::Null);
@@ -708,7 +713,8 @@ struct Done {
 }
 
 enum Stopped {
-    Conflict(SearchConflict),
+    // Boxed: a conflict carries the current document, which would make every `Result` this large.
+    Conflict(Box<SearchConflict>),
     Failed(YadbeError),
 }
 
