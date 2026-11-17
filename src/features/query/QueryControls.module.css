@@ -4,7 +4,7 @@
   gap: var(--space-1);
 }
 
-/* Run and Explain with their menus: the two halves touch, the menu's margin is the only seam. */
+/* Run and Explain with their menus: the two halves touch, a border line between them. */
 .splitGroup {
   display: inline-flex;
   align-items: center;
@@ -25,7 +25,7 @@
 
 .runMenu {
   height: var(--control-height-sm);
-  margin-left: var(--border-width);
+  border-left: var(--border-width) solid var(--border-strong);
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
   background: var(--accent);
   color: var(--accent-fg);
@@ -43,8 +43,8 @@
 
 .splitMenu {
   height: var(--control-height-sm);
-  margin-left: var(--border-width);
   border: var(--border-width) solid var(--border-strong);
+  border-left-width: 0;
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 
