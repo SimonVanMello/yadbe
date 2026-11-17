@@ -389,6 +389,7 @@ export async function editJson(tabId: string, key: KvBytes, documentText: string
         kind: 'textarea',
         mono: true,
         value: JSON.stringify(doc, null, 2),
+        json: true,
       },
     ],
     validate: (v) => {
@@ -594,6 +595,7 @@ export async function createKey(
         mono: true,
         value: '',
         visible: is('string', 'hash', 'list', 'json'),
+        json: is('json'),
       },
       {
         name: 'fields',

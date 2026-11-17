@@ -12,6 +12,8 @@ export interface KvFormField {
   mono?: boolean;
   hint?: string;
   placeholder?: string;
+  /** A textarea that holds JSON: a JSON editor instead (always, or for these values). */
+  json?: boolean | ((values: KvFormValues) => boolean);
   /** Shown only when this holds for the current values. */
   visible?: (values: KvFormValues) => boolean;
 }

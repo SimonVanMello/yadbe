@@ -1,3 +1,4 @@
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { bracketMatching, StreamLanguage } from '@codemirror/language';
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
@@ -73,6 +74,7 @@ const consoleSyntax = StreamLanguage.define<ConsoleState>({
     stream.next();
     return null;
   },
+  languageData: { closeBrackets: { brackets: ['{', '[', '"'] } },
 });
 
 const setErrorMark = StateEffect.define<TextRange | null>();
@@ -149,8 +151,15 @@ export function SearchConsoleEditor({ tabId }: { tabId: string }) {
           highlightActiveLine(),
           highlightSelectionMatches(),
           bracketMatching(),
+          closeBrackets(),
           search({ top: true }),
-          keymap.of([...defaultKeymap, ...searchKeymap, ...historyKeymap, indentWithTab]),
+          keymap.of([
+            ...closeBracketsKeymap,
+            ...defaultKeymap,
+            ...searchKeymap,
+            ...historyKeymap,
+            indentWithTab,
+          ]),
           consoleSyntax,
           consoleCompletionExtension(searchProvider(tabId)),
           errorField,

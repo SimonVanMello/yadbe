@@ -10,6 +10,7 @@ import { Select } from '../../ui/Select';
 import { TextArea } from '../../ui/TextArea';
 import { TextInput } from '../../ui/TextInput';
 import { parseJson } from '../grid/jsonTree';
+import { JsonEditor } from '../json/JsonEditor';
 import { closeForm, stageField, stageJson } from './docEditActions';
 import {
   editorText,
@@ -146,11 +147,20 @@ function FieldForm({ form }: { form: DocFieldForm }) {
                 ]}
                 onChange={setValue}
               />
-            ) : type === 'string' || type === 'json' ? (
+            ) : type === 'json' ? (
+              <JsonEditor
+                id={`${id}-value`}
+                label={t('mongo.edit.value')}
+                autoFocus={!form.adding}
+                value={value}
+                invalid={touched && !parsed.ok}
+                onChange={setValue}
+              />
+            ) : type === 'string' ? (
               <TextArea
                 id={`${id}-value`}
                 mono
-                rows={type === 'json' ? 8 : 3}
+                rows={3}
                 autoFocus={!form.adding}
                 value={value}
                 invalid={touched && !parsed.ok}
@@ -242,16 +252,16 @@ function JsonForm({ form }: { form: DocJsonForm }) {
           hint={t('mongo.edit.jsonHint')}
           error={error ?? undefined}
         >
-          <TextArea
+          <JsonEditor
             id={`${id}-json`}
             className={styles.json}
-            mono
-            rows={16}
+            label={t('mongo.edit.json')}
+            lineNumbers
             autoFocus
             value={text}
             invalid={error !== null}
-            onChange={(event) => {
-              setText(event.target.value);
+            onChange={(next) => {
+              setText(next);
               setError(null);
             }}
           />

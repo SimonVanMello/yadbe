@@ -1,3 +1,4 @@
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { javascript } from '@codemirror/lang-javascript';
 import { bracketMatching, indentOnInput } from '@codemirror/language';
@@ -100,9 +101,16 @@ export function ScriptEditor({ tabId }: { tabId: string }) {
           highlightActiveLine(),
           highlightSelectionMatches(),
           bracketMatching(),
+          closeBrackets(),
           indentOnInput(),
           search({ top: true }),
-          keymap.of([...defaultKeymap, ...searchKeymap, ...historyKeymap, indentWithTab]),
+          keymap.of([
+            ...closeBracketsKeymap,
+            ...defaultKeymap,
+            ...searchKeymap,
+            ...historyKeymap,
+            indentWithTab,
+          ]),
           javascript(),
           consoleCompletionExtension(mongoshProvider(tabId)),
           errorField,

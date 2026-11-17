@@ -1,4 +1,4 @@
-import { useEffect, useId, type KeyboardEvent } from 'react';
+import { useEffect, useId } from 'react';
 
 import { localize } from '../../app/errors/presentError';
 import { useTabsStore, type ShellTab } from '../../app/tabs/tabsStore';
@@ -11,7 +11,6 @@ import { IconButton } from '../../ui/IconButton';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Select } from '../../ui/Select';
 import { Spinner } from '../../ui/Spinner';
-import { TextInput } from '../../ui/TextInput';
 import { connectTo } from '../connections/connectionActions';
 import { ConnectionChip } from '../connections/ConnectionChip';
 import {
@@ -28,6 +27,7 @@ import {
   setDraft,
   setPageSize,
 } from './collectionActions';
+import { JsonEditor } from '../json/JsonEditor';
 import styles from './CollectionTabBody.module.css';
 import {
   PAGE_SIZES,
@@ -116,12 +116,6 @@ export function CollectionTabBody({ tab, table }: { tab: ShellTab; table: Object
   const onField = (field: keyof QueryFields) => (value: string) => {
     setDraft(tab.id, { [field]: value });
   };
-  const onEnter = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      void applyQuery(tab.id);
-    }
-  };
   const block = phase === 'ready' ? editBlockOf(tab.id, connection.readOnly) : null;
   const first = page ? page.page * collection.pageSize : 0;
   const shown = page?.documents.count ?? 0;
@@ -142,18 +136,18 @@ export function CollectionTabBody({ tab, table }: { tab: ShellTab; table: Object
             htmlFor={`${id}-${field}`}
           >
             <span className={styles.fieldLabel}>{t(key)}</span>
-            <TextInput
+            <JsonEditor
+              singleLine
               id={`${id}-${field}`}
-              data-field={field}
-              mono
+              contentAttributes={{ 'data-field': field }}
+              label={t(key)}
               value={draft[field]}
               placeholder={placeholder}
-              spellCheck={false}
               invalid={error?.code === 'invalidArgument' && error.message.en.includes(field)}
-              onChange={(event) => {
-                onField(field)(event.target.value);
+              onChange={onField(field)}
+              onSubmit={() => {
+                void applyQuery(tab.id);
               }}
-              onKeyDown={onEnter}
             />
           </label>
         ))}

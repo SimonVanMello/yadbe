@@ -40,8 +40,7 @@
 }
 
 .json {
-  min-height: var(--doc-json-min-height);
-  font-family: var(--font-code);
+  height: var(--doc-json-min-height);
 }
 
 .body {

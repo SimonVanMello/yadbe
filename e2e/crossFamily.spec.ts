@@ -129,7 +129,7 @@ for (const { name, colorScheme } of THEMES) {
       await item(page, MONGO).locator('span').first().click();
       await expect(item(page, MONGO)).toHaveAccessibleName(/Connected/);
       await expect(page.getByTestId('collection-tab')).toBeVisible();
-      await expect(page.locator('[data-field="filter"]')).toHaveValue('{"status": "paid"}');
+      await expect(page.locator('[data-field="filter"]')).toHaveText('{"status": "paid"}');
     });
   });
 }

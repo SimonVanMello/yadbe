@@ -9,7 +9,7 @@ import { Icon } from '../../ui/Icon';
 import { Select } from '../../ui/Select';
 import { Spinner } from '../../ui/Spinner';
 import { TextInput } from '../../ui/TextInput';
-import { JsonEditor } from './JsonEditor';
+import { JsonEditor } from '../json/JsonEditor';
 import { closeEditor, stageEditor } from './searchEditActions';
 import { documentError } from './searchEditModel';
 import { patchEditor, useSearchEditStore } from './searchEditStore';
@@ -146,7 +146,10 @@ export function DocEditorDialog() {
             hint={editor.guard ? t('search.edit.editor.version', editor.guard) : undefined}
           >
             <JsonEditor
-              initial={editor.text}
+              className={styles.editor}
+              data-testid="search-json-editor"
+              lineNumbers
+              value={editor.text}
               label={t('search.edit.editor.source')}
               error={position}
               onChange={(text) => {

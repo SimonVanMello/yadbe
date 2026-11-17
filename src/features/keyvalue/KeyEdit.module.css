@@ -235,6 +235,12 @@
   font-family: var(--font-code);
 }
 
+.jsonEditor {
+  flex: 1;
+  min-height: var(--kv-editor-min-height);
+  resize: none;
+}
+
 .editorActions {
   display: flex;
   align-items: center;

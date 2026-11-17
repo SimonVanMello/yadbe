@@ -33,6 +33,7 @@ import {
   setIndexPageSize,
 } from './indexActions';
 import { INDEX_PAGE_SIZES, useIndexStore, useIndexTab, type HitsView } from './indexStore';
+import { JsonEditor } from '../json/JsonEditor';
 import styles from './IndexTabBody.module.css';
 
 /**
@@ -151,23 +152,37 @@ export function IndexTabBody({ tab, table }: { tab: ShellTab; table: ObjectRef }
           <span className={styles.fieldLabel}>
             {draft.mode === 'dsl' ? t('search.index.dsl') : t('search.index.queryString')}
           </span>
-          <TextInput
-            id={`${id}-query`}
-            data-field="query"
-            mono
-            value={draft.text}
-            placeholder={
-              draft.mode === 'dsl'
-                ? '{ "match": { "status": "paid" } }'
-                : 'status:paid AND total:>100'
-            }
-            spellCheck={false}
-            invalid={queryError}
-            onChange={(event) => {
-              setIndexDraft(tab.id, { text: event.target.value });
-            }}
-            onKeyDown={onEnter}
-          />
+          {draft.mode === 'dsl' ? (
+            <JsonEditor
+              singleLine
+              id={`${id}-query`}
+              contentAttributes={{ 'data-field': 'query' }}
+              label={t('search.index.dsl')}
+              value={draft.text}
+              placeholder='{ "match": { "status": "paid" } }'
+              invalid={queryError}
+              onChange={(text) => {
+                setIndexDraft(tab.id, { text });
+              }}
+              onSubmit={() => {
+                void applyIndexQuery(tab.id);
+              }}
+            />
+          ) : (
+            <TextInput
+              id={`${id}-query`}
+              data-field="query"
+              mono
+              value={draft.text}
+              placeholder="status:paid AND total:>100"
+              spellCheck={false}
+              invalid={queryError}
+              onChange={(event) => {
+                setIndexDraft(tab.id, { text: event.target.value });
+              }}
+              onKeyDown={onEnter}
+            />
+          )}
         </label>
         <label className={styles.optionField} htmlFor={`${id}-source`}>
           <span className={styles.fieldLabel}>{t('search.index.source')}</span>

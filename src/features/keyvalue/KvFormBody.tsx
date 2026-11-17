@@ -8,6 +8,7 @@ import { Select } from '../../ui/Select';
 import { Switch } from '../../ui/Switch';
 import { TextArea } from '../../ui/TextArea';
 import { TextInput } from '../../ui/TextInput';
+import { JsonEditor } from '../json/JsonEditor';
 import styles from './KeyEdit.module.css';
 import { useKvFormStore, type KvFormValues } from './kvFormStore';
 
@@ -98,6 +99,22 @@ export function KvFormBody() {
                   </Field>
                 );
               case 'textarea':
+                if (typeof field.json === 'function' ? field.json(values) : field.json === true) {
+                  return (
+                    <Field key={field.name} label={field.label} htmlFor={fieldId} hint={field.hint}>
+                      <JsonEditor
+                        id={fieldId}
+                        label={field.label}
+                        autoFocus={index === 0}
+                        placeholder={field.placeholder}
+                        value={typeof value === 'string' ? value : ''}
+                        onChange={(next) => {
+                          set(field.name, next);
+                        }}
+                      />
+                    </Field>
+                  );
+                }
                 return (
                   <Field key={field.name} label={field.label} htmlFor={fieldId} hint={field.hint}>
                     <TextArea

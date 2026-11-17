@@ -1,0 +1,57 @@
+/* A JSON field: the frame of TextInput / TextArea around a CodeMirror editor. */
+
+.box {
+  min-width: 0;
+  overflow: hidden;
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+}
+
+.box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 calc(var(--focus-ring-width) + 1px) var(--accent-soft);
+}
+
+.box[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.box :global(.cm-editor) {
+  height: 100%;
+}
+
+.box :global(.cm-placeholder) {
+  color: var(--fg-muted);
+}
+
+.multi {
+  height: var(--json-field-height);
+  min-height: var(--control-height-md);
+  resize: vertical;
+}
+
+.single {
+  width: 100%;
+  height: var(--control-height-md);
+}
+
+.single :global(.cm-editor) {
+  font-size: var(--text-sm);
+}
+
+.single :global(.cm-scroller) {
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  line-height: calc(var(--control-height-md) - 2 * var(--border-width));
+}
+
+.single :global(.cm-content) {
+  padding: 0;
+}
+
+.single :global(.cm-line) {
+  padding: 0 var(--space-3);
+}

@@ -13,6 +13,7 @@ import { TextArea } from '../../ui/TextArea';
 import { formatBytes } from '../export/exportOptions';
 import { JsonView } from '../grid/JsonView';
 import { tryParseJson } from '../grid/jsonTree';
+import { JsonEditor } from '../json/JsonEditor';
 import editStyles from './KeyEdit.module.css';
 import styles from './KeyTab.module.css';
 import { bytesId, bytesText, concatBytes, decodeBase64, hexDump, isUtf8 } from './kvBytes';
@@ -217,16 +218,31 @@ export function StringViewer({
   if (draft !== null) {
     return (
       <div className={editStyles.editor} data-testid="kv-string-editor">
-        <TextArea
-          mono
-          invalid={draftError !== null}
-          aria-label={t('keyValue.string.editLabel')}
-          value={draft}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setDraftError(null);
-          }}
-        />
+        {mode === 'json' ? (
+          <JsonEditor
+            className={editStyles.jsonEditor}
+            lineNumbers
+            autoFocus
+            invalid={draftError !== null}
+            label={t('keyValue.string.editLabel')}
+            value={draft}
+            onChange={(next) => {
+              setDraft(next);
+              setDraftError(null);
+            }}
+          />
+        ) : (
+          <TextArea
+            mono
+            invalid={draftError !== null}
+            aria-label={t('keyValue.string.editLabel')}
+            value={draft}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setDraftError(null);
+            }}
+          />
+        )}
         {draftError && (
           <p className={editStyles.formError} role="alert">
             {draftError}

@@ -12,6 +12,8 @@ const sqlHighlight = HighlightStyle.define([
   { tag: [tags.string, tags.special(tags.string)], color: 'var(--syn-string)' },
   { tag: [tags.number, tags.bool, tags.null], color: 'var(--syn-number)' },
   { tag: [tags.typeName, tags.standard(tags.typeName)], color: 'var(--syn-type)' },
+  // Object keys (JSON, mongosh, console bodies): the documents view's colour for field names.
+  { tag: tags.propertyName, color: 'var(--syn-tag)' },
   {
     tag: [tags.function(tags.variableName), tags.standard(tags.name)],
     color: 'var(--syn-function)',
