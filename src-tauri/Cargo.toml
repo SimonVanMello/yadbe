@@ -1,6 +1,6 @@
 [package]
 name = "yadbe"
-version = "0.1.0"
+version = "0.2.0"
 description = "yadbe, a fast cross-platform SQL database explorer"
 edition = "2024"
 license = "GPL-3.0-or-later"
