@@ -46,7 +46,10 @@ async fn closed_port_is_refused() {
         .and_then(|l| l.local_addr())
         .expect("free port")
         .port();
-    let error = open(&local(port), Some(&pw())).await.err().expect("fails");
+    // Windows retries a refused loopback connection for about 2 s before giving up.
+    let mut def = local(port);
+    def.connect_timeout_secs = Some(10);
+    let error = open(&def, Some(&pw())).await.err().expect("fails");
     assert_eq!(error.code, ErrorCode::ConnectionRefused, "{error:?}");
 }
 

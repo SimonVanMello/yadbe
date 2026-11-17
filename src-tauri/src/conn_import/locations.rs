@@ -174,7 +174,8 @@ mod tests {
                 .candidates(kind)
                 .into_iter()
                 .next()
-                .map(|p| p.display().to_string())
+                // The candidates of another OS are joined with the host's separator.
+                .map(|p| p.display().to_string().replace('\\', "/"))
         };
         assert_eq!(
             first(Os::Linux, ConnectionSourceKind::AzureDataStudio).as_deref(),

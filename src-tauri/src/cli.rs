@@ -212,12 +212,15 @@ mod tests {
         let absolute = dir.path().join("b.SQL").display().to_string();
         let requests = parse_args(&os(&["a.sql", &absolute]), dir.path());
         let canonical = |name: &str| {
-            dir.path()
-                .join(name)
-                .canonicalize()
-                .expect("canonical")
-                .display()
-                .to_string()
+            strip_verbatim(
+                &dir.path()
+                    .join(name)
+                    .canonicalize()
+                    .expect("canonical")
+                    .display()
+                    .to_string(),
+            )
+            .to_string()
         };
         assert_eq!(
             requests,
