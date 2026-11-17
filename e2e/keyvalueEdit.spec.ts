@@ -214,6 +214,24 @@ for (const { name, colorScheme } of THEMES) {
       await page.getByRole('button', { name: 'Cancel' }).click();
     });
 
+    test('⌘R and F5 read the key again, as its Refresh button does', async ({ page }) => {
+      await openKey(page, ['user', '10', 'profile']);
+      await expect(page.getByRole('grid', { name: 'user:10:profile' })).toBeVisible();
+      // Each read of the key's header is in the statement log.
+      await page.getByRole('button', { name: /Statement log/ }).click();
+      const reads = page
+        .getByRole('region', { name: 'Statement log' })
+        .getByRole('option')
+        .filter({ hasText: 'TYPE user:10:profile' });
+      await expect(reads.first()).toBeVisible();
+      const before = await reads.count();
+      await page.getByRole('grid', { name: 'user:10:profile' }).click();
+      await page.keyboard.press('ControlOrMeta+r');
+      await expect(reads).toHaveCount(before + 1);
+      await page.keyboard.press('F5');
+      await expect(reads).toHaveCount(before + 2);
+    });
+
     test('a key changed by someone else conflicts: keep mine applies over it', async ({ page }) => {
       await openKey(page, ['user', '10', 'profile']);
       const grid = page.getByRole('grid', { name: 'user:10:profile' });

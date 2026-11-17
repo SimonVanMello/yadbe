@@ -3,7 +3,9 @@ import { useEffect } from 'react';
 import { registerActions } from '../../app/actions';
 import { showError } from '../../app/errors/presentError';
 import { translate, useI18nStore } from '../../i18n/i18n';
+import { selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { refreshCollection } from '../document/collectionActions';
+import { rereadTab } from '../keyvalue/kvEditActions';
 import { showObjectDdl } from '../objects/ddlActions';
 import { findConnection } from '../query/connectionLookup';
 import { refreshIndex } from '../search/indexActions';
@@ -69,6 +71,18 @@ export function useTableActions(): void {
         act(id);
         return true;
       };
+    const refreshDataTab = onTable((tabId) => {
+      switch (findConnection(tableTabOf(tabId)?.connectionId ?? null)?.family) {
+        case 'document':
+          refreshCollection(tabId);
+          return;
+        case 'search':
+          refreshIndex(tabId);
+          return;
+        default:
+          void refreshTable(tabId);
+      }
+    });
     return registerActions({
       'table.apply': onEdit((tabId) => {
         void flushEditor(tabId).then(() => {
@@ -79,18 +93,15 @@ export function useTableActions(): void {
         void flushEditor(tabId).then(() => openPreview(tabId));
       }),
       // A collection or an index tab is a table tab of another family: it runs its query again.
-      'table.refresh': onTable((tabId) => {
-        switch (findConnection(tableTabOf(tabId)?.connectionId ?? null)?.family) {
-          case 'document':
-            refreshCollection(tabId);
-            return;
-          case 'search':
-            refreshIndex(tabId);
-            return;
-          default:
-            void refreshTable(tabId);
+      // A key tab (a tool tab) reads its key again, as the Refresh button of its header does.
+      'table.refresh': () => {
+        const active = selectActiveTab(useTabsStore.getState());
+        if (active.tool?.type === 'kvKey') {
+          rereadTab(active.id);
+          return true;
         }
-      }),
+        return refreshDataTab();
+      },
       'table.filter': onTable((tabId) => {
         useFilterRequests.getState().request(tabId);
       }),
