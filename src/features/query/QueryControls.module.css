@@ -4,6 +4,12 @@
   gap: var(--space-1);
 }
 
+/* Run and Explain with their menus: the two halves touch, the menu's margin is the only seam. */
+.splitGroup {
+  display: inline-flex;
+  align-items: center;
+}
+
 .separator {
   align-self: center;
   width: var(--border-width);

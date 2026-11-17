@@ -61,7 +61,7 @@ export function QueryControls({ tabId, connection }: QueryControlsProps) {
 
   return (
     <>
-      <span className={styles.group}>
+      <span className={styles.splitGroup}>
         <Tooltip content={t(runLabelKey(selection))} shortcut={shortcutOf('query.run')}>
           <Button
             variant="primary"
@@ -136,7 +136,7 @@ export function QueryControls({ tabId, connection }: QueryControlsProps) {
           <span className={styles.label}>{t('toolbar.cancel')}</span>
         </Button>
       </Tooltip>
-      <span className={styles.group}>
+      <span className={styles.splitGroup}>
         <Tooltip content={t('action.query.explain')} shortcut={shortcutOf('query.explain')}>
           <Button
             size="sm"
