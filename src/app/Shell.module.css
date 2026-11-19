@@ -1,12 +1,8 @@
 .shell {
-  --shell-tint: transparent;
-
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  /* The environment of the active connection, on the whole window (SPEC §4). */
-  border-top: var(--env-stripe-height) solid var(--shell-tint);
   background: var(--bg-app);
 }
 

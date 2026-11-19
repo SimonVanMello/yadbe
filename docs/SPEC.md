@@ -134,7 +134,7 @@ Reference machine: 2023 mid-range laptop (8 cores, 16 GB, NVMe SSD). Database on
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Tabs are editor tabs (SQL) or table tabs (data browsing/editing); each is bound to one connection and one database. The sidebar and the result panel are resizable and collapsible, sizes remembered. The window is tinted by the connection's environment color (thin top border + connection chip).
+Tabs are editor tabs (SQL) or table tabs (data browsing/editing); each is bound to one connection and one database. The sidebar and the result panel are resizable and collapsible, sizes remembered. The connection's environment color shows on its tab and its connection chip, not on the whole window.
 
 ---
 

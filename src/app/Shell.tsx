@@ -1,8 +1,6 @@
-import { memo, useEffect, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useState } from 'react';
 
-import { useConnection } from '../features/connections/connectionStore';
 import { GroupDialog } from '../features/connections/GroupDialog';
-import { tintOf } from '../features/connections/model';
 import { PasswordPromptDialog } from '../features/connections/PasswordPromptDialog';
 import { refreshNode } from '../features/explorer/explorerActions';
 import { useExplorerStore } from '../features/explorer/explorerStore';
@@ -177,8 +175,8 @@ function useShellActions(): void {
 }
 
 /**
- * The parts of the shell that do not depend on what the shell renders: a switch to a tab of
- * another connection re-renders the shell (tint), and these stay as they are.
+ * The parts of the shell that do not depend on what the shell renders: a panel resize
+ * re-renders the shell, and these stay as they are.
  */
 const StableTitleBar = memo(TitleBar);
 const StableSidebar = memo(SidebarViews);
@@ -201,22 +199,14 @@ export function Shell() {
   useJournalActions();
   usePaletteActions();
   const ready = useStartup();
-  // Only the connection, not the tab: a tab switch must not re-render the whole shell.
-  const connectionId = useTabsStore((state) => selectActiveTab(state).connectionId);
-  const connection = useConnection(connectionId);
   const panels = useLayoutStore((state) => state.panels);
   const [mainRef, size] = useElementSize<HTMLDivElement>();
 
   const sidebarWidth = fitPanel('sidebar', panels.sidebar, size.width);
   const bottomHeight = fitPanel('bottom', panels.bottom, size.height);
-  const tint = connection ? tintOf(connection) : null;
 
   return (
-    <div
-      className={styles.shell}
-      data-environment={connection?.environment ?? undefined}
-      style={{ '--shell-tint': tint ?? 'transparent' } as CSSProperties}
-    >
+    <div className={styles.shell}>
       <WindowTitleSync />
       <StableTitleBar />
       <ActiveToolbar />
