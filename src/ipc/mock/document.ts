@@ -22,6 +22,7 @@ import type {
 import type { YadbeClient } from '../client';
 import { mockErrors } from '../mockErrors';
 import type { Cell } from '../mockQuery';
+import { MOCK_EXPORT_PAGE, type FamilyExportSpec, type MockExportRows } from './export';
 import type { MockHistoryRecord } from './history';
 import {
   bsonTypeOf,
@@ -817,8 +818,61 @@ export function createMockDocument(host: MockDocumentHost) {
     },
   };
 
+  /**
+   * Every document of a collection under a tab's query, for an export (M4-11): pages logged as
+   * the backend reads them, grid columns from the first page.
+   */
+  function exportRows(
+    spec: Extract<FamilyExportSpec, { kind: 'collection' }>,
+  ): MockExportRows | YadbeError {
+    if (!host.session(spec.connectionId)) return mockErrors.notConnected();
+    const found = collectionOf(spec.database, spec.collection);
+    if (isError(found)) return found;
+    const filter = parseObject(spec.filter, 'filter');
+    const projection = parseObject(spec.projection, 'projection');
+    const sort = parseObject(spec.sort, 'sort');
+    if (isError(filter)) return filter;
+    if (isError(projection)) return projection;
+    if (isError(sort)) return sort;
+    const all = sorted(
+      found.documents.filter((d) => matches(d, filter)),
+      sort,
+    ).map((d) => project(d, projection));
+    const sortKeys = Object.keys(sort ?? {});
+    const keyset = sortKeys.length === 0 || (sortKeys.length === 1 && sortKeys[0] === '_id');
+    for (let skip = 0; skip === 0 || skip < all.length; skip += MOCK_EXPORT_PAGE) {
+      host.logStatement(
+        spec.connectionId,
+        displayFind(
+          spec.database,
+          spec.collection,
+          spec.filter,
+          keyset && !spec.sort ? '{"_id":1}' : spec.sort,
+          keyset ? 0 : skip,
+          MOCK_EXPORT_PAGE,
+        ),
+      );
+    }
+    if (spec.documents) {
+      return {
+        columns: [{ name: 'document', typeName: 'object', kind: 'json' }],
+        count: all.length,
+        row: (index) => [['json', JSON.stringify(all[index] ?? {})]],
+      };
+    }
+    const { columns } = gridOf(all.slice(0, MOCK_EXPORT_PAGE));
+    const whole = gridOf(all);
+    const at = columns.map((column) => whole.columns.findIndex((c) => c.name === column.name));
+    return {
+      columns,
+      count: all.length,
+      row: (index) => at.map((i) => whole.rows[index]?.[i] ?? ['missing', '']),
+    };
+  }
+
   return {
     commands,
+    exportRows,
     /** A collection of the mock server, to change its documents (edits, M4-4). */
     collection(database: string, name: string): MockCollection | null {
       return data.get(database)?.get(name) ?? null;

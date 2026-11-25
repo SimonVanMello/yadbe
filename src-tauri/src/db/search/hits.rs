@@ -162,16 +162,21 @@ pub fn hit_rows(
             }
         })
         .collect();
-    let rows = per_hit
-        .iter()
-        .map(|cells| {
-            order
-                .iter()
-                .map(|name| cells.get(name).map_or(Value::Missing, |v| to_cell(v)))
-                .collect()
-        })
-        .collect();
+    let rows = per_hit.iter().map(|cells| row_of(cells, &order)).collect();
     (columns, rows)
+}
+
+fn row_of(cells: &HashMap<String, &Json>, names: &[String]) -> Vec<Value> {
+    names
+        .iter()
+        .map(|name| cells.get(name).map_or(Value::Missing, |v| to_cell(v)))
+        .collect()
+}
+
+/// The grid row of `hit` under columns chosen earlier (an export's, from its first page): a
+/// field it lacks is `missing`, a field outside `names` is left out.
+pub fn hit_row(hit: &Json, names: &[String]) -> Vec<Value> {
+    row_of(&cells_of(hit), names)
 }
 
 /// The rows of a tabular answer: ES|QL (`columns` + `values`) or SQL (`columns` + `rows`).

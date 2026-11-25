@@ -2,7 +2,8 @@
 //!
 //! `ExportSource` is the seam: the writer only sees batches of rows. The query-result
 //! implementation reads the `ResultStore` first, then the live tail of the statement; the
-//! table implementation reads pages of a table tab's table (`TableExportRows`).
+//! table implementation reads pages of a table tab's table (`TableExportRows`), the collection
+//! and index ones pages of a collection or an index (`CollectionExportRows`, `IndexExportRows`).
 
 use std::future::Future;
 
@@ -12,8 +13,10 @@ use super::model::ExportScope;
 use crate::db::errors::{ErrorCode, YadbeError};
 use crate::db::value::{ColumnMeta, Value};
 use crate::session::QueryRunner;
+use crate::session::document::export::CollectionExportRows;
 use crate::session::result_store::StoredResult;
 use crate::session::result_tap::{ResultStream, TapEnd, TapMsg};
+use crate::session::search::export::IndexExportRows;
 use crate::session::table_data::TableExportRows;
 
 /// Rows read from the store per batch.
@@ -247,5 +250,25 @@ impl ExportSource for TableExportRows {
 
     async fn next_batch(&mut self) -> Result<Option<Vec<Vec<Value>>>, YadbeError> {
         TableExportRows::next_batch(self).await
+    }
+}
+
+impl ExportSource for CollectionExportRows {
+    fn columns(&self) -> &[ColumnMeta] {
+        CollectionExportRows::columns(self)
+    }
+
+    async fn next_batch(&mut self) -> Result<Option<Vec<Vec<Value>>>, YadbeError> {
+        CollectionExportRows::next_batch(self).await
+    }
+}
+
+impl ExportSource for IndexExportRows {
+    fn columns(&self) -> &[ColumnMeta] {
+        IndexExportRows::columns(self)
+    }
+
+    async fn next_batch(&mut self) -> Result<Option<Vec<Vec<Value>>>, YadbeError> {
+        IndexExportRows::next_batch(self).await
     }
 }

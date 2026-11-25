@@ -41,7 +41,7 @@ import { createMockSavedQueries } from './mock/savedQueries';
 import { createMockMeta } from './mock/meta';
 import { createMockObjects } from './mock/objects';
 import type { LargeCatalogOptions } from './mock/metaCatalog';
-import { cellValue, createMockQuery } from './mockQuery';
+import { cellValue, createMockQuery, type Cell } from './mockQuery';
 import { createMockReferences } from './mock/references';
 import { createMockSsh, tunnelStatus } from './mock/ssh';
 import { createMockTableData } from './mock/tableData';
@@ -485,6 +485,22 @@ function createMockBackend() {
         loaded: found.rows.length,
         total: found.rows.length,
         value: (row, column) => cellValue(found.rows[row]?.[column] ?? null),
+      };
+    },
+    family: (spec) => {
+      const found =
+        spec.kind === 'collection' ? document.exportRows(spec) : search.exportRows(spec);
+      if ('code' in found) return found;
+      // Cells are computed a row at a time, and read a column at a time.
+      let cached: { row: number; cells: readonly Cell[] } | null = null;
+      return {
+        columns: found.columns,
+        loaded: found.count,
+        total: found.count,
+        value: (row, column) => {
+          if (cached?.row !== row) cached = { row, cells: found.row(row) };
+          return cellValue(cached.cells[column] ?? null);
+        },
       };
     },
     writeFile: (path, text) => {

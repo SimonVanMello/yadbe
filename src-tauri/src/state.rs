@@ -103,11 +103,6 @@ impl AppState {
             )
             .with_journal(Arc::clone(&journal)),
         );
-        let exports = Arc::new(ExportManager::new(
-            Arc::clone(&queries),
-            Arc::clone(&tables),
-            Arc::clone(&sink),
-        ));
         let documents = Arc::new(
             DocumentService::new(
                 Arc::clone(&connections),
@@ -125,6 +120,11 @@ impl AppState {
                 history.clone(),
             )
             .with_journal(Arc::clone(&journal)),
+        );
+        // Collections and indices are exported from the family services.
+        let exports = Arc::new(
+            ExportManager::new(Arc::clone(&queries), Arc::clone(&tables), Arc::clone(&sink))
+                .with_families(Arc::clone(&documents), Arc::clone(&searches)),
         );
         let imports = Arc::new(ImportManager::new(
             Arc::clone(&connections),

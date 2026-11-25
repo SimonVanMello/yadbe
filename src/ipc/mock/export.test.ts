@@ -50,6 +50,16 @@ function setup(total: number) {
                 : { kind: 'text', value: `t${String(row)}` },
           }
         : mockErrors.invalidArgument('This table tab is not open.', 'Onglet pas ouvert.'),
+    // A collection `orders` of `total` documents, whole.
+    family: (spec) =>
+      spec.kind === 'collection' && spec.collection === 'orders'
+        ? {
+            columns: [{ name: 'document', typeName: 'object', kind: 'json' }],
+            loaded: total,
+            total,
+            value: (row): Value => ({ kind: 'json', value: `{"_id":${String(row)}}` }),
+          }
+        : mockErrors.objectNotFound(spec.kind === 'index' ? spec.target : spec.collection),
     writeFile: (path, text) => files.set(path, text),
   });
   exporter.setTick(0);
@@ -127,6 +137,43 @@ describe('the mock export', () => {
         path: '/home/ana/x.csv',
       }),
     ).toMatchObject({ status: 'error', error: { code: 'invalidArgument' } });
+  });
+
+  it('exports every document of a collection, not a page, and previews it', async () => {
+    const { exporter, files, finished } = setup(2500);
+    const source: ExportSourceSpec = {
+      kind: 'collection',
+      connectionId: 'c',
+      database: 'shop',
+      collection: 'orders',
+      filter: '',
+      projection: '',
+      sort: '',
+      documents: true,
+    };
+    const lines: ExportFormat = {
+      format: 'jsonLines',
+      options: {
+        numbers: 'auto',
+        binary: 'hex',
+        documents: { kind: 'mongo', extendedJson: 'canonical' },
+      },
+    };
+    expect(await exporter.commands.previewExport(source, lines, 2)).toEqual({
+      status: 'ok',
+      data: '{"_id":0}\n{"_id":1}\n',
+    });
+    await exporter.commands.startExport({ source, format: lines, path: '/home/ana/orders.jsonl' });
+    await waitFor(() => finished.length > 0);
+    expect(finished[0]).toMatchObject({ status: 'done', rows: 2500 });
+    expect(files.get('/home/ana/orders.jsonl')?.split('\n')).toHaveLength(2501);
+    expect(
+      await exporter.commands.startExport({
+        source: { ...source, collection: 'gone' },
+        format: lines,
+        path: '/home/ana/x.jsonl',
+      }),
+    ).toMatchObject({ status: 'error', error: { code: 'objectNotFound' } });
   });
 
   it('writes SQL inserts for the engine asked, Markdown, and the rows of an Excel workbook', async () => {

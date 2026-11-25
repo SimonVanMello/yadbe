@@ -18,6 +18,7 @@ import type { YadbeClient } from '../client';
 import { mockErrors } from '../mockErrors';
 import type { Cell } from '../mockQuery';
 import type { MockHistoryRecord } from './history';
+import { MOCK_EXPORT_PAGE, type FamilyExportSpec, type MockExportRows } from './export';
 import type { MockJournal } from './journal';
 import { createMockSearchEdits } from './searchEdit';
 import {
@@ -221,6 +222,17 @@ function flatten(source: JsonObject): [string, JsonValue][] {
 
 type Hit = JsonObject & { _source: JsonObject };
 
+/** The cells of one hit, by column name. */
+function cellsOf(hit: Hit): Map<string, JsonValue> {
+  const cells = new Map<string, JsonValue>();
+  for (const meta of ['_index', '_id', '_score']) {
+    const value = hit[meta];
+    if (value !== undefined) cells.set(meta, value);
+  }
+  for (const [path, value] of flatten(hit._source)) if (!cells.has(path)) cells.set(path, value);
+  return cells;
+}
+
 /** Mirror of `db::search::hits::hit_rows`. */
 function hitGrid(
   hits: readonly Hit[],
@@ -228,15 +240,6 @@ function hitGrid(
 ): { columns: ColumnMeta[]; rows: Cell[][] } {
   const order = ['_index', '_id', '_score'];
   const kinds = new Map<string, Set<ValueKind>>();
-  const cellsOf = (hit: Hit) => {
-    const cells = new Map<string, JsonValue>();
-    for (const meta of ['_index', '_id', '_score']) {
-      const value = hit[meta];
-      if (value !== undefined) cells.set(meta, value);
-    }
-    for (const [path, value] of flatten(hit._source)) if (!cells.has(path)) cells.set(path, value);
-    return cells;
-  };
   const all = hits.map(cellsOf);
   for (const cells of all) {
     for (const [path, value] of cells) {
@@ -1001,8 +1004,56 @@ export function createMockSearch(host: MockSearchHost) {
     },
   };
 
+  /**
+   * Every hit of an index under a tab's query, for an export (M4-11): the point in time, its
+   * pages and its close logged as the backend sends them, grid columns from the first page.
+   */
+  function exportRows(
+    spec: Extract<FamilyExportSpec, { kind: 'index' }>,
+  ): MockExportRows | YadbeError {
+    if (!host.session(spec.connectionId)) return mockErrors.notConnected();
+    const index = resolveTarget(indices, spec.target);
+    if (!index) return mockErrors.objectNotFound(spec.target);
+    const keep = matcher({ ...spec, pageSize: MOCK_EXPORT_PAGE });
+    if ('code' in keep) return keep;
+    // Hits as an export reads them: no version fields (`seq_no_primary_term` is not asked).
+    const hits = hitsOf(index, keep, spec.sort).map((hit): Hit => {
+      const { _source, ...meta } = filterSource(hit, spec.source);
+      const kept = Object.fromEntries(
+        Object.entries(meta).filter(([key]) => key !== '_seq_no' && key !== '_primary_term'),
+      );
+      return { ...kept, _source };
+    });
+    host.logStatement(spec.connectionId, `POST /${spec.target}/_pit?keep_alive=5m`);
+    for (let from = 0; from === 0 || from < hits.length; from += MOCK_EXPORT_PAGE) {
+      host.logStatement(
+        spec.connectionId,
+        `POST /_search\n${JSON.stringify({ size: MOCK_EXPORT_PAGE, pit: { id: 'mock-pit', keep_alive: '5m' } })}`,
+      );
+    }
+    host.logStatement(spec.connectionId, 'DELETE /_pit');
+    if (spec.documents) {
+      return {
+        columns: [{ name: 'document', typeName: 'object', kind: 'json' }],
+        count: hits.length,
+        row: (row) => [['json', JSON.stringify(hits[row] ?? {})]],
+      };
+    }
+    const { columns } = hitGrid(hits.slice(0, MOCK_EXPORT_PAGE), new Map());
+    return {
+      columns,
+      count: hits.length,
+      row: (row) => {
+        const hit = hits[row];
+        const cells = hit ? cellsOf(hit) : new Map<string, JsonValue>();
+        return columns.map((column) => cellOf(cells.get(column.name)));
+      },
+    };
+  }
+
   return {
     commands: { ...commands, ...edits.commands },
+    exportRows,
     reset(): void {
       indices = mockSearchIndices();
       tabs.clear();

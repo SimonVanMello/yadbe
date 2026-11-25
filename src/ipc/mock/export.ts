@@ -11,7 +11,7 @@ import type {
 import type { YadbeCommands } from '../client';
 import type { EventEmitter } from '../emitter';
 import { mockErrors } from '../mockErrors';
-import type { MockResultSource } from '../mockQuery';
+import type { Cell, MockResultSource } from '../mockQuery';
 import { mockEncoder } from './exportFormat';
 
 type ExportCommands = Pick<YadbeCommands, 'startExport' | 'cancelExport' | 'previewExport'>;
@@ -39,11 +39,29 @@ const DEFAULT_TICK_MS = 40;
 const STEP_ROWS = 20_000;
 const MAX_PREVIEW_ROWS = 100;
 
+/** A whole collection or index (`ExportSourceSpec::Collection` / `Index`). */
+export type FamilyExportSpec = Extract<ExportSourceSpec, { kind: 'collection' | 'index' }>;
+
+/** Documents per page of a collection or index export (`EXPORT_PAGE` of the backend). */
+export const MOCK_EXPORT_PAGE = 1000;
+
+/**
+ * What the family mocks give for a whole collection or index: the columns (those of the first
+ * page, for grid rows) and each row's cells, computed when read.
+ */
+export interface MockExportRows {
+  columns: ColumnMeta[];
+  count: number;
+  row(index: number): readonly Cell[];
+}
+
 export interface MockExportHost {
   events: EventEmitter;
   source(resultId: number): MockResultSource | undefined;
   /** Every row of a table tab's table under a filter and sort (`ExportSourceSpec::Table`). */
   table(tabId: string, filter: TableFilter, sort: SortKey[]): MockResultSource | YadbeError;
+  /** Every document of a collection, or hit of an index, under a tab's query. */
+  family(spec: FamilyExportSpec): MockResultSource | YadbeError;
   /** Puts the finished file on the mock disk. */
   writeFile(path: string, text: string): void;
 }
@@ -106,6 +124,14 @@ function resolve(
   host: MockExportHost,
   spec: ExportSourceSpec,
 ): { source: MockResultSource; picked: Selection } | YadbeError {
+  if (spec.kind === 'collection' || spec.kind === 'index') {
+    const source = host.family(spec);
+    if (isError(source)) return source;
+    return {
+      source,
+      picked: { rows: [0, source.total], columns: null, total: source.total, shown: false },
+    };
+  }
   if (spec.kind === 'table') {
     const source = host.table(spec.tabId, spec.filter, spec.sort);
     if (isError(source)) return source;

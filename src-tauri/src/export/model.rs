@@ -6,6 +6,7 @@ use specta::Type;
 
 use crate::db::engine::Engine;
 use crate::db::errors::YadbeError;
+use crate::session::search::model::{IndexQueryMode, IndexSort};
 use crate::session::table_model::{SortKey, TableFilter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -285,6 +286,34 @@ pub enum ExportSourceSpec {
         tab_id: String,
         filter: TableFilter,
         sort: Vec<SortKey>,
+    },
+    /// Every document of a collection under a collection tab's filter, projection and sort
+    /// (Extended JSON as typed; empty: none), not only its current page, read from the server
+    /// in pages.
+    Collection {
+        connection_id: String,
+        database: String,
+        collection: String,
+        filter: String,
+        projection: String,
+        sort: String,
+        /// Each document whole (one `document` column, what JSON Lines writes as documents);
+        /// otherwise grid rows, whose columns are the top-level fields of the first page.
+        documents: bool,
+    },
+    /// Every hit of an index tab's query, `_source` filter and sort, not only its current
+    /// page, read from the server in pages (a point in time, or a scroll).
+    Index {
+        connection_id: String,
+        /// An index, data stream, alias or pattern.
+        target: String,
+        mode: IndexQueryMode,
+        text: String,
+        source: String,
+        sort: Vec<IndexSort>,
+        /// Each hit whole (one `document` column); otherwise grid rows, whose columns are
+        /// the fields of the first page.
+        documents: bool,
     },
 }
 

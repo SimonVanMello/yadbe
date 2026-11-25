@@ -8,10 +8,11 @@ function backend(readOnly = false, onConfirm: (requestId: number) => void = () =
   let next = 1;
   const history: string[] = [];
   const streamed: string[][] = [];
+  const log: string[] = [];
   const mock = createMockDocument({
     session: () => ({ readOnly, topology: 'replicaSet' as const }),
     latency: () => 0,
-    logStatement: () => undefined,
+    logStatement: (_connectionId, sql) => log.push(sql),
     recordHistory: (entry) => history.push(`${entry.outcome}:${entry.sql}`),
     confirm: (request) => {
       onConfirm(request.requestId);
@@ -36,7 +37,7 @@ function backend(readOnly = false, onConfirm: (requestId: number) => void = () =
         ?.slice(offset, offset + limit)
         .map((row) => row[0] ?? '') ?? null,
   });
-  return { commands: mock.commands, history, streamed };
+  return { commands: mock.commands, exportRows: mock.exportRows, history, streamed, log };
 }
 
 describe('the mock MongoDB server', () => {
@@ -54,6 +55,35 @@ describe('the mock MongoDB server', () => {
       'timestampTz',
       '2023-11-14 22:13:20.123+00',
     ]);
+  });
+
+  it('exports every matching document by pages, with the columns of the first page', () => {
+    const { exportRows, log } = backend();
+    const spec = {
+      kind: 'collection',
+      connectionId: 'c',
+      database: 'catalog',
+      collection: 'orders',
+      filter: '',
+      projection: '',
+      sort: '',
+      documents: false,
+    } as const;
+    const all = exportRows(spec);
+    if ('code' in all) throw new Error('no rows');
+    expect(all.count).toBe(1300);
+    expect(all.columns[0]?.name).toBe('_id');
+    expect(all.row(1299)).toHaveLength(all.columns.length);
+    expect(log.filter((sql) => sql.includes('.find('))).toHaveLength(2);
+
+    const whole = exportRows({ ...spec, documents: true, projection: '{"number":1}' });
+    if ('code' in whole) throw new Error('no rows');
+    expect(whole.columns).toEqual([{ name: 'document', typeName: 'object', kind: 'json' }]);
+    const first = whole.row(0)[0];
+    expect(Object.keys(JSON.parse(first?.[1] ?? '{}') as object)).toEqual(['_id', 'number']);
+
+    expect(exportRows({ ...spec, filter: '{ nope' })).toMatchObject({ code: 'invalidArgument' });
+    expect(exportRows({ ...spec, collection: 'gone' })).toMatchObject({ code: 'objectNotFound' });
   });
 
   it('pages a collection and reads its documents back', async () => {
