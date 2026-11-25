@@ -3,7 +3,8 @@
 //! the 10 000-document window (point in time) or stopping at it (`from` / `size`), sort,
 //! `_source` filtering, query string and Query DSL, counts, the explorer, the console (hits,
 //! text answers, ES|QL, error positions), the request gate (read-only, dangers and their
-//! effect), cancel of a slow search, the statement timeout, history and statement log.
+//! effect), cancel of a slow search, the statement timeout, history and statement log; whole
+//! indices exported by pages (M4-11).
 //!
 //! `YADBE_TEST_ES_URL` (+ `YADBE_TEST_ES_CA` for its HTTPS) and `YADBE_TEST_OPENSEARCH_URL`
 //! (`dev/compose.yml`, `search` profile); unset: SKIPPED. Each test works on its own indices
@@ -16,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::{driver, from_url, skip};
+use tokio_util::sync::CancellationToken;
 use yadbe_lib::db::config::TlsMode;
 use yadbe_lib::db::document::json::Json;
 use yadbe_lib::db::driver::{ConnectRequest, NoRecorder, SearchConnection};
@@ -27,10 +29,14 @@ use yadbe_lib::db::search::server::SearchProduct;
 use yadbe_lib::db::search::settings::{SearchAuth, SearchSettings};
 use yadbe_lib::db::value::{Value, ValueKind};
 use yadbe_lib::events::RecordingSink;
+use yadbe_lib::export::encode::encoder;
+use yadbe_lib::export::model::{CsvOptions, DocumentLines, ExportFormat, JsonLinesOptions};
+use yadbe_lib::export::run::run_export;
 use yadbe_lib::secrets::{MemoryKeychain, Secret, SecretStore};
 use yadbe_lib::session::history_hook::{HistoryEntry, HistoryRecorder};
 use yadbe_lib::session::result_store::ResultStore;
 use yadbe_lib::session::search::SearchService;
+use yadbe_lib::session::search::export::IndexExport;
 use yadbe_lib::session::search::model::{
     ConsoleBody, ConsoleResponse, IndexPaging, IndexQuery, IndexQueryMode, IndexSort, LineRange,
     SearchConsoleOutcome,
@@ -1223,5 +1229,173 @@ async fn secrets_stay_out_of_logs_and_history() {
         {
             assert!(!text.contains(PASSWORD), "{text}");
         }
+    }
+}
+
+// --- Whole-index exports (M4-11) ------------------------------------------------------------
+
+fn index_export(bench: &Bench, target: &str) -> IndexExport {
+    IndexExport {
+        connection_id: bench.id.clone(),
+        target: target.to_owned(),
+        mode: IndexQueryMode::QueryString,
+        text: String::new(),
+        source: String::new(),
+        sort: Vec::new(),
+        documents: false,
+    }
+}
+
+/// Requests of the statement log that closed a point in time or a scroll.
+fn closes(bench: &Bench) -> usize {
+    bench
+        .log
+        .entries()
+        .iter()
+        .filter(|e| {
+            e.sql.starts_with("DELETE /_pit")
+                || e.sql.starts_with("DELETE /_search/point_in_time")
+                || e.sql.starts_with("DELETE /_search/scroll")
+        })
+        .count()
+}
+
+/// An index exported to `format`: the lines of the file.
+async fn export_index(bench: &Bench, export: IndexExport, format: &ExportFormat) -> Vec<String> {
+    let mut source = bench.search.export_rows(export).await.expect("export rows");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("out.txt");
+    let outcome = run_export(
+        &mut source,
+        encoder(format).expect("encoder"),
+        &path,
+        1,
+        &CancellationToken::new(),
+        Duration::from_secs(1),
+        |_, _| {},
+    )
+    .await
+    .expect("exports");
+    let lines: Vec<String> = std::fs::read_to_string(&path)
+        .expect("file")
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let header = usize::from(matches!(format, ExportFormat::Csv { .. }));
+    assert_eq!(outcome.rows as usize + header, lines.len());
+    lines
+}
+
+#[tokio::test]
+async fn a_whole_index_is_exported_past_the_result_window() {
+    for server in servers("a_whole_index_is_exported_past_the_result_window") {
+        // Read-only: every request of an export is a read.
+        let bench = Bench::new(&server, true).await;
+        let label = server.label;
+        let index = "yadbe-export";
+        bench.clean(index).await;
+        bench.fill(index, 10_500).await;
+        let csv = ExportFormat::Csv {
+            options: CsvOptions::default(),
+        };
+
+        // Every hit, sorted, past the 10 000-document window; the search context closed.
+        let closed = closes(&bench);
+        let lines = export_index(
+            &bench,
+            IndexExport {
+                sort: vec![IndexSort {
+                    field: "n".into(),
+                    descending: false,
+                }],
+                ..index_export(&bench, index)
+            },
+            &csv,
+        )
+        .await;
+        assert_eq!(lines.len(), 10_501, "{label}");
+        let header: Vec<&str> = lines[0].split(',').collect();
+        assert_eq!(&header[..3], ["_index", "_id", "_score"], "{label}");
+        let at = header.iter().position(|c| *c == "n").expect("an n column");
+        let numbers: Vec<i64> = lines[1..]
+            .iter()
+            .map(|line| line.split(',').nth(at).expect("n").parse().expect("number"))
+            .collect();
+        assert_eq!(
+            numbers,
+            (0..10_500).collect::<Vec<_>>(),
+            "{label}: in order, once"
+        );
+        assert_eq!(closes(&bench), closed + 1, "{label}: closed at the end");
+
+        // Whole hits of a query: the `_source`, with the `_id` asked for.
+        let lines = export_index(
+            &bench,
+            IndexExport {
+                text: "tag:t3".into(),
+                documents: true,
+                ..index_export(&bench, index)
+            },
+            &ExportFormat::JsonLines {
+                options: JsonLinesOptions {
+                    documents: Some(DocumentLines::Search {
+                        include_id: true,
+                        include_index: false,
+                    }),
+                    ..JsonLinesOptions::default()
+                },
+            },
+        )
+        .await;
+        assert_eq!(lines.len(), 1_500, "{label}");
+        for line in &lines {
+            let doc = Json::parse(line).expect("a JSON line");
+            assert_eq!(doc.get("tag").and_then(Json::as_str), Some("t3"), "{label}");
+            assert!(
+                doc.get("_id").is_some() && doc.get("_index").is_none(),
+                "{label}"
+            );
+        }
+
+        // A preview closes what it opened.
+        let closed = closes(&bench);
+        let (columns, rows) = bench
+            .search
+            .export_preview(index_export(&bench, index), 3)
+            .await
+            .expect("preview");
+        assert!(columns.iter().any(|c| c.name == "tag"), "{label}");
+        assert_eq!(rows.len(), 3, "{label}");
+        assert_eq!(
+            closes(&bench),
+            closed + 1,
+            "{label}: the preview's context closed"
+        );
+
+        // Dropped mid-way (a cancel): the context is closed all the same.
+        let closed = closes(&bench);
+        let mut rows = bench
+            .search
+            .export_rows(index_export(&bench, index))
+            .await
+            .expect("rows");
+        rows.next_batch().await.expect("first page");
+        rows.next_batch().await.expect("second page");
+        drop(rows);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while closes(&bench) == closed && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(closes(&bench), closed + 1, "{label}: closed after a cancel");
+
+        // A missing index fails the start, not the file.
+        let err = bench
+            .search
+            .export_rows(index_export(&bench, "yadbe-export-missing"))
+            .await
+            .err()
+            .expect("refused");
+        assert_ne!(err.code, ErrorCode::Cancelled, "{label}");
+        bench.clean(index).await;
     }
 }
