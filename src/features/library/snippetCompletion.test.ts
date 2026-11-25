@@ -15,6 +15,7 @@ const user = (patch: Partial<SnippetDefinition>): SnippetDefinition => ({
   description: '',
   connectionId: null,
   database: null,
+  family: 'sql',
   ...patch,
 });
 
@@ -34,6 +35,19 @@ describe('offered snippets', () => {
     );
     const own = offered.filter((s) => !s.builtin).map((s) => s.trigger);
     expect(own).toEqual(['glob', 'pgonly']);
+  });
+
+  it('keeps the snippets of other families out of the SQL editor', () => {
+    const offered = offeredSnippets(
+      [
+        user({ id: 'q', trigger: 'sqlone' }),
+        user({ id: 'm', trigger: 'findall', family: 'document' }),
+      ],
+      null,
+      'postgres',
+      nameOf,
+    );
+    expect(offered.filter((s) => !s.builtin).map((s) => s.trigger)).toEqual(['sqlone']);
   });
 
   it('adds the built-ins of the dialect, except where a user snippet takes the trigger word', () => {

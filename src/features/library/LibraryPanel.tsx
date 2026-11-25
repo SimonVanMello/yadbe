@@ -8,6 +8,7 @@ import { Icon } from '../../ui/Icon';
 import { IconButton } from '../../ui/IconButton';
 import { Menu } from '../../ui/Menu';
 import { MenuItem } from '../../ui/MenuItem';
+import { Select } from '../../ui/Select';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Spinner } from '../../ui/Spinner';
 import { TextInput } from '../../ui/TextInput';
@@ -16,6 +17,7 @@ import { useConnection } from '../connections/connectionStore';
 import { BuiltinDetail } from './BuiltinDetail';
 import { builtinSnippetsFor } from './builtinSnippets';
 import { LibraryDetail } from './LibraryDetail';
+import { familiesPresent, familyLabelKey } from './libraryFamily';
 import styles from './LibraryPanel.module.css';
 import { LibraryTree } from './LibraryTree';
 import {
@@ -32,7 +34,7 @@ import {
   type LibraryFilter,
   type LibraryRow,
 } from './libraryModel';
-import { useLibraryUi, type LibraryScope } from './libraryStore';
+import { useLibraryUi, type LibraryFamilyFilter, type LibraryScope } from './libraryStore';
 import { refreshLibrary, useSavedLibrary, useSavedSearch } from './useLibrary';
 
 const SEARCH_DELAY_MS = 200;
@@ -43,6 +45,7 @@ export function LibraryPanel() {
   const { query, library } = useSavedLibrary();
   const text = useLibraryUi((state) => state.text);
   const scope = useLibraryUi((state) => state.scope);
+  const familyChoice = useLibraryUi((state) => state.family);
   const collapsed = useLibraryUi((state) => state.collapsed);
   const builtinOpen = useLibraryUi((state) => state.builtinOpen);
   const selectedKey = useLibraryUi((state) => state.selectedKey);
@@ -55,9 +58,13 @@ export function LibraryPanel() {
   // The full-text search runs once the user pauses; the fuzzy match on names follows each key.
   const searched = useDebouncedValue(text, SEARCH_DELAY_MS);
   const { ids } = useSavedSearch(searched, connectionId);
+  // The filter is offered once the library holds more than one kind of text; a choice whose
+  // queries are all gone no longer filters, rather than hiding everything.
+  const families = useMemo(() => familiesPresent(library.queries), [library.queries]);
+  const family = familyChoice !== 'all' && families.includes(familyChoice) ? familyChoice : null;
   const filter = useMemo<LibraryFilter>(
-    () => ({ text, textIds: ids, connectionId }),
-    [text, ids, connectionId],
+    () => ({ text, textIds: ids, connectionId, family }),
+    [text, ids, connectionId, family],
   );
   const filtering = isFiltering(filter);
 
@@ -189,6 +196,23 @@ export function LibraryPanel() {
             useLibraryUi.getState().setScope(next);
           }}
         />
+        {families.length > 1 && (
+          <Select<LibraryFamilyFilter>
+            className={styles.familyFilter}
+            aria-label={t('library.family.filter')}
+            value={family ?? 'all'}
+            options={[
+              { value: 'all', label: t('library.family.all') },
+              ...families.map((candidate) => ({
+                value: candidate,
+                label: t(familyLabelKey(candidate)),
+              })),
+            ]}
+            onChange={(next) => {
+              useLibraryUi.getState().setFamily(next);
+            }}
+          />
+        )}
       </div>
 
       {query.isPending && (

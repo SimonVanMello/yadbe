@@ -2,20 +2,30 @@ import { confirm } from '../../app/errors/confirmStore';
 import { showError } from '../../app/errors/presentError';
 import { isQueryTab, selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { translate, useI18nStore, type MessageKey, type MessageParams } from '../../i18n/i18n';
-import { ipc, unwrap, type QueryFolder, type SavedQuery, type SavedQueryUpdate } from '../../ipc';
+import {
+  ipc,
+  unwrap,
+  type Engine,
+  type EngineFamily,
+  type QueryFolder,
+  type SavedQuery,
+  type SavedQueryUpdate,
+} from '../../ipc';
 import { fileDialog } from '../../ipc/fileDialog';
 import { toast } from '../../ui/toastStore';
 import { connectTo } from '../connections/connectionActions';
+import { cachedEngineInfo } from '../connections/connectionStore';
 import type { ConnectionSummary } from '../connections/model';
 import type { HistoryEntry } from '../history/historyModel';
 import { fullStatement } from '../history/historyActions';
-import { findConnection } from '../query/connectionLookup';
-import { sameFamily } from '../query/sameFamily';
+import { findConnection, listConnections } from '../query/connectionLookup';
+import { familyFitsConnection } from '../query/sameFamily';
 import { getEditor } from '../query/editorRegistry';
 import { insertIntoActiveEditor, openQueryTab } from '../query/openQueryTab';
 import { runQuery } from '../query/queryActions';
 import { getQueryTabState, useQueryTabStore } from '../query/queryTabStore';
 import { selectedRange } from '../query/runScope';
+import { familyLabelKey, hostConnection } from './libraryFamily';
 import { useLibraryUi } from './libraryStore';
 import { folderContents, folderKey, queryKey } from './libraryModel';
 import { useSaveDialog } from './saveDialogStore';
@@ -56,14 +66,30 @@ async function wholeQuery(query: SavedQuery): Promise<SavedQuery> {
   return (await fetchSavedQuery(query.id)) ?? query;
 }
 
-/** The connection a query runs on: its own when it is bound to one, else the active tab's. */
-function targetConnection(query: SavedQuery | null): ConnectionSummary | undefined {
-  if (query?.connectionId) {
+/**
+ * The connection a query runs on: its own when it is bound to one, else the active tab's when it
+ * speaks the query's family, else the first connection that does (`switched`). `null` when the
+ * active tab has no connection, or none speaks the family.
+ */
+function targetConnection(
+  query: SavedQuery,
+): { connection: ConnectionSummary; switched: boolean } | null {
+  if (query.connectionId) {
     const bound = findConnection(query.connectionId);
-    if (bound) return bound;
+    if (bound) return { connection: bound, switched: false };
   }
   const tab = selectActiveTab(useTabsStore.getState());
-  return findConnection(tab.connectionId);
+  return hostConnection(query.family, listConnections(), tab.connectionId);
+}
+
+/** The family of the text of a tab of `connection`: SQL when there is none to ask. */
+export function familyOf(connection: ConnectionSummary | undefined): EngineFamily {
+  return connection?.family ?? 'sql';
+}
+
+/** The family an engine belongs to, for text that outlives its connection (a history entry). */
+function familyOfEngine(engine: Engine): EngineFamily {
+  return cachedEngineInfo(engine)?.capabilities.family ?? 'sql';
 }
 
 function touch(query: SavedQuery): void {
@@ -81,11 +107,19 @@ export async function openSaved(
   query: SavedQuery,
   options: { connect?: boolean } = {},
 ): Promise<string | null> {
-  const connection = targetConnection(query);
-  if (!connection) {
-    toast({ variant: 'warning', title: t('library.noConnection') });
+  const target = targetConnection(query);
+  if (!target) {
+    const lacking = listConnections().every((candidate) => candidate.family !== query.family);
+    toast({
+      variant: 'warning',
+      title:
+        lacking && query.family !== 'sql'
+          ? t('library.noConnectionOfFamily', { family: t(familyLabelKey(query.family)) })
+          : t('library.noConnection'),
+    });
     return null;
   }
+  const { connection } = target;
   try {
     const whole = await wholeQuery(query);
     const context = snippetContext(connection, whole.database);
@@ -103,6 +137,9 @@ export async function openSaved(
       origin: text === whole.sql ? { queryId: whole.id, baseline: whole.sql } : null,
     });
     if (options.connect !== false) void connectTo(connection);
+    if (target.switched) {
+      toast({ variant: 'info', title: t('library.openedOn', { connection: connection.name }) });
+    }
     touch(query);
     return tabId;
   } catch (error) {
@@ -121,7 +158,7 @@ export async function runSaved(query: SavedQuery): Promise<void> {
 
 /** Inserts a saved query at the cursor of the active editor; a snippet starts its tab stops. */
 export async function insertSaved(query: SavedQuery): Promise<void> {
-  if (!sameFamily(query.connectionId, selectActiveTab(useTabsStore.getState()).connectionId)) {
+  if (!familyFitsConnection(query.family, selectActiveTab(useTabsStore.getState()).connectionId)) {
     toast({ variant: 'info', title: t('library.insert.otherFamily') });
     return;
   }
@@ -331,7 +368,13 @@ export function editorSaveRequest(tabId: string) {
   const selected = range ? state.content.slice(range.from, range.to) : '';
   const selectionOnly = selected.trim() !== '';
   const sql = selectionOnly ? selected : state.content;
-  return { sql, selectionOnly, connectionId: tab.connectionId, database: state.database };
+  return {
+    sql,
+    selectionOnly,
+    connectionId: tab.connectionId,
+    database: state.database,
+    family: familyOf(findConnection(tab.connectionId)),
+  };
 }
 
 /** `Mod+Shift+L`: opens the save dialog for the active editor's text. */
@@ -347,6 +390,7 @@ export function saveEditorToLibrary(tabId: string): boolean {
     sql: request.sql,
     connectionId: request.connectionId,
     database: request.database,
+    family: request.family,
     tabId,
     selectionOnly: request.selectionOnly,
   });
@@ -363,6 +407,7 @@ export async function saveHistoryEntry(entry: HistoryEntry): Promise<void> {
       sql,
       connectionId: connection?.id ?? null,
       database: entry.database,
+      family: connection ? familyOf(connection) : familyOfEngine(entry.engine),
     });
   } catch (error) {
     showError(error);
@@ -389,6 +434,7 @@ export function copyBuiltin(snippet: BuiltinSnippet): void {
     name: t(snippet.name),
     connectionId: null,
     database: null,
+    family: 'sql',
     snippet: true,
     trigger: snippet.trigger,
     tabId: null,

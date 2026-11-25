@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import type { EngineFamily } from '../../ipc';
+
 /** What opens the save dialog of the library (F-050). */
 export type SaveDialogRequest =
   | {
@@ -11,6 +13,8 @@ export type SaveDialogRequest =
       /** The connection the statement belongs to: the "on this connection" scope. */
       connectionId: string | null;
       database: string | null;
+      /** What the text is written in: the family of the tab or history entry it comes from. */
+      family: EngineFamily;
       folderId?: string | null;
       snippet?: boolean;
       trigger?: string;

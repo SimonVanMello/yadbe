@@ -8,6 +8,7 @@ import { useConnection } from '../connections/connectionStore';
 import { Highlight } from '../connections/Highlight';
 import { rowStyle } from '../sidebar/rowStyle';
 import { openSaved, renameSaved } from './libraryActions';
+import { familyLabelKey } from './libraryFamily';
 import type { QueryTreeRow } from './libraryModel';
 import type { LibraryDrag, LibraryRowCommon } from './libraryRowProps';
 import { useLibraryUi } from './libraryStore';
@@ -110,6 +111,11 @@ export const QueryRow = memo(function QueryRow({
               <Tooltip content={t('library.tooltip.snippet', { trigger: query.snippetTrigger })}>
                 <code className={styles.trigger}>{query.snippetTrigger}</code>
               </Tooltip>
+            )}
+            {query.family !== 'sql' && (
+              <span className={styles.family} data-testid="family-tag">
+                {t(familyLabelKey(query.family))}
+              </span>
             )}
             <ScopeTag connectionId={query.connectionId} />
           </>

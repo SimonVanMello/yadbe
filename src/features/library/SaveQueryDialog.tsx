@@ -4,7 +4,7 @@ import { showError } from '../../app/errors/presentError';
 import { selectActiveTab, useTabsStore } from '../../app/tabs/tabsStore';
 import { translate, useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
-import { ipc, unwrap, type SavedQuery } from '../../ipc';
+import { ipc, unwrap, type EngineFamily, type SavedQuery } from '../../ipc';
 import { Button } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { Field } from '../../ui/Field';
@@ -17,6 +17,7 @@ import { TextInput } from '../../ui/TextInput';
 import { toast } from '../../ui/toastStore';
 import { useConnection } from '../connections/connectionStore';
 import { useQueryTabStore } from '../query/queryTabStore';
+import { familyLabelKey } from './libraryFamily';
 import { folderOptions, formatTags, parseTags, suggestName } from './libraryModel';
 import styles from './SaveQueryDialog.module.css';
 import { useSaveDialog, type SaveDialogRequest } from './saveDialogStore';
@@ -40,16 +41,27 @@ interface Initial {
 interface FormProps {
   request: SaveDialogRequest;
   initial: Initial;
+  /** What the text is written in; a query can only be bound to a connection of this family. */
+  family: EngineFamily;
   /** Connection and database the "on this connection" scope would bind to. */
   scopeConnectionId: string | null;
   scopeDatabase: string | null;
   onClose: () => void;
 }
 
-function SaveForm({ request, initial, scopeConnectionId, scopeDatabase, onClose }: FormProps) {
+function SaveForm({
+  request,
+  initial,
+  family,
+  scopeConnectionId,
+  scopeDatabase,
+  onClose,
+}: FormProps) {
   const t = useT();
   const { library } = useSavedLibrary();
-  const connection = useConnection(scopeConnectionId);
+  const scopeCandidate = useConnection(scopeConnectionId);
+  // The connection of another kind of database could not run this text: it is not offered.
+  const connection = scopeCandidate?.family === family ? scopeCandidate : undefined;
   const [name, setName] = useState(initial.name);
   const [folderId, setFolderId] = useState(initial.folderId ?? '');
   const [scope, setScope] = useState(initial.scope);
@@ -92,7 +104,7 @@ function SaveForm({ request, initial, scopeConnectionId, scopeDatabase, onClose 
             }),
           );
         } else {
-          saved = await unwrap(ipc.commands.createSavedQuery({ ...fields, sql }));
+          saved = await unwrap(ipc.commands.createSavedQuery({ ...fields, sql, family }));
           // The whole tab saved: it now stands for that query and can update it.
           if (request.tabId && request.selectionOnly !== true) {
             useQueryTabStore
@@ -148,6 +160,12 @@ function SaveForm({ request, initial, scopeConnectionId, scopeDatabase, onClose 
             }}
           />
         </Field>
+        <p className={styles.family}>
+          {t('library.save.family')}{' '}
+          <span className={styles.familyTag} data-testid="save-family">
+            {t(familyLabelKey(family))}
+          </span>
+        </p>
         <div className={styles.row}>
           <Field label={t('library.save.folder')} htmlFor="library-folder">
             <Select
@@ -225,12 +243,14 @@ function SaveForm({ request, initial, scopeConnectionId, scopeDatabase, onClose 
             }}
           />
         </Field>
-        <Switch
-          checked={snippet}
-          onCheckedChange={setSnippet}
-          label={t('library.save.snippet')}
-          hint={t('library.save.snippet.hint')}
-        />
+        {(family === 'sql' || snippet) && (
+          <Switch
+            checked={snippet}
+            onCheckedChange={setSnippet}
+            label={t('library.save.snippet')}
+            hint={t('library.save.snippet.hint')}
+          />
+        )}
         {snippet && (
           <Field
             label={t('library.save.trigger')}
@@ -281,7 +301,7 @@ function CreateDialog({
   const connection = useConnection(request.connectionId);
   const scopeDatabase = request.database ?? (connection?.database ? connection.database : null);
   // Text of another family would not run anywhere else: it is saved on its connection by default.
-  const otherFamily = connection !== undefined && connection.family !== 'sql';
+  const otherFamily = connection !== undefined && request.family !== 'sql';
   const initial = useMemo(
     () => ({ ...initialFor(request), ...(otherFamily ? { scope: 'connection' as const } : {}) }),
     [request, otherFamily],
@@ -290,6 +310,7 @@ function CreateDialog({
     <SaveForm
       request={request}
       initial={initial}
+      family={request.family}
       scopeConnectionId={request.connectionId}
       scopeDatabase={scopeDatabase}
       onClose={onClose}
@@ -344,6 +365,7 @@ function EditDialog({
       key={query.id}
       request={request}
       initial={initial}
+      family={query.family}
       scopeConnectionId={connectionId}
       scopeDatabase={query.database ?? (connection?.database ? connection.database : null)}
       onClose={onClose}

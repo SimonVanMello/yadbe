@@ -32,6 +32,7 @@ const query = (id: string, name: string, patch: Partial<SavedQuery> = {}): Saved
   connectionId: null,
   database: null,
   snippetTrigger: null,
+  family: 'sql',
   createdAt: 0,
   updatedAt: 0,
   lastUsedAt: null,
@@ -115,6 +116,23 @@ describe('buildLibraryRows', () => {
     expect(rows.some((row) => row.key === 'f:ops' || row.key === 'f:empty')).toBe(false);
   });
 
+  it('keeps the queries of one family, hides the folders it empties', () => {
+    const mixed: Library = {
+      folders: [folder('ops', 'Ops'), folder('docs', 'Docs')],
+      queries: [
+        query('s', 'Plain SQL', { folderId: 'ops' }),
+        query('m', 'Find orders', { folderId: 'docs', family: 'document' }),
+        query('r', 'Scan keys', { family: 'keyValue' }),
+      ],
+    };
+    const only = (family: SavedQuery['family'] | null) =>
+      keys(buildLibraryRows(mixed, new Set(), { ...NO_FILTER, family }).rows);
+    expect(only(null)).toEqual(['f:docs', 'q:m', 'f:ops', 'q:s', 'q:r']);
+    expect(only('document')).toEqual(['f:docs', 'q:m']);
+    expect(only('keyValue')).toEqual(['q:r']);
+    expect(only('search')).toEqual([]);
+  });
+
   it('shows a folder whose parent is unknown at the top instead of losing it', () => {
     const { rows } = buildLibraryRows(
       {
@@ -132,6 +150,7 @@ describe('buildLibraryRows', () => {
     expect(isFiltering({ ...NO_FILTER, text: ' ' })).toBe(false);
     expect(isFiltering({ ...NO_FILTER, text: 'a' })).toBe(true);
     expect(isFiltering({ ...NO_FILTER, connectionId: 'pg' })).toBe(true);
+    expect(isFiltering({ ...NO_FILTER, family: 'search' })).toBe(true);
   });
 });
 

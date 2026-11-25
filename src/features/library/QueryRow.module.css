@@ -71,3 +71,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The kind of database the text is for; SQL is the default and goes unmarked. */
+.family {
+  flex: none;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-active);
+  color: var(--fg-secondary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
