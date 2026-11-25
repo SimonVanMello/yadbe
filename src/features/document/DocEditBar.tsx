@@ -16,9 +16,9 @@ export function DocEditBar({ tabId, block }: { tabId: string; block: EditBlock |
   const count = pendingCount(edits);
   if (block && count === 0) {
     return (
-      <span className={styles.readOnly} data-testid="doc-edit-blocked">
+      <span className={styles.readOnly} data-testid="doc-edit-blocked" title={t(block)}>
         <Icon name="lock" />
-        {t(block)}
+        <span className={styles.readOnlyText}>{t(block)}</span>
       </span>
     );
   }
@@ -28,12 +28,13 @@ export function DocEditBar({ tabId, block }: { tabId: string; block: EditBlock |
         <Button
           size="sm"
           variant="ghost"
+          title={t('mongo.edit.add')}
           onClick={() => {
             newDocument(tabId);
           }}
         >
           <Icon name="plus" />
-          {t('mongo.edit.add')}
+          <span className={styles.addLabel}>{t('mongo.edit.add')}</span>
         </Button>
       )}
       <span

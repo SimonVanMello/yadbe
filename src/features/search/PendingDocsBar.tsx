@@ -19,7 +19,12 @@ export function PendingDocsBar({ tabId }: { tabId: string }) {
   const readOnly = info.readOnly ? blockText({ kind: 'readOnlyConnection' }) : null;
   const canCreate = info.createTargets.length > 0;
   return (
-    <div className={styles.bar} role="toolbar" aria-label={t('search.edit.bar')}>
+    <div
+      className={styles.bar}
+      role="toolbar"
+      aria-label={t('search.edit.bar')}
+      data-testid="search-edit-bar"
+    >
       <Tooltip
         content={
           readOnly
@@ -44,15 +49,23 @@ export function PendingDocsBar({ tabId }: { tabId: string }) {
         </span>
       </Tooltip>
       {readOnly && (
-        <span className={styles.readOnly} data-testid="search-read-only">
+        <span
+          className={styles.readOnly}
+          data-testid="search-read-only"
+          title={t(readOnly.key, readOnly.params)}
+        >
           <Icon name="lock" />
-          {t(readOnly.key, readOnly.params)}
+          <span className={styles.readOnlyText}>{t(readOnly.key, readOnly.params)}</span>
         </span>
       )}
       {!readOnly && info.dataStreams.length > 0 && (
-        <span className={styles.readOnly} data-testid="search-data-stream">
+        <span
+          className={styles.readOnly}
+          data-testid="search-data-stream"
+          title={t('search.edit.dataStreamNote')}
+        >
           <Icon name="info" />
-          {t('search.edit.dataStreamNote')}
+          <span className={styles.readOnlyText}>{t('search.edit.dataStreamNote')}</span>
         </span>
       )}
       {pending.length > 0 && (

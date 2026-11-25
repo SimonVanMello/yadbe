@@ -36,12 +36,13 @@
   font-size: var(--text-xs);
 }
 
-/* Wraps onto a second line in a narrow window rather than push its end out of view. */
+/* One row, whatever the width: a narrow window drops what is least needed (the paging note, the
+   labels of the edit actions, the size of the page-size select) instead of wrapping. */
 .bar {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1) var(--space-2);
+  container-type: inline-size;
   min-height: var(--grid-footer-height);
   padding: var(--space-1) var(--space-3);
   border-bottom: var(--border-width) solid var(--border-subtle);
@@ -76,6 +77,7 @@
 }
 
 .command {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--fg-muted);
@@ -152,4 +154,16 @@
 .text {
   margin: 0;
   color: var(--fg-secondary);
+}
+
+@container (max-width: 900px) {
+  .command {
+    display: none;
+  }
+}
+
+@container (max-width: 760px) {
+  .pageSize {
+    width: var(--collection-option-narrow-width);
+  }
 }

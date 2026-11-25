@@ -154,6 +154,7 @@
   --doc-label-max-width: 280px;
   --collection-filter-min-width: 240px;
   --collection-option-width: 180px;
+  --collection-option-narrow-width: 130px;
   --console-editor-height: 160px;
   /* Key edits (M4-6): commands of the apply dialog, the string value editor. */
   --kv-commands-max-height: 320px;

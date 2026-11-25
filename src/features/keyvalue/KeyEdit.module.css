@@ -2,7 +2,6 @@
 
 .bar {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
@@ -33,10 +32,24 @@
 
 .readOnly {
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
   color: var(--fg-muted);
   font-size: var(--text-xs);
+}
+
+.readOnly svg {
+  flex: none;
+}
+
+/* One line, cut with an ellipsis: the whole text is the tooltip. */
+.readOnlyText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .actions {
