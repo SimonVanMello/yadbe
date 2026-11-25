@@ -166,6 +166,45 @@ const SQLITE: Template[] = [
   { sql: 'SELECT count(*) FROM tags;', rows: 1, ms: [1, 4] },
 ];
 
+const MONGO: Template[] = [
+  {
+    sql: "db.orders.find({ status: 'pending', total: { $gt: 100 } }).sort({ createdAt: -1 }).limit(20)",
+    rows: 20,
+    ms: [4, 40],
+  },
+  {
+    sql: "db.customers.aggregate([\n  { $match: { country: 'FR' } },\n  { $group: { _id: '$city', n: { $sum: 1 } } }\n])",
+    rows: 14,
+    ms: [20, 120],
+  },
+  {
+    sql: "db.sessions.deleteMany({ expiresAt: { $lt: new Date('2025-01-01') } })",
+    rows: 311,
+    ms: [10, 90],
+  },
+];
+
+const REDIS: Template[] = [
+  { sql: 'GET session:42', rows: 1, ms: [0.2, 2] },
+  { sql: 'SET "greeting" "hello world" EX 3600', rows: 1, ms: [0.2, 2] },
+  { sql: '# warm the cache\nHGETALL user:1001', rows: 6, ms: [0.2, 3] },
+  { sql: 'ZADD leaderboard 1500 "alice"', rows: 1, ms: [0.2, 2] },
+];
+
+const SEARCH: Template[] = [
+  {
+    sql: 'GET /products/_search\n{\n  "query": { "match": { "title": "orders" } },\n  "size": 10,\n  "sort": [{ "price": "asc" }]\n}',
+    rows: 10,
+    ms: [5, 60],
+  },
+  { sql: 'GET _cat/indices?v', rows: 8, ms: [3, 30] },
+  {
+    sql: '# count open orders\nPOST /orders/_count\n{ "query": { "term": { "open": true } } }',
+    rows: 1,
+    ms: [4, 40],
+  },
+];
+
 const FAILURES: { sql: string; code: ErrorCode; message: string }[] = [
   {
     sql: 'SELECT * FROM custmers WHERE id = 1;',
@@ -198,6 +237,13 @@ const TARGETS: Target[] = [
   { id: 'conn-wordpress', templates: MYSQL },
   { id: 'conn-app-sqlite', templates: SQLITE },
 ];
+
+/** A trailing line that makes every synthetic entry unique, in the comment syntax of its engine. */
+function commentOf(engine: Engine | undefined, i: number): string {
+  return engine === 'mongodb' || engine === 'elasticsearch' || engine === 'redis'
+    ? `# #${String(i)}`
+    : `-- #${String(i)}`;
+}
 
 function cut(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) : text;
@@ -273,6 +319,7 @@ export function createMockHistory(deps: HistoryDeps) {
         errorMessage: failure ? failure.message : cancelled ? 'Query cancelled.' : null,
       });
     }
+    seedFamilies(connections, now);
     // The last statements of the day, one per outcome, so the panel opens on a varied list.
     const prod = snapshot(connections.get('conn-shop-prod'), 'conn-shop-prod');
     push({
@@ -310,6 +357,34 @@ export function createMockHistory(deps: HistoryDeps) {
     });
   }
 
+  /** Recent statements of the other families, so the panel shows every language. */
+  function seedFamilies(connections: Map<string, SavedConnection>, now: number): void {
+    // Just after the seeded stream (which stops 10 minutes ago), to keep the ids in time order.
+    const recent: [string, Template | undefined, number][] = [
+      ['conn-catalog-mongo', MONGO[0], 9.9],
+      ['conn-cache', REDIS[1], 9.8],
+      ['conn-search', SEARCH[0], 9.7],
+      ['conn-catalog-mongo', MONGO[1], 9.6],
+      ['conn-cache', REDIS[2], 9.5],
+      ['conn-search', SEARCH[2], 9.4],
+    ];
+    for (const [id, template, minutesAgo] of recent) {
+      if (!template) continue;
+      const connection = connections.get(id);
+      push({
+        ...snapshot(connection, id),
+        database: connection?.definition.database || null,
+        sql: template.sql,
+        startedAt: now - minutesAgo * MINUTE,
+        durationMs: template.ms[0],
+        rows: template.rows,
+        outcome: 'ok',
+        errorCode: null,
+        errorMessage: null,
+      });
+    }
+  }
+
   /** Appends an entry newer than every one so far (the seed and recorded statements). */
   function push(entry: Omit<Row, 'id' | 'sqlTruncated'>): number {
     const id = idFor(entry.startedAt);
@@ -324,23 +399,30 @@ export function createMockHistory(deps: HistoryDeps) {
     const now = Date.now();
     const span = 360 * DAY;
     const step = span / count;
-    const all = [...POSTGRES, ...MSSQL, ...MYSQL, ...SQLITE];
+    const byEngine: Partial<Record<Engine, Template[]>> = {
+      postgres: POSTGRES,
+      mssql: MSSQL,
+      mysql: MYSQL,
+      sqlite: SQLITE,
+      mongodb: MONGO,
+      redis: REDIS,
+      elasticsearch: SEARCH,
+    };
     const ids = MOCK_CONNECTIONS.map((c) => c.id);
     entries = [];
     for (let i = 0; i < count; i++) {
-      const template = all[Math.floor(rand() * all.length)];
       const id = ids[Math.floor(rand() * ids.length)];
+      const connection = MOCK_CONNECTIONS.find((c) => c.id === id);
+      const all = byEngine[connection?.definition.engine ?? 'postgres'] ?? POSTGRES;
+      const template = all[Math.floor(rand() * all.length)];
       if (!template || !id) continue;
       const failed = rand() < 0.05;
       const startedAt = Math.round(now - span + i * step);
       entries.push({
-        ...snapshot(
-          MOCK_CONNECTIONS.find((c) => c.id === id),
-          id,
-        ),
+        ...snapshot(connection, id),
         id: startedAt * ID_SLOTS + (i % ID_SLOTS),
         database: null,
-        sql: `${template.sql} -- #${String(i)}`,
+        sql: `${template.sql}\n${commentOf(connection?.definition.engine, i)}`,
         sqlTruncated: false,
         startedAt,
         durationMs:

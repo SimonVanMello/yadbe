@@ -6,12 +6,10 @@ import { useT } from '../../i18n/useT';
 import type { ConnectionSummary } from '../connections/model';
 import { ConnectionTag } from './ConnectionTag';
 import styles from './HistoryRow.module.css';
-import { MatchText } from './MatchText';
+import { HighlightedText } from './HighlightedText';
 import { OutcomeIcon } from './OutcomeIcon';
-import { previewOf, type HistoryEntry } from './historyModel';
+import type { HistoryEntry } from './historyModel';
 
-/** Characters of a statement rendered in a row: the rest is out of sight anyway. */
-const PREVIEW_CHARS = 240;
 /** Recent statements read "5 minutes ago"; older ones show their time of day. */
 const RELATIVE_FOR_MS = 12 * 3_600_000;
 
@@ -71,7 +69,7 @@ export function HistoryRow({
       <OutcomeIcon outcome={entry.outcome} />
       <div className={styles.body}>
         <code className={styles.sql}>
-          <MatchText text={previewOf(entry.sql, PREVIEW_CHARS)} search={search} />
+          <HighlightedText text={entry.sql} engine={entry.engine} search={search} />
         </code>
         <div className={styles.meta}>
           <ConnectionTag connection={connection} name={entry.connectionName} />
