@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Engine } from '../../ipc';
-import { HIGHLIGHT_CHARS, highlightRuns, mergePieces } from './historyHighlight';
+import type { Engine, EngineFamily } from '../../ipc';
+import { HIGHLIGHT_CHARS, highlightRuns as runsOf, mergePieces } from './historyHighlight';
+
+const FAMILY: Partial<Record<Engine, EngineFamily>> = {
+  mongodb: 'document',
+  redis: 'keyValue',
+  elasticsearch: 'search',
+};
+
+/** The runs of `text` for `engine`, with the family the backend gives that engine. */
+function highlightRuns(engine: Engine, text: string) {
+  return runsOf(engine, FAMILY[engine] ?? 'sql', text);
+}
 
 /** The text of the runs that carry a colour class. */
 function colored(engine: Engine, text: string): string[] {

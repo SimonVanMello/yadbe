@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 
 import type { Engine } from '../../ipc';
+import { useEngineInfo } from '../connections/connectionStore';
 import matchStyles from './MatchText.module.css';
 import { HIGHLIGHT_CHARS, highlightRuns, mergePieces } from './historyHighlight';
 import { matchRanges } from './historyModel';
@@ -18,11 +19,14 @@ export function HighlightedText({
   engine: Engine;
   search: string;
 }) {
+  const family = useEngineInfo(engine)?.capabilities.family;
   const truncated = text.length > HIGHLIGHT_CHARS;
   const pieces = useMemo(() => {
     const head = truncated ? text.slice(0, HIGHLIGHT_CHARS) : text;
-    return mergePieces(head, highlightRuns(engine, head), matchRanges(head, search));
-  }, [text, engine, search, truncated]);
+    // Until the engine list is loaded the text stays plain.
+    const runs = family ? highlightRuns(engine, family, head) : [];
+    return mergePieces(head, runs, matchRanges(head, search));
+  }, [text, engine, family, search, truncated]);
   return (
     <>
       {pieces.map((piece, index) =>

@@ -2,8 +2,7 @@ import { javascript } from '@codemirror/lang-javascript';
 import { sql } from '@codemirror/lang-sql';
 import { highlightTree, tagHighlighter, tags } from '@lezer/highlight';
 
-import type { Engine } from '../../ipc';
-import { isSqlEngine } from '../../ipc/sqlEngines';
+import type { Engine, EngineFamily } from '../../ipc';
 import { redisCli } from '../keyvalue/redisLanguage';
 import { dialectOf } from '../query/sqlLanguage';
 import { consoleSyntax } from '../search/consoleLanguage';
@@ -43,15 +42,18 @@ const highlighter = tagHighlighter([
 
 const parsers = new Map<Engine, TextParser>();
 
-/** The language of an engine's history entries: its dialect, mongosh, redis-cli or the console. */
-function parserOf(engine: Engine): TextParser {
+/** The language of an engine's history entries, by family: its SQL dialect, mongosh, redis-cli or the console. */
+function parserOf(engine: Engine, family: EngineFamily): TextParser {
   const known = parsers.get(engine);
   if (known) return known;
-  let parser: TextParser;
-  if (isSqlEngine(engine)) parser = sql({ dialect: dialectOf(engine) }).language.parser;
-  else if (engine === 'mongodb') parser = javascript().language.parser;
-  else if (engine === 'redis') parser = redisCli.parser;
-  else parser = consoleSyntax.parser;
+  const parser: TextParser =
+    family === 'sql'
+      ? sql({ dialect: dialectOf(engine) }).language.parser
+      : family === 'document'
+        ? javascript().language.parser
+        : family === 'keyValue'
+          ? redisCli.parser
+          : consoleSyntax.parser;
   parsers.set(engine, parser);
   return parser;
 }
@@ -63,15 +65,15 @@ const CACHE_MAX = 3000;
 const cache = new Map<string, Segment[]>();
 
 /**
- * The colour runs of `text` in the language of `engine`. Memoized (a virtualized list asks again
+ * The colour runs of `text` in the language of `engine` (chosen by its `family`). Memoized (a virtualized list asks again
  * for the rows it scrolls back to); only the first `HIGHLIGHT_CHARS` are ever parsed.
  */
-export function highlightRuns(engine: Engine, text: string): Segment[] {
+export function highlightRuns(engine: Engine, family: EngineFamily, text: string): Segment[] {
   const head = text.length > HIGHLIGHT_CHARS ? text.slice(0, HIGHLIGHT_CHARS) : text;
   const key = `${engine}\u0000${head}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const runs = computeRuns(engine, head);
+  const runs = computeRuns(engine, family, head);
   if (cache.size >= CACHE_MAX) {
     const oldest = cache.keys().next();
     if (!oldest.done) cache.delete(oldest.value);
@@ -80,14 +82,14 @@ export function highlightRuns(engine: Engine, text: string): Segment[] {
   return runs;
 }
 
-function computeRuns(engine: Engine, text: string): Segment[] {
+function computeRuns(engine: Engine, family: EngineFamily, text: string): Segment[] {
   let runs: Segment[] = [];
   let at = 0;
   const push = (from: number, to: number, className: string | null) => {
     if (to > from) runs.push({ from, to, className });
   };
   try {
-    const tree = parserOf(engine).parse(text);
+    const tree = parserOf(engine, family).parse(text);
     highlightTree(tree, highlighter, (from, to, classes) => {
       push(at, from, null);
       push(from, to, classes);
