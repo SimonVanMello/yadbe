@@ -313,6 +313,11 @@ export const commands = {
 	database: string | null,
 	/**  A snippet expands in the editor when its trigger word is completed. */
 	snippetTrigger: string | null,
+	/**
+	 *  What the text is written in: SQL, a mongosh script, a search console request, Redis
+	 *  commands. A query bound to a connection has that connection's family.
+	 */
+	family: EngineFamily,
 	/**  Unix time in seconds. */
 	createdAt: number,
 	updatedAt: number,
@@ -3719,6 +3724,11 @@ export type NewSavedQuery = {
 	connectionId: string | null,
 	database: string | null,
 	snippetTrigger: string | null,
+	/**
+	 *  The family of the tab the text comes from; with a `connection_id` it must be the
+	 *  connection's.
+	 */
+	family: EngineFamily,
 };
 
 export type ObjectAction = { type: "drop" } | 
@@ -4495,6 +4505,11 @@ export type SavedQuery = {
 	database: string | null,
 	/**  A snippet expands in the editor when its trigger word is completed. */
 	snippetTrigger: string | null,
+	/**
+	 *  What the text is written in: SQL, a mongosh script, a search console request, Redis
+	 *  commands. A query bound to a connection has that connection's family.
+	 */
+	family: EngineFamily,
 	/**  Unix time in seconds. */
 	createdAt: number,
 	updatedAt: number,
@@ -4509,7 +4524,8 @@ export type SavedQueryLibrary = {
 
 /**
  *  Every field of a saved query, replaced at once; `sql` `null` keeps the text (the sidebar
- *  only holds a preview of it).
+ *  only holds a preview of it). The family is not among them: a query keeps the one it was
+ *  saved with, and can only be bound to a connection of that family.
  */
 export type SavedQueryUpdate = {
 	name: string,
@@ -5111,6 +5127,7 @@ export type SnippetDefinition = {
 	description: string,
 	connectionId: string | null,
 	database: string | null,
+	family: EngineFamily,
 };
 
 export type SortDirection = "asc" | "desc";

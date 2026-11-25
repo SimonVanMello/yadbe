@@ -15,6 +15,7 @@ const draft = (patch: Partial<NewSavedQuery> = {}): NewSavedQuery => ({
   connectionId: null,
   database: null,
   snippetTrigger: null,
+  family: 'sql',
   ...patch,
 });
 
@@ -150,6 +151,57 @@ describe('mock saved queries', () => {
       expect(kept?.connectionId).toBeNull();
       expect(kept?.database).toBeNull();
     }
+  });
+
+  it('records the family, and binds a query only to a connection of that family', async () => {
+    const script = await unwrap(
+      commands.createSavedQuery(draft({ name: 'find', family: 'document' })),
+    );
+    expect(script.family).toBe('document');
+    const wrong = await commands.createSavedQuery(
+      draft({ name: 'on pg', family: 'document', connectionId: 'conn-local-pg' }),
+    );
+    expect(wrong.status === 'error' && wrong.error.code).toBe('invalidArgument');
+    const bound = await unwrap(
+      commands.createSavedQuery(
+        draft({ name: 'on mongo', family: 'document', connectionId: 'conn-catalog-mongo' }),
+      ),
+    );
+    expect(bound.connectionId).toBe('conn-catalog-mongo');
+    const rebound = await commands.updateSavedQuery(bound.id, {
+      name: bound.name,
+      sql: null,
+      description: '',
+      tags: [],
+      folderId: null,
+      connectionId: 'conn-local-pg',
+      database: null,
+      snippetTrigger: null,
+    });
+    expect(rebound.status === 'error' && rebound.error.code).toBe('invalidArgument');
+    expect((await library()).queries.find((q) => q.id === bound.id)?.family).toBe('document');
+    const copy = await unwrap(commands.duplicateSavedQuery(script.id, '(copy)'));
+    expect(copy.family).toBe('document');
+  });
+
+  it('keeps families through an export and reads a file without them as SQL', async () => {
+    await unwrap(commands.createSavedQuery(draft({ name: 'keys', family: 'keyValue' })));
+    await unwrap(commands.exportSavedQueries('/home/ana/families.json'));
+    mockBackend.clearSavedQueries();
+    await unwrap(commands.importSavedQueries('/home/ana/families.json'));
+    expect((await library()).queries.find((q) => q.name === 'keys')?.family).toBe('keyValue');
+    mockBackend.clearSavedQueries();
+    mockBackend.setFile(
+      '/home/ana/old.json',
+      JSON.stringify({
+        format: 'yadbe-library',
+        version: 1,
+        folders: [],
+        queries: [{ name: 'old', sql: 'SELECT 1', folderId: null, snippetTrigger: null }],
+      }),
+    );
+    await unwrap(commands.importSavedQueries('/home/ana/old.json'));
+    expect((await library()).queries[0]?.family).toBe('sql');
   });
 
   it('duplicates without the trigger word', async () => {

@@ -36,6 +36,8 @@ export function offeredSnippets(
   nameOfBuiltin: (key: MessageKey) => string,
 ): OfferedSnippet[] {
   const own: OfferedSnippet[] = user
+    // Snippets expand in the SQL editor only: a mongosh or Redis text stays out of it.
+    .filter((def) => def.family === 'sql')
     .filter((def) => def.connectionId === null || def.connectionId === connectionId)
     .map((def) => ({
       id: def.id,

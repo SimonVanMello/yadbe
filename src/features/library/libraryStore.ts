@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import type { EngineFamily } from '../../ipc';
+
 const COLLAPSED_KEY = 'yadbe.library.collapsed';
 
 function loadCollapsed(): Set<string> {
@@ -23,10 +25,14 @@ function saveCollapsed(collapsed: ReadonlySet<string>): void {
 
 export type LibraryScope = 'all' | 'connection';
 
+/** The family filter: one engine family, or `all`. */
+export type LibraryFamilyFilter = EngineFamily | 'all';
+
 interface LibraryUiStore {
   /** What the filter field holds. */
   text: string;
   scope: LibraryScope;
+  family: LibraryFamilyFilter;
   /** Folders the user folded (a new folder starts open). */
   collapsed: ReadonlySet<string>;
   /** The built-in snippets section is unfolded. */
@@ -37,6 +43,7 @@ interface LibraryUiStore {
   renamingKey: string | null;
   setText: (text: string) => void;
   setScope: (scope: LibraryScope) => void;
+  setFamily: (family: LibraryFamilyFilter) => void;
   setFolded: (folderId: string, folded: boolean) => void;
   setAllFolded: (folderIds: readonly string[], folded: boolean) => void;
   setBuiltinOpen: (open: boolean) => void;
@@ -48,6 +55,7 @@ interface LibraryUiStore {
 export const useLibraryUi = create<LibraryUiStore>()((set) => ({
   text: '',
   scope: 'all',
+  family: 'all',
   collapsed: loadCollapsed(),
   builtinOpen: false,
   selectedKey: null,
@@ -57,6 +65,9 @@ export const useLibraryUi = create<LibraryUiStore>()((set) => ({
   },
   setScope: (scope) => {
     set({ scope });
+  },
+  setFamily: (family) => {
+    set({ family });
   },
   setFolded: (folderId, folded) => {
     set((state) => {

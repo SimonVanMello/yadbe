@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use super::history::fts_query;
+use super::journal::{family_from_id, family_id};
 use super::{Store, new_id, now};
+use crate::db::engine::{Engine, EngineFamily};
 use crate::db::errors::YadbeError;
 
 pub const MAX_QUERY_NAME_CHARS: usize = 120;
@@ -42,6 +44,9 @@ pub struct SavedQuery {
     pub database: Option<String>,
     /// A snippet expands in the editor when its trigger word is completed.
     pub snippet_trigger: Option<String>,
+    /// What the text is written in: SQL, a mongosh script, a search console request, Redis
+    /// commands. A query bound to a connection has that connection's family.
+    pub family: EngineFamily,
     /// Unix time in seconds.
     pub created_at: u32,
     pub updated_at: u32,
@@ -77,10 +82,14 @@ pub struct NewSavedQuery {
     pub connection_id: Option<String>,
     pub database: Option<String>,
     pub snippet_trigger: Option<String>,
+    /// The family of the tab the text comes from; with a `connection_id` it must be the
+    /// connection's.
+    pub family: EngineFamily,
 }
 
 /// Every field of a saved query, replaced at once; `sql` `null` keeps the text (the sidebar
-/// only holds a preview of it).
+/// only holds a preview of it). The family is not among them: a query keeps the one it was
+/// saved with, and can only be bound to a connection of that family.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedQueryUpdate {
@@ -105,6 +114,7 @@ pub struct SnippetDefinition {
     pub description: String,
     pub connection_id: Option<String>,
     pub database: Option<String>,
+    pub family: EngineFamily,
 }
 
 /// What deleting a folder removed.
@@ -116,7 +126,7 @@ pub struct FolderDeletion {
 }
 
 const QUERY_COLUMNS: &str = "id, folder_id, name, substr(sql, 1, ?1), description, tags, \
-     connection_id, database_name, snippet_trigger, created_at, updated_at, last_used_at";
+     connection_id, database_name, snippet_trigger, created_at, updated_at, last_used_at, family";
 
 fn cut_chars(text: &str, max: usize) -> (&str, bool) {
     match text.char_indices().nth(max) {
@@ -131,6 +141,14 @@ fn row_to_query(row: &Row<'_>, sql_chars: usize) -> rusqlite::Result<SavedQuery>
     let tags: String = row.get(5)?;
     let connection_id: Option<String> = row.get(6)?;
     let database: Option<String> = row.get(7)?;
+    let family: String = row.get(12)?;
+    let family = family_from_id(&family).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            12,
+            rusqlite::types::Type::Text,
+            format!("unexpected family `{family}` in the library").into(),
+        )
+    })?;
     Ok(SavedQuery {
         id: row.get(0)?,
         folder_id: row.get(1)?,
@@ -147,6 +165,7 @@ fn row_to_query(row: &Row<'_>, sql_chars: usize) -> rusqlite::Result<SavedQuery>
         created_at: row.get(9)?,
         updated_at: row.get(10)?,
         last_used_at: row.get(11)?,
+        family,
     })
 }
 
@@ -277,18 +296,32 @@ impl Store {
         Ok(())
     }
 
+    /// The connection must exist and speak the family of the query bound to it: a mongosh
+    /// script on a PostgreSQL connection would never run.
     fn check_connection(
         conn: &Connection,
         connection_id: Option<&String>,
+        family: EngineFamily,
     ) -> Result<(), YadbeError> {
         if let Some(connection_id) = connection_id {
-            let exists: bool = conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM connections WHERE id = ?1)",
-                [connection_id],
-                |row| row.get(0),
-            )?;
-            if !exists {
+            let engine: Option<String> = conn
+                .query_row(
+                    "SELECT engine FROM connections WHERE id = ?1",
+                    [connection_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let Some(engine) = engine else {
                 return Err(YadbeError::connection_not_found(connection_id));
+            };
+            // A stored engine this build does not know cannot be judged: it is let through.
+            if Engine::from_id(&engine).is_some_and(|engine| engine.family() != family) {
+                return Err(invalid(
+                    "This query cannot be bound to a connection of another kind of database."
+                        .into(),
+                    "Cette requête ne peut pas être liée à une connexion d'un autre type de base."
+                        .into(),
+                ));
             }
         }
         Ok(())
@@ -422,14 +455,17 @@ impl Store {
     pub fn snippets(&self) -> Result<Vec<SnippetDefinition>, YadbeError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, name, snippet_trigger, sql, description, connection_id, database_name
+            "SELECT id, name, snippet_trigger, sql, description, connection_id, database_name, family
              FROM saved_queries WHERE snippet_trigger IS NOT NULL ORDER BY snippet_trigger, name",
         )?;
         let rows = stmt
             .query_map([], |row| {
                 let connection_id: Option<String> = row.get(5)?;
                 let database: Option<String> = row.get(6)?;
+                let family: String = row.get(7)?;
                 Ok(SnippetDefinition {
+                    // An unreadable family reads as SQL: a snippet is worth keeping offered.
+                    family: family_from_id(&family).unwrap_or_default(),
                     id: row.get(0)?,
                     name: row.get(1)?,
                     trigger: row.get(2)?,
@@ -461,11 +497,11 @@ impl Store {
         let trigger = checked_trigger(new.snippet_trigger.as_deref())?;
         let id = new_id();
         Self::check_folder(conn, new.folder_id.as_ref())?;
-        Self::check_connection(conn, new.connection_id.as_ref())?;
+        Self::check_connection(conn, new.connection_id.as_ref(), new.family)?;
         conn.execute(
             "INSERT INTO saved_queries (id, folder_id, name, sql, description, tags,
-                connection_id, database_name, snippet_trigger, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+                connection_id, database_name, snippet_trigger, family, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
             params![
                 id,
                 new.folder_id,
@@ -476,6 +512,7 @@ impl Store {
                 new.connection_id,
                 scoped_database(new.connection_id.as_ref(), new.database.as_ref()),
                 trigger,
+                family_id(new.family),
                 now(),
             ],
         )?;
@@ -498,7 +535,7 @@ impl Store {
         let current = Self::existing_query(&conn, id)?;
         Self::check_folder(&conn, update.folder_id.as_ref())?;
         if update.connection_id != current.connection_id {
-            Self::check_connection(&conn, update.connection_id.as_ref())?;
+            Self::check_connection(&conn, update.connection_id.as_ref(), current.family)?;
         }
         conn.execute(
             "UPDATE saved_queries SET name = ?2, sql = COALESCE(?3, sql), description = ?4,
@@ -564,6 +601,7 @@ impl Store {
             connection_id: source.connection_id,
             database: source.database,
             snippet_trigger: None,
+            family: source.family,
         })
     }
 

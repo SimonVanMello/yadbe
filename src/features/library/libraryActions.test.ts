@@ -13,6 +13,23 @@ import { insertSaved, openSaved, saveEditorToLibrary, updateSavedFromTab } from 
 import { useSaveDialog } from './saveDialogStore';
 
 const PG = 'conn-local-pg';
+const MONGO = 'conn-catalog-mongo';
+
+async function globalScript(family: 'document' | 'keyValue') {
+  return unwrap(
+    ipc.commands.createSavedQuery({
+      name: 'A script',
+      sql: 'db.orders.find({})',
+      description: '',
+      tags: [],
+      folderId: null,
+      connectionId: null,
+      database: null,
+      snippetTrigger: null,
+      family,
+    }),
+  );
+}
 
 async function savedByName(name: string) {
   const { queries } = await unwrap(ipc.commands.listSavedQueries());
@@ -90,28 +107,69 @@ describe('opening a saved query', () => {
   });
 });
 
-describe('inserting a saved query', () => {
-  function editorSpy() {
-    const calls: { kind: string; text: string }[] = [];
-    const controller: EditorController = {
-      focus: () => undefined,
-      jumpTo: () => undefined,
-      markRunStart: () => undefined,
-      setErrors: () => undefined,
-      replaceContent: () => undefined,
-      insertAtCursor: (text) => {
-        calls.push({ kind: 'text', text });
-      },
-      format: () => false,
-      definitionAtCursor: () => Promise.resolve(false),
-      insertSnippet: (text) => {
-        calls.push({ kind: 'snippet', text });
-      },
-    };
-    const tab = selectActiveTab(useTabsStore.getState());
-    return { calls, off: registerEditor(tab.id, controller) };
-  }
+function editorSpy() {
+  const calls: { kind: string; text: string }[] = [];
+  const controller: EditorController = {
+    focus: () => undefined,
+    jumpTo: () => undefined,
+    markRunStart: () => undefined,
+    setErrors: () => undefined,
+    replaceContent: () => undefined,
+    insertAtCursor: (text) => {
+      calls.push({ kind: 'text', text });
+    },
+    format: () => false,
+    definitionAtCursor: () => Promise.resolve(false),
+    insertSnippet: (text) => {
+      calls.push({ kind: 'snippet', text });
+    },
+  };
+  const tab = selectActiveTab(useTabsStore.getState());
+  return { calls, off: registerEditor(tab.id, controller) };
+}
 
+describe('a saved query of another family', () => {
+  it('opens a global script on a connection of its family, and says it left the active one', async () => {
+    const script = await globalScript('document');
+    const tabId = await openSaved(script);
+    expect(selectActiveTab(useTabsStore.getState())).toMatchObject({
+      id: tabId,
+      connectionId: MONGO,
+    });
+    expect(getQueryTabState(tabId ?? '').content).toBe('db.orders.find({})');
+    expect(useToastStore.getState().toasts.at(-1)?.variant).toBe('info');
+  });
+
+  it('opens it without a notice when the active tab already speaks its family', async () => {
+    useTabsStore.getState().openQueryTab(MONGO);
+    const tabId = await openSaved(await globalScript('document'));
+    expect(selectActiveTab(useTabsStore.getState())).toMatchObject({ connectionId: MONGO });
+    expect(tabId).not.toBeNull();
+    expect(useToastStore.getState().toasts.some((toast) => toast.variant === 'info')).toBe(false);
+  });
+
+  it('refuses when no connection can host it, naming the kind of database', async () => {
+    const script = await globalScript('keyValue');
+    queryClient.setQueryData(connectionKeys.all, {
+      connections: MOCK_CONNECTIONS.filter((connection) => connection.family !== 'keyValue'),
+      groups: MOCK_GROUPS,
+    });
+    expect(await openSaved(script)).toBeNull();
+    const toast = useToastStore.getState().toasts.at(-1);
+    expect(toast?.variant).toBe('warning');
+    expect(toast?.title).toContain('Key-value');
+  });
+
+  it('is not inserted into an editor of another family', async () => {
+    const { calls, off } = editorSpy();
+    await insertSaved(await globalScript('document'));
+    off();
+    expect(calls).toHaveLength(0);
+    expect(useToastStore.getState().toasts.at(-1)?.variant).toBe('info');
+  });
+});
+
+describe('inserting a saved query', () => {
   it('inserts the text of a plain query as it is', async () => {
     const { calls, off } = editorSpy();
     await insertSaved(await savedByName('Duplicate emails'));
@@ -153,6 +211,7 @@ describe('saving from an editor', () => {
       selectionOnly: true,
       connectionId: PG,
       database: 'shop',
+      family: 'sql',
       tabId: tab.id,
     });
     useQueryTabStore.getState().setSelection(tab.id, { anchor: 3, head: 3 });
@@ -160,6 +219,19 @@ describe('saving from an editor', () => {
     expect(useSaveDialog.getState().request).toMatchObject({
       sql: 'select 1;\nselect 2;',
       selectionOnly: false,
+    });
+  });
+
+  it('records the family of the tab the text comes from', () => {
+    const tabId = useTabsStore.getState().openQueryTab(MONGO);
+    useQueryTabStore
+      .getState()
+      .ensure(tabId, { ...getQueryTabState(tabId), content: 'db.orders.find({})' });
+    expect(saveEditorToLibrary(tabId)).toBe(true);
+    expect(useSaveDialog.getState().request).toMatchObject({
+      mode: 'create',
+      connectionId: MONGO,
+      family: 'document',
     });
   });
 

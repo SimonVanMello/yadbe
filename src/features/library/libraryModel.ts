@@ -1,4 +1,4 @@
-import type { QueryFolder, SavedQuery } from '../../ipc';
+import type { EngineFamily, QueryFolder, SavedQuery } from '../../ipc';
 import type { BuiltinSnippet } from './builtinSnippets';
 import { normalizeQuery, scoreMatch, searchable } from '../palette/matcher';
 
@@ -97,9 +97,16 @@ export interface LibraryFilter {
   textIds: ReadonlySet<string> | null;
   /** Only the global queries and this connection's; `null`: every query. */
   connectionId: string | null;
+  /** Only the queries written for this family; `null`: every family. */
+  family: EngineFamily | null;
 }
 
-export const NO_FILTER: LibraryFilter = { text: '', textIds: null, connectionId: null };
+export const NO_FILTER: LibraryFilter = {
+  text: '',
+  textIds: null,
+  connectionId: null,
+  family: null,
+};
 
 export function folderKey(id: string): string {
   return `f:${id}`;
@@ -113,7 +120,7 @@ const byName = (a: { name: string }, b: { name: string }): number =>
   a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
 
 export function isFiltering(filter: LibraryFilter): boolean {
-  return filter.text.trim() !== '' || filter.connectionId !== null;
+  return filter.text.trim() !== '' || filter.connectionId !== null || filter.family !== null;
 }
 
 /** Whether a query belongs to the scope the filter asks for. */
@@ -121,6 +128,11 @@ export function inScope(query: SavedQuery, connectionId: string | null): boolean
   return (
     connectionId === null || query.connectionId === null || query.connectionId === connectionId
   );
+}
+
+/** Whether a query is written for the family the filter asks for (`null`: any). */
+export function inFamily(query: SavedQuery, family: EngineFamily | null): boolean {
+  return family === null || query.family === family;
 }
 
 /** How the filter text matches the name of a query: `null` when it does not. */
@@ -154,7 +166,7 @@ export function buildLibraryRows(
   const childQueries = new Map<string | null, { query: SavedQuery; indices: number[] }[]>();
   let matches = 0;
   for (const query of [...library.queries].sort(byName)) {
-    if (!inScope(query, filter.connectionId)) continue;
+    if (!inScope(query, filter.connectionId) || !inFamily(query, filter.family)) continue;
     let indices: number[] = [];
     if (text !== '') {
       const fuzzy = nameMatch(query.name, text);

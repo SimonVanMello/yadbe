@@ -1,3 +1,4 @@
+import type { EngineFamily } from '../../ipc';
 import { findConnection } from './connectionLookup';
 
 /**
@@ -13,4 +14,16 @@ export function sameFamily(
   const source = findConnection(sourceConnectionId);
   const target = findConnection(targetConnectionId);
   return source === undefined || target === undefined || source.family === target.family;
+}
+
+/**
+ * Whether text of `family` (a saved query) can go into an editor on `targetConnectionId`. A tab
+ * without a known connection cannot be judged, so it accepts.
+ */
+export function familyFitsConnection(
+  family: EngineFamily,
+  targetConnectionId: string | null,
+): boolean {
+  const target = findConnection(targetConnectionId);
+  return target === undefined || target.family === family;
 }

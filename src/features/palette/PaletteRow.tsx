@@ -11,6 +11,7 @@ import { EnvTag } from '../connections/EnvTag';
 import { Highlight } from '../connections/Highlight';
 import { tintOf } from '../connections/model';
 import { kindLabel } from '../explorer/explorerLabels';
+import { familyLabelKey } from '../library/libraryFamily';
 import { rowStyle } from '../sidebar/rowStyle';
 import { pinnedAs } from '../objects/palettePins';
 import { usePinStore } from '../objects/pinStore';
@@ -144,6 +145,9 @@ function Content({ item, indices }: { item: PaletteItem; indices: readonly numbe
               : `${item.folder === '' ? '' : ' · '}${item.query.snippetTrigger}`}
           </span>
           <RowEnvironment connectionId={item.query.connectionId} />
+          {item.query.family !== 'sql' && (
+            <span className={styles.aside}>{t(familyLabelKey(item.query.family))}</span>
+          )}
         </>
       );
     case 'history':

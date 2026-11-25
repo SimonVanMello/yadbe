@@ -16,6 +16,7 @@ import {
   openSaved,
   runSaved,
 } from './libraryActions';
+import { familyLabelKey } from './libraryFamily';
 import { useSaveDialog } from './saveDialogStore';
 import { useSavedQuery } from './useLibrary';
 
@@ -51,6 +52,8 @@ export function LibraryDetail({ query: listed, search }: LibraryDetailProps) {
       <h3 className={styles.name}>{query.name}</h3>
       <div className={styles.header}>
         <p className={styles.facts}>
+          {t(familyLabelKey(query.family))}
+          {' · '}
           {scope}
           {' · '}
           {query.lastUsedAt === null

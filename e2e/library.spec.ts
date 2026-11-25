@@ -21,6 +21,7 @@ interface MockControls {
       connectionId: string | null;
       database: string | null;
       snippetTrigger: string | null;
+      family: string;
     }): Promise<unknown>;
   };
 }
@@ -307,6 +308,7 @@ for (const { name, colorScheme } of THEMES) {
           connectionId: 'conn-local-pg',
           database: null,
           snippetTrigger: null,
+          family: 'sql',
         }),
       );
       await openLibrary(page);

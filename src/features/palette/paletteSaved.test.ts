@@ -18,6 +18,7 @@ const query = (id: string, name: string, patch: Partial<SavedQuery> = {}): Saved
   connectionId: null,
   database: null,
   snippetTrigger: null,
+  family: 'sql',
   createdAt: 0,
   updatedAt: 0,
   lastUsedAt: null,

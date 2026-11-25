@@ -94,7 +94,7 @@ impl JournalTargetKind {
     }
 }
 
-fn family_id(family: EngineFamily) -> &'static str {
+pub(super) fn family_id(family: EngineFamily) -> &'static str {
     match family {
         EngineFamily::Sql => "sql",
         EngineFamily::Document => "document",
@@ -103,7 +103,7 @@ fn family_id(family: EngineFamily) -> &'static str {
     }
 }
 
-fn family_from_id(id: &str) -> Option<EngineFamily> {
+pub(super) fn family_from_id(id: &str) -> Option<EngineFamily> {
     Some(match id {
         "sql" => EngineFamily::Sql,
         "document" => EngineFamily::Document,
