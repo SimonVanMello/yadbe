@@ -1,0 +1,40 @@
+/* The editors' token colours (`sqlHighlight` in query/editorTheme.ts), as classes: no inline style. */
+.keyword {
+  color: var(--syn-keyword);
+}
+
+.string {
+  color: var(--syn-string);
+}
+
+.number {
+  color: var(--syn-number);
+}
+
+.type {
+  color: var(--syn-type);
+}
+
+.property {
+  color: var(--syn-tag);
+}
+
+.function {
+  color: var(--syn-function);
+}
+
+.special {
+  color: var(--syn-special);
+}
+
+.operator {
+  color: var(--syn-operator);
+}
+
+.comment {
+  color: var(--syn-comment);
+}
+
+.invalid {
+  color: var(--danger);
+}

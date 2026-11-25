@@ -1,5 +1,4 @@
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { StreamLanguage } from '@codemirror/language';
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
 import { EditorState, Prec, type Extension } from '@codemirror/state';
 import {
@@ -20,42 +19,7 @@ import { redisProvider } from '../completion/consoleProviders';
 import { sqlEditorTheme } from '../query/editorTheme';
 import { getQueryTabState, useQueryTabStore } from '../query/queryTabStore';
 import styles from './KvConsole.module.css';
-
-/**
- * `redis-cli` lines, coloured: the command name, quoted arguments, numbers and `#` comments.
- * Colour only: the backend splits the lines (its tokenizer is the one that counts).
- */
-const redisCli = StreamLanguage.define<{ start: boolean }>({
-  startState: () => ({ start: true }),
-  token(stream, state) {
-    if (stream.sol()) state.start = true;
-    if (stream.eatSpace()) return null;
-    if (state.start && stream.peek() === '#') {
-      stream.skipToEnd();
-      return 'comment';
-    }
-    const quote = stream.peek();
-    if (quote === '"' || quote === "'") {
-      stream.next();
-      let escaped = false;
-      for (;;) {
-        const ch = stream.next();
-        if (ch === undefined) break;
-        if (ch === quote && !escaped) break;
-        escaped = !escaped && ch === '\\' && quote === '"';
-      }
-      state.start = false;
-      return 'string';
-    }
-    stream.eatWhile(/\S/);
-    const word = stream.current();
-    if (state.start) {
-      state.start = false;
-      return 'keyword';
-    }
-    return /^-?\d+(\.\d+)?$/.test(word) ? 'number' : null;
-  },
-});
+import { redisCli } from './redisLanguage';
 
 /** The app's run shortcuts (rebindable, F-121), ahead of CodeMirror's own keys. */
 const CONSOLE_ACTIONS: readonly ActionId[] = ['query.run', 'query.runStatement', 'query.cancel'];

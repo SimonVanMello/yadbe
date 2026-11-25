@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const THEMES = [
   { name: 'graphite', colorScheme: 'dark' },
@@ -66,6 +66,40 @@ for (const { name, colorScheme } of THEMES) {
       await expect(rows(page).nth(1).getByRole('img', { name: 'Cancelled' })).toBeVisible();
       await expect(rows(page).nth(2).getByRole('img', { name: 'Refused' })).toBeVisible();
       await capture(page, name, 'history-panel');
+    });
+
+    test('every entry is coloured in the syntax of its engine', async ({ page }) => {
+      await openHistory(page);
+      const color = (row: Locator, text: string) =>
+        row
+          .locator('code span', { hasText: new RegExp(`^${text}$`) })
+          .first()
+          .evaluate((element) => getComputedStyle(element).color);
+      const base = await rows(page)
+        .first()
+        .locator('code')
+        .evaluate((element) => getComputedStyle(element).color);
+      // SQL keyword and string, mongosh string, Redis command, request method and JSON key.
+      const sql = rows(page).filter({ hasText: 'SELECT o.id, c.nmae' });
+      expect(await color(sql, 'SELECT')).not.toBe(base);
+      expect(await color(sql, "'pending'")).not.toBe(await color(sql, 'SELECT'));
+      const mongo = rows(page).filter({ hasText: 'db.orders.find' });
+      expect(await color(mongo, "'pending'")).not.toBe(base);
+      const redis = rows(page).filter({ hasText: 'HGETALL' });
+      expect(await color(redis, 'HGETALL')).not.toBe(base);
+      const search = rows(page).filter({ hasText: '/products/_search' });
+      expect(await color(search, 'GET')).not.toBe(base);
+      expect(await color(search, '"query"')).not.toBe(await color(search, 'GET'));
+      await capture(page, name, 'history-syntax');
+    });
+
+    test('a search match stays emphasized inside the syntax colours', async ({ page }) => {
+      await openHistory(page);
+      await panel(page).getByRole('textbox', { name: 'Search the history' }).fill('orders');
+      const mark = rows(page).filter({ hasText: 'db.orders.find' }).locator('mark').first();
+      await expect(mark).toBeVisible();
+      await expect(mark).toHaveText('orders');
+      await capture(page, name, 'history-syntax-search');
     });
 
     test('the shortcut shows the view and focuses the search', async ({ page }) => {
