@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::db::document::json::Json;
 use crate::db::driver::{RecordedStatement, SearchConnection};
-use crate::db::errors::{LocalizedText, YadbeError};
+use crate::db::errors::{LocalizedText, YadbeError, count_en, count_fr, plural_en, plural_fr};
 use crate::db::search::classify::{SearchDangerKind, danger_of, is_read};
 use crate::db::search::meta::number_of;
 use crate::db::search::request::{HttpMethod, SearchRequest, SearchResponse, segment};
@@ -82,16 +82,63 @@ pub fn confirmation_missing(request: &SearchRequest) -> YadbeError {
     )
 }
 
-fn fmt_count(n: f64) -> String {
-    let digits = format!("{:.0}", n.max(0.0));
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push('\u{202f}');
-        }
-        out.push(c);
+fn whole(n: f64) -> u64 {
+    // Document counts are exact integers well below 2^53.
+    n.max(0.0).round() as u64
+}
+
+fn index_count_en(n: u64) -> String {
+    format!("{} {}", count_en(n), plural_en(n, "index", "indices"))
+}
+
+fn index_count_fr(n: u64) -> String {
+    format!("{} {}", count_fr(n), plural_fr(n, "index", "index"))
+}
+
+/// What closing or deleting `count` indices holding `docs` documents does, in both languages.
+fn index_effect(close: bool, count: u64, docs: u64, names: &str) -> LocalizedText {
+    let (docs_en, docs_fr) = (count_en(docs), count_fr(docs));
+    let (unit_en, unit_fr) = (
+        plural_en(docs, "document", "documents"),
+        plural_fr(docs, "document", "documents"),
+    );
+    let one = count == 1;
+    if close {
+        LocalizedText::new(
+            format!(
+                "Closes {} holding {docs_en} {unit_en} ({names}): {} until reopened.",
+                index_count_en(count),
+                if one {
+                    "it can be neither searched nor written"
+                } else {
+                    "they can be neither searched nor written"
+                }
+            ),
+            format!(
+                "Ferme {} contenant {docs_fr} {unit_fr} ({names}) : {} avant d'être {}.",
+                index_count_fr(count),
+                if one {
+                    "il ne peut plus être ni lu ni écrit"
+                } else {
+                    "ils ne peuvent plus être ni lus ni écrits"
+                },
+                if one { "rouvert" } else { "rouverts" }
+            ),
+        )
+    } else {
+        LocalizedText::new(
+            format!(
+                "Deletes {} and {} {docs_en} {unit_en} for good: {names}.",
+                index_count_en(count),
+                if one { "its" } else { "their" }
+            ),
+            format!(
+                "Supprime définitivement {} et {} {docs_fr} {unit_fr} : {names}.",
+                index_count_fr(count),
+                if one { "ses" } else { "leurs" }
+            ),
+        )
     }
-    out
 }
 
 /// Names cut to ten, for an effect's text.
@@ -368,71 +415,56 @@ impl Gate<'_> {
                         format!("Aucun index ne correspond à {target} actuellement."),
                     ),
                     Some(list) => {
-                        let docs: f64 = list.iter().map(|(_, n)| n).sum();
+                        let docs = whole(list.iter().map(|(_, n)| n).sum());
                         let names: Vec<String> = list.iter().map(|(n, _)| n.clone()).collect();
-                        let (count, docs, names) =
-                            (list.len(), fmt_count(docs), self::names(&names));
-                        if candidate.kind == SearchDangerKind::CloseIndex {
-                            LocalizedText::new(
-                                format!(
-                                    "Closes {count} index(es) holding {docs} documents ({names}): they can be neither searched nor written until reopened."
-                                ),
-                                format!(
-                                    "Ferme {count} index contenant {docs} documents ({names}) : ils ne peuvent plus être ni lus ni écrits avant d'être rouverts."
-                                ),
-                            )
-                        } else {
-                            LocalizedText::new(
-                                format!(
-                                    "Deletes {count} index(es) and their {docs} documents for good: {names}."
-                                ),
-                                format!(
-                                    "Supprime définitivement {count} index et leurs {docs} documents : {names}."
-                                ),
-                            )
-                        }
+                        index_effect(
+                            candidate.kind == SearchDangerKind::CloseIndex,
+                            list.len() as u64,
+                            docs,
+                            &self::names(&names),
+                        )
                     }
                 },
                 SearchDangerKind::DeleteByQuery | SearchDangerKind::UpdateByQuery => {
                     match self.query_count(&target, request).await {
                         None => unmeasured(),
-                        Some(n) if candidate.kind == SearchDangerKind::DeleteByQuery => {
+                        Some(n) => {
+                            let n = whole(n);
+                            let (en, fr) = if candidate.kind == SearchDangerKind::DeleteByQuery {
+                                ("Deletes", "Supprime")
+                            } else {
+                                ("Rewrites", "Réécrit")
+                            };
                             LocalizedText::new(
                                 format!(
-                                    "Deletes the {} documents of {target} that match its query.",
-                                    fmt_count(n)
+                                    "{en} the {} {} of {target} matching its query.",
+                                    count_en(n),
+                                    plural_en(n, "document", "documents")
                                 ),
                                 format!(
-                                    "Supprime les {} documents de {target} qui correspondent à sa requête.",
-                                    fmt_count(n)
+                                    "{fr} {} {} de {target} correspondant à sa requête.",
+                                    count_fr(n),
+                                    plural_fr(n, "document", "documents")
                                 ),
                             )
                         }
-                        Some(n) => LocalizedText::new(
-                            format!(
-                                "Rewrites the {} documents of {target} that match its query.",
-                                fmt_count(n)
-                            ),
-                            format!(
-                                "Réécrit les {} documents de {target} qui correspondent à sa requête.",
-                                fmt_count(n)
-                            ),
-                        ),
                     }
                 }
                 SearchDangerKind::Reindex => match self.indices(&target).await {
                     Some(list) if list.is_empty() => continue,
                     None => unmeasured(),
                     Some(list) => {
-                        let docs: f64 = list.iter().map(|(_, n)| n).sum();
+                        let docs = whole(list.iter().map(|(_, n)| n).sum());
                         LocalizedText::new(
                             format!(
-                                "Writes into {target}, which exists and holds {} documents: those with the same ids are overwritten.",
-                                fmt_count(docs)
+                                "Writes into {target}, which exists and holds {} {}: any document with the same id is overwritten.",
+                                count_en(docs),
+                                plural_en(docs, "document", "documents")
                             ),
                             format!(
-                                "Écrit dans {target}, qui existe et contient {} documents : ceux de même identifiant sont écrasés.",
-                                fmt_count(docs)
+                                "Écrit dans {target}, qui existe et contient {} {} : tout document de même identifiant est écrasé.",
+                                count_fr(docs),
+                                plural_fr(docs, "document", "documents")
                             ),
                         )
                     }
@@ -458,4 +490,39 @@ fn hits_count(response: &SearchResponse) -> Option<u64> {
     let json = response.json()?;
     let hits = json.get("hits")?.get("hits")?.as_array()?;
     u64::try_from(hits.len()).ok()
+}
+
+#[cfg(test)]
+mod effect_tests {
+    use super::index_effect;
+
+    #[test]
+    fn index_effects_use_real_plurals_and_each_languages_separator() {
+        let one = index_effect(false, 1, 1, "logs");
+        assert_eq!(one.en, "Deletes 1 index and its 1 document for good: logs.");
+        assert_eq!(
+            one.fr,
+            "Supprime définitivement 1 index et ses 1 document : logs."
+        );
+        let many = index_effect(false, 2, 1200, "a, b");
+        assert_eq!(
+            many.en,
+            "Deletes 2 indices and their 1,200 documents for good: a, b."
+        );
+        assert_eq!(
+            many.fr,
+            "Supprime définitivement 2 index et leurs 1\u{202f}200 documents : a, b."
+        );
+        let closed = index_effect(true, 2, 0, "a, b");
+        assert_eq!(
+            closed.en,
+            "Closes 2 indices holding 0 documents (a, b): they can be neither searched nor written until reopened."
+        );
+        assert!(
+            closed
+                .fr
+                .starts_with("Ferme 2 index contenant 0 document (a, b)")
+        );
+        assert!(!closed.en.contains("(es)") && !closed.fr.contains("(s)"));
+    }
 }

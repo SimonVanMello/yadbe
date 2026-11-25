@@ -183,6 +183,40 @@ impl LocalizedText {
     }
 }
 
+/// A count written for each language of a [`LocalizedText`]: thousands grouped with the
+/// language's own separator (`1,200` in English, `1 200` with a narrow no-break space in
+/// French). Effect texts carry both languages, so each one formats its own numbers.
+pub fn count_en(n: u64) -> String {
+    group_digits(n, ',')
+}
+
+/// See [`count_en`].
+pub fn count_fr(n: u64) -> String {
+    group_digits(n, '\u{202f}')
+}
+
+fn group_digits(n: u64, separator: char) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(separator);
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// `one` when `n` is 1, `other` otherwise (English).
+pub fn plural_en<'a>(n: u64, one: &'a str, other: &'a str) -> &'a str {
+    if n == 1 { one } else { other }
+}
+
+/// `one` for 0 and 1, `other` from 2 (French).
+pub fn plural_fr<'a>(n: u64, one: &'a str, other: &'a str) -> &'a str {
+    if n <= 1 { one } else { other }
+}
+
 /// What the UI can offer to do about an error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -1215,6 +1249,19 @@ impl From<serde_json::Error> for YadbeError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn counts_are_grouped_with_each_languages_separator() {
+        assert_eq!(count_en(0), "0");
+        assert_eq!(count_en(999), "999");
+        assert_eq!(count_en(1200), "1,200");
+        assert_eq!(count_en(1_234_567), "1,234,567");
+        assert_eq!(count_fr(1200), "1\u{202f}200");
+        assert_eq!(plural_en(1, "key", "keys"), "key");
+        assert_eq!(plural_en(0, "key", "keys"), "keys");
+        assert_eq!(plural_fr(0, "clé", "clés"), "clé");
+        assert_eq!(plural_fr(2, "clé", "clés"), "clés");
+    }
+
     use super::*;
 
     #[test]

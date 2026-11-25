@@ -127,11 +127,15 @@ for (const { name, colorScheme } of THEMES) {
       await page.getByRole('button', { name: 'Apply (4)' }).click();
       await expect(dialog).toBeHidden();
       await expect(page.getByTestId('doc-pending')).toHaveText('No changes');
+      const toasts = page.getByRole('region', { name: /Notifications/ });
+      await expect(toasts).toContainText('Changes applied');
+      await expect(toasts).toContainText('4 documents changed');
 
       // The journal has the entry; its revert goes through the same dialog.
       await page.getByRole('button', { name: 'Journal', exact: true }).first().click();
       const entry = page.getByTestId('journal-statements');
       await expect(entry).toContainText('coll.updateOne(');
+      await expect(page.getByPlaceholder('Search collections, values…')).toBeVisible();
       await capture(page, name, 'journal');
       await page.getByRole('button', { name: 'Revert this change set…' }).click();
       await expect(dialog.getByTestId('doc-operations')).toContainText('coll.deleteOne(');

@@ -137,10 +137,15 @@ for (const { name, colorScheme } of THEMES) {
       await edit(page, 2, 3, 'phone', '+33 3 33 33 33 33');
       await apply(page);
       await expect(page.getByText('Changes applied', { exact: true })).toBeVisible();
+      // One wording for every family: the count and the unit of the family.
+      await expect(page.getByText('1 row changed', { exact: true })).toBeVisible();
       // The toast leads to the change set in the Journal view.
       await page.getByRole('button', { name: 'Journal', exact: true }).first().click();
       const journal = page.getByRole('region', { name: 'Change journal' });
       await expect(journal).toBeVisible();
+      // Tables only here: the filter and the search name them.
+      await expect(journal.getByPlaceholder('Search tables, values…')).toBeVisible();
+      await expect(journal.getByRole('combobox', { name: 'Table' })).toContainText('All tables');
       const entry = entries(journal).first();
       await expect(entry).toContainText('shop.customers');
       await expect(entry).toContainText('1 updated');

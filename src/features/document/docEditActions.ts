@@ -360,6 +360,9 @@ function toastApplied(outcome: DocApplyOutcome, title: string): void {
   toast({
     variant: 'success',
     title,
+    ...(outcome.applied.length > 0
+      ? { description: tr('mongo.edit.appliedCount', { count: outcome.applied.length }) }
+      : {}),
     ...(journalId !== null
       ? {
           action: {

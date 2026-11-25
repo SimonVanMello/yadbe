@@ -491,8 +491,8 @@ export function createMockSearch(host: MockSearchHost) {
                 fr: `Aucun index ne correspond à ${target} actuellement.`,
               }
             : {
-                en: `Deletes ${String(names.length)} index(es) and their ${docs.toLocaleString('en')} documents for good: ${names.join(', ')}.`,
-                fr: `Supprime définitivement ${String(names.length)} index et leurs ${docs.toLocaleString('fr')} documents : ${names.join(', ')}.`,
+                en: `Deletes ${String(names.length)} ${names.length === 1 ? 'index and its' : 'indices and their'} ${docs.toLocaleString('en')} ${docs === 1 ? 'document' : 'documents'} for good: ${names.join(', ')}.`,
+                fr: `Supprime définitivement ${String(names.length)} index et ${names.length === 1 ? 'ses' : 'leurs'} ${docs.toLocaleString('fr')} ${docs <= 1 ? 'document' : 'documents'} : ${names.join(', ')}.`,
               },
       };
     }
@@ -509,8 +509,8 @@ export function createMockSearch(host: MockSearchHost) {
         request: `${method} ${path}`,
         kind: 'deleteByQuery',
         effect: {
-          en: `Deletes the ${count.toLocaleString('en')} documents of ${target} that match its query.`,
-          fr: `Supprime les ${count.toLocaleString('fr')} documents de ${target} qui correspondent à sa requête.`,
+          en: `Deletes the ${count.toLocaleString('en')} ${count === 1 ? 'document' : 'documents'} of ${target} matching its query.`,
+          fr: `Supprime ${count.toLocaleString('fr')} ${count <= 1 ? 'document' : 'documents'} de ${target} correspondant à sa requête.`,
         },
       };
     }

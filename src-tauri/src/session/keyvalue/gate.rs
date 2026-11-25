@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::db::driver::{KeyValueConnection, RecordedStatement};
-use crate::db::errors::{LocalizedText, YadbeError};
+use crate::db::errors::{LocalizedText, YadbeError, count_en, count_fr, plural_en, plural_fr};
 use crate::db::keyvalue::command::{is_secret_setting, quote};
 use crate::db::keyvalue::spec::{
     CommandSpec, KvDanger, KvDangerKind, check_read_only, check_supported, danger_of,
@@ -397,7 +397,19 @@ impl Gate<'_> {
         cmd: &KvCommand,
         kind: &KvDangerKind,
     ) -> LocalizedText {
-        let count = |n: Option<u64>| n.map_or_else(|| "?".to_owned(), |n| n.to_string());
+        // "N keys" in each language; `?` (plural) when the server would not say.
+        let keys_en = |n: Option<u64>| {
+            n.map_or_else(
+                || "? keys".to_owned(),
+                |n| format!("{} {}", count_en(n), plural_en(n, "key", "keys")),
+            )
+        };
+        let keys_fr = |n: Option<u64>| {
+            n.map_or_else(
+                || "? clés".to_owned(),
+                |n| format!("{} {}", count_fr(n), plural_fr(n, "clé", "clés")),
+            )
+        };
         match kind {
             KvDangerKind::FlushAll => {
                 let keys = self
@@ -407,12 +419,12 @@ impl Gate<'_> {
                     .map(|text| parse_keyspace(&text).iter().map(|db| db.1).sum());
                 LocalizedText::new(
                     format!(
-                        "Deletes every key of every database on this server: {} keys.",
-                        count(keys)
+                        "Deletes every key of every database on this server: {}.",
+                        keys_en(keys)
                     ),
                     format!(
-                        "Supprime toutes les clés de toutes les bases de ce serveur : {} clés.",
-                        count(keys)
+                        "Supprime toutes les clés de toutes les bases de ce serveur : {}.",
+                        keys_fr(keys)
                     ),
                 )
             }
@@ -420,12 +432,12 @@ impl Gate<'_> {
                 let keys = self.dbsize(conn).await;
                 LocalizedText::new(
                     format!(
-                        "Deletes every key of database {database}: {} keys.",
-                        count(keys)
+                        "Deletes every key of database {database}: {}.",
+                        keys_en(keys)
                     ),
                     format!(
-                        "Supprime toutes les clés de la base {database} : {} clés.",
-                        count(keys)
+                        "Supprime toutes les clés de la base {database} : {}.",
+                        keys_fr(keys)
                     ),
                 )
             }
@@ -433,12 +445,12 @@ impl Gate<'_> {
                 let keys = self.dbsize(conn).await;
                 LocalizedText::new(
                     format!(
-                        "Walks all {} keys of database {database} in one go and blocks the server meanwhile. The explorer lists keys with SCAN instead.",
-                        count(keys)
+                        "Walks all {} of database {database} in one go and blocks the server meanwhile. The explorer lists keys with SCAN instead.",
+                        keys_en(keys)
                     ),
                     format!(
-                        "Parcourt d'un coup les {} clés de la base {database} et bloque le serveur pendant ce temps. L'explorateur liste les clés avec SCAN à la place.",
-                        count(keys)
+                        "Parcourt d'un coup les {} de la base {database} et bloque le serveur pendant ce temps. L'explorateur liste les clés avec SCAN à la place.",
+                        keys_fr(keys)
                     ),
                 )
             }
@@ -452,12 +464,14 @@ impl Gate<'_> {
                     .and_then(|n| u64::try_from(n).ok());
                 LocalizedText::new(
                     format!(
-                        "Deletes {keys} keys; {} of them exist now.",
-                        count(existing)
+                        "Deletes {}; {} of them exist now.",
+                        keys_en(Some(u64::from(*keys))),
+                        existing.map_or_else(|| "?".to_owned(), count_en)
                     ),
                     format!(
-                        "Supprime {keys} clés ; {} d'entre elles existent actuellement.",
-                        count(existing)
+                        "Supprime {} ; {} d'entre elles existent actuellement.",
+                        keys_fr(Some(u64::from(*keys))),
+                        existing.map_or_else(|| "?".to_owned(), count_fr)
                     ),
                 )
             }
@@ -486,14 +500,14 @@ impl Gate<'_> {
                 };
                 LocalizedText::new(
                     format!(
-                        "Swaps database {a} ({} keys) with database {b} ({} keys) for every client.",
-                        keys_of(a),
-                        keys_of(b)
+                        "Swaps database {a} ({}) with database {b} ({}) for every client.",
+                        keys_en(Some(keys_of(a))),
+                        keys_en(Some(keys_of(b)))
                     ),
                     format!(
-                        "Échange la base {a} ({} clés) avec la base {b} ({} clés) pour tous les clients.",
-                        keys_of(a),
-                        keys_of(b)
+                        "Échange la base {a} ({}) avec la base {b} ({}) pour tous les clients.",
+                        keys_fr(Some(keys_of(a))),
+                        keys_fr(Some(keys_of(b)))
                     ),
                 )
             }

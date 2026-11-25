@@ -17,6 +17,7 @@ import {
   resolveConflicts,
   type KvConflictChoice,
 } from './kvEditActions';
+import { applyDescriptionKey } from './kvApplyText';
 import { describeEdit, editValueText, rebase } from './kvEditModel';
 import { useKvEditStore } from './kvEditStore';
 import styles from './KeyEdit.module.css';
@@ -87,8 +88,9 @@ export function KvApplyDialog() {
             ? t('keyValue.conflict.revertDescription')
             : t('keyValue.conflict.description')
           : preview
-            ? t(revert ? 'keyValue.revert.description' : 'keyValue.apply.description', {
+            ? t(applyDescriptionKey(revert, preview.batches), {
                 count,
+                batches: preview.batches,
               })
             : undefined
       }
@@ -230,11 +232,7 @@ export function KvApplyDialog() {
         )}
         {preview && !conflicted && (
           <>
-            {preview.batches > 1 && (
-              <p className={styles.note}>
-                {t('keyValue.apply.batches', { count: preview.batches })}
-              </p>
-            )}
+            {preview.batches > 1 && <p className={styles.note}>{t('keyValue.apply.batches')}</p>}
             <pre
               className={styles.commands}
               aria-label={t('keyValue.apply.commands')}
