@@ -37,6 +37,8 @@ function installTauriCloseGuard(): void {
   if (tauriGuardInstalled) return;
   tauriGuardInstalled = true;
   let confirmed = false;
+  // Once this listener exists, Tauri leaves every close to it: the API's wrapper then destroys
+  // the window, which needs `core:window:allow-destroy` (capabilities/default.json).
   getCurrentWindow()
     .onCloseRequested(async (event) => {
       const guard = tauriGuard;
