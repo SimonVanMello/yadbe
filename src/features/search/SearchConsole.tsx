@@ -84,7 +84,13 @@ export function SearchConsole({
             <Spinner /> {t('search.console.running')}
           </div>
         )}
-        {run.error && <ErrorPanel compact title={t('search.console.failed')} error={run.error} />}
+        {run.error && (
+          <ErrorPanel compact title={t('search.console.failed')} error={run.error}>
+            {run.error.code === 'cancelled' && (
+              <p className={styles.hint}>{t('search.console.cancelledNote')}</p>
+            )}
+          </ErrorPanel>
+        )}
         {run.failure && (
           <ErrorPanel
             compact
@@ -173,7 +179,11 @@ export function SearchConsole({
                     : t('search.console.requestFailed')
                 }
                 error={response.error}
-              />
+              >
+                {response.error.code === 'cancelled' && (
+                  <p className={styles.hint}>{t('search.console.cancelledNote')}</p>
+                )}
+              </ErrorPanel>
             )}
             <ResponseBody
               response={response}

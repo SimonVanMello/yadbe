@@ -16,6 +16,7 @@ import { toast } from '../../ui/toastStore';
 import { showJournalEntry } from '../journal/journalStore';
 import { getPreference } from '../preferences/preferenceStore';
 import { findConnection } from '../query/connectionLookup';
+import { confirmDescriptionKey } from './kvApplyText';
 import { kvKeys } from './kvKeys';
 import { rebase, upsert } from './kvEditModel';
 import { patchDialog, patchTab, tabEdits, useKvEditStore, type KvApplySource } from './kvEditStore';
@@ -247,9 +248,15 @@ async function runApply(
         outcome,
         source.kind === 'tab' ? source.tabId : null,
         source.kind === 'revert' ? tr('journal.revert.done') : tr('keyValue.edit.applied'),
+        keysChanged(edits),
       );
       return;
   }
+}
+
+/** The keys a list of edits touches (a revert, which carries no edits here, counts none). */
+function keysChanged(edits: readonly KvEdit[]): number {
+  return new Set(edits.map((edit) => edit.key.text)).size;
 }
 
 /** What an apply leaves to do: the tab re-reads its key, the explorer its keys, a toast. */
@@ -258,6 +265,7 @@ function afterApply(
   outcome: Extract<KvApplyOutcome, { status: 'applied' }>,
   tabId: string | null,
   title: string,
+  keys: number,
 ): void {
   if (tabId !== null) discardEdits(tabId);
   refreshKeys(connectionId, outcome.database);
@@ -265,6 +273,7 @@ function afterApply(
   toast({
     variant: 'success',
     title,
+    ...(keys > 0 ? { description: tr('keyValue.edit.appliedCount', { count: keys }) } : {}),
     ...(journalId !== null
       ? {
           action: {
@@ -352,7 +361,10 @@ export async function applyNow(
     description:
       preview.dangers.length > 0
         ? preview.dangers.map((d) => localize(d.effect)).join(' ')
-        : tr('keyValue.edit.confirmDescription', { count: preview.commands }),
+        : tr(confirmDescriptionKey(preview.batches), {
+            count: preview.commands,
+            batches: preview.batches,
+          }),
     statement: preview.lines.map((l) => l.text).join('\n'),
     confirmLabel: ask.confirmLabel,
     danger: ask.danger || preview.dangers.length > 0,
@@ -367,7 +379,13 @@ export async function applyNow(
     return null;
   }
   if (outcome.status === 'applied') {
-    afterApply(connectionId, outcome, null, tr('keyValue.edit.applied'));
+    afterApply(
+      connectionId,
+      outcome,
+      null,
+      tr('keyValue.edit.applied'),
+      keysChanged(changes.edits),
+    );
     return outcome;
   }
   if (outcome.status === 'conflicted') return 'conflicted';

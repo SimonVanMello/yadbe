@@ -146,6 +146,7 @@ for (const { name, colorScheme } of THEMES) {
       await page.getByRole('button', { name: 'Apply (3)' }).click();
       await expect(dialog).toBeHidden();
       const toasts = page.getByRole('region', { name: /Notifications/ });
+      await expect(toasts).toContainText('Changes applied');
       await expect(toasts).toContainText('3 documents changed');
       await expect(page.getByTestId('search-pending')).toHaveCount(0);
       // The tab shows the new state.
@@ -165,7 +166,8 @@ for (const { name, colorScheme } of THEMES) {
       await expect(dialog).toContainText('PUT /orders/_doc/o-10001?op_type=create');
       await capture(page, name, 'revert');
       await page.getByRole('button', { name: 'Revert (3)' }).click();
-      await expect(toasts).toContainText('Change set reverted (3 documents)');
+      await expect(toasts).toContainText('Change set reverted');
+      await expect(toasts).toContainText('3 documents changed');
     });
 
     test('a change made meanwhile is a conflict shown against the server version', async ({

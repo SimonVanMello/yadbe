@@ -212,12 +212,27 @@ for (const { name, colorScheme } of THEMES) {
       await capture(page, name, 'console-error');
     });
 
+    test('a cancelled request says the server may finish its current step', async ({ page }) => {
+      await openConsole(
+        page,
+        'POST /orders/_update_by_query\n{"script": {"source": "ctx._source.x = 1"}}\n',
+      );
+      await page.keyboard.press('ControlOrMeta+Enter');
+      await page.getByRole('button', { name: 'Stop', exact: true }).click();
+      const output = page.getByLabel('Answers', { exact: true });
+      await expect(output).toContainText('Cancelled.');
+      await expect(output).toContainText('The server may finish its current step.');
+      await capture(page, name, 'cancelled');
+    });
+
     test('dangerous requests are confirmed, read-only refuses writes', async ({ page }) => {
       await openConsole(page, 'DELETE /orders\n');
       await page.keyboard.press('ControlOrMeta+Enter');
       const dialog = page.getByRole('alertdialog').or(page.getByRole('dialog'));
       await expect(dialog.getByText('Send a dangerous request?')).toBeVisible();
-      await expect(dialog.getByText(/1,240 documents for good/)).toBeVisible();
+      await expect(
+        dialog.getByText(/Deletes 1 index and its 1,240 documents for good/),
+      ).toBeVisible();
       await capture(page, name, 'danger');
       await dialog.getByRole('button', { name: 'Cancel' }).click();
       await expect(page.getByRole('tablist', { name: 'Answers of the last run' })).toHaveCount(0);

@@ -28,7 +28,9 @@ use specta::Type;
 
 use crate::db::driver::KeyValueConnection;
 use crate::db::engine::EngineFamily;
-use crate::db::errors::{ErrorCode, LocalizedText, YadbeError};
+use crate::db::errors::{
+    ErrorCode, LocalizedText, YadbeError, count_en, count_fr, plural_en, plural_fr,
+};
 use crate::db::keyvalue::edit::{
     self, KvChangeSet, KvConflict, KvConflictKind, KvEdit, KvPlan, KvPreviewLine, MANY_KEYS,
     MAX_SNAPSHOT_BYTES, Observed, key_text, prefix_pattern, read_snapshots, shown_command,
@@ -378,22 +380,42 @@ async fn measure(
                     .and_then(|mut r| r.pop())
                     .and_then(Result::ok)
                     .and_then(|r| r.int())
-                    .map_or_else(|| "?".to_owned(), |n| n.to_string());
+                    .and_then(|n| u64::try_from(n).ok());
+                let (now_en, now_fr) = (
+                    now.map_or_else(|| "?".to_owned(), count_en),
+                    now.map_or_else(|| "?".to_owned(), count_fr),
+                );
+                let count = u64::from(*count);
+                let (keys_en, keys_fr) = (
+                    format!("{} {}", count_en(count), plural_en(count, "key", "keys")),
+                    format!("{} {}", count_fr(count), plural_fr(count, "clé", "clés")),
+                );
                 LocalizedText::new(
                     format!(
-                        "Deletes {count} keys; {now} of them exist now. The journal keeps them (up to {} MB in all) so that they can be restored.",
+                        "Deletes {keys_en}; {now_en} of them exist now. The journal keeps them (up to {} MB in all) so that they can be restored.",
                         MAX_SNAPSHOT_BYTES / 1024 / 1024
                     ),
                     format!(
-                        "Supprime {count} clés ; {now} d'entre elles existent actuellement. Le journal les conserve (jusqu'à {} Mo en tout) pour pouvoir les restaurer.",
+                        "Supprime {keys_fr} ; {now_fr} d'entre elles existent actuellement. Le journal les conserve (jusqu'à {} Mo en tout) pour pouvoir les restaurer.",
                         MAX_SNAPSHOT_BYTES / 1024 / 1024
                     ),
                 )
             }
-            KvEditDangerKind::ExpireMany { count } => LocalizedText::new(
-                format!("Changes the time to live of {count} keys."),
-                format!("Modifie la durée de vie de {count} clés."),
-            ),
+            KvEditDangerKind::ExpireMany { count } => {
+                let count = u64::from(*count);
+                LocalizedText::new(
+                    format!(
+                        "Changes the time to live of {} {}.",
+                        count_en(count),
+                        plural_en(count, "key", "keys")
+                    ),
+                    format!(
+                        "Modifie la durée de vie de {} {}.",
+                        count_fr(count),
+                        plural_fr(count, "clé", "clés")
+                    ),
+                )
+            }
             KvEditDangerKind::Overwrite { key, to } => {
                 let target = to.to_bytes().unwrap_or_default();
                 let replies = gate

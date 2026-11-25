@@ -109,6 +109,7 @@ for (const { name, colorScheme } of THEMES) {
       await expect(dialog).toBeHidden();
       const toasts = page.getByRole('region', { name: /Notifications/ });
       await expect(toasts).toContainText('Changes applied');
+      await expect(toasts).toContainText('1 key changed');
       await expect(pending(page)).toHaveText('No changes');
 
       // The journal shows it with its commands; revert puts the hash back.
@@ -118,6 +119,7 @@ for (const { name, colorScheme } of THEMES) {
       await expect(page.getByTestId('journal-statements')).toContainText(
         'HDEL config:feature-flags max_cart_items',
       );
+      await expect(page.getByPlaceholder('Search keys, values…')).toBeVisible();
       await capture(page, name, 'journal-entry');
       await detail.getByRole('button', { name: 'Revert this change set…' }).click();
       // The mock reverts from a snapshot of the key (the backend edit by edit: HSET, HDEL).

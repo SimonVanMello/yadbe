@@ -1092,7 +1092,10 @@ export async function applyChanges(tabId: string): Promise<void> {
   toast({
     variant: 'success',
     title: t('tableData.apply.done'),
-    description: t('tableData.apply.counts', counts),
+    description: t('tableData.apply.counts', {
+      ...counts,
+      count: counts.updated + counts.inserted + counts.deleted,
+    }),
     ...(journalId !== null
       ? {
           action: {

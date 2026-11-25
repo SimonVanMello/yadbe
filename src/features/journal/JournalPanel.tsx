@@ -49,6 +49,14 @@ export function JournalPanel() {
     () => new Map(connections.map((connection) => [connection.id, connection])),
     [connections],
   );
+  // What the entries are about: tables, collections, keys or indices; objects when mixed.
+  const noun = useMemo(() => {
+    const families = new Set(
+      (tables.data ?? []).map((item) => byId.get(item.connectionId)?.family ?? 'sql'),
+    );
+    const [only] = [...families];
+    return families.size === 1 && only !== undefined ? only : 'mixed';
+  }, [tables.data, byId]);
   const selected = entries.find((entry) => entry.id === selectedId) ?? null;
 
   // eslint-disable-next-line react-hooks/incompatible-library -- rows are plain props, nothing memoized reads the virtualizer
@@ -105,7 +113,7 @@ export function JournalPanel() {
     ...connections.map((connection) => ({ value: connection.id, label: connection.name })),
   ];
   const tableOptions: SelectOption<string>[] = [
-    { value: '', label: t('journal.filter.allTables') },
+    { value: '', label: t(`journal.filter.allTables.${noun}`) },
     ...(tables.data ?? [])
       .filter((item) => filters.connectionId === null || item.connectionId === filters.connectionId)
       .filter(
@@ -163,7 +171,7 @@ export function JournalPanel() {
           className={styles.searchInput}
           data-journal-search=""
           value={filters.text}
-          placeholder={t('journal.search.placeholder')}
+          placeholder={t(`journal.search.placeholder.${noun}`)}
           aria-label={t('journal.search')}
           onChange={(event) => {
             useJournalUi.getState().patchFilters({ text: event.target.value });
@@ -193,7 +201,7 @@ export function JournalPanel() {
           }}
         />
         <label className={styles.srOnly} htmlFor={`${id}-table`}>
-          {t('journal.filter.table')}
+          {t(`journal.filter.table.${noun}`)}
         </label>
         <Select
           id={`${id}-table`}

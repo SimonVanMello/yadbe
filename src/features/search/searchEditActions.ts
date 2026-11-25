@@ -361,13 +361,16 @@ export async function applySearchDialog(): Promise<void> {
       toast({
         variant: 'success',
         title: tr(
-          dialog.source.kind === 'revert' ? 'search.edit.reverted' : 'search.edit.applied',
-          { count: outcome.applied.length },
+          dialog.source.kind === 'revert' ? 'journal.revert.done' : 'search.edit.appliedTitle',
         ),
-        description:
+        description: [
+          tr('search.edit.applied', { count: outcome.applied.length }),
           outcome.notVisible.length > 0
             ? tr('search.edit.notVisible', { indices: outcome.notVisible.join(', ') })
-            : undefined,
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
         ...(journalId !== null
           ? {
               action: {
