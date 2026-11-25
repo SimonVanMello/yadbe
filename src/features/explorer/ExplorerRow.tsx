@@ -361,10 +361,7 @@ function contentOf(row: Row, t: Translate, locale: Locale): Content {
       };
     case 'searchIndex': {
       const { index } = row;
-      const docs =
-        index.docs === null
-          ? null
-          : t('search.explorer.docs', { count: formatNumber(locale, index.docs) });
+      const docs = index.docs === null ? null : t('search.explorer.docs', { count: index.docs });
       const size = index.sizeBytes === null ? null : formatBytes(locale, index.sizeBytes);
       return {
         icon: 'table',

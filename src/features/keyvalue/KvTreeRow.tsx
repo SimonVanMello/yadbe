@@ -323,7 +323,7 @@ export const KvTreeRow = memo(function KvTreeRow({
             <span className={rowStyles.meta}>
               <span className={rowStyles.count}>
                 {t('keyValue.tree.keys', {
-                  count: formatNumber(locale, row.database.keys),
+                  count: row.database.keys,
                 })}
               </span>
             </span>

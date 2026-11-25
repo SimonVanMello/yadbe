@@ -63,6 +63,14 @@ describe('counts', () => {
 });
 
 describe('detectLocale', () => {
+  it('says one document, one key, one statement', () => {
+    expect(translate('en', 'search.count.exact', { count: 1 })).toBe('1 document');
+    expect(translate('en', 'search.count.exact', { count: 1200 })).toBe('1,200 documents');
+    expect(translate('fr', 'keyValue.tree.keys', { count: 1 })).toBe('1 clé');
+    expect(translate('en', 'keyValue.delete.title', { count: 1 })).toBe('Delete 1 key?');
+    expect(translate('en', 'query.guard.others', { count: 1 })).toBe('1 other statement');
+  });
+
   it('picks the first supported language', () => {
     expect(detectLocale(['de-DE', 'fr-CA', 'en-US'])).toBe('fr');
   });

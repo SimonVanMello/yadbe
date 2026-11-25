@@ -131,10 +131,10 @@ export function IndexTabBody({ tab, table }: { tab: ShellTab; table: ObjectRef }
   const total = page?.total ?? null;
   const countText =
     exactCount !== null
-      ? t('search.count.exact', { count: formatNumber(locale, exactCount) })
+      ? t('search.count.exact', { count: exactCount })
       : total !== null && total.value !== null
         ? t(total.exact ? 'search.count.exact' : 'search.count.atLeast', {
-            count: formatNumber(locale, total.value),
+            count: total.value,
           })
         : null;
   const queryError = error?.code === 'invalidArgument' || error?.code === 'queryFailed';

@@ -1,4 +1,3 @@
-import { formatNumber, useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import type { DangerReport } from '../../ipc';
 import { Button } from '../../ui/Button';
@@ -16,7 +15,6 @@ interface DangerDialogProps {
  */
 export function DangerDialog({ danger, onConfirm, onCancel }: DangerDialogProps) {
   const t = useT();
-  const locale = useI18nStore((state) => state.locale);
   if (!danger) return null;
   const target = danger.collection ? `${danger.database}.${danger.collection}` : danger.database;
   const effect =
@@ -25,13 +23,13 @@ export function DangerDialog({ danger, onConfirm, onCancel }: DangerDialogProps)
         ? t('mongo.danger.dropDatabase.unknown', { target })
         : t('mongo.danger.dropDatabase', {
             target,
-            count: formatNumber(locale, danger.collections),
+            count: danger.collections,
           })
       : danger.documents === null
         ? t(`mongo.danger.${danger.kind}.unknown`, { target })
         : t(`mongo.danger.${danger.kind}`, {
             target,
-            count: formatNumber(locale, danger.documents),
+            count: danger.documents,
           });
   return (
     <Dialog

@@ -160,7 +160,7 @@ export function SearchConsole({
                     response.body.total !== null &&
                     response.body.total.value !== null &&
                     t(response.body.total.exact ? 'search.count.exact' : 'search.count.atLeast', {
-                      count: formatNumber(locale, response.body.total.value),
+                      count: response.body.total.value,
                     }),
                 ]
                   .filter(Boolean)
