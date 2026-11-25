@@ -16,10 +16,15 @@ use super::model::{
 };
 use super::run::run_export;
 use super::source::{ExportSource, QueryResultSource};
+use crate::db::document::ops::Namespace;
 use crate::db::errors::{ErrorCode, YadbeError};
-use crate::db::value::ColumnMeta;
+use crate::db::value::{ColumnMeta, Value};
 use crate::events::{BackendEvent, EventSink};
 use crate::session::QueryRunner;
+use crate::session::document::DocumentService;
+use crate::session::document::export::CollectionExport;
+use crate::session::search::SearchService;
+use crate::session::search::export::IndexExport;
 use crate::session::table_data::TableDataService;
 
 /// Extensions each format may be saved as.
@@ -98,9 +103,61 @@ fn check_format(format: &ExportFormat, columns: &[ColumnMeta]) -> Result<(), Yad
     }
 }
 
+/// What a collection or index source reads, from its spec; `None` for the other sources.
+enum FamilySource {
+    Collection(CollectionExport),
+    Index(IndexExport),
+}
+
+fn family_source(spec: &ExportSourceSpec) -> Option<FamilySource> {
+    match spec {
+        ExportSourceSpec::Collection {
+            connection_id,
+            database,
+            collection,
+            filter,
+            projection,
+            sort,
+            documents,
+        } => Some(FamilySource::Collection(CollectionExport {
+            connection_id: connection_id.clone(),
+            ns: Namespace::new(database.clone(), collection.clone()),
+            filter: filter.clone(),
+            projection: projection.clone(),
+            sort: sort.clone(),
+            documents: *documents,
+        })),
+        ExportSourceSpec::Index {
+            connection_id,
+            target,
+            mode,
+            text,
+            source,
+            sort,
+            documents,
+        } => Some(FamilySource::Index(IndexExport {
+            connection_id: connection_id.clone(),
+            target: target.clone(),
+            mode: *mode,
+            text: text.clone(),
+            source: source.clone(),
+            sort: sort.clone(),
+            documents: *documents,
+        })),
+        ExportSourceSpec::Result { .. } | ExportSourceSpec::Table { .. } => None,
+    }
+}
+
+fn unavailable() -> YadbeError {
+    YadbeError::internal("this export source is not available")
+}
+
 pub struct ExportManager {
     runner: Arc<QueryRunner>,
     tables: Arc<TableDataService>,
+    /// Collections and indices (M4-11); absent in tests of the SQL sources.
+    documents: Option<Arc<DocumentService>>,
+    searches: Option<Arc<SearchService>>,
     sink: Arc<dyn EventSink>,
     jobs: Mutex<HashMap<u32, CancellationToken>>,
     next_id: AtomicU32,
@@ -116,11 +173,33 @@ impl ExportManager {
         Self {
             runner,
             tables,
+            documents: None,
+            searches: None,
             sink,
             jobs: Mutex::new(HashMap::new()),
             next_id: AtomicU32::new(0),
             progress_interval: Duration::from_millis(100),
         }
+    }
+
+    /// Where whole collections and indices are read from.
+    #[must_use]
+    pub fn with_families(
+        mut self,
+        documents: Arc<DocumentService>,
+        searches: Arc<SearchService>,
+    ) -> Self {
+        self.documents = Some(documents);
+        self.searches = Some(searches);
+        self
+    }
+
+    fn documents(&self) -> Result<&DocumentService, YadbeError> {
+        self.documents.as_deref().ok_or_else(unavailable)
+    }
+
+    fn searches(&self) -> Result<&SearchService, YadbeError> {
+        self.searches.as_deref().ok_or_else(unavailable)
     }
 
     pub fn with_progress_interval(mut self, interval: Duration) -> Self {
@@ -157,6 +236,23 @@ impl ExportManager {
                 check_format(&request.format, source.columns())?;
                 let encoder = encoder(&request.format)?;
                 Ok(self.spawn(source, encoder, request.path))
+            }
+            ref spec @ (ExportSourceSpec::Collection { .. } | ExportSourceSpec::Index { .. }) => {
+                // A format the encoder refuses fails before anything is read.
+                let encoder = encoder(&request.format)?;
+                match family_source(spec) {
+                    Some(FamilySource::Collection(export)) => {
+                        let source = self.documents()?.export_rows(export).await?;
+                        check_format(&request.format, source.columns())?;
+                        Ok(self.spawn(source, encoder, request.path))
+                    }
+                    Some(FamilySource::Index(export)) => {
+                        let source = self.searches()?.export_rows(export).await?;
+                        check_format(&request.format, source.columns())?;
+                        Ok(self.spawn(source, encoder, request.path))
+                    }
+                    None => Err(unavailable()),
+                }
             }
         }
     }
@@ -231,6 +327,22 @@ impl ExportManager {
         }
     }
 
+    async fn family_preview(
+        &self,
+        spec: &ExportSourceSpec,
+        limit: u32,
+    ) -> Result<(Vec<ColumnMeta>, Vec<Vec<Value>>), YadbeError> {
+        match family_source(spec) {
+            Some(FamilySource::Collection(export)) => {
+                self.documents()?.export_preview(export, limit).await
+            }
+            Some(FamilySource::Index(export)) => {
+                self.searches()?.export_preview(export, limit).await
+            }
+            None => Err(unavailable()),
+        }
+    }
+
     /// The first rows of an export, exactly as they will be written (byte order mark left
     /// out).
     pub async fn preview(
@@ -252,6 +364,9 @@ impl ExportManager {
                 self.tables
                     .export_preview(tab_id, filter, sort, limit)
                     .await?
+            }
+            spec @ (ExportSourceSpec::Collection { .. } | ExportSourceSpec::Index { .. }) => {
+                self.family_preview(spec, limit).await?
             }
         };
         // An Excel file is binary: its preview shows the rows as tab-separated text.

@@ -33,6 +33,15 @@ import {
 } from './exportOptions';
 import { useExportStore, type ExportDialogRequest } from './exportStore';
 import { documentsOf } from './exportDocuments';
+import {
+  documentsKindOf,
+  exactTotal,
+  exportSourceSpec,
+  selectableResultOf,
+  sourceKey,
+  type ExportSource,
+  type KnownCount,
+} from './exportSources';
 import { runExport } from './runExport';
 import styles from './ExportDialog.module.css';
 
@@ -44,22 +53,40 @@ type Preview = { kind: 'text'; text: string } | { kind: 'failed' };
 export function ExportDialog() {
   const request = useExportStore((state) => state.request);
   const close = useExportStore((state) => state.close);
-  return request && <ExportForm key={keyOf(request.source)} request={request} onClose={close} />;
+  return (
+    request && <ExportForm key={sourceKey(request.source)} request={request} onClose={close} />
+  );
 }
 
-function keyOf(source: ExportDialogRequest['source']): string {
-  return source.kind === 'result' ? `result:${source.resultId}` : `table:${source.tabId}`;
-}
+/** The dialog's title and description: what is exported. */
+const WORDING: Record<ExportSource['kind'], [MessageKey, MessageKey]> = {
+  result: ['export.title', 'export.description'],
+  table: ['export.table.title', 'export.table.description'],
+  collection: ['export.collection.title', 'export.collection.description'],
+  index: ['export.index.title', 'export.index.description'],
+};
 
-function sourceSpec(
-  source: ExportDialogRequest['source'],
-  scope: ReturnType<typeof exportScope>,
-  /** The result that holds the whole documents, when they are what is written. */
-  documentsId: number | null,
-): ExportSourceSpec {
-  return source.kind === 'result'
-    ? { kind: 'result', resultId: documentsId ?? source.resultId, scope }
-    : { kind: 'table', tabId: source.tabId, filter: source.filter, sort: source.sort };
+const COUNT_KEYS: Record<KnownCount['kind'], MessageKey> = {
+  exact: 'export.whole.count.exact',
+  estimated: 'export.whole.count.estimated',
+  atLeast: 'export.whole.count.atLeast',
+};
+
+/** Where the whole documents of the source are, and what they are. */
+function documentsOfSource(
+  source: ExportSource,
+): { documentsId: number | null; kind: 'mongo' | 'search' } | null {
+  if (source.kind === 'result') {
+    const registered = documentsOf(source.resultId);
+    return registered && { documentsId: registered.documentsId, kind: registered.kind };
+  }
+  const kind = documentsKindOf(source);
+  return (
+    kind && {
+      documentsId: source.kind === 'table' ? null : (source.page?.documentsId ?? null),
+      kind,
+    }
+  );
 }
 
 function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClose: () => void }) {
@@ -70,10 +97,14 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
   const prefs = useExportStore((state) => state.prefs);
   const setPrefs = useExportStore((state) => state.setPrefs);
   const { source } = request;
+  const selectable = selectableResultOf(source);
   const range = useExportStore((state) =>
-    source.kind === 'result' ? (state.ranges[source.resultId] ?? null) : null,
+    selectable === null ? null : (state.ranges[selectable] ?? null),
   );
-  const [selectionOnly, setSelectionOnly] = useState(range !== null);
+  // A whole collection or index: every document under the tab's query, not the page.
+  const whole = source.kind === 'collection' || source.kind === 'index' ? source : null;
+  // A collection or index exports whole unless the selection of its page is asked for.
+  const [selectionOnly, setSelectionOnly] = useState(range !== null && whole === null);
   const { engines } = useEngines();
   // What a script and a workbook name: asked each time, starting from where the rows come from.
   const [schema, setSchema] = useState(request.target?.schema ?? '');
@@ -81,14 +112,14 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
   const [sheetName, setSheetName] = useState(
     request.label.replace(/[[\]:*?/\\]/g, '_').slice(0, 31) || DEFAULT_FORMAT_CONTEXT.sheetName,
   );
-  // A MongoDB or search result also has its whole documents: JSON Lines writes those.
-  const documents = source.kind === 'result' ? documentsOf(source.resultId) : null;
+  // A MongoDB or search source also has its whole documents: JSON Lines writes those.
+  const documents = documentsOfSource(source);
   const context: FormatContext = {
     engine: connection?.engine ?? DEFAULT_FORMAT_CONTEXT.engine,
     schema,
     table,
     sheetName,
-    documents: documents ? { resultId: documents.documentsId, kind: documents.kind } : null,
+    documents: documents ? { kind: documents.kind } : null,
   };
   const format = toExportFormat(prefs, context);
   const missingTable = prefs.format === 'sql' && table.trim() === '';
@@ -105,6 +136,8 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
   const filtered =
     source.kind === 'table' &&
     (source.filter.conditions.length > 0 || (source.filter.rawWhere ?? '').trim() !== '');
+  const wholeSet = whole !== null && !(range !== null && selectionOnly);
+  const spec = exportSourceSpec(source, scope, wholeDocuments, documents?.documentsId ?? null);
 
   const setCsv = (patch: Partial<typeof prefs.csv>) => {
     setPrefs((current) => ({ ...current, csv: { ...current.csv, ...patch } }));
@@ -126,10 +159,7 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
   };
 
   // The preview follows the options as they are typed, a moment later.
-  const previewKey = JSON.stringify([
-    format,
-    sourceSpec(source, scope, wholeDocuments ? documents.documentsId : null),
-  ]);
+  const previewKey = JSON.stringify([format, spec]);
   const settled = useDebouncedValue(previewKey, 150);
   const [preview, setPreview] = useState<Preview | null>(null);
   useEffect(() => {
@@ -150,11 +180,7 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
 
   const start = () => {
     onClose();
-    void runExport({
-      source: sourceSpec(source, scope, wholeDocuments ? documents.documentsId : null),
-      name: request.label,
-      format,
-    });
+    void runExport({ source: spec, name: request.label, format, total: exactTotal(source, scope) });
   };
 
   const labelled = <T extends string>(prefix: string, values: readonly T[]) =>
@@ -167,8 +193,8 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
         if (!open) onClose();
       }}
       wide
-      title={t(source.kind === 'table' ? 'export.table.title' : 'export.title')}
-      description={t(source.kind === 'table' ? 'export.table.description' : 'export.description')}
+      title={t(WORDING[source.kind][0])}
+      description={t(WORDING[source.kind][1])}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -201,11 +227,28 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
             checked={selectionOnly}
             onCheckedChange={setSelectionOnly}
             label={t('export.selectionOnly')}
-            hint={t('export.selectionHint', {
+            hint={t(whole ? 'export.whole.selectionHint' : 'export.selectionHint', {
               rows: number.format(range.rowTo - range.rowFrom + 1),
               cols: number.format(range.columns.length),
             })}
           />
+        )}
+        {whole && wholeSet && whole.count && (
+          <p className={styles.note} role="note" data-testid="export-count">
+            {t(COUNT_KEYS[whole.count.kind], { count: whole.count.value })}
+          </p>
+        )}
+        {whole && wholeSet && whole.filtered && (
+          <p className={styles.note} role="note">
+            {t(
+              whole.kind === 'collection' ? 'export.collection.filtered' : 'export.index.filtered',
+            )}
+          </p>
+        )}
+        {whole && wholeSet && whole.pending && (
+          <p className={styles.note} role="note">
+            {t('export.documents.pending')}
+          </p>
         )}
         {live && !selectionOnly && (
           <p className={styles.note} role="note">
@@ -346,7 +389,7 @@ function ExportForm({ request, onClose }: { request: ExportDialogRequest; onClos
         )}
         {documents && prefs.format !== 'jsonLines' && prefs.format !== 'sql' && (
           <p className={styles.note} role="note">
-            {t('export.gridView')}
+            {t(wholeSet ? 'export.whole.columns' : 'export.gridView')}
           </p>
         )}
         {prefs.format === 'jsonLines' && (

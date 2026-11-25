@@ -7,6 +7,11 @@
 export interface ExportDocuments {
   documentsId: number;
   kind: 'mongo' | 'search';
+  /**
+   * The grid is the page of a collection or index tab: its export is the whole collection or
+   * index under the tab's query, which this opens (rather than a dialog on the page alone).
+   */
+  openWhole?: () => void;
 }
 
 const registered = new Map<number, ExportDocuments>();

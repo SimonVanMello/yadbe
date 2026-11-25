@@ -164,14 +164,14 @@ describe('scope and sizes', () => {
     expect(rows).toMatchObject({ format: 'jsonLines', options: { documents: null } });
     const mongo = toExportFormat(prefs, {
       ...DEFAULT_FORMAT_CONTEXT,
-      documents: { resultId: 9, kind: 'mongo' },
+      documents: { kind: 'mongo' },
     });
     expect(mongo).toMatchObject({
       options: { documents: { kind: 'mongo', extendedJson: 'relaxed' } },
     });
     const search = toExportFormat(prefs, {
       ...DEFAULT_FORMAT_CONTEXT,
-      documents: { resultId: 9, kind: 'search' },
+      documents: { kind: 'search' },
     });
     expect(search).toMatchObject({
       options: { documents: { kind: 'search', includeId: true, includeIndex: false } },

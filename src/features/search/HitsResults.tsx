@@ -6,6 +6,7 @@ import type { DocNode } from '../documents/docTree';
 import { DocumentsView } from '../documents/DocumentsView';
 import { registerExportDocuments } from '../export/exportDocuments';
 import { ResultGrid } from '../grid/ResultGrid';
+import { openResultExport } from '../grid/ResultFooter';
 import { HitMenuItems } from './HitMenuItems';
 import type { HitsView } from './indexStore';
 import { jsonDocument } from './jsonView';
@@ -17,6 +18,8 @@ interface HitsResultsProps {
   label: string;
   /** The index tab showing them: their menus edit, duplicate, delete (M4-8). */
   editTabId?: string;
+  /** The hits are the page of an index tab: this exports the whole index. */
+  exportWhole?: () => void;
 }
 
 const NO_DOCS: readonly DocNode[] = [];
@@ -39,13 +42,13 @@ function hitField(node: DocNode | undefined, name: string): string | null {
  * (`_index`, `_id`, `_score`, then `_source` flattened; a field a hit lacks reads "missing"),
  * or the whole hits as trees.
  */
-export function HitsResults({ result, view, label, editTabId }: HitsResultsProps) {
+export function HitsResults({ result, view, label, editTabId, exportWhole }: HitsResultsProps) {
   const { documentsId } = result;
   const gridId = result.result.resultId;
   // JSON Lines exports the whole hits, not the grid rows the export dialog opens on.
   useEffect(
-    () => registerExportDocuments(gridId, { documentsId, kind: 'search' }),
-    [gridId, documentsId],
+    () => registerExportDocuments(gridId, { documentsId, kind: 'search', openWhole: exportWhole }),
+    [gridId, documentsId, exportWhole],
   );
   // The hits read, by number: a row's menu names the hit's index before reading it again.
   const read = useRef(new Map<number, DocNode>());
@@ -67,6 +70,9 @@ export function HitsResults({ result, view, label, editTabId }: HitsResultsProps
         count={result.count}
         load={load}
         label={label}
+        onExport={() => {
+          openResultExport(gridId, result.result, label);
+        }}
         editing={
           editTabId === undefined
             ? undefined

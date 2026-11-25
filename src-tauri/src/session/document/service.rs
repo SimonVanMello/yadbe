@@ -57,7 +57,7 @@ enum Running {
 
 /// How a collection tab pages: by `_id` (ascending or descending), or by skipping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Paging {
+pub(super) enum Paging {
     Keyset { descending: bool },
     Skip,
 }
@@ -90,7 +90,11 @@ pub struct DocumentService {
 }
 
 /// A JSON text field of a form: empty is `default`.
-fn parse_document(text: &str, what_en: &str, what_fr: &str) -> Result<Option<Json>, YadbeError> {
+pub(super) fn parse_document(
+    text: &str,
+    what_en: &str,
+    what_fr: &str,
+) -> Result<Option<Json>, YadbeError> {
     if text.trim().is_empty() {
         return Ok(None);
     }
@@ -144,6 +148,70 @@ fn excludes_id(projection: Option<&Json>) -> bool {
     projection
         .and_then(|p| p.get("_id"))
         .is_some_and(|v| matches!(v, Json::Bool(false)) || int_of(Some(v)) == Some(0.0))
+}
+
+/// Where a page starts.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum PageStart {
+    /// After the `_id` the previous page ended on (`None`: the first page), in `_id` order.
+    After {
+        descending: bool,
+        after: Option<Json>,
+    },
+    /// After skipping this many documents, in the sort's order with `_id` as a tie-breaker.
+    Skip(u64),
+}
+
+/// The `find` of one page of at most `limit` documents.
+pub(super) fn page_find(
+    ns: Namespace,
+    filter: &Json,
+    projection: Option<Json>,
+    sort: Option<&Json>,
+    start: PageStart,
+    limit: i64,
+) -> DocOp {
+    let mut options = FindOptions {
+        projection,
+        limit: Some(limit),
+        ..FindOptions::default()
+    };
+    let mut find_filter = filter.clone();
+    match start {
+        PageStart::After { descending, after } => {
+            options.sort = Some(Json::object([(
+                "_id",
+                Json::int(if descending { -1 } else { 1 }),
+            )]));
+            if let Some(after) = after {
+                let bound = Json::object([(
+                    "_id",
+                    Json::object([(if descending { "$lt" } else { "$gt" }, after)]),
+                )]);
+                find_filter = if filter.is_empty_object() {
+                    bound
+                } else {
+                    Json::object([("$and", Json::Array(vec![filter.clone(), bound]))])
+                };
+            }
+        }
+        PageStart::Skip(skip) => {
+            // A sort without `_id` gets it as a tie-breaker, so pages do not overlap.
+            let mut sort = sort.cloned().unwrap_or_else(Json::empty);
+            if let Json::Object(entries) = &mut sort
+                && !entries.iter().any(|(k, _)| k == "_id")
+            {
+                entries.push(("_id".to_owned(), Json::int(1)));
+            }
+            options.sort = Some(sort);
+            options.skip = Some(skip);
+        }
+    }
+    DocOp::Find {
+        ns,
+        filter: find_filter,
+        options,
+    }
 }
 
 impl DocumentService {
@@ -507,6 +575,38 @@ impl DocumentService {
         Ok(docs.first().and_then(|d| d.get("_id")).cloned())
     }
 
+    /// How pages of `sort` follow each other: by `_id` when the sort is none or `_id` alone,
+    /// the projection keeps `_id` and every `_id` of the collection has one type; otherwise
+    /// by skipping.
+    pub(super) async fn paging_of(
+        &self,
+        connection_id: &str,
+        ns: &Namespace,
+        sort: Option<&Json>,
+        projection: Option<&Json>,
+    ) -> Result<Paging, YadbeError> {
+        let wanted = match sort {
+            None => Some(false),
+            Some(sort) => id_direction(sort),
+        };
+        Ok(match wanted {
+            Some(descending) if !excludes_id(projection) => {
+                let first = self.edge_id(connection_id, ns, false).await?;
+                let last = self.edge_id(connection_id, ns, true).await?;
+                let one_type = match (&first, &last) {
+                    (Some(a), Some(b)) => type_of(a) == type_of(b),
+                    _ => true,
+                };
+                if one_type {
+                    Paging::Keyset { descending }
+                } else {
+                    Paging::Skip
+                }
+            }
+            _ => Paging::Skip,
+        })
+    }
+
     /// One page of a collection tab (`page` 0-based). Pages follow `_id` when the sort is
     /// none or `_id` alone and every `_id` of the collection has one type; otherwise they
     /// skip.
@@ -532,26 +632,9 @@ impl DocumentService {
         let tab = self.tab(tab_id, connection_id);
         let fresh = lock(&tab.pages).query.as_ref() != Some(&query);
         if fresh {
-            let wanted = match &sort {
-                None => Some(false),
-                Some(sort) => id_direction(sort),
-            };
-            let paging = match wanted {
-                Some(descending) if !excludes_id(projection.as_ref()) => {
-                    let first = self.edge_id(connection_id, &ns, false).await?;
-                    let last = self.edge_id(connection_id, &ns, true).await?;
-                    let one_type = match (&first, &last) {
-                        (Some(a), Some(b)) => type_of(a) == type_of(b),
-                        _ => true,
-                    };
-                    if one_type {
-                        Paging::Keyset { descending }
-                    } else {
-                        Paging::Skip
-                    }
-                }
-                _ => Paging::Skip,
-            };
+            let paging = self
+                .paging_of(connection_id, &ns, sort.as_ref(), projection.as_ref())
+                .await?;
             *lock(&tab.pages) = PageState {
                 query: Some(query.clone()),
                 paging: Some(paging),
@@ -566,49 +649,19 @@ impl DocumentService {
             )
         };
         let size = query.page_size;
-        let mut options = FindOptions {
-            projection: projection.clone(),
-            limit: Some(i64::from(size) + 1),
-            ..FindOptions::default()
+        let at = match (paging, start) {
+            (Paging::Keyset { descending }, Some(after)) => PageStart::After { descending, after },
+            _ => PageStart::Skip(u64::from(page) * u64::from(size)),
         };
-        let mut find_filter = filter.clone();
-        let keyset = match (paging, start) {
-            (Paging::Keyset { descending }, Some(after)) => {
-                options.sort = Some(Json::object([(
-                    "_id",
-                    Json::int(if descending { -1 } else { 1 }),
-                )]));
-                if let Some(after) = after {
-                    let bound = Json::object([(
-                        "_id",
-                        Json::object([(if descending { "$lt" } else { "$gt" }, after)]),
-                    )]);
-                    find_filter = if filter.is_empty_object() {
-                        bound
-                    } else {
-                        Json::object([("$and", Json::Array(vec![filter.clone(), bound]))])
-                    };
-                }
-                true
-            }
-            _ => {
-                // A sort without `_id` gets it as a tie-breaker, so pages do not overlap.
-                let mut sort = sort.clone().unwrap_or_else(Json::empty);
-                if let Json::Object(entries) = &mut sort
-                    && !entries.iter().any(|(k, _)| k == "_id")
-                {
-                    entries.push(("_id".to_owned(), Json::int(1)));
-                }
-                options.sort = Some(sort);
-                options.skip = Some(u64::from(page) * u64::from(size));
-                false
-            }
-        };
-        let op = DocOp::Find {
+        let keyset = matches!(at, PageStart::After { .. });
+        let op = page_find(
             ns,
-            filter: find_filter,
-            options,
-        };
+            &filter,
+            projection,
+            sort.as_ref(),
+            at,
+            i64::from(size) + 1,
+        );
         let started = Instant::now();
         let (_, mut docs) = self
             .run_in_tab(&tab, &session, &op, Origin::Yadbe, false, None)

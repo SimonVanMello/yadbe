@@ -22,6 +22,8 @@ function formatNumber(value: number): string {
 
 interface Job {
   toastId: number;
+  documents: boolean;
+  total: number | null;
 }
 
 /** Exports running, by id. */
@@ -34,12 +36,47 @@ export interface ExportCommand {
   /** Base of the default file name. */
   name: string;
   format: ExportFormat;
+  /** The rows the file will hold, when known exactly: the progress says "n of total". */
+  total?: number | null;
+}
+
+/** What the save dialog is titled for a source. */
+function saveTitle(source: ExportSourceSpec): MessageKey {
+  switch (source.kind) {
+    case 'table':
+      return 'export.table.title';
+    case 'collection':
+      return 'export.collection.title';
+    case 'index':
+      return 'export.index.title';
+    case 'result':
+      return 'export.saveTitle';
+  }
+}
+
+/** The progress line: rows or documents, out of the total when known. */
+export function progressTitle(
+  rows: number,
+  size: string,
+  documents: boolean,
+  total: number | null,
+): string {
+  const params = { rows: formatNumber(rows), size };
+  if (total === null) {
+    return t(documents ? 'export.progress.documents' : 'export.progress', params);
+  }
+  return t(documents ? 'export.progress.documents.of' : 'export.progress.of', {
+    ...params,
+    total: formatNumber(total),
+  });
 }
 
 /** The file the dialog asks for, then the job: progress and the outcome arrive as toasts. */
 export async function runExport(command: ExportCommand): Promise<void> {
+  const documents = command.source.kind === 'collection' || command.source.kind === 'index';
+  const total = command.total ?? null;
   const picked = await exportDialog.pickPath({
-    title: t(command.source.kind === 'table' ? 'export.table.title' : 'export.saveTitle'),
+    title: t(saveTitle(command.source)),
     defaultName: defaultFileName(command.name, command.format),
     filterName: t(`export.filter.${command.format.format}`),
     allFiles: t('export.filter.all'),
@@ -48,7 +85,7 @@ export async function runExport(command: ExportCommand): Promise<void> {
   if (picked === null) return;
   const path = withExtension(picked, command.format);
   const toastId = toast({
-    title: t('export.progress', { rows: formatNumber(0), size: formatBytes(0, 'en') }),
+    title: progressTitle(0, formatBytes(0, 'en'), documents, total),
     description: path,
     duration: Infinity,
     action: {
@@ -68,12 +105,13 @@ export async function runExport(command: ExportCommand): Promise<void> {
         path,
       }),
     );
+    const job = { toastId, documents, total };
     const finished = early.get(started.exportId);
     if (finished) {
       early.delete(started.exportId);
-      showOutcome(finished, toastId);
+      showOutcome(finished, job);
     } else {
-      jobs.set(started.exportId, { toastId });
+      jobs.set(started.exportId, job);
     }
   } catch (error) {
     useToastStore.getState().dismiss(toastId);
@@ -85,20 +123,22 @@ function onProgress(progress: ExportProgress): void {
   const job = jobs.get(progress.exportId);
   if (!job) return;
   useToastStore.getState().update(job.toastId, {
-    title: t('export.progress', {
-      rows: formatNumber(progress.rows),
-      size: formatBytes(progress.bytes ?? 0, useI18nStore.getState().locale),
-    }),
+    title: progressTitle(
+      progress.rows,
+      formatBytes(progress.bytes ?? 0, useI18nStore.getState().locale),
+      job.documents,
+      job.total,
+    ),
   });
 }
 
-function showOutcome(finished: ExportFinished, toastId: number): void {
-  useToastStore.getState().dismiss(toastId);
+function showOutcome(finished: ExportFinished, job: Job): void {
+  useToastStore.getState().dismiss(job.toastId);
   if (finished.status === 'done') {
     const size = formatBytes(finished.bytes ?? 0, useI18nStore.getState().locale);
     toast({
       variant: finished.truncated || finished.limited ? 'warning' : 'success',
-      title: t(finished.rows === 1 ? 'export.done.one' : 'export.done', {
+      title: t(job.documents ? 'export.done.documents' : 'export.done', {
         count: finished.rows,
       }),
       description: [
@@ -125,7 +165,7 @@ function onFinished(finished: ExportFinished): void {
     return;
   }
   jobs.delete(finished.exportId);
-  showOutcome(finished, job.toastId);
+  showOutcome(finished, job);
 }
 
 let started = false;

@@ -2,6 +2,7 @@ import { sqlEntry, type SqlEngine } from '../sqlEngines';
 import type {
   ColumnMeta,
   CsvOptions,
+  DocumentLines,
   Engine,
   ExportFormat,
   JsonOptions,
@@ -258,6 +259,62 @@ function markdownEncoder(options: MarkdownOptions): RowEncoder {
   };
 }
 
+/** Canonical Extended JSON made relaxed: the numbers and dates other tools read plainly. */
+function relaxed(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(relaxed);
+  if (value === null || typeof value !== 'object') return value;
+  const entries = Object.entries(value);
+  const [key, inner] = entries[0] ?? [];
+  if (entries.length === 1 && typeof inner === 'string') {
+    if (key === '$numberInt' || key === '$numberDouble') {
+      const number = Number(inner);
+      if (Number.isFinite(number)) return number;
+    }
+    if (key === '$numberLong' && Number.isSafeInteger(Number(inner))) return Number(inner);
+  }
+  if (entries.length === 1 && key === '$date' && inner !== null && typeof inner === 'object') {
+    const millis = Number((inner as { $numberLong?: unknown }).$numberLong);
+    if (Number.isFinite(millis)) return { $date: new Date(millis).toISOString() };
+  }
+  return Object.fromEntries(entries.map(([k, v]) => [k, relaxed(v)]));
+}
+
+/** Mirror of `export/lines.rs` for whole documents: one document (or `_source`) per line. */
+function documentLines(mode: DocumentLines): RowEncoder {
+  return {
+    begin: () => '',
+    row(row) {
+      const first = row[0];
+      const text =
+        first && 'value' in first && typeof first.value === 'string' ? first.value : 'null';
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        return `${JSON.stringify(text)}\n`;
+      }
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return `${JSON.stringify(parsed)}\n`;
+      }
+      if (mode.kind === 'mongo') {
+        return `${JSON.stringify(mode.extendedJson === 'relaxed' ? relaxed(parsed) : parsed)}\n`;
+      }
+      const hit = parsed as { _id?: unknown; _index?: unknown; _source?: unknown };
+      const source = hit._source;
+      if (source === null || typeof source !== 'object' || Array.isArray(source)) {
+        return `${JSON.stringify(hit)}\n`;
+      }
+      const line: Record<string, unknown> = {};
+      if (mode.includeIndex && !('_index' in source) && hit._index !== undefined) {
+        line._index = hit._index;
+      }
+      if (mode.includeId && !('_id' in source) && hit._id !== undefined) line._id = hit._id;
+      return `${JSON.stringify({ ...line, ...source })}\n`;
+    },
+    end: () => '',
+  };
+}
+
 export function mockEncoder(format: ExportFormat): RowEncoder {
   switch (format.format) {
     case 'csv':
@@ -265,8 +322,8 @@ export function mockEncoder(format: ExportFormat): RowEncoder {
     case 'json':
       return jsonEncoder(format.options);
     case 'jsonLines':
-      // The mock has no whole documents: rows are written as objects, as the backend does for
-      // a source without documents.
+      if (format.options.documents) return documentLines(format.options.documents);
+      // Grid rows are written as objects, as the JSON format's NDJSON layout.
       return jsonEncoder({
         layout: 'ndjson',
         numbers: format.options.numbers,

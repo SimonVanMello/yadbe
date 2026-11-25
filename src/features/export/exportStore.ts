@@ -1,34 +1,21 @@
 import { create } from 'zustand';
 
 import { loadUiSlice, saveUiSlice } from '../../app/backendPreferences';
-import type { PauseReason, ResultStatus, SortKey, TableFilter } from '../../ipc';
 import {
   DEFAULT_EXPORT_PREFS,
   parseExportPrefs,
   type ExportGridRange,
   type ExportPrefs,
 } from './exportOptions';
+import type { ExportSource } from './exportSources';
 
-/** A query result on screen. */
-export interface ResultExportSource {
-  kind: 'result';
-  resultId: number;
-  rowCount: number;
-  status: ResultStatus;
-  pausedBy: PauseReason | null;
-  /** An earlier export read the rows past the limit: only the stored rows can be exported. */
-  truncated: boolean;
-}
-
-/** Every row of a table tab's table under the tab's filter and sort, read from the server. */
-export interface TableExportSource {
-  kind: 'table';
-  tabId: string;
-  filter: TableFilter;
-  sort: SortKey[];
-  /** The tab has changes not applied yet: the file holds the stored rows, not them. */
-  pending: boolean;
-}
+export type {
+  CollectionExportSource,
+  ExportSource,
+  IndexExportSource,
+  ResultExportSource,
+  TableExportSource,
+} from './exportSources';
 
 /** What the export dialog needs to know of what it exports. */
 export interface ExportDialogRequest {
@@ -38,7 +25,7 @@ export interface ExportDialogRequest {
   connectionId?: string | null;
   /** The table the rows come from, which a script of `INSERT` statements names (F-066). */
   target?: { schema: string; table: string };
-  source: ResultExportSource | TableExportSource;
+  source: ExportSource;
 }
 
 interface ExportStore {

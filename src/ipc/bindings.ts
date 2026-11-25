@@ -2357,7 +2357,30 @@ export type ExportSourceSpec = { kind: "result"; resultId: number; scope: Export
  *  Every row of an open table tab's table under this filter and sort (the tab's own, not
  *  only its current page), read from the server in pages.
  */
-{ kind: "table"; tabId: string; filter: TableFilter; sort: SortKey[] };
+{ kind: "table"; tabId: string; filter: TableFilter; sort: SortKey[] } | 
+/**
+ *  Every document of a collection under a collection tab's filter, projection and sort
+ *  (Extended JSON as typed; empty: none), not only its current page, read from the server
+ *  in pages.
+ */
+{ kind: "collection"; connectionId: string; database: string; collection: string; filter: string; projection: string; sort: string; 
+/**
+ *  Each document whole (one `document` column, what JSON Lines writes as documents);
+ *  otherwise grid rows, whose columns are the top-level fields of the first page.
+ */
+documents: boolean } | 
+/**
+ *  Every hit of an index tab's query, `_source` filter and sort, not only its current
+ *  page, read from the server in pages (a point in time, or a scroll).
+ */
+{ kind: "index"; connectionId: string; 
+/**  An index, data stream, alias or pattern. */
+target: string; mode: IndexQueryMode; text: string; source: string; sort: IndexSort[]; 
+/**
+ *  Each hit whole (one `document` column); otherwise grid rows, whose columns are
+ *  the fields of the first page.
+ */
+documents: boolean };
 
 export type ExportStarted = {
 	exportId: number,

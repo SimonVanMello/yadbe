@@ -76,31 +76,46 @@ fn column_meta(name: String, types: &[BsonType]) -> ColumnMeta {
     }
 }
 
-/// Stores `documents` as a grid result and a documents result.
-pub fn store_documents(store: &ResultStore, documents: &[Json]) -> DocumentResult {
-    let columns = columns_of(documents);
-    let grid = store.create(
-        columns
-            .iter()
-            .map(|(name, types)| column_meta(name.clone(), types))
-            .collect(),
-    );
-    let whole = store.create(vec![ColumnMeta {
+/// The grid columns of `documents`: their names and what the grid shows of each.
+pub fn grid_columns(documents: &[Json]) -> (Vec<String>, Vec<ColumnMeta>) {
+    columns_of(documents)
+        .into_iter()
+        .map(|(name, types)| {
+            let meta = column_meta(name.clone(), &types);
+            (name, meta)
+        })
+        .unzip()
+}
+
+/// The grid row of `document` under the columns `names` (a field it lacks is `missing`).
+pub fn grid_row(document: &Json, names: &[String]) -> Vec<Value> {
+    names
+        .iter()
+        .map(|name| document.get(name).map_or(Value::Missing, to_value))
+        .collect()
+}
+
+/// The one column of a documents result.
+pub fn document_column() -> ColumnMeta {
+    ColumnMeta {
         name: "document".to_owned(),
         type_name: "object".to_owned(),
         kind: ValueKind::Json,
-    }]);
+    }
+}
+
+/// Stores `documents` as a grid result and a documents result.
+pub fn store_documents(store: &ResultStore, documents: &[Json]) -> DocumentResult {
+    let (names, columns) = grid_columns(documents);
+    let grid = store.create(columns);
+    let whole = store.create(vec![document_column()]);
     for chunk in documents.chunks(500) {
-        let rows: Vec<Vec<Value>> = chunk
-            .iter()
-            .map(|document| {
-                columns
-                    .iter()
-                    .map(|(name, _)| document.get(name).map_or(Value::Missing, to_value))
-                    .collect()
-            })
-            .collect();
-        grid.append(rows);
+        grid.append(
+            chunk
+                .iter()
+                .map(|document| grid_row(document, &names))
+                .collect(),
+        );
         whole.append(
             chunk
                 .iter()

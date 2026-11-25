@@ -28,8 +28,8 @@ use crate::session::result_store::ResultStore;
 use crate::session::search::gate::{Gate, Origin, Send, UserContext, new_opaque_id};
 use crate::session::search::model::{
     ConsoleBody, ConsoleFailure, ConsolePosition, ConsoleResponse, DocumentResult, IndexPage,
-    IndexPaging, IndexQuery, IndexQueryMode, IndexTabInfo, LineRange, SearchConsoleOutcome,
-    SearchTotal, ShardsInfo,
+    IndexPaging, IndexQuery, IndexQueryMode, IndexSort, IndexTabInfo, LineRange,
+    SearchConsoleOutcome, SearchTotal, ShardsInfo,
 };
 use crate::session::search::results::{ids_of, store_document, store_hits, store_table};
 
@@ -39,7 +39,7 @@ const MAX_DOCUMENTS_WINDOW: u32 = 500;
 /// Raw text of a console response sent to the front, at most.
 const MAX_RAW_CHARS: usize = 1024 * 1024;
 /// How long a point in time lives between two pages.
-const PIT_KEEP_ALIVE: &str = "5m";
+pub(super) const PIT_KEEP_ALIVE: &str = "5m";
 /// `track_total_hits` of a first page: counted exactly up to this, a lower bound beyond.
 const TRACK_TOTAL: i64 = 10_000;
 
@@ -92,7 +92,7 @@ impl SearchTab {
 pub struct SearchService {
     manager: Arc<ConnectionManager>,
     store: Arc<ResultStore>,
-    history: Arc<dyn HistoryRecorder>,
+    pub(super) history: Arc<dyn HistoryRecorder>,
     tabs: Mutex<HashMap<String, Arc<SearchTab>>>,
     /// Records document edits (M4-8); none in tests that do not edit.
     pub(super) journal: Option<Arc<ChangeJournal>>,
@@ -114,7 +114,7 @@ fn duration_ms(start: Instant) -> f64 {
 }
 
 /// The query of an index tab as Query DSL.
-fn query_json(query: &IndexQuery) -> Result<Json, YadbeError> {
+pub(super) fn query_json(query: &IndexQuery) -> Result<Json, YadbeError> {
     let text = query.text.trim();
     let match_all = || Json::object([("match_all", Json::empty())]);
     if text.is_empty() {
@@ -146,12 +146,12 @@ fn query_json(query: &IndexQuery) -> Result<Json, YadbeError> {
     }
 }
 
-fn is_match_all(query: &Json) -> bool {
+pub(super) fn is_match_all(query: &Json) -> bool {
     matches!(query.as_object(), Some([(key, _)]) if key == "match_all")
 }
 
 /// `_source` filtering from `a, b.*, -c`.
-fn source_json(source: &str) -> Option<Json> {
+pub(super) fn source_json(source: &str) -> Option<Json> {
     let mut includes = Vec::new();
     let mut excludes = Vec::new();
     for field in source.split(',').map(str::trim).filter(|f| !f.is_empty()) {
@@ -173,7 +173,7 @@ fn source_json(source: &str) -> Option<Json> {
     Some(Json::object(entries))
 }
 
-fn sort_entry(field: &str, descending: bool) -> Json {
+pub(super) fn sort_entry(field: &str, descending: bool) -> Json {
     Json::object([(
         field,
         Json::object([(
@@ -194,7 +194,7 @@ fn total_of(response: &Json) -> Option<SearchTotal> {
     }
 }
 
-fn hits_of(response: &Json) -> Vec<Json> {
+pub(super) fn hits_of(response: &Json) -> Vec<Json> {
     response
         .get("hits")
         .and_then(|h| h.get("hits"))
@@ -213,6 +213,59 @@ fn pit_lost(error: &YadbeError) -> bool {
     detail.contains("search_context_missing")
         || detail.contains("No search context found")
         || detail.contains("point in time")
+}
+
+/// Where a point in time on `target` is opened.
+pub(super) fn pit_open_path(api: PitApi, target: &str) -> String {
+    match api {
+        PitApi::Pit => format!("/{}/_pit?keep_alive={PIT_KEEP_ALIVE}", segment(target)),
+        PitApi::SearchPointInTime => format!(
+            "/{}/_search/point_in_time?keep_alive={PIT_KEEP_ALIVE}",
+            segment(target)
+        ),
+    }
+}
+
+/// The id of the point in time an opening answered.
+pub(super) fn pit_id_of(json: &Json) -> Result<String, YadbeError> {
+    json.get("id")
+        .or_else(|| json.get("pit_id"))
+        .and_then(Json::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| YadbeError::query_failed("the point in time has no id"))
+}
+
+/// What closes the point in time `id`.
+pub(super) fn pit_close_request(api: PitApi, id: String) -> SearchRequest {
+    match api {
+        PitApi::Pit => SearchRequest::json(
+            HttpMethod::Delete,
+            "/_pit",
+            &Json::object([("id", Json::string(id))]),
+        ),
+        PitApi::SearchPointInTime => SearchRequest::json(
+            HttpMethod::Delete,
+            "/_search/point_in_time",
+            &Json::object([("pit_id", Json::Array(vec![Json::string(id)]))]),
+        ),
+    }
+}
+
+/// The sort of pages on a point in time: the tab's, else the index order of `_shard_doc`
+/// (every document) or the score (a query). The point in time adds its own tie-breaker.
+pub(super) fn pit_sort(sort: &[IndexSort], filter: &Json) -> Vec<Json> {
+    let mut entries: Vec<Json> = sort
+        .iter()
+        .map(|s| sort_entry(&s.field, s.descending))
+        .collect();
+    if entries.is_empty() {
+        entries.push(if is_match_all(filter) {
+            sort_entry("_shard_doc", false)
+        } else {
+            sort_entry("_score", true)
+        });
+    }
+    entries
 }
 
 impl SearchService {
@@ -397,19 +450,10 @@ impl SearchService {
     ) {
         let pit = tab.pages.lock().await.pit.take();
         let Some(id) = pit else { return };
-        let request = match conn.server().features.point_in_time {
-            Some(PitApi::Pit) => SearchRequest::json(
-                HttpMethod::Delete,
-                "/_pit",
-                &Json::object([("id", Json::string(id))]),
-            ),
-            Some(PitApi::SearchPointInTime) => SearchRequest::json(
-                HttpMethod::Delete,
-                "/_search/point_in_time",
-                &Json::object([("pit_id", Json::Array(vec![Json::string(id)]))]),
-            ),
-            None => return,
+        let Some(api) = conn.server().features.point_in_time else {
+            return;
         };
+        let request = pit_close_request(api, id);
         if let Err(err) = self.gate(session, conn).send(&request, Send::own()).await {
             tracing::debug!(error = %err, "could not close a point in time");
         }
@@ -422,14 +466,7 @@ impl SearchService {
         api: PitApi,
         stop: &CancellationToken,
     ) -> Result<String, YadbeError> {
-        let path = match api {
-            PitApi::Pit => format!("/{}/_pit?keep_alive={PIT_KEEP_ALIVE}", segment(target)),
-            PitApi::SearchPointInTime => format!(
-                "/{}/_search/point_in_time?keep_alive={PIT_KEEP_ALIVE}",
-                segment(target)
-            ),
-        };
-        let request = SearchRequest::new(HttpMethod::Post, path);
+        let request = SearchRequest::new(HttpMethod::Post, pit_open_path(api, target));
         let json = gate
             .send(
                 &request,
@@ -442,11 +479,7 @@ impl SearchService {
             .into_result()?
             .json()
             .unwrap_or(Json::Null);
-        json.get("id")
-            .or_else(|| json.get("pit_id"))
-            .and_then(Json::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| YadbeError::query_failed("the point in time has no id"))
+        pit_id_of(&json)
     }
 
     /// Reads page `page` (0-based) of `query` on `target`.
@@ -602,18 +635,7 @@ impl SearchService {
         stop: &CancellationToken,
     ) -> Result<(Json, SearchRequest, bool), YadbeError> {
         let size = query.page_size;
-        let mut sort: Vec<Json> = query
-            .sort
-            .iter()
-            .map(|s| sort_entry(&s.field, s.descending))
-            .collect();
-        if sort.is_empty() {
-            sort.push(if is_match_all(filter) {
-                sort_entry("_shard_doc", false)
-            } else {
-                sort_entry("_score", true)
-            });
-        }
+        let sort = pit_sort(&query.sort, filter);
         let mut retried = false;
         loop {
             let (pit, after) = {
@@ -959,7 +981,7 @@ impl SearchService {
 
 /// How the pages of a connection's index tabs go: a point in time where the server can sort
 /// on its tiebreaker, else `from` / `size`.
-fn paging_of(conn: &dyn SearchConnection) -> IndexPaging {
+pub(super) fn paging_of(conn: &dyn SearchConnection) -> IndexPaging {
     let features = conn.server().features;
     if features.point_in_time.is_some() && features.shard_doc_sort {
         IndexPaging::PointInTime
