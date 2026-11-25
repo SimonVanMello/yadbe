@@ -30,10 +30,11 @@ pub enum Engine {
 
 /// What kind of database an engine is: it decides the connection's backend (the `Backend`
 /// variant its driver returns), its query language, its explorer and its tabs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum EngineFamily {
     /// Relational engines spoken to in SQL, through a [`Dialect`].
+    #[default]
     Sql,
     /// Document stores (MongoDB).
     Document,

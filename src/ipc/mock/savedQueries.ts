@@ -1,4 +1,5 @@
 import type {
+  EngineFamily,
   FolderDeletion,
   ImportReport,
   NewSavedQuery,
@@ -228,6 +229,7 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
       connectionId: entry.connection ?? null,
       database: entry.connection ? (entry.database ?? null) : null,
       snippetTrigger: entry.trigger ?? null,
+      family: 'sql',
       createdAt: SEED_AT + index * 60,
       updatedAt: SEED_AT + index * 60,
       lastUsedAt:
@@ -284,10 +286,17 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
       ? mockErrors.queryFolderNotFound(folderId)
       : null;
 
-  function connectionProblem(connectionId: string | null): YadbeError | null {
-    return connectionId !== null && !deps.connection(connectionId)
-      ? mockErrors.connectionNotFound(connectionId)
-      : null;
+  /** The connection must exist and speak the query's family (like the backend's check). */
+  function connectionProblem(connectionId: string | null, family: EngineFamily): YadbeError | null {
+    if (connectionId === null) return null;
+    const connection = deps.connection(connectionId);
+    if (!connection) return mockErrors.connectionNotFound(connectionId);
+    return connection.family === family
+      ? null
+      : invalid(
+          'This query cannot be bound to a connection of another kind of database.',
+          "Cette requête ne peut pas être liée à une connexion d'un autre type de base.",
+        );
   }
 
   function checkedName(name: string, max: number, en: string, fr: string): string | YadbeError {
@@ -346,6 +355,7 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
       'name' | 'description' | 'tags' | 'folderId' | 'snippetTrigger' | 'connectionId'
     >,
     connectionChanged: boolean,
+    family: EngineFamily,
   ): { name: string; description: string; tags: string[]; trigger: string | null } | YadbeError {
     const name = checkedName(fields.name, MAX_NAME, 'A query', 'la requête');
     if (isError(name)) return name;
@@ -361,7 +371,7 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
     if (isError(trigger)) return trigger;
     const problem =
       folderProblem(fields.folderId) ??
-      (connectionChanged ? connectionProblem(fields.connectionId) : null);
+      (connectionChanged ? connectionProblem(fields.connectionId, family) : null);
     if (problem) return problem;
     return { name, description: fields.description.trim(), tags, trigger };
   }
@@ -377,7 +387,7 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
   function insert(fields: NewSavedQuery): Stored | YadbeError {
     const big = tooLarge(fields.sql);
     if (big) return big;
-    const checked = checkedFields(fields, true);
+    const checked = checkedFields(fields, true, fields.family);
     if (isError(checked)) return checked;
     counter += 1;
     const at = seconds();
@@ -391,6 +401,7 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
       connectionId: fields.connectionId,
       database: fields.connectionId ? (fields.database?.trim() ?? '') || null : null,
       snippetTrigger: checked.trigger,
+      family: fields.family,
       createdAt: at,
       updatedAt: at,
       lastUsedAt: null,
@@ -469,6 +480,7 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
             description: q.description,
             connectionId: q.connectionId,
             database: q.database,
+            family: q.family,
           }))
           .sort((a, b) => a.trigger.localeCompare(b.trigger) || a.name.localeCompare(b.name)),
       ),
@@ -487,7 +499,11 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
         const big = tooLarge(update.sql);
         if (big) return fail(big);
       }
-      const checked = checkedFields(update, update.connectionId !== current.connectionId);
+      const checked = checkedFields(
+        update,
+        update.connectionId !== current.connectionId,
+        current.family,
+      );
       if (isError(checked)) return fail(checked);
       Object.assign(current, {
         name: checked.name,
@@ -531,6 +547,7 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
         connectionId: source.connectionId,
         database: source.database,
         snippetTrigger: null,
+        family: source.family,
       });
       if (isError(copy)) return fail(copy);
       announce();
@@ -642,6 +659,7 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
           tags: q.tags,
           folderId: q.folderId,
           snippetTrigger: q.snippetTrigger,
+          family: q.family,
         })),
       };
       deps.files.set(path, JSON.stringify(file, null, 2));
@@ -678,6 +696,8 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
     tags?: string[];
     folderId: string | null;
     snippetTrigger: string | null;
+    /** Absent from the files written before saved queries had a family: SQL. */
+    family?: EngineFamily;
   }
 
   const notLibrary = (detail: string): YadbeError =>
@@ -756,8 +776,13 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
 
     for (const entry of file.queries as FileQuery[]) {
       const folderId = entry.folderId === null ? null : (mapped.get(entry.folderId) ?? null);
+      const family = entry.family ?? 'sql';
       const present = queries.some(
-        (q) => q.folderId === folderId && q.name === entry.name.trim() && q.sql === entry.sql,
+        (q) =>
+          q.folderId === folderId &&
+          q.name === entry.name.trim() &&
+          q.sql === entry.sql &&
+          q.family === family,
       );
       if (present) {
         report.skipped += 1;
@@ -772,6 +797,7 @@ export function createMockSavedQueries(deps: SavedQueryDeps) {
         connectionId: null,
         database: null,
         snippetTrigger: entry.snippetTrigger,
+        family,
       });
       if (isError(created)) return rollback(created);
       report.queries += 1;

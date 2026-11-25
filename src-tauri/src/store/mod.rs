@@ -990,6 +990,8 @@ mod history_tests;
 #[cfg(test)]
 mod keyvalue_tests;
 #[cfg(test)]
+mod library_family_tests;
+#[cfg(test)]
 mod saved_queries_tests;
 #[cfg(test)]
 mod search_tests;

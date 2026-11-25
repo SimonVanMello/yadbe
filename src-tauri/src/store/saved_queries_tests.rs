@@ -77,6 +77,7 @@ fn a_query_round_trips_with_its_fields() {
             connection_id: Some(connection.id.clone()),
             database: Some("shop".into()),
             snippet_trigger: Some("opd".into()),
+            family: crate::db::engine::EngineFamily::Sql,
         })
         .expect("create");
     assert_eq!(created.name, "Orders per day");

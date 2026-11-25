@@ -7,7 +7,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use super::journal::family_id;
 use super::{NewSavedQuery, Store};
+use crate::db::engine::EngineFamily;
 use crate::db::errors::YadbeError;
 
 const FORMAT: &str = "yadbe-library";
@@ -43,6 +45,9 @@ struct FileQuery {
     tags: Vec<String>,
     folder_id: Option<String>,
     snippet_trigger: Option<String>,
+    /// Files written before saved queries had a family hold SQL.
+    #[serde(default)]
+    family: EngineFamily,
 }
 
 /// What an import added.
@@ -78,6 +83,7 @@ impl Store {
                 tags: whole.tags,
                 folder_id: whole.folder_id,
                 snippet_trigger: whole.snippet_trigger,
+                family: whole.family,
             });
         }
         let file = LibraryFile {
@@ -165,8 +171,13 @@ impl Store {
                 .and_then(|f| mapped.get(f).cloned());
             let present: bool = tx.query_row(
                 "SELECT EXISTS(SELECT 1 FROM saved_queries
-                 WHERE folder_id IS ?1 AND name = ?2 AND sql = ?3)",
-                params![folder_id, query.name.trim(), query.sql],
+                 WHERE folder_id IS ?1 AND name = ?2 AND sql = ?3 AND family = ?4)",
+                params![
+                    folder_id,
+                    query.name.trim(),
+                    query.sql,
+                    family_id(query.family)
+                ],
                 |row| row.get(0),
             )?;
             if present {
@@ -184,6 +195,7 @@ impl Store {
                     connection_id: None,
                     database: None,
                     snippet_trigger: query.snippet_trigger.clone(),
+                    family: query.family,
                 },
             )?;
             report.queries += 1;

@@ -224,6 +224,18 @@ const MIGRATIONS: &[&str] = &[
     // (`SearchSettings`: authentication kind, URL path); NULL for the other families and for
     // connections saved before.
     "ALTER TABLE connections ADD COLUMN search_settings TEXT;",
+    // v14: the engine family of a saved query (M4-12): what its text is written in (SQL, a
+    // mongosh script, a search console request, Redis commands), so that a global query can be
+    // told apart. Rows written before take the family of their connection's engine, or SQL
+    // when they have none (global ones, and queries whose connection was deleted).
+    "ALTER TABLE saved_queries ADD COLUMN family TEXT NOT NULL DEFAULT 'sql';
+    UPDATE saved_queries SET family = CASE
+        (SELECT engine FROM connections WHERE connections.id = saved_queries.connection_id)
+        WHEN 'mongodb' THEN 'document'
+        WHEN 'redis' THEN 'keyValue'
+        WHEN 'elasticsearch' THEN 'search'
+        ELSE 'sql' END
+    WHERE connection_id IS NOT NULL;",
 ];
 
 pub fn apply(conn: &mut Connection) -> rusqlite::Result<()> {
