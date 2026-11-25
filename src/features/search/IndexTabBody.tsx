@@ -1,4 +1,4 @@
-import { useEffect, useId, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, type KeyboardEvent } from 'react';
 
 import { localize } from '../../app/errors/presentError';
 import { useTabsStore, type ShellTab } from '../../app/tabs/tabsStore';
@@ -32,6 +32,7 @@ import {
   setIndexDraft,
   setIndexPageSize,
 } from './indexActions';
+import { openIndexExport } from './indexExport';
 import { INDEX_PAGE_SIZES, useIndexStore, useIndexTab, type HitsView } from './indexStore';
 import { JsonEditor } from '../json/JsonEditor';
 import styles from './IndexTabBody.module.css';
@@ -53,6 +54,10 @@ export function IndexTabBody({ tab, table }: { tab: ShellTab; table: ObjectRef }
   const index = useIndexTab(tab.id);
   const connected = state === 'connected';
   const { phase } = index;
+  // The page's grid and documents export the whole index under the tab's query.
+  const exportIndex = useCallback(() => {
+    openIndexExport(tab.id);
+  }, [tab.id]);
 
   // What the tab's documents allow (read-only, data streams, blocks), once its index is open.
   useEffect(() => {
@@ -349,6 +354,7 @@ export function IndexTabBody({ tab, table }: { tab: ShellTab; table: ObjectRef }
             view={view}
             label={t('search.index.results', { name: table.name })}
             editTabId={tab.id}
+            exportWhole={exportIndex}
           />
         ) : null}
         {loading && page && (

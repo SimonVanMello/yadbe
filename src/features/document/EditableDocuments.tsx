@@ -6,6 +6,7 @@ import { ContextMenuItem } from '../../ui/ContextMenuItem';
 import { DocumentsView, type DocShown, type DocumentsEditing } from '../documents/DocumentsView';
 import type { DocRow } from '../documents/docTree';
 import { parseJson } from '../grid/jsonTree';
+import { openCollectionExport } from './collectionExport';
 import type { DocumentViewMode } from './collectionStore';
 import {
   deleteTargets,
@@ -54,6 +55,10 @@ export function EditableDocuments({
   const edits = useTabDocEdits(tabId);
   const { documentsId } = page.documents;
   const count = page.documents.count;
+  // The page's grid and documents export the whole collection under the tab's query.
+  const exportCollection = useCallback(() => {
+    openCollectionExport(tabId);
+  }, [tabId]);
 
   const load = useCallback(
     async (offset: number, limit: number) =>
@@ -273,11 +278,35 @@ export function EditableDocuments({
     };
   }, [edits, page.ids, documentsId, count, tabId, target, t, capped]);
 
-  if (block) return <DocumentResults result={page.documents} view={view} label={label} />;
-  if (view === 'documents') {
+  if (block) {
     return (
-      <DocumentsView key={documentsId} count={count} load={load} label={label} editing={editing} />
+      <DocumentResults
+        result={page.documents}
+        view={view}
+        label={label}
+        exportWhole={exportCollection}
+      />
     );
   }
-  return <EditableDocumentGrid tabId={tabId} page={page} label={label} noDelete={capped} />;
+  if (view === 'documents') {
+    return (
+      <DocumentsView
+        key={documentsId}
+        count={count}
+        load={load}
+        label={label}
+        editing={editing}
+        onExport={exportCollection}
+      />
+    );
+  }
+  return (
+    <EditableDocumentGrid
+      tabId={tabId}
+      page={page}
+      label={label}
+      noDelete={capped}
+      onExport={exportCollection}
+    />
+  );
 }

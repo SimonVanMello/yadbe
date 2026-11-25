@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 import { showError } from '../../app/errors/presentError';
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { formatNumber, useI18nStore } from '../../i18n/i18n';
 import { useT } from '../../i18n/useT';
 import { Button } from '../../ui/Button';
@@ -67,6 +68,8 @@ export interface DocumentsViewProps {
   /** Accessible name of the list. */
   label: string;
   editing?: DocumentsEditing;
+  /** "Export…" in the rows' menu: what the grid of the same documents exports. */
+  onExport?: () => void;
 }
 
 function startsWith(path: readonly (string | number)[], prefix: readonly (string | number)[]) {
@@ -102,8 +105,9 @@ async function copy(text: string, what: string): Promise<void> {
  * on demand. Copy a value, its path or the whole document from a row's menu. Fed by plain values
  * (`DocNode`): it knows nothing of the store the documents come from.
  */
-export function DocumentsView({ count, load, label, editing }: DocumentsViewProps) {
+export function DocumentsView({ count, load, label, editing, onExport }: DocumentsViewProps) {
   const t = useT();
+  const shortcutOf = useShortcutOf();
   const locale = useI18nStore((state) => state.locale);
   const [documents, setDocuments] = useState<(DocNode | undefined)[]>([]);
   const [loading, setLoading] = useState(true);
@@ -302,6 +306,15 @@ export function DocumentsView({ count, load, label, editing }: DocumentsViewProp
                       </ContextMenuItem>
                     )}
                     {editing?.menu(row, row.document >= count)}
+                    {onExport && (
+                      <ContextMenuItem
+                        icon="download"
+                        shortcut={shortcutOf('result.export')}
+                        onSelect={onExport}
+                      >
+                        {t('export.menu')}
+                      </ContextMenuItem>
+                    )}
                   </>
                 }
               >

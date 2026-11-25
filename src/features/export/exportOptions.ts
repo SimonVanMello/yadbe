@@ -60,10 +60,10 @@ export interface FormatContext {
   table: string;
   sheetName: string;
   /**
-   * The source also has its whole documents (a MongoDB or search result): the result id that
-   * holds them, and what they are. JSON Lines writes these instead of the grid rows.
+   * The source also has its whole documents (a MongoDB or search source), and what they are:
+   * JSON Lines writes these instead of the grid rows.
    */
-  documents?: { resultId: number; kind: 'mongo' | 'search' } | null;
+  documents?: { kind: 'mongo' | 'search' } | null;
 }
 
 export const DEFAULT_FORMAT_CONTEXT: FormatContext = {

@@ -27,6 +27,8 @@ interface EditableDocumentGridProps {
   label: string;
   /** Deleting is refused (a capped collection). */
   noDelete: boolean;
+  /** "Export…" in the grid menu: the whole collection under the tab's query. */
+  onExport?: () => void;
 }
 
 /**
@@ -35,7 +37,13 @@ interface EditableDocumentGridProps {
  * documents follow the page's. Double click edits a field (typed editor), Delete marks the
  * selected documents, the context menu has the rest (unset, edit as JSON, duplicate, revert).
  */
-export function EditableDocumentGrid({ tabId, page, label, noDelete }: EditableDocumentGridProps) {
+export function EditableDocumentGrid({
+  tabId,
+  page,
+  label,
+  noDelete,
+  onExport,
+}: EditableDocumentGridProps) {
   const t = useT();
   const edits = useTabDocEdits(tabId);
   const [focused, setFocused] = useState<GridCellRef | null>(null);
@@ -220,6 +228,7 @@ export function EditableDocumentGrid({ tabId, page, label, noDelete }: EditableD
       apiRef={api}
       onFocusChange={setFocused}
       menuExtras={menu}
+      onExport={onExport}
       editing={{
         onCellDoubleClick: (cell) => {
           editCell(cell);

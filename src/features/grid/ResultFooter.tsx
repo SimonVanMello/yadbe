@@ -9,6 +9,7 @@ import { ipc, unwrap, type ResultSummary, type ResultViewInfo, type ResumeMode }
 import { Button } from '../../ui/Button';
 import { IconButton } from '../../ui/IconButton';
 import { Spinner } from '../../ui/Spinner';
+import { documentsOf } from '../export/exportDocuments';
 import { useExportStore } from '../export/exportStore';
 import { formatCount } from './formatCount';
 import styles from './ResultGrid.module.css';
@@ -17,6 +18,12 @@ import { toggleFilterBar } from './resultViewStore';
 
 /** Opens the export dialog of a result (F-066), from its footer, its menu or a shortcut. */
 export function openResultExport(resultId: number, summary: ResultSummary, label: string): void {
+  // The page of a collection or index tab exports the whole collection or index.
+  const whole = documentsOf(resultId)?.openWhole;
+  if (whole) {
+    whole();
+    return;
+  }
   useExportStore.getState().open({
     label,
     connectionId: selectActiveTab(useTabsStore.getState()).connectionId,

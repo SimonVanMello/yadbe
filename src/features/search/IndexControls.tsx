@@ -1,3 +1,4 @@
+import { useShortcutOf } from '../../app/useShortcutOf';
 import { useT } from '../../i18n/useT';
 import { IconButton } from '../../ui/IconButton';
 import { ConnectionChip } from '../connections/ConnectionChip';
@@ -5,11 +6,12 @@ import { useConnectionState } from '../connections/connectionStore';
 import type { ConnectionSummary } from '../connections/model';
 import styles from '../document/DocumentControls.module.css';
 import { cancelIndex, fetchIndexPage, openIndex } from './indexActions';
+import { openIndexExport } from './indexExport';
 import { useIndexTab } from './indexStore';
 
 /**
  * The index-tab part of the toolbar: read again from the first page (a fresh point in time),
- * stop a read or a count, the connection's chip.
+ * stop a read or a count, export the index under the tab's query, the connection's chip.
  */
 export function IndexControls({
   tabId,
@@ -19,6 +21,7 @@ export function IndexControls({
   connection: ConnectionSummary;
 }) {
   const t = useT();
+  const shortcutOf = useShortcutOf();
   const state = useConnectionState(connection.id);
   const { page, loading, counting, phase } = useIndexTab(tabId);
   return (
@@ -39,6 +42,15 @@ export function IndexControls({
           disabled={!loading && !counting}
           onClick={() => {
             cancelIndex(tabId);
+          }}
+        />
+        <IconButton
+          icon="download"
+          label={t('action.index.export')}
+          shortcut={shortcutOf('result.export')}
+          disabled={state !== 'connected' || phase !== 'ready'}
+          onClick={() => {
+            openIndexExport(tabId);
           }}
         />
       </span>
