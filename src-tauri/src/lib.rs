@@ -6,6 +6,7 @@ pub mod edit;
 pub mod events;
 pub mod export;
 pub mod import;
+mod quit_menu;
 pub mod secrets;
 pub mod session;
 pub mod state;
@@ -312,8 +313,12 @@ pub fn run() {
         // Used from Rust only (src/updates.rs): no updater permission for the webview.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(builder.invoke_handler())
+        .on_menu_event(quit_menu::on_menu_event)
         .setup(move |app| {
             builder.mount_events(app);
+            if cfg!(target_os = "macos") {
+                quit_menu::install(app.handle())?;
+            }
             let config_dir = state::config_dir(app.path().app_config_dir()?);
             tracing::info!(path = %config_dir.display(), "config folder");
             let sink = Arc::new(events::TauriSink(app.handle().clone()));
