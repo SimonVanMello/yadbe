@@ -131,6 +131,12 @@ Analysis and decisions in `docs/analysis/NOSQL.md`: read it first (section 8 for
 | M4-8 ✅ | **Elasticsearch, edit**: one document at a time with `if_seq_no` / `if_primary_term`, the non-atomic reason shown, journal, dangerous requests | M4-7 | opus · medium |
 | M4-9 ✅ | **Cross-cutting**: completion per family, JSON Lines export, palette objects, history and restore of the new tabs | M4-3, M4-4, M4-6, M4-8 | sonnet · medium |
 | M4-10 ✅ | **Integration and validation**: every engine's suites again (SQL Server, MySQL, OpenSearch, mTLS, SSH), real-app scenarios on the three engines, the M4-9 leftovers below, the CodeMirror `style-src-attr` report, installer size, SPEC requirements of M4, `docs/validation/M4.md` | all of M4 | opus · high |
+| M4-11 🟦 | **Whole exports of collection and index tabs**: the export of a collection or index tab writes every document under the tab's filter / query, sort and projection (by pages, as `TableExportRows` does for SQL tables), not the page shown; export from the documents view too | M4-10 | opus · high |
+| M4-12 🟦 | **Saved queries per family**: a `family` column on saved queries (store v13), the Saved view and save dialog filtered and labelled by family, opening a saved query in a tab of its family, global ones included | M4-10 | sonnet · high |
+| M4-13 🟦 | **Highlighting in the history list**: each entry coloured in its family's syntax (SQL, mongosh JavaScript, Kibana console, Redis commands), cheap enough for the virtualized list | M4-10 | sonnet · medium |
+| M4-14 🟦 | **Wording**: the Redis revert dialog over 500 keys, "index(es)", numbers in the locale's format in danger texts, one apply toast for every family, the journal filter's "tables", a note on a cancelled search that the server may finish its current step | M4-10 | sonnet · medium |
+| M4-15 🟦 | **UI fixes**: the engine choice overflowing the connection dialog at 1280 px, the collection tab's toolbar wrapping in the Documents view, the read-only note on three lines | M4-10 | sonnet · medium |
+| M4-16 🟦 | **The window does not close on Linux** (Arch: only `pkill` ends the app): find the cause in the real app, fix it, keep the close guard | — | opus · medium |
 
 Order: M4-1, then M4-2 ∥ M4-5, then M4-3 ∥ M4-6, then M4-4 ∥ M4-7 (two builds at a time: the disk does not hold more), then M4-8, M4-9, M4-10.
 
