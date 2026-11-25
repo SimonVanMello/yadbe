@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { findOverflows } from './overflow';
+import { findOverflows, linesOf, rowsOf, sidewaysScrolls } from './overflow';
 
 /**
  * Nothing sticks out of its box (M3-18): the screens are laid out at several window sizes and in
@@ -17,6 +17,8 @@ import { findOverflows } from './overflow';
  */
 
 const AUDIT = process.env.YADBE_OVERFLOW_AUDIT === '1';
+// `YADBE_OVERFLOW_THEME=paper` runs the same screens in the light theme (default: graphite, dark).
+const THEME = process.env.YADBE_OVERFLOW_THEME === 'paper' ? 'light' : 'dark';
 const LOCALES = ['en', 'fr'] as const;
 type Locale = (typeof LOCALES)[number];
 interface Layout {
@@ -37,6 +39,9 @@ const LAYOUTS: Layout[] = AUDIT
   : [
       { locale: 'fr', width: 1024, height: 640 },
       { locale: 'en', width: 900, height: 560 },
+      // M4-15: the default window's width, in both languages.
+      { locale: 'fr', width: 1280, height: 720 },
+      { locale: 'en', width: 1280, height: 720 },
     ];
 
 const catalogs: Record<Locale, Record<string, string>> = {
@@ -139,6 +144,70 @@ interface Screen {
   check?: (ctx: Ctx) => Promise<void>;
 }
 
+/** A dialog never scrolls sideways: no horizontal scrollbar under its form (M4-15). */
+async function noSidewaysScroll({ page }: Ctx) {
+  expect(await sidewaysScrolls(page.getByRole('dialog'))).toEqual([]);
+}
+
+/** A toolbar stays on one row (it drops or shortens things when narrow, it does not wrap). */
+async function oneRow(page: Page, testId: string) {
+  const bar = page.getByTestId(testId);
+  await expect(bar).toBeVisible();
+  expect(await rowsOf(bar), `${testId} wraps onto several rows`).toBe(1);
+}
+
+/** A note beside the toolbar's controls takes one line (its full text in a tooltip). */
+async function oneLine(page: Page, testId: string) {
+  const note = page.getByTestId(testId);
+  await expect(note).toBeVisible();
+  expect(await linesOf(note), `${testId} takes several lines`).toBe(1);
+}
+
+async function openCollection(ctx: Ctx, name: RegExp) {
+  await connect(ctx, /^catalog · mongo,/);
+  await treeItem(ctx.page, name).dblclick();
+  await expect(ctx.page.getByTestId('collection-tab')).toBeVisible();
+  await expect(ctx.page.getByTestId('collection-range')).toBeVisible();
+  await ctx.page.waitForTimeout(300);
+}
+
+/** Marks a connection read-only through its dialog (the edit then shows why it cannot change). */
+async function makeReadOnly(ctx: Ctx, name: RegExp) {
+  const { page, tr } = ctx;
+  await contextMenu(ctx, treeItem(page, name), 'connection.menu.edit');
+  const dialog = page.getByRole('dialog');
+  await dialog
+    .getByRole('button', { name: new RegExp(`^${tr('connection.section.environment')}`) })
+    .click();
+  await dialog.getByRole('switch', { name: tr('connection.readOnly') }).click();
+  await dialog.getByRole('button', { name: tr('common.save') }).click();
+  await expect(dialog).toBeHidden();
+}
+
+async function openIndex(ctx: Ctx) {
+  await connect(ctx, /^search · logs,/);
+  await treeItem(ctx.page, /^orders$/)
+    .first()
+    .dblclick();
+  await expect(ctx.page.getByTestId('index-tab')).toBeVisible();
+  await expect(ctx.page.getByTestId('index-range')).toBeVisible();
+  await ctx.page.waitForTimeout(300);
+}
+
+async function openKey(ctx: Ctx) {
+  await connect(ctx, /^cache,/);
+  await expand(treeItem(ctx.page, /^config$/).first());
+  await treeItem(ctx.page, /^feature-flags/)
+    .first()
+    .dblclick();
+  await expect(ctx.page.getByTestId('kv-edit-bar')).toBeVisible();
+  await ctx.page.waitForTimeout(300);
+}
+
+async function documentsView({ page, tr }: Ctx) {
+  await page.getByRole('radio', { name: tr('mongo.view.documents') }).click();
+}
+
 const SCREENS: Screen[] = [
   { name: 'welcome', prepare: async () => {} },
   {
@@ -150,7 +219,30 @@ const SCREENS: Screen[] = [
         .click();
       await expect(page.getByRole('dialog')).toBeVisible();
     },
+    check: noSidewaysScroll,
   },
+  // Every engine's form: the engine choice and what connecting needs fit the dialog (M4-15).
+  ...[
+    'SQL Server',
+    'MySQL / MariaDB',
+    'SQLite',
+    'Redis / Valkey',
+    'MongoDB',
+    'Elasticsearch / OpenSearch',
+  ].map((engine): Screen => ({
+    name: `connection-dialog-${(engine.split(/[ /]/)[0] ?? engine).toLowerCase()}`,
+    prepare: async ({ page, tr }) => {
+      await page
+        .getByRole('button', { name: tr('connection.new') })
+        .first()
+        .click();
+      await page
+        .getByRole('dialog')
+        .getByLabel(tr('connection.engine'), { exact: true })
+        .selectOption({ label: engine });
+    },
+    check: noSidewaysScroll,
+  })),
   {
     name: 'connection-dialog-sections',
     prepare: async ({ page, tr }) => {
@@ -171,6 +263,7 @@ const SCREENS: Screen[] = [
       }
       await dialog.getByRole('switch', { name: tr('connection.ssh.enable') }).click();
     },
+    check: noSidewaysScroll,
   },
   {
     name: 'connection-edit-prod',
@@ -178,6 +271,7 @@ const SCREENS: Screen[] = [
       await contextMenu(ctx, treeItem(ctx.page, /^shop · prod,/), 'connection.menu.edit');
       await expect(ctx.page.getByRole('dialog')).toBeVisible();
     },
+    check: noSidewaysScroll,
   },
   {
     name: 'sidebar-history',
@@ -324,6 +418,28 @@ const SCREENS: Screen[] = [
     },
   },
   {
+    name: 'mongo-collection-documents',
+    prepare: async (ctx) => {
+      await openCollection(ctx, /^orders$/);
+      await documentsView(ctx);
+    },
+    check: async ({ page }) => {
+      await oneRow(page, 'collection-bar');
+    },
+  },
+  {
+    name: 'mongo-collection-read-only',
+    prepare: async (ctx) => {
+      await openCollection(ctx, /^metrics$/);
+      await documentsView(ctx);
+      await expect(ctx.page.getByTestId('doc-edit-blocked')).toBeVisible();
+    },
+    check: async ({ page }) => {
+      await oneRow(page, 'collection-bar');
+      await oneLine(page, 'doc-edit-blocked');
+    },
+  },
+  {
     name: 'mongo-console',
     prepare: async (ctx) => {
       await connect(ctx, /^catalog · mongo,/);
@@ -354,6 +470,50 @@ const SCREENS: Screen[] = [
         .dblclick();
       await expect(ctx.page.getByTestId('index-tab')).toBeVisible();
       await ctx.page.waitForTimeout(300);
+    },
+  },
+  {
+    name: 'search-index-documents',
+    prepare: async (ctx) => {
+      await openIndex(ctx);
+      await ctx.page.getByRole('radio', { name: ctx.tr('search.view.documents') }).click();
+    },
+    check: async ({ page }) => {
+      await oneRow(page, 'index-bar');
+      await oneRow(page, 'search-edit-bar');
+    },
+  },
+  {
+    name: 'search-index-read-only',
+    prepare: async (ctx) => {
+      await makeReadOnly(ctx, /^search · logs,/);
+      await openIndex(ctx);
+      await expect(ctx.page.getByTestId('search-read-only')).toBeVisible();
+    },
+    check: async ({ page }) => {
+      await oneRow(page, 'index-bar');
+      await oneRow(page, 'search-edit-bar');
+      await oneLine(page, 'search-read-only');
+    },
+  },
+  {
+    name: 'redis-key-edit',
+    prepare: async (ctx) => {
+      await openKey(ctx);
+    },
+    check: async ({ page }) => {
+      await oneRow(page, 'kv-edit-bar');
+    },
+  },
+  {
+    name: 'redis-key-read-only',
+    prepare: async (ctx) => {
+      await makeReadOnly(ctx, /^cache,/);
+      await openKey(ctx);
+    },
+    check: async ({ page }) => {
+      await oneRow(page, 'kv-edit-bar');
+      await oneLine(page, 'kv-read-only');
     },
   },
   {
@@ -442,7 +602,7 @@ for (const { locale, ...size } of LAYOUTS) {
     test.use({
       viewport: size,
       locale: locale === 'fr' ? 'fr-FR' : 'en-US',
-      colorScheme: 'dark',
+      colorScheme: THEME,
     });
 
     for (const screen of SCREENS) {
@@ -456,7 +616,7 @@ for (const { locale, ...size } of LAYOUTS) {
         await expect(tree(page)).toBeVisible();
         await screen.prepare({ page, tr });
         await page.evaluate(() => document.fonts.ready);
-        const slug = `${screen.name}-${locale}-${String(size.width)}`;
+        const slug = `${screen.name}-${locale}-${String(size.width)}${THEME === 'light' ? '-paper' : ''}`;
         await page.screenshot({ path: test.info().outputPath(`overflow-${slug}.png`) });
         const found = await findOverflows(page);
         await screen.check?.({ page, tr });

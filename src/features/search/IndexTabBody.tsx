@@ -237,7 +237,7 @@ export function IndexTabBody({ tab, table }: { tab: ShellTab; table: ObjectRef }
           {t('search.index.apply')}
         </Button>
       </div>
-      <div className={styles.bar}>
+      <div className={styles.bar} data-testid="index-bar">
         <SegmentedControl<HitsView>
           label={t('search.view.label')}
           value={view}

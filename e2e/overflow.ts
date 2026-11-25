@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 /**
  * Finds what "sticks out" of its box on the current page (M3-18): the layout mistakes that wider
@@ -164,4 +164,47 @@ export async function findOverflows(
     for (const overflow of found) overflow.by = Math.round(overflow.by);
     return found;
   }, options.ignore ?? []);
+}
+
+/**
+ * Elements under `root` that scroll sideways (a horizontal scrollbar): `findOverflows` lets a
+ * scrolling parent off, but a form that scrolls sideways is a layout defect all the same (M4-15).
+ */
+export async function sidewaysScrolls(root: Locator): Promise<string[]> {
+  return root.evaluate((element) => {
+    const found: string[] = [];
+    for (const node of [element, ...element.querySelectorAll('*')]) {
+      const style = getComputedStyle(node);
+      if (style.overflowX !== 'auto' && style.overflowX !== 'scroll') continue;
+      if (node.scrollWidth - node.clientWidth > 1) {
+        found.push(
+          `${node.tagName.toLowerCase()}.${[...node.classList].join('.')} +${String(node.scrollWidth - node.clientWidth)}px`,
+        );
+      }
+    }
+    return found;
+  });
+}
+
+/** How many rows a toolbar takes: the visible children's vertical centres that differ. */
+export async function rowsOf(row: Locator): Promise<number> {
+  return row.evaluate((element) => {
+    const centres: number[] = [];
+    for (const child of element.children) {
+      const box = child.getBoundingClientRect();
+      if (box.width < 1 || box.height < 1) continue;
+      const centre = box.top + box.height / 2;
+      if (!centres.some((c) => Math.abs(c - centre) < 4)) centres.push(centre);
+    }
+    return centres.length;
+  });
+}
+
+/** How many lines of text an element shows (its height over its line height). */
+export async function linesOf(text: Locator): Promise<number> {
+  return text.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const line = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.4;
+    return Math.round(element.getBoundingClientRect().height / line);
+  });
 }

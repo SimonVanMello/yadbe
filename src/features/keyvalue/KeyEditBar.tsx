@@ -24,9 +24,13 @@ export function KeyEditBar({ tabId, readOnly }: { tabId: string; readOnly: boole
   if (readOnly) {
     return (
       <div className={styles.bar} role="note" data-testid="kv-edit-bar">
-        <span className={styles.readOnly}>
+        <span
+          className={styles.readOnly}
+          title={t('keyValue.edit.readOnly')}
+          data-testid="kv-read-only"
+        >
           <Icon name="lock" size="sm" />
-          {t('keyValue.edit.readOnly')}
+          <span className={styles.readOnlyText}>{t('keyValue.edit.readOnly')}</span>
         </span>
       </div>
     );

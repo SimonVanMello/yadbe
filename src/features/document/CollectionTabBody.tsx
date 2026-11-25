@@ -163,7 +163,7 @@ export function CollectionTabBody({ tab, table }: { tab: ShellTab; table: Object
           {t('mongo.collection.apply')}
         </Button>
       </div>
-      <div className={styles.bar}>
+      <div className={styles.bar} data-testid="collection-bar">
         <SegmentedControl<DocumentViewMode>
           label={t('mongo.view.label')}
           value={view}

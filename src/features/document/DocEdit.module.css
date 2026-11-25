@@ -1,6 +1,7 @@
 /* Document editing (M4-4): the pending bar of a collection tab, the editors, the apply dialog. */
 
-/* One line: in a narrow toolbar the toolbar wraps, not the actions inside this group. */
+/* One line, always: in a narrow toolbar the label of "add" goes (the icon stays, with its title)
+   and the note of "no changes" with it; the toolbar never wraps. */
 .bar {
   display: flex;
   flex: none;
@@ -27,10 +28,31 @@
 
 .readOnly {
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
   color: var(--fg-muted);
   font-size: var(--text-xs);
+}
+
+.readOnly svg {
+  flex: none;
+}
+
+/* One line, cut with an ellipsis: the whole text is the tooltip. */
+.readOnlyText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@container (max-width: 860px) {
+  .addLabel,
+  .pending:not([data-pending]) {
+    display: none;
+  }
 }
 
 .form {
