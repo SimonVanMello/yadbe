@@ -6,6 +6,11 @@
   outline: none;
 }
 
+/* A connection dropped on the empty part of the list leaves its folder. */
+.tree[data-drop-root] {
+  background: var(--accent-soft);
+}
+
 .inner {
   position: relative;
   width: 100%;

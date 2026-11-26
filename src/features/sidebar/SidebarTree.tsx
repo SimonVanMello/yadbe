@@ -21,6 +21,7 @@ import { GroupRow } from './GroupRow';
 import styles from './SidebarTree.module.css';
 import { openRow, refreshRow, rowLabel, setRowExpanded, toggleRow } from './sidebarActions';
 import { treeShape, type SidebarTreeRow } from './sidebarRows';
+import { ROOT_DROP, useConnectionDrag } from './useConnectionDrag';
 import { useRevealRow } from './useRevealRow';
 import { useRowHeight } from './useRowHeight';
 
@@ -52,6 +53,7 @@ export function SidebarTree({ rows, label, empty, treeRef }: SidebarTreeProps) {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const lastIndex = useRef(0);
   const typed = useRef({ text: '', timer: 0 });
+  const { drag, rootDrop, dropKey } = useConnectionDrag();
 
   const shape = useMemo(() => treeShape(rows), [rows]);
   const indexByKey = useMemo(() => new Map(rows.map((row, index) => [row.key, index])), [rows]);
@@ -255,12 +257,14 @@ export function SidebarTree({ rows, label, empty, treeRef }: SidebarTreeProps) {
       tabIndex={0}
       aria-activedescendant={activeIndex >= 0 ? `${baseId}-${String(activeIndex)}` : undefined}
       className={styles.tree}
+      data-drop-root={dropKey === ROOT_DROP || undefined}
       onKeyDown={onKeyDown}
       onFocus={(event) => {
         if (event.target !== event.currentTarget || activeIndex >= 0) return;
         const first = rows[0];
         if (first) setActiveKey(first.key);
       }}
+      {...rootDrop}
     >
       <div className={styles.inner} style={{ height: virtualizer.getTotalSize() }}>
         {items.map((item) => {
@@ -278,13 +282,24 @@ export function SidebarTree({ rows, label, empty, treeRef }: SidebarTreeProps) {
           };
           switch (row.type) {
             case 'group':
-              return <GroupRow key={row.key} row={row} {...common} onToggle={toggleRow} />;
+              return (
+                <GroupRow
+                  key={row.key}
+                  row={row}
+                  {...common}
+                  dropping={row.key === dropKey}
+                  drag={drag}
+                  onToggle={toggleRow}
+                />
+              );
             case 'connection':
               return (
                 <ConnectionRow
                   key={row.key}
                   row={row}
                   {...common}
+                  dropping={row.key === dropKey}
+                  drag={drag}
                   onToggle={toggleRow}
                   onOpen={openRow}
                   onRefresh={refreshRow}

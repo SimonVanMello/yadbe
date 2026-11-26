@@ -11,6 +11,7 @@ import { useGroupDialog } from '../connections/groupDialogStore';
 import styles from './GroupRow.module.css';
 import { rowStyle } from './rowStyle';
 import type { SidebarTreeRow } from './sidebarRows';
+import type { ConnectionDrag } from './useConnectionDrag';
 
 export type GroupTreeRow = Extract<SidebarTreeRow, { type: 'group' }>;
 
@@ -23,11 +24,13 @@ interface GroupRowProps {
   setSize: number;
   offset: number;
   height: number;
+  dropping: boolean;
+  drag: ConnectionDrag;
   onSelect: (index: number) => void;
   onToggle: (row: GroupTreeRow) => void;
 }
 
-/** A folder of the connection list (F-007): click to fold, right click to rename or delete. */
+/** A folder of the connection list (F-007): click to fold, right click to rename or delete, drop a connection to move it in. */
 export const GroupRow = memo(function GroupRow({
   row,
   id,
@@ -37,6 +40,8 @@ export const GroupRow = memo(function GroupRow({
   setSize,
   offset,
   height,
+  dropping,
+  drag,
   onSelect,
   onToggle,
 }: GroupRowProps) {
@@ -95,11 +100,21 @@ export const GroupRow = memo(function GroupRow({
         aria-selected={active}
         data-row-index={index}
         data-active={active || undefined}
+        data-drop={dropping || undefined}
         className={styles.row}
         style={{ ...rowStyle(offset, height), '--depth': row.level - 1 } as CSSProperties}
         onClick={() => {
           onSelect(index);
           onToggle(row);
+        }}
+        onDragOver={(event) => {
+          drag.over(event, row);
+        }}
+        onDragLeave={() => {
+          drag.leave(row);
+        }}
+        onDrop={(event) => {
+          drag.drop(event, row);
         }}
       >
         <Icon name={expanded ? 'chevronDown' : 'chevronRight'} className={styles.chevron} />

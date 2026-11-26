@@ -35,6 +35,13 @@
   background: var(--bg-selected);
 }
 
+/* Where a dragged connection would land. */
+.row[data-drop] {
+  background: var(--accent-soft);
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
 /* The tree keeps the focus (aria-activedescendant): ring the active row while it has it. */
 :global([role='tree']:focus-visible) .row[data-active] {
   outline: var(--focus-ring-width) solid var(--accent);

@@ -80,6 +80,24 @@ for (const { name, colorScheme } of THEMES) {
       await expect(sidebarItem(page, 'local postgres')).toBeVisible();
     });
 
+    test('a connection is dragged into a folder, then out of every folder', async ({ page }) => {
+      const tree = page.getByRole('tree', { name: 'Connections' });
+      const local = page.getByRole('treeitem', { name: /^Local/ });
+      await expect(sidebarItem(page, 'shop · prod')).toHaveAttribute('aria-level', '3');
+      await sidebarItem(page, 'shop · prod').dragTo(local);
+      await expect(sidebarItem(page, 'shop · prod')).toHaveAttribute('aria-level', '2');
+      // Dropped on another connection: into that connection's folder.
+      await sidebarItem(page, 'shop · prod').dragTo(sidebarItem(page, 'shop · staging'));
+      await expect(sidebarItem(page, 'shop · prod')).toHaveAttribute('aria-level', '3');
+      // Dropped on the empty part of the list: out of every folder.
+      const box = await tree.boundingBox();
+      await sidebarItem(page, 'shop · prod').dragTo(tree, {
+        targetPosition: { x: 40, y: (box?.height ?? 600) - 8 },
+      });
+      await expect(sidebarItem(page, 'shop · prod')).toHaveAttribute('aria-level', '1');
+      await capture(page, name, 'connection-dragged');
+    });
+
     test('connection dialog: PostgreSQL', async ({ page }) => {
       await newConnection(page);
       const dialog = page.getByRole('dialog', { name: 'New connection' });

@@ -13,6 +13,7 @@ import { tintOf } from '../connections/model';
 import styles from './ConnectionRow.module.css';
 import { rowStyle } from './rowStyle';
 import type { SidebarTreeRow } from './sidebarRows';
+import type { ConnectionDrag } from './useConnectionDrag';
 
 export type ConnectionTreeRow = Extract<SidebarTreeRow, { type: 'connection' }>;
 
@@ -25,6 +26,8 @@ interface ConnectionRowProps {
   setSize: number;
   offset: number;
   height: number;
+  dropping: boolean;
+  drag: ConnectionDrag;
   onSelect: (index: number) => void;
   onToggle: (row: ConnectionTreeRow) => void;
   onOpen: (row: ConnectionTreeRow) => void;
@@ -41,6 +44,8 @@ export const ConnectionRow = memo(function ConnectionRow({
   setSize,
   offset,
   height,
+  dropping,
+  drag,
   onSelect,
   onToggle,
   onOpen,
@@ -64,6 +69,8 @@ export const ConnectionRow = memo(function ConnectionRow({
         aria-label={`${connection.name}, ${t(`connection.state.${state}`)}`}
         data-row-index={index}
         data-active={active || undefined}
+        data-drop={dropping || undefined}
+        draggable
         data-connection-id={connection.id}
         data-state={state}
         className={styles.row}
@@ -80,6 +87,19 @@ export const ConnectionRow = memo(function ConnectionRow({
         onDoubleClick={() => {
           onOpen(row);
         }}
+        onDragStart={(event) => {
+          drag.start(event, connection);
+        }}
+        onDragOver={(event) => {
+          drag.over(event, row);
+        }}
+        onDragLeave={() => {
+          drag.leave(row);
+        }}
+        onDrop={(event) => {
+          drag.drop(event, row);
+        }}
+        onDragEnd={drag.end}
       >
         <span
           className={styles.twisty}
